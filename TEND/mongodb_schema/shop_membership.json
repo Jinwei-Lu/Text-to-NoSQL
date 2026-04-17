@@ -1,0 +1,47 @@
+{
+    "branch": {
+        "Branch_ID": "INT",
+        "Name": "TEXT",
+        "Open_year": "TEXT",
+        "Address_road": "TEXT",
+        "City": "TEXT",
+        "membership_amount": "TEXT",
+        "membership_register_branch": [
+            {
+                "Member_ID": "INT",
+                "Branch_ID": "TEXT",
+                "Register_Year": "TEXT"
+            }
+        ],
+        "purchase": [
+            {
+                "Member_ID": "INT",
+                "Branch_ID": "TEXT",
+                "Year": "TEXT",
+                "Total_pounds": "REAL"
+            }
+        ]
+    },
+    "member": {
+        "Member_ID": "INT",
+        "Card_Number": "TEXT",
+        "Name": "TEXT",
+        "Hometown": "TEXT",
+        "Level": "INT",
+        "membership_register_branch": [
+            {
+                "Member_ID": "INT",
+                "Branch_ID": "TEXT",
+                "Register_Year": "TEXT"
+            }
+        ],
+        "purchase": [
+            {
+                "Member_ID": "INT",
+                "Branch_ID": "TEXT",
+                "Year": "TEXT",
+                "Total_pounds": "REAL"
+            }
+        ]
+    }
+}

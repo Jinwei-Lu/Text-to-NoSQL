@@ -1,0 +1,28 @@
+{
+    "university": {
+        "School_ID": "INT",
+        "School": "TEXT",
+        "Location": "TEXT",
+        "Founded": "REAL",
+        "Affiliation": "TEXT",
+        "Enrollment": "REAL",
+        "Nickname": "TEXT",
+        "Primary_conference": "TEXT",
+        "basketball_match": [
+            {
+                "Team_ID": "INT",
+                "School_ID": "INT",
+                "Team_Name": "TEXT",
+                "ACC_Regular_Season": "TEXT",
+                "ACC_Percent": "TEXT",
+                "ACC_Home": "TEXT",
+                "ACC_Road": "TEXT",
+                "All_Games": "TEXT",
+                "All_Games_Percent": "INT",
+                "All_Home": "TEXT",
+                "All_Road": "TEXT",
+                "All_Neutral": "TEXT"
+            }
+        ]
+    }
+}

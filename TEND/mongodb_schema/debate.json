@@ -1,0 +1,31 @@
+{
+    "people": {
+        "People_ID": "INT",
+        "District": "TEXT",
+        "Name": "TEXT",
+        "Party": "TEXT",
+        "Age": "INT",
+        "debate_people": [
+            {
+                "Debate_ID": "INT",
+                "Affirmative": "INT",
+                "Negative": "INT",
+                "If_Affirmative_Win": "bool"
+            }
+        ]
+    },
+    "debate": {
+        "Debate_ID": "INT",
+        "Date": "TEXT",
+        "Venue": "TEXT",
+        "Num_of_Audience": "INT",
+        "debate_people": [
+            {
+                "Debate_ID": "INT",
+                "Affirmative": "INT",
+                "Negative": "INT",
+                "If_Affirmative_Win": "bool"
+            }
+        ]
+    }
+}

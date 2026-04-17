@@ -1,0 +1,29 @@
+{
+    "performance": {
+        "Performance_ID": "REAL",
+        "Date": "TEXT",
+        "Host": "TEXT",
+        "Location": "TEXT",
+        "Attendance": "INT",
+        "member_attendance": [
+            {
+                "Member_ID": "INT",
+                "Performance_ID": "INT",
+                "Num_of_Pieces": "INT"
+            }
+        ]
+    },
+    "member": {
+        "Member_ID": "TEXT",
+        "Name": "TEXT",
+        "Nationality": "TEXT",
+        "Role": "TEXT",
+        "member_attendance": [
+            {
+                "Member_ID": "INT",
+                "Performance_ID": "INT",
+                "Num_of_Pieces": "INT"
+            }
+        ]
+    }
+}

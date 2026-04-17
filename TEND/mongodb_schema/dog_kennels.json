@@ -1,0 +1,145 @@
+{
+    "Owners": {
+        "owner_id": "INTEGER",
+        "first_name": "VARCHAR(50)",
+        "last_name": "VARCHAR(50)",
+        "street": "VARCHAR(50)",
+        "city": "VARCHAR(50)",
+        "state": "VARCHAR(20)",
+        "zip_code": "VARCHAR(20)",
+        "email_address": "VARCHAR(50)",
+        "home_phone": "VARCHAR(20)",
+        "cell_number": "VARCHAR(20)",
+        "Dogs": [
+            {
+                "dog_id": "INTEGER",
+                "owner_id": "INTEGER",
+                "abandoned_yn": "VARCHAR(1)",
+                "breed_code": "VARCHAR(10)",
+                "size_code": "VARCHAR(10)",
+                "name": "VARCHAR(50)",
+                "age": "VARCHAR(20)",
+                "date_of_birth": "DATETIME",
+                "gender": "VARCHAR(1)",
+                "weight": "VARCHAR(20)",
+                "date_arrived": "DATETIME",
+                "date_adopted": "DATETIME",
+                "date_departed": "DATETIME",
+                "Treatments": [
+                    {
+                        "treatment_id": "INTEGER",
+                        "dog_id": "INTEGER",
+                        "professional_id": "INTEGER",
+                        "treatment_type_code": "VARCHAR(10)",
+                        "date_of_treatment": "DATETIME",
+                        "cost_of_treatment": "DECIMAL(19,4)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Sizes": {
+        "size_code": "VARCHAR(10)",
+        "size_description": "VARCHAR(80)",
+        "Dogs": [
+            {
+                "dog_id": "INTEGER",
+                "owner_id": "INTEGER",
+                "abandoned_yn": "VARCHAR(1)",
+                "breed_code": "VARCHAR(10)",
+                "size_code": "VARCHAR(10)",
+                "name": "VARCHAR(50)",
+                "age": "VARCHAR(20)",
+                "date_of_birth": "DATETIME",
+                "gender": "VARCHAR(1)",
+                "weight": "VARCHAR(20)",
+                "date_arrived": "DATETIME",
+                "date_adopted": "DATETIME",
+                "date_departed": "DATETIME",
+                "Treatments": [
+                    {
+                        "treatment_id": "INTEGER",
+                        "dog_id": "INTEGER",
+                        "professional_id": "INTEGER",
+                        "treatment_type_code": "VARCHAR(10)",
+                        "date_of_treatment": "DATETIME",
+                        "cost_of_treatment": "DECIMAL(19,4)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Breeds": {
+        "breed_code": "VARCHAR(10)",
+        "breed_name": "VARCHAR(80)",
+        "Dogs": [
+            {
+                "dog_id": "INTEGER",
+                "owner_id": "INTEGER",
+                "abandoned_yn": "VARCHAR(1)",
+                "breed_code": "VARCHAR(10)",
+                "size_code": "VARCHAR(10)",
+                "name": "VARCHAR(50)",
+                "age": "VARCHAR(20)",
+                "date_of_birth": "DATETIME",
+                "gender": "VARCHAR(1)",
+                "weight": "VARCHAR(20)",
+                "date_arrived": "DATETIME",
+                "date_adopted": "DATETIME",
+                "date_departed": "DATETIME",
+                "Treatments": [
+                    {
+                        "treatment_id": "INTEGER",
+                        "dog_id": "INTEGER",
+                        "professional_id": "INTEGER",
+                        "treatment_type_code": "VARCHAR(10)",
+                        "date_of_treatment": "DATETIME",
+                        "cost_of_treatment": "DECIMAL(19,4)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Professionals": {
+        "professional_id": "INTEGER",
+        "role_code": "VARCHAR(10)",
+        "first_name": "VARCHAR(50)",
+        "street": "VARCHAR(50)",
+        "city": "VARCHAR(50)",
+        "state": "VARCHAR(20)",
+        "zip_code": "VARCHAR(20)",
+        "last_name": "VARCHAR(50)",
+        "email_address": "VARCHAR(50)",
+        "home_phone": "VARCHAR(20)",
+        "cell_number": "VARCHAR(20)",
+        "Treatments": [
+            {
+                "treatment_id": "INTEGER",
+                "dog_id": "INTEGER",
+                "professional_id": "INTEGER",
+                "treatment_type_code": "VARCHAR(10)",
+                "date_of_treatment": "DATETIME",
+                "cost_of_treatment": "DECIMAL(19,4)"
+            }
+        ]
+    },
+    "Treatment_Types": {
+        "treatment_type_code": "VARCHAR(10)",
+        "treatment_type_description": "VARCHAR(80)",
+        "Treatments": [
+            {
+                "treatment_id": "INTEGER",
+                "dog_id": "INTEGER",
+                "professional_id": "INTEGER",
+                "treatment_type_code": "VARCHAR(10)",
+                "date_of_treatment": "DATETIME",
+                "cost_of_treatment": "DECIMAL(19,4)"
+            }
+        ]
+    },
+    "Charges": {
+        "charge_id": "INTEGER",
+        "charge_type": "VARCHAR(10)",
+        "charge_amount": "DECIMAL(19,4)"
+    }
+}

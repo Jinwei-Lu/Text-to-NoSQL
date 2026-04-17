@@ -1,0 +1,155 @@
+{
+    "Departments": {
+        "department_id": "INTEGER",
+        "department_name": "VARCHAR(255)",
+        "department_description": "VARCHAR(255)",
+        "other_details": "VARCHAR(255)",
+        "Degree_Programs": [
+            {
+                "degree_program_id": "INTEGER",
+                "department_id": "INTEGER",
+                "degree_summary_name": "VARCHAR(255)",
+                "degree_summary_description": "VARCHAR(255)",
+                "other_details": "VARCHAR(255)",
+                "Student_Enrolment": [
+                    {
+                        "student_enrolment_id": "INTEGER",
+                        "degree_program_id": "INTEGER",
+                        "semester_id": "INTEGER",
+                        "student_id": "INTEGER",
+                        "other_details": "VARCHAR(255)",
+                        "Student_Enrolment_Courses": [
+                            {
+                                "student_course_id": "INTEGER",
+                                "course_id": "INTEGER",
+                                "student_enrolment_id": "INTEGER",
+                                "Transcript_Contents": [
+                                    {
+                                        "student_course_id": "INTEGER",
+                                        "transcript_id": "INTEGER"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Courses": {
+        "course_id": "INTEGER",
+        "course_name": "VARCHAR(255)",
+        "course_description": "VARCHAR(255)",
+        "other_details": "VARCHAR(255)",
+        "Sections": [
+            {
+                "section_id": "INTEGER",
+                "course_id": "INTEGER",
+                "section_name": "VARCHAR(255)",
+                "section_description": "VARCHAR(255)",
+                "other_details": "VARCHAR(255)"
+            }
+        ],
+        "Student_Enrolment_Courses": [
+            {
+                "student_course_id": "INTEGER",
+                "course_id": "INTEGER",
+                "student_enrolment_id": "INTEGER",
+                "Transcript_Contents": [
+                    {
+                        "student_course_id": "INTEGER",
+                        "transcript_id": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    },
+    "Addresses": {
+        "address_id": "INTEGER",
+        "line_1": "VARCHAR(255)",
+        "line_2": "VARCHAR(255)",
+        "line_3": "VARCHAR(255)",
+        "city": "VARCHAR(255)",
+        "zip_postcode": "VARCHAR(20)",
+        "state_province_county": "VARCHAR(255)",
+        "country": "VARCHAR(255)",
+        "other_address_details": "VARCHAR(255)",
+        "Students": [
+            {
+                "student_id": "INTEGER",
+                "current_address_id": "INTEGER",
+                "permanent_address_id": "INTEGER",
+                "first_name": "VARCHAR(80)",
+                "middle_name": "VARCHAR(40)",
+                "last_name": "VARCHAR(40)",
+                "cell_mobile_number": "VARCHAR(40)",
+                "email_address": "VARCHAR(40)",
+                "ssn": "VARCHAR(40)",
+                "date_first_registered": "DATETIME",
+                "date_left": "DATETIME",
+                "other_student_details": "VARCHAR(255)",
+                "Student_Enrolment": [
+                    {
+                        "student_enrolment_id": "INTEGER",
+                        "degree_program_id": "INTEGER",
+                        "semester_id": "INTEGER",
+                        "student_id": "INTEGER",
+                        "other_details": "VARCHAR(255)",
+                        "Student_Enrolment_Courses": [
+                            {
+                                "student_course_id": "INTEGER",
+                                "course_id": "INTEGER",
+                                "student_enrolment_id": "INTEGER",
+                                "Transcript_Contents": [
+                                    {
+                                        "student_course_id": "INTEGER",
+                                        "transcript_id": "INTEGER"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Semesters": {
+        "semester_id": "INTEGER",
+        "semester_name": "VARCHAR(255)",
+        "semester_description": "VARCHAR(255)",
+        "other_details": "VARCHAR(255)",
+        "Student_Enrolment": [
+            {
+                "student_enrolment_id": "INTEGER",
+                "degree_program_id": "INTEGER",
+                "semester_id": "INTEGER",
+                "student_id": "INTEGER",
+                "other_details": "VARCHAR(255)",
+                "Student_Enrolment_Courses": [
+                    {
+                        "student_course_id": "INTEGER",
+                        "course_id": "INTEGER",
+                        "student_enrolment_id": "INTEGER",
+                        "Transcript_Contents": [
+                            {
+                                "student_course_id": "INTEGER",
+                                "transcript_id": "INTEGER"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Transcripts": {
+        "transcript_id": "INTEGER",
+        "transcript_date": "DATETIME",
+        "other_details": "VARCHAR(255)",
+        "Transcript_Contents": [
+            {
+                "student_course_id": "INTEGER",
+                "transcript_id": "INTEGER"
+            }
+        ]
+    }
+}

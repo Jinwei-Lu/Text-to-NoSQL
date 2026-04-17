@@ -1,0 +1,31 @@
+{
+    "device": {
+        "Device_ID": "INT",
+        "Device": "TEXT",
+        "Carrier": "TEXT",
+        "Package_Version": "TEXT",
+        "Applications": "TEXT",
+        "Software_Platform": "TEXT",
+        "stock": [
+            {
+                "Shop_ID": "INT",
+                "Device_ID": "INT",
+                "Quantity": "INT"
+            }
+        ]
+    },
+    "shop": {
+        "Shop_ID": "INT",
+        "Shop_Name": "TEXT",
+        "Location": "TEXT",
+        "Open_Date": "TEXT",
+        "Open_Year": "INT",
+        "stock": [
+            {
+                "Shop_ID": "INT",
+                "Device_ID": "INT",
+                "Quantity": "INT"
+            }
+        ]
+    }
+}

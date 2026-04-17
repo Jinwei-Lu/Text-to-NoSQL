@@ -1,0 +1,88 @@
+{
+    "Customers": {
+        "customer_id": "INTEGER",
+        "customer_name": "VARCHAR(80)",
+        "customer_details": "VARCHAR(255)",
+        "Orders": [
+            {
+                "order_id": "INTEGER",
+                "customer_id": "INTEGER",
+                "order_status": "VARCHAR(10)",
+                "date_order_placed": "DATETIME",
+                "order_details": "VARCHAR(255)",
+                "Order_Items": [
+                    {
+                        "order_item_id": "INTEGER",
+                        "product_id": "INTEGER",
+                        "order_id": "INTEGER",
+                        "order_item_status": "VARCHAR(10)",
+                        "order_item_details": "VARCHAR(255)",
+                        "Shipment_Items": [
+                            {
+                                "shipment_id": "INTEGER",
+                                "order_item_id": "INTEGER"
+                            }
+                        ]
+                    }
+                ],
+                "Shipments": [
+                    {
+                        "shipment_id": "INTEGER",
+                        "order_id": "INTEGER",
+                        "invoice_number": "INTEGER",
+                        "shipment_tracking_number": "VARCHAR(80)",
+                        "shipment_date": "DATETIME",
+                        "other_shipment_details": "VARCHAR(255)",
+                        "Shipment_Items": [
+                            {
+                                "shipment_id": "INTEGER",
+                                "order_item_id": "INTEGER"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Products": {
+        "product_id": "INTEGER",
+        "product_name": "VARCHAR(80)",
+        "product_details": "VARCHAR(255)",
+        "Order_Items": [
+            {
+                "order_item_id": "INTEGER",
+                "product_id": "INTEGER",
+                "order_id": "INTEGER",
+                "order_item_status": "VARCHAR(10)",
+                "order_item_details": "VARCHAR(255)",
+                "Shipment_Items": [
+                    {
+                        "shipment_id": "INTEGER",
+                        "order_item_id": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    },
+    "Invoices": {
+        "invoice_number": "INTEGER",
+        "invoice_date": "DATETIME",
+        "invoice_details": "VARCHAR(255)",
+        "Shipments": [
+            {
+                "shipment_id": "INTEGER",
+                "order_id": "INTEGER",
+                "invoice_number": "INTEGER",
+                "shipment_tracking_number": "VARCHAR(80)",
+                "shipment_date": "DATETIME",
+                "other_shipment_details": "VARCHAR(255)",
+                "Shipment_Items": [
+                    {
+                        "shipment_id": "INTEGER",
+                        "order_item_id": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    }
+}

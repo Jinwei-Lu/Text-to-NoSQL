@@ -1,0 +1,36 @@
+{
+    "aircraft": {
+        "aid": "number(9,0)",
+        "name": "varchar2(30)",
+        "distance": "number(6,0)",
+        "flight": [
+            {
+                "flno": "number(4,0)",
+                "origin": "varchar2(20)",
+                "destination": "varchar2(20)",
+                "distance": "number(6,0)",
+                "departure_date": "date",
+                "arrival_date": "date",
+                "price": "number(7,2)",
+                "aid": "number(9,0)"
+            }
+        ],
+        "certificate": [
+            {
+                "eid": "number(9,0)",
+                "aid": "number(9,0)"
+            }
+        ]
+    },
+    "employee": {
+        "eid": "number(9,0)",
+        "name": "varchar2(30)",
+        "salary": "number(10,2)",
+        "certificate": [
+            {
+                "eid": "number(9,0)",
+                "aid": "number(9,0)"
+            }
+        ]
+    }
+}

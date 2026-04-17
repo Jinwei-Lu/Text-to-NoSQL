@@ -1,0 +1,46 @@
+{
+    "program": {
+        "Program_ID": "INT",
+        "Name": "TEXT",
+        "Origin": "TEXT",
+        "Launch": "REAL",
+        "Owner": "TEXT",
+        "broadcast": [
+            {
+                "Channel_ID": "INT",
+                "Program_ID": "INT",
+                "Time_of_day": "TEXT"
+            }
+        ],
+        "broadcast_share": [
+            {
+                "Channel_ID": "INT",
+                "Program_ID": "INT",
+                "Date": "TEXT",
+                "Share_in_percent": "REAL"
+            }
+        ]
+    },
+    "channel": {
+        "Channel_ID": "INT",
+        "Name": "TEXT",
+        "Owner": "TEXT",
+        "Share_in_percent": "REAL",
+        "Rating_in_percent": "REAL",
+        "broadcast": [
+            {
+                "Channel_ID": "INT",
+                "Program_ID": "INT",
+                "Time_of_day": "TEXT"
+            }
+        ],
+        "broadcast_share": [
+            {
+                "Channel_ID": "INT",
+                "Program_ID": "INT",
+                "Date": "TEXT",
+                "Share_in_percent": "REAL"
+            }
+        ]
+    }
+}

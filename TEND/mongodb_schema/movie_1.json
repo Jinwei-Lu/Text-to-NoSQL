@@ -1,0 +1,28 @@
+{
+    "Reviewer": {
+        "rID": "INT",
+        "name": "TEXT",
+        "Rating": [
+            {
+                "rID": "INT",
+                "mID": "INT",
+                "stars": "INT",
+                "ratingDate": "date"
+            }
+        ]
+    },
+    "Movie": {
+        "mID": "INT",
+        "title": "TEXT",
+        "year": "INT",
+        "director": "TEXT",
+        "Rating": [
+            {
+                "rID": "INT",
+                "mID": "INT",
+                "stars": "INT",
+                "ratingDate": "date"
+            }
+        ]
+    }
+}

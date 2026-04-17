@@ -1,0 +1,35 @@
+{
+    "item": {
+        "i_id": "INTEGER",
+        "title": "varchar(20)",
+        "review": [
+            {
+                "a_id": "INTEGER",
+                "u_id": "INTEGER",
+                "i_id": "INTEGER",
+                "rating": "INTEGER",
+                "rank": "INTEGER"
+            }
+        ]
+    },
+    "useracct": {
+        "u_id": "INTEGER",
+        "name": "varchar(128)",
+        "review": [
+            {
+                "a_id": "INTEGER",
+                "u_id": "INTEGER",
+                "i_id": "INTEGER",
+                "rating": "INTEGER",
+                "rank": "INTEGER"
+            }
+        ],
+        "trust": [
+            {
+                "source_u_id": "INTEGER",
+                "target_u_id": "INTEGER",
+                "trust": "INTEGER"
+            }
+        ]
+    }
+}

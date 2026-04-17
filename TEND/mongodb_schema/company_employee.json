@@ -1,0 +1,33 @@
+{
+    "people": {
+        "People_ID": "INT",
+        "Age": "INT",
+        "Name": "TEXT",
+        "Nationality": "TEXT",
+        "Graduation_College": "TEXT",
+        "employment": [
+            {
+                "Company_ID": "INT",
+                "People_ID": "INT",
+                "Year_working": "INT"
+            }
+        ]
+    },
+    "company": {
+        "Company_ID": "REAL",
+        "Name": "TEXT",
+        "Headquarters": "TEXT",
+        "Industry": "TEXT",
+        "Sales_in_Billion": "REAL",
+        "Profits_in_Billion": "REAL",
+        "Assets_in_Billion": "REAL",
+        "Market_Value_in_Billion": "REAL",
+        "employment": [
+            {
+                "Company_ID": "INT",
+                "People_ID": "INT",
+                "Year_working": "INT"
+            }
+        ]
+    }
+}

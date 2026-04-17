@@ -1,0 +1,154 @@
+{
+    "Finances": {
+        "Finance_ID": "INTEGER",
+        "Other_Details": "VARCHAR(255)",
+        "Events": [
+            {
+                "Event_ID": "INTEGER",
+                "Address_ID": "INTEGER",
+                "Channel_ID": "INTEGER",
+                "Event_Type_Code": "CHAR(15)",
+                "Finance_ID": "INTEGER",
+                "Location_ID": "INTEGER",
+                "Products_in_Events": [
+                    {
+                        "Product_in_Event_ID": "INTEGER",
+                        "Event_ID": "INTEGER",
+                        "Product_ID": "INTEGER"
+                    }
+                ],
+                "Parties_in_Events": [
+                    {
+                        "Party_ID": "INTEGER",
+                        "Event_ID": "INTEGER",
+                        "Role_Code": "CHAR(15)"
+                    }
+                ],
+                "Agreements": [
+                    {
+                        "Document_ID": "INTEGER",
+                        "Event_ID": "INTEGER"
+                    }
+                ],
+                "Assets_in_Events": [
+                    {
+                        "Asset_ID": "INTEGER",
+                        "Event_ID": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    },
+    "Addresses": {
+        "Address_ID": "INTEGER",
+        "address_details": "VARCHAR(255)",
+        "Events": [
+            {
+                "Event_ID": "INTEGER",
+                "Address_ID": "INTEGER",
+                "Channel_ID": "INTEGER",
+                "Event_Type_Code": "CHAR(15)",
+                "Finance_ID": "INTEGER",
+                "Location_ID": "INTEGER",
+                "Products_in_Events": [
+                    {
+                        "Product_in_Event_ID": "INTEGER",
+                        "Event_ID": "INTEGER",
+                        "Product_ID": "INTEGER"
+                    }
+                ],
+                "Parties_in_Events": [
+                    {
+                        "Party_ID": "INTEGER",
+                        "Event_ID": "INTEGER",
+                        "Role_Code": "CHAR(15)"
+                    }
+                ],
+                "Agreements": [
+                    {
+                        "Document_ID": "INTEGER",
+                        "Event_ID": "INTEGER"
+                    }
+                ],
+                "Assets_in_Events": [
+                    {
+                        "Asset_ID": "INTEGER",
+                        "Event_ID": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    },
+    "Locations": {
+        "Location_ID": "INTEGER",
+        "Other_Details": "VARCHAR(255)",
+        "Events": [
+            {
+                "Event_ID": "INTEGER",
+                "Address_ID": "INTEGER",
+                "Channel_ID": "INTEGER",
+                "Event_Type_Code": "CHAR(15)",
+                "Finance_ID": "INTEGER",
+                "Location_ID": "INTEGER",
+                "Products_in_Events": [
+                    {
+                        "Product_in_Event_ID": "INTEGER",
+                        "Event_ID": "INTEGER",
+                        "Product_ID": "INTEGER"
+                    }
+                ],
+                "Parties_in_Events": [
+                    {
+                        "Party_ID": "INTEGER",
+                        "Event_ID": "INTEGER",
+                        "Role_Code": "CHAR(15)"
+                    }
+                ],
+                "Agreements": [
+                    {
+                        "Document_ID": "INTEGER",
+                        "Event_ID": "INTEGER"
+                    }
+                ],
+                "Assets_in_Events": [
+                    {
+                        "Asset_ID": "INTEGER",
+                        "Event_ID": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    },
+    "Products": {
+        "Product_ID": "INTEGER",
+        "Product_Type_Code": "CHAR(15)",
+        "Product_Name": "VARCHAR(255)",
+        "Product_Price": "DECIMAL(20,4)",
+        "Products_in_Events": [
+            {
+                "Product_in_Event_ID": "INTEGER",
+                "Event_ID": "INTEGER",
+                "Product_ID": "INTEGER"
+            }
+        ]
+    },
+    "Parties": {
+        "Party_ID": "INTEGER",
+        "Party_Details": "VARCHAR(255)",
+        "Parties_in_Events": [
+            {
+                "Party_ID": "INTEGER",
+                "Event_ID": "INTEGER",
+                "Role_Code": "CHAR(15)"
+            }
+        ]
+    },
+    "Assets": {
+        "Asset_ID": "INTEGER",
+        "Other_Details": "VARCHAR(255)"
+    },
+    "Channels": {
+        "Channel_ID": "INTEGER",
+        "Other_Details": "VARCHAR(255)"
+    }
+}

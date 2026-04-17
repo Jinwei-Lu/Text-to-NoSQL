@@ -1,0 +1,33 @@
+{
+    "Ref_Template_Types": {
+        "Template_Type_Code": "CHAR(15)",
+        "Template_Type_Description": "VARCHAR(255)",
+        "Templates": [
+            {
+                "Template_ID": "INTEGER",
+                "Version_Number": "INTEGER",
+                "Template_Type_Code": "CHAR(15)",
+                "Date_Effective_From": "DATETIME",
+                "Date_Effective_To": "DATETIME",
+                "Template_Details": "VARCHAR(255)",
+                "Documents": [
+                    {
+                        "Document_ID": "INTEGER",
+                        "Template_ID": "INTEGER",
+                        "Document_Name": "VARCHAR(255)",
+                        "Document_Description": "VARCHAR(255)",
+                        "Other_Details": "VARCHAR(255)",
+                        "Paragraphs": [
+                            {
+                                "Paragraph_ID": "INTEGER",
+                                "Document_ID": "INTEGER",
+                                "Paragraph_Text": "VARCHAR(255)",
+                                "Other_Details": "VARCHAR(255)"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}

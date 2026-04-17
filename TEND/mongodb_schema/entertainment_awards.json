@@ -1,0 +1,29 @@
+{
+    "festival_detail": {
+        "Festival_ID": "INT",
+        "Festival_Name": "TEXT",
+        "Chair_Name": "TEXT",
+        "Location": "TEXT",
+        "Year": "INT",
+        "Num_of_Audience": "INT",
+        "nomination": [
+            {
+                "Artwork_ID": "INT",
+                "Festival_ID": "INT",
+                "Result": "TEXT"
+            }
+        ]
+    },
+    "artwork": {
+        "Artwork_ID": "INT",
+        "Type": "TEXT",
+        "Name": "TEXT",
+        "nomination": [
+            {
+                "Artwork_ID": "INT",
+                "Festival_ID": "INT",
+                "Result": "TEXT"
+            }
+        ]
+    }
+}

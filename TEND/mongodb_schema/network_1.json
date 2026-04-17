@@ -1,0 +1,19 @@
+{
+    "Highschooler": {
+        "ID": "INT",
+        "name": "TEXT",
+        "grade": "INT",
+        "Friend": [
+            {
+                "student_id": "INT",
+                "friend_id": "INT"
+            }
+        ],
+        "Likes": [
+            {
+                "student_id": "INT",
+                "liked_id": "INT"
+            }
+        ]
+    }
+}

@@ -1,0 +1,24 @@
+{
+    "Rooms": {
+        "RoomId": "TEXT",
+        "roomName": "TEXT",
+        "beds": "INTEGER",
+        "bedType": "TEXT",
+        "maxOccupancy": "INTEGER",
+        "basePrice": "INTEGER",
+        "decor": "TEXT",
+        "Reservations": [
+            {
+                "Code": "INTEGER",
+                "Room": "TEXT",
+                "CheckIn": "TEXT",
+                "CheckOut": "TEXT",
+                "Rate": "REAL",
+                "LastName": "TEXT",
+                "FirstName": "TEXT",
+                "Adults": "INTEGER",
+                "Kids": "INTEGER"
+            }
+        ]
+    }
+}

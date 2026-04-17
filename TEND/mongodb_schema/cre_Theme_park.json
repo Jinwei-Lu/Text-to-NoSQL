@@ -1,0 +1,198 @@
+{
+    "Ref_Hotel_Star_Ratings": {
+        "star_rating_code": "CHAR(15)",
+        "star_rating_description": "VARCHAR(80)",
+        "Hotels": [
+            {
+                "hotel_id": "INTEGER",
+                "star_rating_code": "CHAR(15)",
+                "pets_allowed_yn": "CHAR(1)",
+                "price_range": "REAL",
+                "other_hotel_details": "VARCHAR(255)"
+            }
+        ]
+    },
+    "Ref_Attraction_Types": {
+        "Attraction_Type_Code": "CHAR(15)",
+        "Attraction_Type_Description": "VARCHAR(255)",
+        "Tourist_Attractions": [
+            {
+                "Tourist_Attraction_ID": "INTEGER",
+                "Attraction_Type_Code": "CHAR(15)",
+                "Location_ID": "INTEGER",
+                "How_to_Get_There": "VARCHAR(255)",
+                "Name": "VARCHAR(255)",
+                "Description": "VARCHAR(255)",
+                "Opening_Hours": "VARCHAR(255)",
+                "Other_Details": "VARCHAR(255)",
+                "Street_Markets": [
+                    {
+                        "Market_ID": "INTEGER",
+                        "Market_Details": "VARCHAR(255)"
+                    }
+                ],
+                "Shops": [
+                    {
+                        "Shop_ID": "INTEGER",
+                        "Shop_Details": "VARCHAR(255)"
+                    }
+                ],
+                "Museums": [
+                    {
+                        "Museum_ID": "INTEGER",
+                        "Museum_Details": "VARCHAR(255)"
+                    }
+                ],
+                "Royal_Family": [
+                    {
+                        "Royal_Family_ID": "INTEGER",
+                        "Royal_Family_Details": "VARCHAR(255)"
+                    }
+                ],
+                "Theme_Parks": [
+                    {
+                        "Theme_Park_ID": "INTEGER",
+                        "Theme_Park_Details": "VARCHAR(255)"
+                    }
+                ],
+                "Visits": [
+                    {
+                        "Visit_ID": "INTEGER",
+                        "Tourist_Attraction_ID": "INTEGER",
+                        "Tourist_ID": "INTEGER",
+                        "Visit_Date": "DATETIME",
+                        "Visit_Details": "VARCHAR(40)"
+                    }
+                ],
+                "Photos": [
+                    {
+                        "Photo_ID": "INTEGER",
+                        "Tourist_Attraction_ID": "INTEGER",
+                        "Name": "VARCHAR(255)",
+                        "Description": "VARCHAR(255)",
+                        "Filename": "VARCHAR(255)",
+                        "Other_Details": "VARCHAR(255)"
+                    }
+                ],
+                "Staff": [
+                    {
+                        "Staff_ID": "INTEGER",
+                        "Tourist_Attraction_ID": "INTEGER",
+                        "Name": "VARCHAR(40)",
+                        "Other_Details": "VARCHAR(255)"
+                    }
+                ],
+                "Tourist_Attraction_Features": [
+                    {
+                        "Tourist_Attraction_ID": "INTEGER",
+                        "Feature_ID": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    },
+    "Locations": {
+        "Location_ID": "INTEGER",
+        "Location_Name": "VARCHAR(255)",
+        "Address": "VARCHAR(255)",
+        "Other_Details": "VARCHAR(255)",
+        "Tourist_Attractions": [
+            {
+                "Tourist_Attraction_ID": "INTEGER",
+                "Attraction_Type_Code": "CHAR(15)",
+                "Location_ID": "INTEGER",
+                "How_to_Get_There": "VARCHAR(255)",
+                "Name": "VARCHAR(255)",
+                "Description": "VARCHAR(255)",
+                "Opening_Hours": "VARCHAR(255)",
+                "Other_Details": "VARCHAR(255)",
+                "Street_Markets": [
+                    {
+                        "Market_ID": "INTEGER",
+                        "Market_Details": "VARCHAR(255)"
+                    }
+                ],
+                "Shops": [
+                    {
+                        "Shop_ID": "INTEGER",
+                        "Shop_Details": "VARCHAR(255)"
+                    }
+                ],
+                "Museums": [
+                    {
+                        "Museum_ID": "INTEGER",
+                        "Museum_Details": "VARCHAR(255)"
+                    }
+                ],
+                "Royal_Family": [
+                    {
+                        "Royal_Family_ID": "INTEGER",
+                        "Royal_Family_Details": "VARCHAR(255)"
+                    }
+                ],
+                "Theme_Parks": [
+                    {
+                        "Theme_Park_ID": "INTEGER",
+                        "Theme_Park_Details": "VARCHAR(255)"
+                    }
+                ],
+                "Visits": [
+                    {
+                        "Visit_ID": "INTEGER",
+                        "Tourist_Attraction_ID": "INTEGER",
+                        "Tourist_ID": "INTEGER",
+                        "Visit_Date": "DATETIME",
+                        "Visit_Details": "VARCHAR(40)"
+                    }
+                ],
+                "Photos": [
+                    {
+                        "Photo_ID": "INTEGER",
+                        "Tourist_Attraction_ID": "INTEGER",
+                        "Name": "VARCHAR(255)",
+                        "Description": "VARCHAR(255)",
+                        "Filename": "VARCHAR(255)",
+                        "Other_Details": "VARCHAR(255)"
+                    }
+                ],
+                "Staff": [
+                    {
+                        "Staff_ID": "INTEGER",
+                        "Tourist_Attraction_ID": "INTEGER",
+                        "Name": "VARCHAR(40)",
+                        "Other_Details": "VARCHAR(255)"
+                    }
+                ],
+                "Tourist_Attraction_Features": [
+                    {
+                        "Tourist_Attraction_ID": "INTEGER",
+                        "Feature_ID": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    },
+    "Visitors": {
+        "Tourist_ID": "INTEGER",
+        "Tourist_Details": "VARCHAR(255)",
+        "Visits": [
+            {
+                "Visit_ID": "INTEGER",
+                "Tourist_Attraction_ID": "INTEGER",
+                "Tourist_ID": "INTEGER",
+                "Visit_Date": "DATETIME",
+                "Visit_Details": "VARCHAR(40)"
+            }
+        ]
+    },
+    "Features": {
+        "Feature_ID": "INTEGER",
+        "Feature_Details": "VARCHAR(255)",
+        "Tourist_Attraction_Features": [
+            {
+                "Tourist_Attraction_ID": "INTEGER",
+                "Feature_ID": "INTEGER"
+            }
+        ]
+    }
+}

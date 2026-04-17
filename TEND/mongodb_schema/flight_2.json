@@ -1,0 +1,23 @@
+{
+    "airports": {
+        "City": "TEXT",
+        "AirportCode": "TEXT",
+        "AirportName": "TEXT",
+        "Country": "TEXT",
+        "CountryAbbrev": "TEXT",
+        "flights": [
+            {
+                "Airline": "INTEGER",
+                "FlightNo": "INTEGER",
+                "SourceAirport": "TEXT",
+                "DestAirport": "TEXT"
+            }
+        ]
+    },
+    "airlines": {
+        "uid": "INTEGER",
+        "Airline": "TEXT",
+        "Abbreviation": "TEXT",
+        "Country": "TEXT"
+    }
+}

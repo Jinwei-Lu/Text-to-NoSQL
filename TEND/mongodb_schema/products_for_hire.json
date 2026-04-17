@@ -1,0 +1,101 @@
+{
+    "Discount_Coupons": {
+        "coupon_id": "INTEGER",
+        "date_issued": "DATETIME",
+        "coupon_amount": "DECIMAL(19,4)",
+        "Customers": [
+            {
+                "customer_id": "INTEGER",
+                "coupon_id": "INTEGER",
+                "good_or_bad_customer": "VARCHAR(4)",
+                "first_name": "VARCHAR(80)",
+                "last_name": "VARCHAR(80)",
+                "gender_mf": "VARCHAR(1)",
+                "date_became_customer": "DATETIME",
+                "date_last_hire": "DATETIME",
+                "Bookings": [
+                    {
+                        "booking_id": "INTEGER",
+                        "customer_id": "INTEGER",
+                        "booking_status_code": "VARCHAR(10)",
+                        "returned_damaged_yn": "VARCHAR(40)",
+                        "booking_start_date": "DATETIME",
+                        "booking_end_date": "DATETIME",
+                        "count_hired": "VARCHAR(40)",
+                        "amount_payable": "DECIMAL(19,4)",
+                        "amount_of_discount": "DECIMAL(19,4)",
+                        "amount_outstanding": "DECIMAL(19,4)",
+                        "amount_of_refund": "DECIMAL(19,4)",
+                        "Payments": [
+                            {
+                                "payment_id": "INTEGER",
+                                "booking_id": "INTEGER",
+                                "customer_id": "INTEGER",
+                                "payment_type_code": "VARCHAR(15)",
+                                "amount_paid_in_full_yn": "VARCHAR(1)",
+                                "payment_date": "DATETIME",
+                                "amount_due": "DECIMAL(19,4)",
+                                "amount_paid": "DECIMAL(19,4)"
+                            }
+                        ],
+                        "Products_Booked": [
+                            {
+                                "booking_id": "INTEGER",
+                                "product_id": "INTEGER",
+                                "returned_yn": "VARCHAR(1)",
+                                "returned_late_yn": "VARCHAR(1)",
+                                "booked_count": "INTEGER",
+                                "booked_amount": "FLOAT"
+                            }
+                        ],
+                        "View_Product_Availability": [
+                            {
+                                "product_id": "INTEGER",
+                                "booking_id": "INTEGER",
+                                "status_date": "DATETIME",
+                                "available_yn": "VARCHAR(1)"
+                            }
+                        ]
+                    }
+                ],
+                "Payments": [
+                    {
+                        "payment_id": "INTEGER",
+                        "booking_id": "INTEGER",
+                        "customer_id": "INTEGER",
+                        "payment_type_code": "VARCHAR(15)",
+                        "amount_paid_in_full_yn": "VARCHAR(1)",
+                        "payment_date": "DATETIME",
+                        "amount_due": "DECIMAL(19,4)",
+                        "amount_paid": "DECIMAL(19,4)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Products_for_Hire": {
+        "product_id": "INTEGER",
+        "product_type_code": "VARCHAR(15)",
+        "daily_hire_cost": "DECIMAL(19,4)",
+        "product_name": "VARCHAR(80)",
+        "product_description": "VARCHAR(255)",
+        "Products_Booked": [
+            {
+                "booking_id": "INTEGER",
+                "product_id": "INTEGER",
+                "returned_yn": "VARCHAR(1)",
+                "returned_late_yn": "VARCHAR(1)",
+                "booked_count": "INTEGER",
+                "booked_amount": "FLOAT"
+            }
+        ],
+        "View_Product_Availability": [
+            {
+                "product_id": "INTEGER",
+                "booking_id": "INTEGER",
+                "status_date": "DATETIME",
+                "available_yn": "VARCHAR(1)"
+            }
+        ]
+    }
+}

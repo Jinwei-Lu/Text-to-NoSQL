@@ -1,0 +1,96 @@
+{
+    "Customers": {
+        "customer_id": "INTEGER",
+        "payment_method": "VARCHAR(15)",
+        "customer_name": "VARCHAR(80)",
+        "customer_phone": "VARCHAR(80)",
+        "customer_email": "VARCHAR(80)",
+        "customer_address": "VARCHAR(255)",
+        "customer_login": "VARCHAR(80)",
+        "customer_password": "VARCHAR(10)",
+        "Customer_Addresses": [
+            {
+                "customer_id": "INTEGER",
+                "premise_id": "INTEGER",
+                "date_address_from": "DATETIME",
+                "address_type_code": "VARCHAR(15)",
+                "date_address_to": "DATETIME"
+            }
+        ],
+        "Customer_Orders": [
+            {
+                "order_id": "INTEGER",
+                "customer_id": "INTEGER",
+                "order_status_code": "VARCHAR(15)",
+                "shipping_method_code": "VARCHAR(15)",
+                "order_placed_datetime": "DATETIME",
+                "order_delivered_datetime": "DATETIME",
+                "order_shipping_charges": "VARCHAR(255)",
+                "Order_Items": [
+                    {
+                        "item_id": "INTEGER",
+                        "order_item_status_code": "VARCHAR(15)",
+                        "order_id": "INTEGER",
+                        "product_id": "INTEGER",
+                        "item_status_code": "VARCHAR(15)",
+                        "item_delivered_datetime": "DATETIME",
+                        "item_order_quantity": "VARCHAR(80)"
+                    }
+                ]
+            }
+        ],
+        "Mailshot_Customers": [
+            {
+                "mailshot_id": "INTEGER",
+                "customer_id": "INTEGER",
+                "outcome_code": "VARCHAR(15)",
+                "mailshot_customer_date": "DATETIME"
+            }
+        ]
+    },
+    "Premises": {
+        "premise_id": "INTEGER",
+        "premises_type": "VARCHAR(15)",
+        "premise_details": "VARCHAR(255)",
+        "Customer_Addresses": [
+            {
+                "customer_id": "INTEGER",
+                "premise_id": "INTEGER",
+                "date_address_from": "DATETIME",
+                "address_type_code": "VARCHAR(15)",
+                "date_address_to": "DATETIME"
+            }
+        ]
+    },
+    "Mailshot_Campaigns": {
+        "mailshot_id": "INTEGER",
+        "product_category": "VARCHAR(15)",
+        "mailshot_name": "VARCHAR(80)",
+        "mailshot_start_date": "DATETIME",
+        "mailshot_end_date": "DATETIME",
+        "Mailshot_Customers": [
+            {
+                "mailshot_id": "INTEGER",
+                "customer_id": "INTEGER",
+                "outcome_code": "VARCHAR(15)",
+                "mailshot_customer_date": "DATETIME"
+            }
+        ]
+    },
+    "Products": {
+        "product_id": "INTEGER",
+        "product_category": "VARCHAR(15)",
+        "product_name": "VARCHAR(80)",
+        "Order_Items": [
+            {
+                "item_id": "INTEGER",
+                "order_item_status_code": "VARCHAR(15)",
+                "order_id": "INTEGER",
+                "product_id": "INTEGER",
+                "item_status_code": "VARCHAR(15)",
+                "item_delivered_datetime": "DATETIME",
+                "item_order_quantity": "VARCHAR(80)"
+            }
+        ]
+    }
+}

@@ -1,0 +1,30 @@
+{
+    "station": {
+        "Station_ID": "INT",
+        "Name": "TEXT",
+        "Annual_entry_exit": "REAL",
+        "Annual_interchanges": "REAL",
+        "Total_Passengers": "REAL",
+        "Location": "TEXT",
+        "Main_Services": "TEXT",
+        "Number_of_Platforms": "INT",
+        "train_station": [
+            {
+                "Train_ID": "INT",
+                "Station_ID": "INT"
+            }
+        ]
+    },
+    "train": {
+        "Train_ID": "INT",
+        "Name": "TEXT",
+        "Time": "TEXT",
+        "Service": "TEXT",
+        "train_station": [
+            {
+                "Train_ID": "INT",
+                "Station_ID": "INT"
+            }
+        ]
+    }
+}

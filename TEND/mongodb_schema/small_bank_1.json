@@ -1,0 +1,18 @@
+{
+    "ACCOUNTS": {
+        "custid": "BIGINT",
+        "name": "VARCHAR(64)",
+        "SAVINGS": [
+            {
+                "custid": "BIGINT",
+                "balance": "FLOAT"
+            }
+        ],
+        "CHECKING": [
+            {
+                "custid": "BIGINT",
+                "balance": "FLOAT"
+            }
+        ]
+    }
+}

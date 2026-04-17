@@ -1,0 +1,32 @@
+{
+    "people": {
+        "People_ID": "INT",
+        "Name": "TEXT",
+        "Country": "TEXT",
+        "Is_Male": "TEXT",
+        "Age": "INT",
+        "wedding": [
+            {
+                "Church_ID": "INT",
+                "Male_ID": "INT",
+                "Female_ID": "INT",
+                "Year": "INT"
+            }
+        ]
+    },
+    "church": {
+        "Church_ID": "INT",
+        "Name": "TEXT",
+        "Organized_by": "TEXT",
+        "Open_Date": "INT",
+        "Continuation_of": "TEXT",
+        "wedding": [
+            {
+                "Church_ID": "INT",
+                "Male_ID": "INT",
+                "Female_ID": "INT",
+                "Year": "INT"
+            }
+        ]
+    }
+}

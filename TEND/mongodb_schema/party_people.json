@@ -1,0 +1,44 @@
+{
+    "region": {
+        "Region_ID": "INT",
+        "Region_name": "TEXT",
+        "Date": "TEXT",
+        "Label": "TEXT",
+        "Format": "TEXT",
+        "Catalogue": "TEXT",
+        "party": [
+            {
+                "Party_ID": "INT",
+                "Minister": "TEXT",
+                "Took_office": "TEXT",
+                "Left_office": "TEXT",
+                "Region_ID": "INT",
+                "Party_name": "TEXT",
+                "member": [
+                    {
+                        "Member_ID": "INT",
+                        "Member_Name": "TEXT",
+                        "Party_ID": "TEXT",
+                        "In_office": "TEXT",
+                        "party_events": [
+                            {
+                                "Event_ID": "INT",
+                                "Event_Name": "TEXT",
+                                "Party_ID": "INT",
+                                "Member_in_charge_ID": "INT"
+                            }
+                        ]
+                    }
+                ],
+                "party_events": [
+                    {
+                        "Event_ID": "INT",
+                        "Event_Name": "TEXT",
+                        "Party_ID": "INT",
+                        "Member_in_charge_ID": "INT"
+                    }
+                ]
+            }
+        ]
+    }
+}

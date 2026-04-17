@@ -1,0 +1,42 @@
+{
+    "operate_company": {
+        "id": "INT",
+        "name": "TEXT",
+        "Type": "TEXT",
+        "Principal_activities": "TEXT",
+        "Incorporated_in": "TEXT",
+        "Group_Equity_Shareholding": "REAL",
+        "flight": [
+            {
+                "id": "INT",
+                "Vehicle_Flight_number": "TEXT",
+                "Date": "TEXT",
+                "Pilot": "TEXT",
+                "Velocity": "REAL",
+                "Altitude": "REAL",
+                "airport_id": "INT",
+                "company_id": "INT"
+            }
+        ]
+    },
+    "airport": {
+        "id": "INT",
+        "City": "TEXT",
+        "Country": "TEXT",
+        "IATA": "TEXT",
+        "ICAO": "TEXT",
+        "name": "TEXT",
+        "flight": [
+            {
+                "id": "INT",
+                "Vehicle_Flight_number": "TEXT",
+                "Date": "TEXT",
+                "Pilot": "TEXT",
+                "Velocity": "REAL",
+                "Altitude": "REAL",
+                "airport_id": "INT",
+                "company_id": "INT"
+            }
+        ]
+    }
+}

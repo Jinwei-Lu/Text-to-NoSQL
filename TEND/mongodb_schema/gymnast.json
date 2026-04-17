@@ -1,0 +1,21 @@
+{
+    "people": {
+        "People_ID": "INT",
+        "Name": "TEXT",
+        "Age": "REAL",
+        "Height": "REAL",
+        "Hometown": "TEXT",
+        "gymnast": [
+            {
+                "Gymnast_ID": "INT",
+                "Floor_Exercise_Points": "REAL",
+                "Pommel_Horse_Points": "REAL",
+                "Rings_Points": "REAL",
+                "Vault_Points": "REAL",
+                "Parallel_Bars_Points": "REAL",
+                "Horizontal_Bar_Points": "REAL",
+                "Total_Points": "REAL"
+            }
+        ]
+    }
+}

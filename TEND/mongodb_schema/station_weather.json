@@ -1,0 +1,39 @@
+{
+    "station": {
+        "id": "INT",
+        "network_name": "TEXT",
+        "services": "TEXT",
+        "local_authority": "TEXT",
+        "route": [
+            {
+                "train_id": "INT",
+                "station_id": "INT"
+            }
+        ],
+        "weekly_weather": [
+            {
+                "station_id": "INT",
+                "day_of_week": "TEXT",
+                "high_temperature": "INT",
+                "low_temperature": "INT",
+                "precipitation": "REAL",
+                "wind_speed_mph": "INT"
+            }
+        ]
+    },
+    "train": {
+        "id": "INT",
+        "train_number": "INT",
+        "name": "TEXT",
+        "origin": "TEXT",
+        "destination": "TEXT",
+        "time": "TEXT",
+        "interval": "TEXT",
+        "route": [
+            {
+                "train_id": "INT",
+                "station_id": "INT"
+            }
+        ]
+    }
+}

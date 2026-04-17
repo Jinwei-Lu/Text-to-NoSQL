@@ -1,0 +1,52 @@
+{
+    "club": {
+        "Club_ID": "INT",
+        "name": "TEXT",
+        "Region": "TEXT",
+        "Start_year": "TEXT",
+        "club_rank": [
+            {
+                "Rank": "REAL",
+                "Club_ID": "INT",
+                "Gold": "REAL",
+                "Silver": "REAL",
+                "Bronze": "REAL",
+                "Total": "REAL"
+            }
+        ],
+        "player": [
+            {
+                "Player_ID": "INT",
+                "name": "TEXT",
+                "Position": "TEXT",
+                "Club_ID": "INT",
+                "Apps": "REAL",
+                "Tries": "REAL",
+                "Goals": "TEXT",
+                "Points": "REAL"
+            }
+        ],
+        "competition_result": [
+            {
+                "Competition_ID": "INT",
+                "Club_ID_1": "INT",
+                "Club_ID_2": "INT",
+                "Score": "TEXT"
+            }
+        ]
+    },
+    "competition": {
+        "Competition_ID": "INT",
+        "Year": "REAL",
+        "Competition_type": "TEXT",
+        "Country": "TEXT",
+        "competition_result": [
+            {
+                "Competition_ID": "INT",
+                "Club_ID_1": "INT",
+                "Club_ID_2": "INT",
+                "Score": "TEXT"
+            }
+        ]
+    }
+}

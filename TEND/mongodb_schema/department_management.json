@@ -1,0 +1,30 @@
+{
+    "head": {
+        "head_ID": "INT",
+        "name": "TEXT",
+        "born_state": "TEXT",
+        "age": "REAL",
+        "management": [
+            {
+                "department_ID": "INT",
+                "head_ID": "INT",
+                "temporary_acting": "TEXT"
+            }
+        ]
+    },
+    "department": {
+        "Department_ID": "INT",
+        "Name": "TEXT",
+        "Creation": "TEXT",
+        "Ranking": "INT",
+        "Budget_in_Billions": "REAL",
+        "Num_Employees": "REAL",
+        "management": [
+            {
+                "department_ID": "INT",
+                "head_ID": "INT",
+                "temporary_acting": "TEXT"
+            }
+        ]
+    }
+}

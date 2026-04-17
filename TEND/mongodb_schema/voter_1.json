@@ -1,0 +1,28 @@
+{
+    "CONTESTANTS": {
+        "contestant_number": "INTEGER",
+        "contestant_name": "varchar(50)",
+        "VOTES": [
+            {
+                "vote_id": "INTEGER",
+                "phone_number": "INTEGER",
+                "state": "varchar(2)",
+                "contestant_number": "INTEGER",
+                "created": "timestamp"
+            }
+        ]
+    },
+    "AREA_CODE_STATE": {
+        "area_code": "INTEGER",
+        "state": "varchar(2)",
+        "VOTES": [
+            {
+                "vote_id": "INTEGER",
+                "phone_number": "INTEGER",
+                "state": "varchar(2)",
+                "contestant_number": "INTEGER",
+                "created": "timestamp"
+            }
+        ]
+    }
+}

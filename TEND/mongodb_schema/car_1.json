@@ -1,0 +1,47 @@
+{
+    "continents": {
+        "ContId": "INTEGER",
+        "Continent": "TEXT",
+        "countries": [
+            {
+                "CountryId": "INTEGER",
+                "CountryName": "TEXT",
+                "Continent": "INTEGER",
+                "car_makers": [
+                    {
+                        "Id": "INTEGER",
+                        "Maker": "TEXT",
+                        "FullName": "TEXT",
+                        "Country": "TEXT",
+                        "model_list": [
+                            {
+                                "ModelId": "INTEGER",
+                                "Maker": "INTEGER",
+                                "Model": "TEXT",
+                                "car_names": [
+                                    {
+                                        "MakeId": "INTEGER",
+                                        "Model": "TEXT",
+                                        "Make": "TEXT",
+                                        "cars_data": [
+                                            {
+                                                "Id": "INTEGER",
+                                                "MPG": "TEXT",
+                                                "Cylinders": "INTEGER",
+                                                "Edispl": "REAL",
+                                                "Horsepower": "TEXT",
+                                                "Weight": "INTEGER",
+                                                "Accelerate": "REAL",
+                                                "Year": "INTEGER"
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}

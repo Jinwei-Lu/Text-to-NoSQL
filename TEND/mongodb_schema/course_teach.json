@@ -1,0 +1,27 @@
+{
+    "teacher": {
+        "Teacher_ID": "INT",
+        "Name": "TEXT",
+        "Age": "TEXT",
+        "Hometown": "TEXT",
+        "course_arrange": [
+            {
+                "Course_ID": "INT",
+                "Teacher_ID": "INT",
+                "Grade": "INT"
+            }
+        ]
+    },
+    "course": {
+        "Course_ID": "INT",
+        "Staring_Date": "TEXT",
+        "Course": "TEXT",
+        "course_arrange": [
+            {
+                "Course_ID": "INT",
+                "Teacher_ID": "INT",
+                "Grade": "INT"
+            }
+        ]
+    }
+}

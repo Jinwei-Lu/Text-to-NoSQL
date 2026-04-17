@@ -1,0 +1,93 @@
+{
+    "Subjects": {
+        "subject_id": "INTEGER",
+        "subject_name": "VARCHAR(120)",
+        "Courses": [
+            {
+                "course_id": "INTEGER",
+                "author_id": "INTEGER",
+                "subject_id": "INTEGER",
+                "course_name": "VARCHAR(120)",
+                "course_description": "VARCHAR(255)",
+                "Student_Course_Enrolment": [
+                    {
+                        "registration_id": "INTEGER",
+                        "student_id": "INTEGER",
+                        "course_id": "INTEGER",
+                        "date_of_enrolment": "DATETIME",
+                        "date_of_completion": "DATETIME",
+                        "Student_Tests_Taken": [
+                            {
+                                "registration_id": "INTEGER",
+                                "date_test_taken": "DATETIME",
+                                "test_result": "VARCHAR(255)"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Course_Authors_and_Tutors": {
+        "author_id": "INTEGER",
+        "author_tutor_ATB": "VARCHAR(3)",
+        "login_name": "VARCHAR(40)",
+        "password": "VARCHAR(40)",
+        "personal_name": "VARCHAR(80)",
+        "middle_name": "VARCHAR(80)",
+        "family_name": "VARCHAR(80)",
+        "gender_mf": "VARCHAR(1)",
+        "address_line_1": "VARCHAR(80)",
+        "Courses": [
+            {
+                "course_id": "INTEGER",
+                "author_id": "INTEGER",
+                "subject_id": "INTEGER",
+                "course_name": "VARCHAR(120)",
+                "course_description": "VARCHAR(255)",
+                "Student_Course_Enrolment": [
+                    {
+                        "registration_id": "INTEGER",
+                        "student_id": "INTEGER",
+                        "course_id": "INTEGER",
+                        "date_of_enrolment": "DATETIME",
+                        "date_of_completion": "DATETIME",
+                        "Student_Tests_Taken": [
+                            {
+                                "registration_id": "INTEGER",
+                                "date_test_taken": "DATETIME",
+                                "test_result": "VARCHAR(255)"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Students": {
+        "student_id": "INTEGER",
+        "date_of_registration": "DATETIME",
+        "date_of_latest_logon": "DATETIME",
+        "login_name": "VARCHAR(40)",
+        "password": "VARCHAR(10)",
+        "personal_name": "VARCHAR(40)",
+        "middle_name": "VARCHAR(40)",
+        "family_name": "VARCHAR(40)",
+        "Student_Course_Enrolment": [
+            {
+                "registration_id": "INTEGER",
+                "student_id": "INTEGER",
+                "course_id": "INTEGER",
+                "date_of_enrolment": "DATETIME",
+                "date_of_completion": "DATETIME",
+                "Student_Tests_Taken": [
+                    {
+                        "registration_id": "INTEGER",
+                        "date_test_taken": "DATETIME",
+                        "test_result": "VARCHAR(255)"
+                    }
+                ]
+            }
+        ]
+    }
+}

@@ -1,0 +1,29 @@
+{
+    "artist": {
+        "Artist_ID": "INT",
+        "Artist": "TEXT",
+        "Age": "INT",
+        "Famous_Title": "TEXT",
+        "Famous_Release_date": "TEXT",
+        "volume": [
+            {
+                "Volume_ID": "INT",
+                "Volume_Issue": "TEXT",
+                "Issue_Date": "TEXT",
+                "Weeks_on_Top": "REAL",
+                "Song": "TEXT",
+                "Artist_ID": "INT",
+                "music_festival": [
+                    {
+                        "ID": "INT",
+                        "Music_Festival": "TEXT",
+                        "Date_of_ceremony": "TEXT",
+                        "Category": "TEXT",
+                        "Volume": "INT",
+                        "Result": "TEXT"
+                    }
+                ]
+            }
+        ]
+    }
+}

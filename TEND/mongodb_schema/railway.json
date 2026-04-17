@@ -1,0 +1,43 @@
+{
+    "railway": {
+        "Railway_ID": "INT",
+        "Railway": "TEXT",
+        "Builder": "TEXT",
+        "Built": "TEXT",
+        "Wheels": "TEXT",
+        "Location": "TEXT",
+        "ObjectNumber": "TEXT",
+        "train": [
+            {
+                "Train_ID": "INT",
+                "Train_Num": "TEXT",
+                "Name": "TEXT",
+                "From": "TEXT",
+                "Arrival": "TEXT",
+                "Railway_ID": "INT"
+            }
+        ],
+        "railway_manage": [
+            {
+                "Railway_ID": "INT",
+                "Manager_ID": "INT",
+                "From_Year": "TEXT"
+            }
+        ]
+    },
+    "manager": {
+        "Manager_ID": "INT",
+        "Name": "TEXT",
+        "Country": "TEXT",
+        "Working_year_starts": "TEXT",
+        "Age": "INT",
+        "Level": "INT",
+        "railway_manage": [
+            {
+                "Railway_ID": "INT",
+                "Manager_ID": "INT",
+                "From_Year": "TEXT"
+            }
+        ]
+    }
+}

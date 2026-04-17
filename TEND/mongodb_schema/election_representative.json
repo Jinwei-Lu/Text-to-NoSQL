@@ -1,0 +1,20 @@
+{
+    "representative": {
+        "Representative_ID": "INT",
+        "Name": "TEXT",
+        "State": "TEXT",
+        "Party": "TEXT",
+        "Lifespan": "TEXT",
+        "election": [
+            {
+                "Election_ID": "INT",
+                "Representative_ID": "INT",
+                "Date": "TEXT",
+                "Votes": "REAL",
+                "Vote_Percent": "REAL",
+                "Seats": "REAL",
+                "Place": "REAL"
+            }
+        ]
+    }
+}

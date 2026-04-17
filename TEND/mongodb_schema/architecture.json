@@ -1,0 +1,29 @@
+{
+    "architect": {
+        "id": "TEXT",
+        "name": "TEXT",
+        "nationality": "TEXT",
+        "gender": "TEXT",
+        "bridge": [
+            {
+                "architect_id": "INT",
+                "id": "INT",
+                "name": "TEXT",
+                "location": "TEXT",
+                "length_meters": "REAL",
+                "length_feet": "REAL"
+            }
+        ],
+        "mill": [
+            {
+                "architect_id": "INT",
+                "id": "INT",
+                "location": "TEXT",
+                "name": "TEXT",
+                "type": "TEXT",
+                "built_year": "INT",
+                "notes": "TEXT"
+            }
+        ]
+    }
+}

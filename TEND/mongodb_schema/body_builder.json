@@ -1,0 +1,19 @@
+{
+    "people": {
+        "People_ID": "INT",
+        "Name": "TEXT",
+        "Height": "REAL",
+        "Weight": "REAL",
+        "Birth_Date": "TEXT",
+        "Birth_Place": "TEXT",
+        "body_builder": [
+            {
+                "Body_Builder_ID": "INT",
+                "People_ID": "INT",
+                "Snatch": "REAL",
+                "Clean_Jerk": "REAL",
+                "Total": "REAL"
+            }
+        ]
+    }
+}

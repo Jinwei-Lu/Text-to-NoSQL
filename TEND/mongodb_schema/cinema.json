@@ -1,0 +1,36 @@
+{
+    "cinema": {
+        "Cinema_ID": "INT",
+        "Name": "TEXT",
+        "Openning_year": "INT",
+        "Capacity": "INT",
+        "Location": "TEXT",
+        "schedule": [
+            {
+                "Cinema_ID": "INT",
+                "Film_ID": "INT",
+                "Date": "TEXT",
+                "Show_times_per_day": "INT",
+                "Price": "float"
+            }
+        ]
+    },
+    "film": {
+        "Film_ID": "INT",
+        "Rank_in_series": "INT",
+        "Number_in_season": "INT",
+        "Title": "TEXT",
+        "Directed_by": "TEXT",
+        "Original_air_date": "TEXT",
+        "Production_code": "TEXT",
+        "schedule": [
+            {
+                "Cinema_ID": "INT",
+                "Film_ID": "INT",
+                "Date": "TEXT",
+                "Show_times_per_day": "INT",
+                "Price": "float"
+            }
+        ]
+    }
+}

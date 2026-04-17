@@ -1,0 +1,30 @@
+{
+    "party": {
+        "Party_ID": "INT",
+        "Party_Theme": "TEXT",
+        "Location": "TEXT",
+        "First_year": "TEXT",
+        "Last_year": "TEXT",
+        "Number_of_hosts": "INT",
+        "party_host": [
+            {
+                "Party_ID": "INT",
+                "Host_ID": "INT",
+                "Is_Main_in_Charge": "bool"
+            }
+        ]
+    },
+    "host": {
+        "Host_ID": "INT",
+        "Name": "TEXT",
+        "Nationality": "TEXT",
+        "Age": "TEXT",
+        "party_host": [
+            {
+                "Party_ID": "INT",
+                "Host_ID": "INT",
+                "Is_Main_in_Charge": "bool"
+            }
+        ]
+    }
+}

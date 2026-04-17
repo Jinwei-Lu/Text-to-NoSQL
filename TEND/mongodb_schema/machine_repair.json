@@ -1,0 +1,45 @@
+{
+    "machine": {
+        "Machine_ID": "INT",
+        "Making_Year": "INT",
+        "Class": "TEXT",
+        "Team": "TEXT",
+        "Machine_series": "TEXT",
+        "value_points": "REAL",
+        "quality_rank": "INT",
+        "repair_assignment": [
+            {
+                "technician_id": "INT",
+                "repair_ID": "INT",
+                "Machine_ID": "INT"
+            }
+        ]
+    },
+    "repair": {
+        "repair_ID": "INT",
+        "name": "TEXT",
+        "Launch_Date": "TEXT",
+        "Notes": "TEXT",
+        "repair_assignment": [
+            {
+                "technician_id": "INT",
+                "repair_ID": "INT",
+                "Machine_ID": "INT"
+            }
+        ]
+    },
+    "technician": {
+        "technician_id": "REAL",
+        "Name": "TEXT",
+        "Team": "TEXT",
+        "Starting_Year": "REAL",
+        "Age": "INT",
+        "repair_assignment": [
+            {
+                "technician_id": "INT",
+                "repair_ID": "INT",
+                "Machine_ID": "INT"
+            }
+        ]
+    }
+}

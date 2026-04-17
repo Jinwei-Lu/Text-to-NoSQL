@@ -1,0 +1,52 @@
+{
+    "Accounts": {
+        "account_id": "INTEGER",
+        "customer_id": "INTEGER",
+        "account_name": "VARCHAR(50)",
+        "other_account_details": "VARCHAR(255)",
+        "Financial_Transactions": [
+            {
+                "transaction_id": "INTEGER",
+                "previous_transaction_id": "INTEGER",
+                "account_id": "INTEGER",
+                "card_id": "INTEGER",
+                "transaction_type": "VARCHAR(15)",
+                "transaction_date": "DATETIME",
+                "transaction_amount": "DOUBLE",
+                "transaction_comment": "VARCHAR(255)",
+                "other_transaction_details": "VARCHAR(255)"
+            }
+        ]
+    },
+    "Customers_Cards": {
+        "card_id": "INTEGER",
+        "customer_id": "INTEGER",
+        "card_type_code": "VARCHAR(15)",
+        "card_number": "VARCHAR(80)",
+        "date_valid_from": "DATETIME",
+        "date_valid_to": "DATETIME",
+        "other_card_details": "VARCHAR(255)",
+        "Financial_Transactions": [
+            {
+                "transaction_id": "INTEGER",
+                "previous_transaction_id": "INTEGER",
+                "account_id": "INTEGER",
+                "card_id": "INTEGER",
+                "transaction_type": "VARCHAR(15)",
+                "transaction_date": "DATETIME",
+                "transaction_amount": "DOUBLE",
+                "transaction_comment": "VARCHAR(255)",
+                "other_transaction_details": "VARCHAR(255)"
+            }
+        ]
+    },
+    "Customers": {
+        "customer_id": "INTEGER",
+        "customer_first_name": "VARCHAR(20)",
+        "customer_last_name": "VARCHAR(20)",
+        "customer_address": "VARCHAR(255)",
+        "customer_phone": "VARCHAR(255)",
+        "customer_email": "VARCHAR(255)",
+        "other_customer_details": "VARCHAR(255)"
+    }
+}

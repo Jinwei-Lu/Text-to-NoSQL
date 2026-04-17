@@ -1,0 +1,30 @@
+{
+    "event": {
+        "Event_ID": "INT",
+        "Date": "TEXT",
+        "Venue": "TEXT",
+        "Name": "TEXT",
+        "Event_Attendance": "INT",
+        "news_report": [
+            {
+                "journalist_ID": "INT",
+                "Event_ID": "INT",
+                "Work_Type": "TEXT"
+            }
+        ]
+    },
+    "journalist": {
+        "journalist_ID": "INT",
+        "Name": "TEXT",
+        "Nationality": "TEXT",
+        "Age": "TEXT",
+        "Years_working": "INT",
+        "news_report": [
+            {
+                "journalist_ID": "INT",
+                "Event_ID": "INT",
+                "Work_Type": "TEXT"
+            }
+        ]
+    }
+}

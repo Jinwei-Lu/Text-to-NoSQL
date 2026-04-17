@@ -1,0 +1,18 @@
+{
+    "track": {
+        "Track_ID": "INT",
+        "Name": "TEXT",
+        "Location": "TEXT",
+        "Seating": "REAL",
+        "Year_Opened": "REAL",
+        "race": [
+            {
+                "Race_ID": "INT",
+                "Name": "TEXT",
+                "Class": "TEXT",
+                "Date": "TEXT",
+                "Track_ID": "TEXT"
+            }
+        ]
+    }
+}

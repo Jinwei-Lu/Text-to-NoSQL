@@ -1,0 +1,29 @@
+{
+    "furniture": {
+        "Furniture_ID": "INT",
+        "Name": "TEXT",
+        "Num_of_Component": "INT",
+        "Market_Rate": "REAL",
+        "furniture_manufacte": [
+            {
+                "Manufacturer_ID": "INT",
+                "Furniture_ID": "INT",
+                "Price_in_Dollar": "REAL"
+            }
+        ]
+    },
+    "manufacturer": {
+        "Manufacturer_ID": "INT",
+        "Open_Year": "REAL",
+        "Name": "TEXT",
+        "Num_of_Factories": "INT",
+        "Num_of_Shops": "INT",
+        "furniture_manufacte": [
+            {
+                "Manufacturer_ID": "INT",
+                "Furniture_ID": "INT",
+                "Price_in_Dollar": "REAL"
+            }
+        ]
+    }
+}

@@ -1,0 +1,18 @@
+{
+    "people": {
+        "People_ID": "INT",
+        "Name": "TEXT",
+        "Height": "REAL",
+        "Weight": "REAL",
+        "Date_of_Birth": "TEXT",
+        "entrepreneur": [
+            {
+                "Entrepreneur_ID": "INT",
+                "People_ID": "INT",
+                "Company": "TEXT",
+                "Money_Requested": "REAL",
+                "Investor": "TEXT"
+            }
+        ]
+    }
+}

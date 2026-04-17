@@ -1,0 +1,30 @@
+{
+    "visitor": {
+        "ID": "INT",
+        "Name": "TEXT",
+        "Level_of_membership": "INT",
+        "Age": "INT",
+        "visit": [
+            {
+                "Museum_ID": "INT",
+                "visitor_ID": "TEXT",
+                "Num_of_Ticket": "INT",
+                "Total_spent": "REAL"
+            }
+        ]
+    },
+    "museum": {
+        "Museum_ID": "INT",
+        "Name": "TEXT",
+        "Num_of_Staff": "INT",
+        "Open_Year": "TEXT",
+        "visit": [
+            {
+                "Museum_ID": "INT",
+                "visitor_ID": "TEXT",
+                "Num_of_Ticket": "INT",
+                "Total_spent": "REAL"
+            }
+        ]
+    }
+}

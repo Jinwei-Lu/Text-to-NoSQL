@@ -1,0 +1,41 @@
+{
+    "stadium": {
+        "Stadium_ID": "INT",
+        "Location": "TEXT",
+        "Name": "TEXT",
+        "Capacity": "INT",
+        "Highest": "INT",
+        "Lowest": "INT",
+        "Average": "INT",
+        "concert": [
+            {
+                "concert_ID": "INT",
+                "concert_Name": "TEXT",
+                "Theme": "TEXT",
+                "Stadium_ID": "TEXT",
+                "Year": "TEXT",
+                "singer_in_concert": [
+                    {
+                        "concert_ID": "INT",
+                        "Singer_ID": "TEXT"
+                    }
+                ]
+            }
+        ]
+    },
+    "singer": {
+        "Singer_ID": "INT",
+        "Name": "TEXT",
+        "Country": "TEXT",
+        "Song_Name": "TEXT",
+        "Song_release_year": "TEXT",
+        "Age": "INT",
+        "Is_male": "bool",
+        "singer_in_concert": [
+            {
+                "concert_ID": "INT",
+                "Singer_ID": "TEXT"
+            }
+        ]
+    }
+}

@@ -1,0 +1,111 @@
+{
+    "Organisation_Types": {
+        "organisation_type": "VARCHAR(10)",
+        "organisation_type_description": "VARCHAR(255)",
+        "Organisations": [
+            {
+                "organisation_id": "INTEGER",
+                "organisation_type": "VARCHAR(10)",
+                "organisation_details": "VARCHAR(255)",
+                "Grants": [
+                    {
+                        "grant_id": "INTEGER",
+                        "organisation_id": "INTEGER",
+                        "grant_amount": "DECIMAL(19,4)",
+                        "grant_start_date": "DATETIME",
+                        "grant_end_date": "DATETIME",
+                        "other_details": "VARCHAR(255)",
+                        "Documents": [
+                            {
+                                "document_id": "INTEGER",
+                                "document_type_code": "VARCHAR(10)",
+                                "grant_id": "INTEGER",
+                                "sent_date": "DATETIME",
+                                "response_received_date": "DATETIME",
+                                "other_details": "VARCHAR(255)"
+                            }
+                        ]
+                    }
+                ],
+                "Projects": [
+                    {
+                        "project_id": "INTEGER",
+                        "organisation_id": "INTEGER",
+                        "project_details": "VARCHAR(255)",
+                        "Project_Outcomes": [
+                            {
+                                "project_id": "INTEGER",
+                                "outcome_code": "VARCHAR(10)",
+                                "outcome_details": "VARCHAR(255)"
+                            }
+                        ],
+                        "Project_Staff": [
+                            {
+                                "staff_id": "DOUBLE",
+                                "project_id": "INTEGER",
+                                "role_code": "VARCHAR(10)",
+                                "date_from": "DATETIME",
+                                "date_to": "DATETIME",
+                                "other_details": "VARCHAR(255)"
+                            }
+                        ],
+                        "Tasks": [
+                            {
+                                "task_id": "INTEGER",
+                                "project_id": "INTEGER",
+                                "task_details": "VARCHAR(255)",
+                                "eg Agree Objectives": "VARCHAR(1)"
+                            }
+                        ]
+                    }
+                ],
+                "Research_Staff": [
+                    {
+                        "staff_id": "INTEGER",
+                        "employer_organisation_id": "INTEGER",
+                        "staff_details": "VARCHAR(255)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Document_Types": {
+        "document_type_code": "VARCHAR(10)",
+        "document_description": "VARCHAR(255)",
+        "Documents": [
+            {
+                "document_id": "INTEGER",
+                "document_type_code": "VARCHAR(10)",
+                "grant_id": "INTEGER",
+                "sent_date": "DATETIME",
+                "response_received_date": "DATETIME",
+                "other_details": "VARCHAR(255)"
+            }
+        ]
+    },
+    "Research_Outcomes": {
+        "outcome_code": "VARCHAR(10)",
+        "outcome_description": "VARCHAR(255)",
+        "Project_Outcomes": [
+            {
+                "project_id": "INTEGER",
+                "outcome_code": "VARCHAR(10)",
+                "outcome_details": "VARCHAR(255)"
+            }
+        ]
+    },
+    "Staff_Roles": {
+        "role_code": "VARCHAR(10)",
+        "role_description": "VARCHAR(255)",
+        "Project_Staff": [
+            {
+                "staff_id": "DOUBLE",
+                "project_id": "INTEGER",
+                "role_code": "VARCHAR(10)",
+                "date_from": "DATETIME",
+                "date_to": "DATETIME",
+                "other_details": "VARCHAR(255)"
+            }
+        ]
+    }
+}

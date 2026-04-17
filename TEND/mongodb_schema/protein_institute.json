@@ -1,0 +1,34 @@
+{
+    "building": {
+        "building_id": "TEXT",
+        "Name": "TEXT",
+        "Street_address": "TEXT",
+        "Years_as_tallest": "TEXT",
+        "Height_feet": "INT",
+        "Floors": "INT",
+        "Institution": [
+            {
+                "Institution_id": "TEXT",
+                "Institution": "TEXT",
+                "Location": "TEXT",
+                "Founded": "REAL",
+                "Type": "TEXT",
+                "Enrollment": "INT",
+                "Team": "TEXT",
+                "Primary_Conference": "TEXT",
+                "building_id": "TEXT",
+                "protein": [
+                    {
+                        "common_name": "TEXT",
+                        "protein_name": "TEXT",
+                        "divergence_from_human_lineage": "REAL",
+                        "accession_number": "TEXT",
+                        "sequence_length": "REAL",
+                        "sequence_identity_to_human_protein": "TEXT",
+                        "Institution_id": "TEXT"
+                    }
+                ]
+            }
+        ]
+    }
+}

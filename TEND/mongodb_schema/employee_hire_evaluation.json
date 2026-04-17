@@ -1,0 +1,39 @@
+{
+    "employee": {
+        "Employee_ID": "INT",
+        "Name": "TEXT",
+        "Age": "INT",
+        "City": "TEXT",
+        "hiring": [
+            {
+                "Shop_ID": "INT",
+                "Employee_ID": "INT",
+                "Start_from": "TEXT",
+                "Is_full_time": "bool"
+            }
+        ],
+        "evaluation": [
+            {
+                "Employee_ID": "TEXT",
+                "Year_awarded": "TEXT",
+                "Bonus": "REAL"
+            }
+        ]
+    },
+    "shop": {
+        "Shop_ID": "INT",
+        "Name": "TEXT",
+        "Location": "TEXT",
+        "District": "TEXT",
+        "Number_products": "INT",
+        "Manager_name": "TEXT",
+        "hiring": [
+            {
+                "Shop_ID": "INT",
+                "Employee_ID": "INT",
+                "Start_from": "TEXT",
+                "Is_full_time": "bool"
+            }
+        ]
+    }
+}

@@ -1,0 +1,62 @@
+{
+    "Ref_Feature_Types": {
+        "feature_type_code": "VARCHAR(20)",
+        "feature_type_name": "VARCHAR(80)",
+        "Other_Available_Features": [
+            {
+                "feature_id": "INTEGER",
+                "feature_type_code": "VARCHAR(20)",
+                "feature_name": "VARCHAR(80)",
+                "feature_description": "VARCHAR(80)",
+                "Other_Property_Features": [
+                    {
+                        "property_id": "INTEGER",
+                        "feature_id": "INTEGER",
+                        "property_feature_description": "VARCHAR(80)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Ref_Property_Types": {
+        "property_type_code": "VARCHAR(20)",
+        "property_type_description": "VARCHAR(80)",
+        "Properties": [
+            {
+                "property_id": "INTEGER",
+                "property_type_code": "VARCHAR(20)",
+                "date_on_market": "DATETIME",
+                "date_sold": "DATETIME",
+                "property_name": "VARCHAR(80)",
+                "property_address": "VARCHAR(255)",
+                "room_count": "INTEGER",
+                "vendor_requested_price": "DECIMAL(19,4)",
+                "buyer_offered_price": "DECIMAL(19,4)",
+                "agreed_selling_price": "DECIMAL(19,4)",
+                "apt_feature_1": "VARCHAR(255)",
+                "apt_feature_2": "VARCHAR(255)",
+                "apt_feature_3": "VARCHAR(255)",
+                "fld_feature_1": "VARCHAR(255)",
+                "fld_feature_2": "VARCHAR(255)",
+                "fld_feature_3": "VARCHAR(255)",
+                "hse_feature_1": "VARCHAR(255)",
+                "hse_feature_2": "VARCHAR(255)",
+                "hse_feature_3": "VARCHAR(255)",
+                "oth_feature_1": "VARCHAR(255)",
+                "oth_feature_2": "VARCHAR(255)",
+                "oth_feature_3": "VARCHAR(255)",
+                "shp_feature_1": "VARCHAR(255)",
+                "shp_feature_2": "VARCHAR(255)",
+                "shp_feature_3": "VARCHAR(255)",
+                "other_property_details": "VARCHAR(255)",
+                "Other_Property_Features": [
+                    {
+                        "property_id": "INTEGER",
+                        "feature_id": "INTEGER",
+                        "property_feature_description": "VARCHAR(80)"
+                    }
+                ]
+            }
+        ]
+    }
+}

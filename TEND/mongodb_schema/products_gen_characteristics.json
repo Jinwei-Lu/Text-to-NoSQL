@@ -1,0 +1,69 @@
+{
+    "Ref_Characteristic_Types": {
+        "characteristic_type_code": "VARCHAR(15)",
+        "characteristic_type_description": "VARCHAR(80)",
+        "Characteristics": [
+            {
+                "characteristic_id": "INTEGER",
+                "characteristic_type_code": "VARCHAR(15)",
+                "characteristic_data_type": "VARCHAR(10)",
+                "characteristic_name": "VARCHAR(80)",
+                "other_characteristic_details": "VARCHAR(255)",
+                "Product_Characteristics": [
+                    {
+                        "product_id": "INTEGER",
+                        "characteristic_id": "INTEGER",
+                        "product_characteristic_value": "VARCHAR(50)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Ref_Colors": {
+        "color_code": "VARCHAR(15)",
+        "color_description": "VARCHAR(80)",
+        "Products": [
+            {
+                "product_id": "INTEGER",
+                "color_code": "VARCHAR(15)",
+                "product_category_code": "VARCHAR(15)",
+                "product_name": "VARCHAR(80)",
+                "typical_buying_price": "VARCHAR(20)",
+                "typical_selling_price": "VARCHAR(20)",
+                "product_description": "VARCHAR(255)",
+                "other_product_details": "VARCHAR(255)",
+                "Product_Characteristics": [
+                    {
+                        "product_id": "INTEGER",
+                        "characteristic_id": "INTEGER",
+                        "product_characteristic_value": "VARCHAR(50)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Ref_Product_Categories": {
+        "product_category_code": "VARCHAR(15)",
+        "product_category_description": "VARCHAR(80)",
+        "unit_of_measure": "VARCHAR(20)",
+        "Products": [
+            {
+                "product_id": "INTEGER",
+                "color_code": "VARCHAR(15)",
+                "product_category_code": "VARCHAR(15)",
+                "product_name": "VARCHAR(80)",
+                "typical_buying_price": "VARCHAR(20)",
+                "typical_selling_price": "VARCHAR(20)",
+                "product_description": "VARCHAR(255)",
+                "other_product_details": "VARCHAR(255)",
+                "Product_Characteristics": [
+                    {
+                        "product_id": "INTEGER",
+                        "characteristic_id": "INTEGER",
+                        "product_characteristic_value": "VARCHAR(50)"
+                    }
+                ]
+            }
+        ]
+    }
+}

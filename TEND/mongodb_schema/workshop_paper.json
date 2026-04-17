@@ -1,0 +1,28 @@
+{
+    "workshop": {
+        "Workshop_ID": "INT",
+        "Date": "TEXT",
+        "Venue": "TEXT",
+        "Name": "TEXT",
+        "Acceptance": [
+            {
+                "Submission_ID": "INT",
+                "Workshop_ID": "INT",
+                "Result": "TEXT"
+            }
+        ]
+    },
+    "submission": {
+        "Submission_ID": "INT",
+        "Scores": "REAL",
+        "Author": "TEXT",
+        "College": "TEXT",
+        "Acceptance": [
+            {
+                "Submission_ID": "INT",
+                "Workshop_ID": "INT",
+                "Result": "TEXT"
+            }
+        ]
+    }
+}

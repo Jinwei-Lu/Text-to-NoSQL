@@ -1,0 +1,20 @@
+{
+    "Ship": {
+        "Ship_ID": "INT",
+        "Name": "TEXT",
+        "Type": "TEXT",
+        "Built_Year": "REAL",
+        "Class": "TEXT",
+        "Flag": "TEXT",
+        "captain": [
+            {
+                "Captain_ID": "INT",
+                "Name": "TEXT",
+                "Ship_ID": "INT",
+                "age": "TEXT",
+                "Class": "TEXT",
+                "Rank": "TEXT"
+            }
+        ]
+    }
+}

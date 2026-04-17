@@ -1,0 +1,79 @@
+{
+    "Apartment_Buildings": {
+        "building_id": "INTEGER",
+        "building_short_name": "CHAR(15)",
+        "building_full_name": "VARCHAR(80)",
+        "building_description": "VARCHAR(255)",
+        "building_address": "VARCHAR(255)",
+        "building_manager": "VARCHAR(50)",
+        "building_phone": "VARCHAR(80)",
+        "Apartments": [
+            {
+                "apt_id": "INTEGER",
+                "building_id": "INTEGER",
+                "apt_type_code": "CHAR(15)",
+                "apt_number": "CHAR(10)",
+                "bathroom_count": "INTEGER",
+                "bedroom_count": "INTEGER",
+                "room_count": "CHAR(5)",
+                "Apartment_Facilities": [
+                    {
+                        "apt_id": "INTEGER",
+                        "facility_code": "CHAR(15)"
+                    }
+                ],
+                "Apartment_Bookings": [
+                    {
+                        "apt_booking_id": "INTEGER",
+                        "apt_id": "INTEGER",
+                        "guest_id": "INTEGER",
+                        "booking_status_code": "CHAR(15)",
+                        "booking_start_date": "DATETIME",
+                        "booking_end_date": "DATETIME",
+                        "View_Unit_Status": [
+                            {
+                                "apt_id": "INTEGER",
+                                "apt_booking_id": "INTEGER",
+                                "status_date": "DATETIME",
+                                "available_yn": "BIT"
+                            }
+                        ]
+                    }
+                ],
+                "View_Unit_Status": [
+                    {
+                        "apt_id": "INTEGER",
+                        "apt_booking_id": "INTEGER",
+                        "status_date": "DATETIME",
+                        "available_yn": "BIT"
+                    }
+                ]
+            }
+        ]
+    },
+    "Guests": {
+        "guest_id": "INTEGER",
+        "gender_code": "CHAR(1)",
+        "guest_first_name": "VARCHAR(80)",
+        "guest_last_name": "VARCHAR(80)",
+        "date_of_birth": "DATETIME",
+        "Apartment_Bookings": [
+            {
+                "apt_booking_id": "INTEGER",
+                "apt_id": "INTEGER",
+                "guest_id": "INTEGER",
+                "booking_status_code": "CHAR(15)",
+                "booking_start_date": "DATETIME",
+                "booking_end_date": "DATETIME",
+                "View_Unit_Status": [
+                    {
+                        "apt_id": "INTEGER",
+                        "apt_booking_id": "INTEGER",
+                        "status_date": "DATETIME",
+                        "available_yn": "BIT"
+                    }
+                ]
+            }
+        ]
+    }
+}

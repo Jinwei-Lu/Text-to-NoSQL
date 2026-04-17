@@ -1,0 +1,40 @@
+{
+    "county": {
+        "County_Id": "INT",
+        "County_name": "TEXT",
+        "Population": "REAL",
+        "Zip_code": "TEXT",
+        "election": [
+            {
+                "Election_ID": "INT",
+                "Counties_Represented": "TEXT",
+                "District": "INT",
+                "Delegate": "TEXT",
+                "Party": "INT",
+                "First_Elected": "REAL",
+                "Committee": "TEXT"
+            }
+        ]
+    },
+    "party": {
+        "Party_ID": "INT",
+        "Year": "REAL",
+        "Party": "TEXT",
+        "Governor": "TEXT",
+        "Lieutenant_Governor": "TEXT",
+        "Comptroller": "TEXT",
+        "Attorney_General": "TEXT",
+        "US_Senate": "TEXT",
+        "election": [
+            {
+                "Election_ID": "INT",
+                "Counties_Represented": "TEXT",
+                "District": "INT",
+                "Delegate": "TEXT",
+                "Party": "INT",
+                "First_Elected": "REAL",
+                "Committee": "TEXT"
+            }
+        ]
+    }
+}

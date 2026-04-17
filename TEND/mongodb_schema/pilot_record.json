@@ -1,0 +1,37 @@
+{
+    "aircraft": {
+        "Aircraft_ID": "INT",
+        "Order_Year": "INT",
+        "Manufacturer": "TEXT",
+        "Model": "TEXT",
+        "Fleet_Series": "TEXT",
+        "Powertrain": "TEXT",
+        "Fuel_Propulsion": "TEXT",
+        "pilot_record": [
+            {
+                "Record_ID": "INT",
+                "Pilot_ID": "INT",
+                "Aircraft_ID": "INT",
+                "Date": "TEXT"
+            }
+        ]
+    },
+    "pilot": {
+        "Pilot_ID": "INT",
+        "Pilot_name": "TEXT",
+        "Rank": "INT",
+        "Age": "INT",
+        "Nationality": "TEXT",
+        "Position": "TEXT",
+        "Join_Year": "INT",
+        "Team": "TEXT",
+        "pilot_record": [
+            {
+                "Record_ID": "INT",
+                "Pilot_ID": "INT",
+                "Aircraft_ID": "INT",
+                "Date": "TEXT"
+            }
+        ]
+    }
+}

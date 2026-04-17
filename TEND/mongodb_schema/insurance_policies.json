@@ -1,0 +1,45 @@
+{
+    "Customers": {
+        "Customer_ID": "INTEGER",
+        "Customer_Details": "VARCHAR(255)",
+        "Customer_Policies": [
+            {
+                "Policy_ID": "INTEGER",
+                "Customer_ID": "INTEGER",
+                "Policy_Type_Code": "CHAR(15)",
+                "Start_Date": "DATE",
+                "End_Date": "DATE",
+                "Claims": [
+                    {
+                        "Claim_ID": "INTEGER",
+                        "Policy_ID": "INTEGER",
+                        "Date_Claim_Made": "DATE",
+                        "Date_Claim_Settled": "DATE",
+                        "Amount_Claimed": "INTEGER",
+                        "Amount_Settled": "INTEGER",
+                        "Settlements": [
+                            {
+                                "Settlement_ID": "INTEGER",
+                                "Claim_ID": "INTEGER",
+                                "Date_Claim_Made": "DATE",
+                                "Date_Claim_Settled": "DATE",
+                                "Amount_Claimed": "INTEGER",
+                                "Amount_Settled": "INTEGER",
+                                "Customer_Policy_ID": "INTEGER",
+                                "Payments": [
+                                    {
+                                        "Payment_ID": "INTEGER",
+                                        "Settlement_ID": "INTEGER",
+                                        "Payment_Method_Code": "VARCHAR(255)",
+                                        "Date_Payment_Made": "DATE",
+                                        "Amount_Payment": "INTEGER"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}

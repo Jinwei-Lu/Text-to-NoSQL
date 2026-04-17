@@ -1,0 +1,27 @@
+{
+    "journal": {
+        "Journal_ID": "INT",
+        "Date": "TEXT",
+        "Theme": "TEXT",
+        "Sales": "INT",
+        "journal_committee": [
+            {
+                "Editor_ID": "INT",
+                "Journal_ID": "INT",
+                "Work_Type": "TEXT"
+            }
+        ]
+    },
+    "editor": {
+        "Editor_ID": "INT",
+        "Name": "TEXT",
+        "Age": "REAL",
+        "journal_committee": [
+            {
+                "Editor_ID": "INT",
+                "Journal_ID": "INT",
+                "Work_Type": "TEXT"
+            }
+        ]
+    }
+}

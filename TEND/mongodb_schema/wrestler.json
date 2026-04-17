@@ -1,0 +1,20 @@
+{
+    "wrestler": {
+        "Wrestler_ID": "INT",
+        "Name": "TEXT",
+        "Reign": "TEXT",
+        "Days_held": "TEXT",
+        "Location": "TEXT",
+        "Event": "TEXT",
+        "Elimination": [
+            {
+                "Elimination_ID": "TEXT",
+                "Wrestler_ID": "TEXT",
+                "Team": "TEXT",
+                "Eliminated_By": "TEXT",
+                "Elimination_Move": "TEXT",
+                "Time": "TEXT"
+            }
+        ]
+    }
+}

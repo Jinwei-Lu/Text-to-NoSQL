@@ -1,0 +1,110 @@
+{
+    "Problem_Status_Codes": {
+        "problem_status_code": "VARCHAR(20)",
+        "problem_status_description": "VARCHAR(80)",
+        "Problem_Log": [
+            {
+                "problem_log_id": "INTEGER",
+                "assigned_to_staff_id": "INTEGER",
+                "problem_id": "INTEGER",
+                "problem_category_code": "VARCHAR(20)",
+                "problem_status_code": "VARCHAR(20)",
+                "log_entry_date": "DATETIME",
+                "log_entry_description": "VARCHAR(255)",
+                "log_entry_fix": "VARCHAR(255)",
+                "other_log_details": "VARCHAR(255)"
+            }
+        ]
+    },
+    "Staff": {
+        "staff_id": "INTEGER",
+        "staff_first_name": "VARCHAR(80)",
+        "staff_last_name": "VARCHAR(80)",
+        "other_staff_details": "VARCHAR(255)",
+        "Problem_Log": [
+            {
+                "problem_log_id": "INTEGER",
+                "assigned_to_staff_id": "INTEGER",
+                "problem_id": "INTEGER",
+                "problem_category_code": "VARCHAR(20)",
+                "problem_status_code": "VARCHAR(20)",
+                "log_entry_date": "DATETIME",
+                "log_entry_description": "VARCHAR(255)",
+                "log_entry_fix": "VARCHAR(255)",
+                "other_log_details": "VARCHAR(255)"
+            }
+        ],
+        "Problems": [
+            {
+                "problem_id": "INTEGER",
+                "product_id": "INTEGER",
+                "closure_authorised_by_staff_id": "INTEGER",
+                "reported_by_staff_id": "INTEGER",
+                "date_problem_reported": "DATETIME",
+                "date_problem_closed": "DATETIME",
+                "problem_description": "VARCHAR(255)",
+                "other_problem_details": "VARCHAR(255)",
+                "Problem_Log": [
+                    {
+                        "problem_log_id": "INTEGER",
+                        "assigned_to_staff_id": "INTEGER",
+                        "problem_id": "INTEGER",
+                        "problem_category_code": "VARCHAR(20)",
+                        "problem_status_code": "VARCHAR(20)",
+                        "log_entry_date": "DATETIME",
+                        "log_entry_description": "VARCHAR(255)",
+                        "log_entry_fix": "VARCHAR(255)",
+                        "other_log_details": "VARCHAR(255)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Problem_Category_Codes": {
+        "problem_category_code": "VARCHAR(20)",
+        "problem_category_description": "VARCHAR(80)",
+        "Problem_Log": [
+            {
+                "problem_log_id": "INTEGER",
+                "assigned_to_staff_id": "INTEGER",
+                "problem_id": "INTEGER",
+                "problem_category_code": "VARCHAR(20)",
+                "problem_status_code": "VARCHAR(20)",
+                "log_entry_date": "DATETIME",
+                "log_entry_description": "VARCHAR(255)",
+                "log_entry_fix": "VARCHAR(255)",
+                "other_log_details": "VARCHAR(255)"
+            }
+        ]
+    },
+    "Product": {
+        "product_id": "INTEGER",
+        "product_name": "VARCHAR(80)",
+        "product_details": "VARCHAR(255)",
+        "Problems": [
+            {
+                "problem_id": "INTEGER",
+                "product_id": "INTEGER",
+                "closure_authorised_by_staff_id": "INTEGER",
+                "reported_by_staff_id": "INTEGER",
+                "date_problem_reported": "DATETIME",
+                "date_problem_closed": "DATETIME",
+                "problem_description": "VARCHAR(255)",
+                "other_problem_details": "VARCHAR(255)",
+                "Problem_Log": [
+                    {
+                        "problem_log_id": "INTEGER",
+                        "assigned_to_staff_id": "INTEGER",
+                        "problem_id": "INTEGER",
+                        "problem_category_code": "VARCHAR(20)",
+                        "problem_status_code": "VARCHAR(20)",
+                        "log_entry_date": "DATETIME",
+                        "log_entry_description": "VARCHAR(255)",
+                        "log_entry_fix": "VARCHAR(255)",
+                        "other_log_details": "VARCHAR(255)"
+                    }
+                ]
+            }
+        ]
+    }
+}

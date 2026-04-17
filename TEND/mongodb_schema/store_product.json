@@ -1,0 +1,50 @@
+{
+    "product": {
+        "Product_ID": "INT",
+        "product": "TEXT",
+        "dimensions": "TEXT",
+        "dpi": "REAL",
+        "pages_per_minute_color": "REAL",
+        "max_page_size": "TEXT",
+        "interface": "TEXT",
+        "store_product": [
+            {
+                "Store_ID": "INT",
+                "Product_ID": "INT"
+            }
+        ]
+    },
+    "store": {
+        "Store_ID": "INT",
+        "Store_Name": "TEXT",
+        "Type": "TEXT",
+        "Area_size": "REAL",
+        "Number_of_product_category": "REAL",
+        "Ranking": "INT",
+        "store_product": [
+            {
+                "Store_ID": "INT",
+                "Product_ID": "INT"
+            }
+        ],
+        "store_district": [
+            {
+                "Store_ID": "INT",
+                "District_ID": "INT"
+            }
+        ]
+    },
+    "district": {
+        "District_ID": "INT",
+        "District_name": "TEXT",
+        "Headquartered_City": "TEXT",
+        "City_Population": "REAL",
+        "City_Area": "REAL",
+        "store_district": [
+            {
+                "Store_ID": "INT",
+                "District_ID": "INT"
+            }
+        ]
+    }
+}

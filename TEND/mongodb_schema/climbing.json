@@ -1,0 +1,20 @@
+{
+    "mountain": {
+        "Mountain_ID": "INT",
+        "Name": "TEXT",
+        "Height": "REAL",
+        "Prominence": "REAL",
+        "Range": "TEXT",
+        "Country": "TEXT",
+        "climber": [
+            {
+                "Climber_ID": "INT",
+                "Name": "TEXT",
+                "Country": "TEXT",
+                "Time": "TEXT",
+                "Points": "REAL",
+                "Mountain_ID": "INT"
+            }
+        ]
+    }
+}

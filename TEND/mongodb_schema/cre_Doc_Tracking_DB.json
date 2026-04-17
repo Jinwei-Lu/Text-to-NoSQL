@@ -1,0 +1,123 @@
+{
+    "Ref_Calendar": {
+        "Calendar_Date": "DATETIME",
+        "Day_Number": "INTEGER",
+        "All_Documents": [
+            {
+                "Document_ID": "INTEGER",
+                "Date_Stored": "DATETIME",
+                "Document_Type_Code": "CHAR(15)",
+                "Document_Name": "CHAR(255)",
+                "Document_Description": "CHAR(255)",
+                "Other_Details": "VARCHAR(255)",
+                "Document_Locations": [
+                    {
+                        "Document_ID": "INTEGER",
+                        "Location_Code": "CHAR(15)",
+                        "Date_in_Location_From": "DATETIME",
+                        "Date_in_Locaton_To": "DATETIME"
+                    }
+                ],
+                "Documents_to_be_Destroyed": [
+                    {
+                        "Document_ID": "INTEGER",
+                        "Destruction_Authorised_by_Employee_ID": "INTEGER",
+                        "Destroyed_by_Employee_ID": "INTEGER",
+                        "Planned_Destruction_Date": "DATETIME",
+                        "Actual_Destruction_Date": "DATETIME",
+                        "Other_Details": "VARCHAR(255)"
+                    }
+                ]
+            }
+        ],
+        "Document_Locations": [
+            {
+                "Document_ID": "INTEGER",
+                "Location_Code": "CHAR(15)",
+                "Date_in_Location_From": "DATETIME",
+                "Date_in_Locaton_To": "DATETIME"
+            }
+        ],
+        "Documents_to_be_Destroyed": [
+            {
+                "Document_ID": "INTEGER",
+                "Destruction_Authorised_by_Employee_ID": "INTEGER",
+                "Destroyed_by_Employee_ID": "INTEGER",
+                "Planned_Destruction_Date": "DATETIME",
+                "Actual_Destruction_Date": "DATETIME",
+                "Other_Details": "VARCHAR(255)"
+            }
+        ]
+    },
+    "Ref_Document_Types": {
+        "Document_Type_Code": "CHAR(15)",
+        "Document_Type_Name": "VARCHAR(255)",
+        "Document_Type_Description": "VARCHAR(255)",
+        "All_Documents": [
+            {
+                "Document_ID": "INTEGER",
+                "Date_Stored": "DATETIME",
+                "Document_Type_Code": "CHAR(15)",
+                "Document_Name": "CHAR(255)",
+                "Document_Description": "CHAR(255)",
+                "Other_Details": "VARCHAR(255)",
+                "Document_Locations": [
+                    {
+                        "Document_ID": "INTEGER",
+                        "Location_Code": "CHAR(15)",
+                        "Date_in_Location_From": "DATETIME",
+                        "Date_in_Locaton_To": "DATETIME"
+                    }
+                ],
+                "Documents_to_be_Destroyed": [
+                    {
+                        "Document_ID": "INTEGER",
+                        "Destruction_Authorised_by_Employee_ID": "INTEGER",
+                        "Destroyed_by_Employee_ID": "INTEGER",
+                        "Planned_Destruction_Date": "DATETIME",
+                        "Actual_Destruction_Date": "DATETIME",
+                        "Other_Details": "VARCHAR(255)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Roles": {
+        "Role_Code": "CHAR(15)",
+        "Role_Name": "VARCHAR(255)",
+        "Role_Description": "VARCHAR(255)",
+        "Employees": [
+            {
+                "Employee_ID": "INTEGER",
+                "Role_Code": "CHAR(15)",
+                "Employee_Name": "VARCHAR(255)",
+                "Gender_MFU": "CHAR(1)",
+                "Date_of_Birth": "DATETIME",
+                "Other_Details": "VARCHAR(255)",
+                "Documents_to_be_Destroyed": [
+                    {
+                        "Document_ID": "INTEGER",
+                        "Destruction_Authorised_by_Employee_ID": "INTEGER",
+                        "Destroyed_by_Employee_ID": "INTEGER",
+                        "Planned_Destruction_Date": "DATETIME",
+                        "Actual_Destruction_Date": "DATETIME",
+                        "Other_Details": "VARCHAR(255)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Ref_Locations": {
+        "Location_Code": "CHAR(15)",
+        "Location_Name": "VARCHAR(255)",
+        "Location_Description": "VARCHAR(255)",
+        "Document_Locations": [
+            {
+                "Document_ID": "INTEGER",
+                "Location_Code": "CHAR(15)",
+                "Date_in_Location_From": "DATETIME",
+                "Date_in_Locaton_To": "DATETIME"
+            }
+        ]
+    }
+}

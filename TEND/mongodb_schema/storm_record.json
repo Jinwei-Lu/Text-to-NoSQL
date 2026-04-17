@@ -1,0 +1,29 @@
+{
+    "storm": {
+        "Storm_ID": "INT",
+        "Name": "TEXT",
+        "Dates_active": "TEXT",
+        "Max_speed": "INT",
+        "Damage_millions_USD": "REAL",
+        "Number_Deaths": "INT",
+        "affected_region": [
+            {
+                "Region_id": "INT",
+                "Storm_ID": "INT",
+                "Number_city_affected": "REAL"
+            }
+        ]
+    },
+    "region": {
+        "Region_id": "INT",
+        "Region_code": "TEXT",
+        "Region_name": "TEXT",
+        "affected_region": [
+            {
+                "Region_id": "INT",
+                "Storm_ID": "INT",
+                "Number_city_affected": "REAL"
+            }
+        ]
+    }
+}

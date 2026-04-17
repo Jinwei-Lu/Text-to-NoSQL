@@ -1,0 +1,93 @@
+{
+    "People": {
+        "person_id": "INTEGER",
+        "first_name": "VARCHAR(255)",
+        "middle_name": "VARCHAR(255)",
+        "last_name": "VARCHAR(255)",
+        "cell_mobile_number": "VARCHAR(40)",
+        "email_address": "VARCHAR(40)",
+        "login_name": "VARCHAR(40)",
+        "password": "VARCHAR(40)",
+        "Students": [
+            {
+                "student_id": "INTEGER",
+                "student_details": "VARCHAR(255)",
+                "Student_Course_Registrations": [
+                    {
+                        "student_id": "INTEGER",
+                        "course_id": "INTEGER",
+                        "registration_date": "DATETIME",
+                        "Student_Course_Attendance": [
+                            {
+                                "student_id": "INTEGER",
+                                "course_id": "INTEGER",
+                                "date_of_attendance": "DATETIME"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "People_Addresses": [
+            {
+                "person_address_id": "INTEGER",
+                "person_id": "INTEGER",
+                "address_id": "INTEGER",
+                "date_from": "DATETIME",
+                "date_to": "DATETIME"
+            }
+        ],
+        "Candidates": [
+            {
+                "candidate_id": "INTEGER",
+                "candidate_details": "VARCHAR(255)",
+                "Candidate_Assessments": [
+                    {
+                        "candidate_id": "INTEGER",
+                        "qualification": "CHAR(15)",
+                        "assessment_date": "DATETIME",
+                        "asessment_outcome_code": "CHAR(15)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Addresses": {
+        "address_id": "INTEGER",
+        "line_1": "VARCHAR(80)",
+        "line_2": "VARCHAR(80)",
+        "city": "VARCHAR(50)",
+        "zip_postcode": "CHAR(20)",
+        "state_province_county": "VARCHAR(50)",
+        "country": "VARCHAR(50)",
+        "People_Addresses": [
+            {
+                "person_address_id": "INTEGER",
+                "person_id": "INTEGER",
+                "address_id": "INTEGER",
+                "date_from": "DATETIME",
+                "date_to": "DATETIME"
+            }
+        ]
+    },
+    "Courses": {
+        "course_id": "VARCHAR(100)",
+        "course_name": "VARCHAR(120)",
+        "course_description": "VARCHAR(255)",
+        "other_details": "VARCHAR(255)",
+        "Student_Course_Registrations": [
+            {
+                "student_id": "INTEGER",
+                "course_id": "INTEGER",
+                "registration_date": "DATETIME",
+                "Student_Course_Attendance": [
+                    {
+                        "student_id": "INTEGER",
+                        "course_id": "INTEGER",
+                        "date_of_attendance": "DATETIME"
+                    }
+                ]
+            }
+        ]
+    }
+}

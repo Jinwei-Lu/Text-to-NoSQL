@@ -1,0 +1,42 @@
+{
+    "school": {
+        "School_ID": "INT",
+        "School": "TEXT",
+        "Location": "TEXT",
+        "Enrollment": "REAL",
+        "Founded": "REAL",
+        "Denomination": "TEXT",
+        "Boys_or_Girls": "TEXT",
+        "Day_or_Boarding": "TEXT",
+        "Year_Entered_Competition": "REAL",
+        "School_Colors": "TEXT",
+        "school_details": [
+            {
+                "School_ID": "INT",
+                "Nickname": "TEXT",
+                "Colors": "TEXT",
+                "League": "TEXT",
+                "Class": "TEXT",
+                "Division": "TEXT"
+            }
+        ],
+        "school_performance": [
+            {
+                "School_Id": "INT",
+                "School_Year": "TEXT",
+                "Class_A": "TEXT",
+                "Class_AA": "TEXT"
+            }
+        ],
+        "player": [
+            {
+                "Player_ID": "INT",
+                "Player": "TEXT",
+                "Team": "TEXT",
+                "Age": "INT",
+                "Position": "TEXT",
+                "School_ID": "INT"
+            }
+        ]
+    }
+}

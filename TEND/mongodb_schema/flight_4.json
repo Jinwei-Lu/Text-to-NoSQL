@@ -1,0 +1,46 @@
+{
+    "airlines": {
+        "alid": "INTEGER",
+        "name": "TEXT",
+        "iata": "varchar(2)",
+        "icao": "varchar(3)",
+        "callsign": "TEXT",
+        "country": "TEXT",
+        "active": "varchar(2)",
+        "routes": [
+            {
+                "rid": "INTEGER",
+                "dst_apid": "INTEGER",
+                "dst_ap": "varchar(4)",
+                "src_apid": "bigint",
+                "src_ap": "varchar(4)",
+                "alid": "bigint",
+                "airline": "varchar(4)",
+                "codeshare": "TEXT"
+            }
+        ]
+    },
+    "airports": {
+        "apid": "INTEGER",
+        "name": "TEXT",
+        "city": "TEXT",
+        "country": "TEXT",
+        "x": "REAL",
+        "y": "REAL",
+        "elevation": "bigint",
+        "iata": "character varchar(3)",
+        "icao": "character varchar(4)",
+        "routes": [
+            {
+                "rid": "INTEGER",
+                "dst_apid": "INTEGER",
+                "dst_ap": "varchar(4)",
+                "src_apid": "bigint",
+                "src_ap": "varchar(4)",
+                "alid": "bigint",
+                "airline": "varchar(4)",
+                "codeshare": "TEXT"
+            }
+        ]
+    }
+}

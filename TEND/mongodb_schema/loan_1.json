@@ -1,0 +1,39 @@
+{
+    "bank": {
+        "branch_ID": "INT",
+        "bname": "varchar(20)",
+        "no_of_customers": "INT",
+        "city": "varchar(10)",
+        "state": "varchar(20)",
+        "customer": [
+            {
+                "cust_ID": "varchar(3)",
+                "cust_name": "varchar(20)",
+                "acc_type": "char(1)",
+                "acc_bal": "INT",
+                "no_of_loans": "INT",
+                "credit_score": "INT",
+                "branch_ID": "INT",
+                "state": "varchar(20)",
+                "loan": [
+                    {
+                        "loan_ID": "varchar(3)",
+                        "loan_type": "varchar(15)",
+                        "cust_ID": "varchar(3)",
+                        "branch_ID": "varchar(3)",
+                        "amount": "INT"
+                    }
+                ]
+            }
+        ],
+        "loan": [
+            {
+                "loan_ID": "varchar(3)",
+                "loan_type": "varchar(15)",
+                "cust_ID": "varchar(3)",
+                "branch_ID": "varchar(3)",
+                "amount": "INT"
+            }
+        ]
+    }
+}

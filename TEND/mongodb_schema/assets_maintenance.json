@@ -1,0 +1,240 @@
+{
+    "Third_Party_Companies": {
+        "company_id": "INTEGER",
+        "company_type": "VARCHAR(5)",
+        "company_name": "VARCHAR(255)",
+        "company_address": "VARCHAR(255)",
+        "other_company_details": "VARCHAR(255)",
+        "Maintenance_Contracts": [
+            {
+                "maintenance_contract_id": "INTEGER",
+                "maintenance_contract_company_id": "INTEGER",
+                "contract_start_date": "DATETIME",
+                "contract_end_date": "DATETIME",
+                "other_contract_details": "VARCHAR(255)",
+                "Assets": [
+                    {
+                        "asset_id": "INTEGER",
+                        "maintenance_contract_id": "INTEGER",
+                        "supplier_company_id": "INTEGER",
+                        "asset_details": "VARCHAR(255)",
+                        "asset_make": "VARCHAR(20)",
+                        "asset_model": "VARCHAR(20)",
+                        "asset_acquired_date": "DATETIME",
+                        "asset_disposed_date": "DATETIME",
+                        "other_asset_details": "VARCHAR(255)",
+                        "Asset_Parts": [
+                            {
+                                "asset_id": "INTEGER",
+                                "part_id": "INTEGER"
+                            }
+                        ],
+                        "Fault_Log": [
+                            {
+                                "fault_log_entry_id": "INTEGER",
+                                "asset_id": "INTEGER",
+                                "recorded_by_staff_id": "INTEGER",
+                                "fault_log_entry_datetime": "DATETIME",
+                                "fault_description": "VARCHAR(255)",
+                                "other_fault_details": "VARCHAR(255)",
+                                "Engineer_Visits": [
+                                    {
+                                        "engineer_visit_id": "INTEGER",
+                                        "contact_staff_id": "INTEGER",
+                                        "engineer_id": "INTEGER",
+                                        "fault_log_entry_id": "INTEGER",
+                                        "fault_status": "VARCHAR(10)",
+                                        "visit_start_datetime": "DATETIME",
+                                        "visit_end_datetime": "DATETIME",
+                                        "other_visit_details": "VARCHAR(255)"
+                                    }
+                                ],
+                                "Fault_Log_Parts": [
+                                    {
+                                        "fault_log_entry_id": "INTEGER",
+                                        "part_fault_id": "INTEGER",
+                                        "fault_status": "VARCHAR(10)"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "Assets": [
+            {
+                "asset_id": "INTEGER",
+                "maintenance_contract_id": "INTEGER",
+                "supplier_company_id": "INTEGER",
+                "asset_details": "VARCHAR(255)",
+                "asset_make": "VARCHAR(20)",
+                "asset_model": "VARCHAR(20)",
+                "asset_acquired_date": "DATETIME",
+                "asset_disposed_date": "DATETIME",
+                "other_asset_details": "VARCHAR(255)",
+                "Asset_Parts": [
+                    {
+                        "asset_id": "INTEGER",
+                        "part_id": "INTEGER"
+                    }
+                ],
+                "Fault_Log": [
+                    {
+                        "fault_log_entry_id": "INTEGER",
+                        "asset_id": "INTEGER",
+                        "recorded_by_staff_id": "INTEGER",
+                        "fault_log_entry_datetime": "DATETIME",
+                        "fault_description": "VARCHAR(255)",
+                        "other_fault_details": "VARCHAR(255)",
+                        "Engineer_Visits": [
+                            {
+                                "engineer_visit_id": "INTEGER",
+                                "contact_staff_id": "INTEGER",
+                                "engineer_id": "INTEGER",
+                                "fault_log_entry_id": "INTEGER",
+                                "fault_status": "VARCHAR(10)",
+                                "visit_start_datetime": "DATETIME",
+                                "visit_end_datetime": "DATETIME",
+                                "other_visit_details": "VARCHAR(255)"
+                            }
+                        ],
+                        "Fault_Log_Parts": [
+                            {
+                                "fault_log_entry_id": "INTEGER",
+                                "part_fault_id": "INTEGER",
+                                "fault_status": "VARCHAR(10)"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "Maintenance_Engineers": [
+            {
+                "engineer_id": "INTEGER",
+                "company_id": "INTEGER",
+                "first_name": "VARCHAR(50)",
+                "last_name": "VARCHAR(50)",
+                "other_details": "VARCHAR(255)",
+                "Engineer_Skills": [
+                    {
+                        "engineer_id": "INTEGER",
+                        "skill_id": "INTEGER"
+                    }
+                ],
+                "Engineer_Visits": [
+                    {
+                        "engineer_visit_id": "INTEGER",
+                        "contact_staff_id": "INTEGER",
+                        "engineer_id": "INTEGER",
+                        "fault_log_entry_id": "INTEGER",
+                        "fault_status": "VARCHAR(10)",
+                        "visit_start_datetime": "DATETIME",
+                        "visit_end_datetime": "DATETIME",
+                        "other_visit_details": "VARCHAR(255)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Parts": {
+        "part_id": "INTEGER",
+        "part_name": "VARCHAR(255)",
+        "chargeable_yn": "VARCHAR(1)",
+        "chargeable_amount": "VARCHAR(20)",
+        "other_part_details": "VARCHAR(255)",
+        "Asset_Parts": [
+            {
+                "asset_id": "INTEGER",
+                "part_id": "INTEGER"
+            }
+        ],
+        "Part_Faults": [
+            {
+                "part_fault_id": "INTEGER",
+                "part_id": "INTEGER",
+                "fault_short_name": "VARCHAR(20)",
+                "fault_description": "VARCHAR(255)",
+                "other_fault_details": "VARCHAR(255)",
+                "Fault_Log_Parts": [
+                    {
+                        "fault_log_entry_id": "INTEGER",
+                        "part_fault_id": "INTEGER",
+                        "fault_status": "VARCHAR(10)"
+                    }
+                ],
+                "Skills_Required_To_Fix": [
+                    {
+                        "part_fault_id": "INTEGER",
+                        "skill_id": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    },
+    "Skills": {
+        "skill_id": "INTEGER",
+        "skill_code": "VARCHAR(20)",
+        "skill_description": "VARCHAR(255)",
+        "Engineer_Skills": [
+            {
+                "engineer_id": "INTEGER",
+                "skill_id": "INTEGER"
+            }
+        ],
+        "Skills_Required_To_Fix": [
+            {
+                "part_fault_id": "INTEGER",
+                "skill_id": "INTEGER"
+            }
+        ]
+    },
+    "Staff": {
+        "staff_id": "INTEGER",
+        "staff_name": "VARCHAR(255)",
+        "gender": "VARCHAR(1)",
+        "other_staff_details": "VARCHAR(255)",
+        "Fault_Log": [
+            {
+                "fault_log_entry_id": "INTEGER",
+                "asset_id": "INTEGER",
+                "recorded_by_staff_id": "INTEGER",
+                "fault_log_entry_datetime": "DATETIME",
+                "fault_description": "VARCHAR(255)",
+                "other_fault_details": "VARCHAR(255)",
+                "Engineer_Visits": [
+                    {
+                        "engineer_visit_id": "INTEGER",
+                        "contact_staff_id": "INTEGER",
+                        "engineer_id": "INTEGER",
+                        "fault_log_entry_id": "INTEGER",
+                        "fault_status": "VARCHAR(10)",
+                        "visit_start_datetime": "DATETIME",
+                        "visit_end_datetime": "DATETIME",
+                        "other_visit_details": "VARCHAR(255)"
+                    }
+                ],
+                "Fault_Log_Parts": [
+                    {
+                        "fault_log_entry_id": "INTEGER",
+                        "part_fault_id": "INTEGER",
+                        "fault_status": "VARCHAR(10)"
+                    }
+                ]
+            }
+        ],
+        "Engineer_Visits": [
+            {
+                "engineer_visit_id": "INTEGER",
+                "contact_staff_id": "INTEGER",
+                "engineer_id": "INTEGER",
+                "fault_log_entry_id": "INTEGER",
+                "fault_status": "VARCHAR(10)",
+                "visit_start_datetime": "DATETIME",
+                "visit_end_datetime": "DATETIME",
+                "other_visit_details": "VARCHAR(255)"
+            }
+        ]
+    }
+}

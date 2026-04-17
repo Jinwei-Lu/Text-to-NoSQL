@@ -1,0 +1,100 @@
+{
+    "Available_Policies": {
+        "Policy_ID": "INTEGER",
+        "policy_type_code": "CHAR(15)",
+        "Customer_Phone": "VARCHAR(255)",
+        "Customers_Policies": [
+            {
+                "Customer_ID": "INTEGER",
+                "Policy_ID": "INTEGER",
+                "Date_Opened": "DATE",
+                "Date_Closed": "DATE",
+                "First_Notification_of_Loss": [
+                    {
+                        "FNOL_ID": "INTEGER",
+                        "Customer_ID": "INTEGER",
+                        "Policy_ID": "INTEGER",
+                        "Service_ID": "INTEGER",
+                        "Claims": [
+                            {
+                                "Claim_ID": "INTEGER",
+                                "FNOL_ID": "INTEGER",
+                                "Effective_Date": "DATE",
+                                "Settlements": [
+                                    {
+                                        "Settlement_ID": "INTEGER",
+                                        "Claim_ID": "INTEGER",
+                                        "Effective_Date": "DATE",
+                                        "Settlement_Amount": "REAL"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Customers": {
+        "Customer_ID": "INTEGER",
+        "Customer_name": "VARCHAR(40)",
+        "Customers_Policies": [
+            {
+                "Customer_ID": "INTEGER",
+                "Policy_ID": "INTEGER",
+                "Date_Opened": "DATE",
+                "Date_Closed": "DATE",
+                "First_Notification_of_Loss": [
+                    {
+                        "FNOL_ID": "INTEGER",
+                        "Customer_ID": "INTEGER",
+                        "Policy_ID": "INTEGER",
+                        "Service_ID": "INTEGER",
+                        "Claims": [
+                            {
+                                "Claim_ID": "INTEGER",
+                                "FNOL_ID": "INTEGER",
+                                "Effective_Date": "DATE",
+                                "Settlements": [
+                                    {
+                                        "Settlement_ID": "INTEGER",
+                                        "Claim_ID": "INTEGER",
+                                        "Effective_Date": "DATE",
+                                        "Settlement_Amount": "REAL"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Services": {
+        "Service_ID": "INTEGER",
+        "Service_name": "VARCHAR(40)",
+        "First_Notification_of_Loss": [
+            {
+                "FNOL_ID": "INTEGER",
+                "Customer_ID": "INTEGER",
+                "Policy_ID": "INTEGER",
+                "Service_ID": "INTEGER",
+                "Claims": [
+                    {
+                        "Claim_ID": "INTEGER",
+                        "FNOL_ID": "INTEGER",
+                        "Effective_Date": "DATE",
+                        "Settlements": [
+                            {
+                                "Settlement_ID": "INTEGER",
+                                "Claim_ID": "INTEGER",
+                                "Effective_Date": "DATE",
+                                "Settlement_Amount": "REAL"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}

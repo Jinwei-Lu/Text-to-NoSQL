@@ -1,0 +1,275 @@
+{
+    "Physician": {
+        "EmployeeID": "INTEGER",
+        "Name": "VARCHAR(30)",
+        "Position": "VARCHAR(30)",
+        "SSN": "INTEGER",
+        "Department": [
+            {
+                "DepartmentID": "INTEGER",
+                "Name": "VARCHAR(30)",
+                "Head": "INTEGER",
+                "Affiliated_With": [
+                    {
+                        "Physician": "INTEGER",
+                        "Department": "INTEGER",
+                        "PrimaryAffiliation": "BOOLEAN"
+                    }
+                ]
+            }
+        ],
+        "Affiliated_With": [
+            {
+                "Physician": "INTEGER",
+                "Department": "INTEGER",
+                "PrimaryAffiliation": "BOOLEAN"
+            }
+        ],
+        "Trained_In": [
+            {
+                "Physician": "INTEGER",
+                "Treatment": "INTEGER",
+                "CertificationDate": "DATETIME",
+                "CertificationExpires": "DATETIME"
+            }
+        ],
+        "Patient": [
+            {
+                "SSN": "INTEGER",
+                "Name": "VARCHAR(30)",
+                "Address": "VARCHAR(30)",
+                "Phone": "VARCHAR(30)",
+                "InsuranceID": "INTEGER",
+                "PCP": "INTEGER",
+                "Appointment": [
+                    {
+                        "AppointmentID": "INTEGER",
+                        "Patient": "INTEGER",
+                        "PrepNurse": "INTEGER",
+                        "Physician": "INTEGER",
+                        "Start": "DATETIME",
+                        "End": "DATETIME",
+                        "ExaminationRoom": "TEXT",
+                        "Prescribes": [
+                            {
+                                "Physician": "INTEGER",
+                                "Patient": "INTEGER",
+                                "Medication": "INTEGER",
+                                "Date": "DATETIME",
+                                "Appointment": "INTEGER",
+                                "Dose": "VARCHAR(30)"
+                            }
+                        ]
+                    }
+                ],
+                "Prescribes": [
+                    {
+                        "Physician": "INTEGER",
+                        "Patient": "INTEGER",
+                        "Medication": "INTEGER",
+                        "Date": "DATETIME",
+                        "Appointment": "INTEGER",
+                        "Dose": "VARCHAR(30)"
+                    }
+                ],
+                "Stay": [
+                    {
+                        "StayID": "INTEGER",
+                        "Patient": "INTEGER",
+                        "Room": "INTEGER",
+                        "StayStart": "DATETIME",
+                        "StayEnd": "DATETIME",
+                        "Undergoes": [
+                            {
+                                "Patient": "INTEGER",
+                                "Procedures": "INTEGER",
+                                "Stay": "INTEGER",
+                                "DateUndergoes": "DATETIME",
+                                "Physician": "INTEGER",
+                                "AssistingNurse": "INTEGER"
+                            }
+                        ]
+                    }
+                ],
+                "Undergoes": [
+                    {
+                        "Patient": "INTEGER",
+                        "Procedures": "INTEGER",
+                        "Stay": "INTEGER",
+                        "DateUndergoes": "DATETIME",
+                        "Physician": "INTEGER",
+                        "AssistingNurse": "INTEGER"
+                    }
+                ]
+            }
+        ],
+        "Appointment": [
+            {
+                "AppointmentID": "INTEGER",
+                "Patient": "INTEGER",
+                "PrepNurse": "INTEGER",
+                "Physician": "INTEGER",
+                "Start": "DATETIME",
+                "End": "DATETIME",
+                "ExaminationRoom": "TEXT",
+                "Prescribes": [
+                    {
+                        "Physician": "INTEGER",
+                        "Patient": "INTEGER",
+                        "Medication": "INTEGER",
+                        "Date": "DATETIME",
+                        "Appointment": "INTEGER",
+                        "Dose": "VARCHAR(30)"
+                    }
+                ]
+            }
+        ],
+        "Prescribes": [
+            {
+                "Physician": "INTEGER",
+                "Patient": "INTEGER",
+                "Medication": "INTEGER",
+                "Date": "DATETIME",
+                "Appointment": "INTEGER",
+                "Dose": "VARCHAR(30)"
+            }
+        ],
+        "Undergoes": [
+            {
+                "Patient": "INTEGER",
+                "Procedures": "INTEGER",
+                "Stay": "INTEGER",
+                "DateUndergoes": "DATETIME",
+                "Physician": "INTEGER",
+                "AssistingNurse": "INTEGER"
+            }
+        ]
+    },
+    "Procedures": {
+        "Code": "INTEGER",
+        "Name": "VARCHAR(30)",
+        "Cost": "REAL",
+        "Trained_In": [
+            {
+                "Physician": "INTEGER",
+                "Treatment": "INTEGER",
+                "CertificationDate": "DATETIME",
+                "CertificationExpires": "DATETIME"
+            }
+        ],
+        "Undergoes": [
+            {
+                "Patient": "INTEGER",
+                "Procedures": "INTEGER",
+                "Stay": "INTEGER",
+                "DateUndergoes": "DATETIME",
+                "Physician": "INTEGER",
+                "AssistingNurse": "INTEGER"
+            }
+        ]
+    },
+    "Nurse": {
+        "EmployeeID": "INTEGER",
+        "Name": "VARCHAR(30)",
+        "Position": "VARCHAR(30)",
+        "Registered": "BOOLEAN",
+        "SSN": "INTEGER",
+        "Appointment": [
+            {
+                "AppointmentID": "INTEGER",
+                "Patient": "INTEGER",
+                "PrepNurse": "INTEGER",
+                "Physician": "INTEGER",
+                "Start": "DATETIME",
+                "End": "DATETIME",
+                "ExaminationRoom": "TEXT",
+                "Prescribes": [
+                    {
+                        "Physician": "INTEGER",
+                        "Patient": "INTEGER",
+                        "Medication": "INTEGER",
+                        "Date": "DATETIME",
+                        "Appointment": "INTEGER",
+                        "Dose": "VARCHAR(30)"
+                    }
+                ]
+            }
+        ],
+        "On_Call": [
+            {
+                "Nurse": "INTEGER",
+                "BlockFloor": "INTEGER",
+                "BlockCode": "INTEGER",
+                "OnCallStart": "DATETIME",
+                "OnCallEnd": "DATETIME"
+            }
+        ],
+        "Undergoes": [
+            {
+                "Patient": "INTEGER",
+                "Procedures": "INTEGER",
+                "Stay": "INTEGER",
+                "DateUndergoes": "DATETIME",
+                "Physician": "INTEGER",
+                "AssistingNurse": "INTEGER"
+            }
+        ]
+    },
+    "Medication": {
+        "Code": "INTEGER",
+        "Name": "VARCHAR(30)",
+        "Brand": "VARCHAR(30)",
+        "Description": "VARCHAR(30)",
+        "Prescribes": [
+            {
+                "Physician": "INTEGER",
+                "Patient": "INTEGER",
+                "Medication": "INTEGER",
+                "Date": "DATETIME",
+                "Appointment": "INTEGER",
+                "Dose": "VARCHAR(30)"
+            }
+        ]
+    },
+    "Block": {
+        "BlockFloor": "INTEGER",
+        "BlockCode": "INTEGER",
+        "Room": [
+            {
+                "RoomNumber": "INTEGER",
+                "RoomType": "VARCHAR(30)",
+                "BlockFloor": "INTEGER",
+                "BlockCode": "INTEGER",
+                "Unavailable": "BOOLEAN",
+                "Stay": [
+                    {
+                        "StayID": "INTEGER",
+                        "Patient": "INTEGER",
+                        "Room": "INTEGER",
+                        "StayStart": "DATETIME",
+                        "StayEnd": "DATETIME",
+                        "Undergoes": [
+                            {
+                                "Patient": "INTEGER",
+                                "Procedures": "INTEGER",
+                                "Stay": "INTEGER",
+                                "DateUndergoes": "DATETIME",
+                                "Physician": "INTEGER",
+                                "AssistingNurse": "INTEGER"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "On_Call": [
+            {
+                "Nurse": "INTEGER",
+                "BlockFloor": "INTEGER",
+                "BlockCode": "INTEGER",
+                "OnCallStart": "DATETIME",
+                "OnCallEnd": "DATETIME"
+            }
+        ]
+    }
+}

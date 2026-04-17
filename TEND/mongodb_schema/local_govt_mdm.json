@@ -1,0 +1,49 @@
+{
+    "Customer_Master_Index": {
+        "master_customer_id": "INTEGER",
+        "cmi_details": "VARCHAR(255)",
+        "CMI_Cross_References": [
+            {
+                "cmi_cross_ref_id": "INTEGER",
+                "master_customer_id": "INTEGER",
+                "source_system_code": "CHAR(15)",
+                "Council_Tax": [
+                    {
+                        "council_tax_id": "INTEGER",
+                        "cmi_cross_ref_id": "INTEGER"
+                    }
+                ],
+                "Business_Rates": [
+                    {
+                        "business_rates_id": "INTEGER",
+                        "cmi_cross_ref_id": "INTEGER"
+                    }
+                ],
+                "Benefits_Overpayments": [
+                    {
+                        "council_tax_id": "INTEGER",
+                        "cmi_cross_ref_id": "INTEGER"
+                    }
+                ],
+                "Parking_Fines": [
+                    {
+                        "council_tax_id": "INTEGER",
+                        "cmi_cross_ref_id": "INTEGER"
+                    }
+                ],
+                "Rent_Arrears": [
+                    {
+                        "council_tax_id": "INTEGER",
+                        "cmi_cross_ref_id": "INTEGER"
+                    }
+                ],
+                "Electoral_Register": [
+                    {
+                        "electoral_register_id": "INTEGER",
+                        "cmi_cross_ref_id": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    }
+}

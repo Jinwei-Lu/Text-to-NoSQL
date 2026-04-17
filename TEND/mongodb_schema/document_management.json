@@ -1,0 +1,73 @@
+{
+    "Roles": {
+        "role_code": "VARCHAR(15)",
+        "role_description": "VARCHAR(80)",
+        "Users": [
+            {
+                "user_id": "INTEGER",
+                "role_code": "VARCHAR(15)",
+                "user_name": "VARCHAR(40)",
+                "user_login": "VARCHAR(40)",
+                "password": "VARCHAR(40)"
+            }
+        ]
+    },
+    "Document_Structures": {
+        "document_structure_code": "VARCHAR(15)",
+        "parent_document_structure_code": "VARCHAR(15)",
+        "document_structure_description": "VARCHAR(80)",
+        "Documents": [
+            {
+                "document_code": "VARCHAR(15)",
+                "document_structure_code": "VARCHAR(15)",
+                "document_type_code": "VARCHAR(15)",
+                "access_count": "INTEGER",
+                "document_name": "VARCHAR(80)",
+                "Document_Functional_Areas": [
+                    {
+                        "document_code": "VARCHAR(15)",
+                        "functional_area_code": "VARCHAR(15)"
+                    }
+                ],
+                "Document_Sections": [
+                    {
+                        "section_id": "INTEGER",
+                        "document_code": "VARCHAR(15)",
+                        "section_sequence": "INTEGER",
+                        "section_code": "VARCHAR(20)",
+                        "section_title": "VARCHAR(80)",
+                        "Document_Sections_Images": [
+                            {
+                                "section_id": "INTEGER",
+                                "image_id": "INTEGER"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Functional_Areas": {
+        "functional_area_code": "VARCHAR(15)",
+        "parent_functional_area_code": "VARCHAR(15)",
+        "functional_area_description": "VARCHAR(80)",
+        "Document_Functional_Areas": [
+            {
+                "document_code": "VARCHAR(15)",
+                "functional_area_code": "VARCHAR(15)"
+            }
+        ]
+    },
+    "Images": {
+        "image_id": "INTEGER",
+        "image_alt_text": "VARCHAR(80)",
+        "image_name": "VARCHAR(40)",
+        "image_url": "VARCHAR(255)",
+        "Document_Sections_Images": [
+            {
+                "section_id": "INTEGER",
+                "image_id": "INTEGER"
+            }
+        ]
+    }
+}

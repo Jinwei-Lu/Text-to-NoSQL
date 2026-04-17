@@ -1,0 +1,81 @@
+{
+    "Investors": {
+        "investor_id": "INTEGER",
+        "Investor_details": "VARCHAR(255)",
+        "Lots": [
+            {
+                "lot_id": "INTEGER",
+                "investor_id": "INTEGER",
+                "lot_details": "VARCHAR(255)",
+                "Transactions_Lots": [
+                    {
+                        "transaction_id": "INTEGER",
+                        "lot_id": "INTEGER"
+                    }
+                ]
+            }
+        ],
+        "Transactions": [
+            {
+                "transaction_id": "INTEGER",
+                "investor_id": "INTEGER",
+                "transaction_type_code": "VARCHAR(10)",
+                "date_of_transaction": "DATETIME",
+                "amount_of_transaction": "DECIMAL(19,4)",
+                "share_count": "VARCHAR(40)",
+                "other_details": "VARCHAR(255)",
+                "Sales": [
+                    {
+                        "sales_transaction_id": "INTEGER",
+                        "sales_details": "VARCHAR(255)"
+                    }
+                ],
+                "Purchases": [
+                    {
+                        "purchase_transaction_id": "INTEGER",
+                        "purchase_details": "VARCHAR(255)"
+                    }
+                ],
+                "Transactions_Lots": [
+                    {
+                        "transaction_id": "INTEGER",
+                        "lot_id": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    },
+    "Ref_Transaction_Types": {
+        "transaction_type_code": "VARCHAR(10)",
+        "transaction_type_description": "VARCHAR(80)",
+        "Transactions": [
+            {
+                "transaction_id": "INTEGER",
+                "investor_id": "INTEGER",
+                "transaction_type_code": "VARCHAR(10)",
+                "date_of_transaction": "DATETIME",
+                "amount_of_transaction": "DECIMAL(19,4)",
+                "share_count": "VARCHAR(40)",
+                "other_details": "VARCHAR(255)",
+                "Sales": [
+                    {
+                        "sales_transaction_id": "INTEGER",
+                        "sales_details": "VARCHAR(255)"
+                    }
+                ],
+                "Purchases": [
+                    {
+                        "purchase_transaction_id": "INTEGER",
+                        "purchase_details": "VARCHAR(255)"
+                    }
+                ],
+                "Transactions_Lots": [
+                    {
+                        "transaction_id": "INTEGER",
+                        "lot_id": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    }
+}

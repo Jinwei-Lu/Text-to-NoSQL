@@ -1,0 +1,30 @@
+{
+    "phone": {
+        "Name": "TEXT",
+        "Phone_ID": "INT",
+        "Memory_in_G": "INT",
+        "Carrier": "TEXT",
+        "Price": "REAL",
+        "phone_market": [
+            {
+                "Market_ID": "INT",
+                "Phone_ID": "TEXT",
+                "Num_of_stock": "INT"
+            }
+        ]
+    },
+    "market": {
+        "Market_ID": "INT",
+        "District": "TEXT",
+        "Num_of_employees": "INT",
+        "Num_of_shops": "REAL",
+        "Ranking": "INT",
+        "phone_market": [
+            {
+                "Market_ID": "INT",
+                "Phone_ID": "TEXT",
+                "Num_of_stock": "INT"
+            }
+        ]
+    }
+}

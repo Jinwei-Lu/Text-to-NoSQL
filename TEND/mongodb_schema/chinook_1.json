@@ -1,0 +1,171 @@
+{
+    "Artist": {
+        "ArtistId": "INTEGER",
+        "Name": "varchar(120)",
+        "Album": [
+            {
+                "AlbumId": "INTEGER",
+                "Title": "varchar(160)",
+                "ArtistId": "INTEGER",
+                "Track": [
+                    {
+                        "TrackId": "INTEGER",
+                        "Name": "varchar(200)",
+                        "AlbumId": "INTEGER",
+                        "MediaTypeId": "INTEGER",
+                        "GenreId": "INTEGER",
+                        "Composer": "varchar(220)",
+                        "Milliseconds": "INTEGER",
+                        "Bytes": "INTEGER",
+                        "UnitPrice": "decimal(10,2)",
+                        "InvoiceLine": [
+                            {
+                                "InvoiceLineId": "INTEGER",
+                                "InvoiceId": "INTEGER",
+                                "TrackId": "INTEGER",
+                                "UnitPrice": "decimal(10,2)",
+                                "Quantity": "INTEGER"
+                            }
+                        ],
+                        "PlaylistTrack": [
+                            {
+                                "PlaylistId": "INTEGER",
+                                "TrackId": "INTEGER"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Employee": {
+        "EmployeeId": "INTEGER",
+        "LastName": "varchar(20)",
+        "FirstName": "varchar(20)",
+        "Title": "varchar(30)",
+        "ReportsTo": "INTEGER",
+        "BirthDate": "datetime",
+        "HireDate": "datetime",
+        "Address": "varchar(70)",
+        "City": "varchar(40)",
+        "State": "varchar(40)",
+        "Country": "varchar(40)",
+        "PostalCode": "varchar(10)",
+        "Phone": "varchar(24)",
+        "Fax": "varchar(24)",
+        "Email": "varchar(60)",
+        "Customer": [
+            {
+                "CustomerId": "INTEGER",
+                "FirstName": "varchar(40)",
+                "LastName": "varchar(20)",
+                "Company": "varchar(80)",
+                "Address": "varchar(70)",
+                "City": "varchar(40)",
+                "State": "varchar(40)",
+                "Country": "varchar(40)",
+                "PostalCode": "varchar(10)",
+                "Phone": "varchar(24)",
+                "Fax": "varchar(24)",
+                "Email": "varchar(60)",
+                "SupportRepId": "INTEGER",
+                "Invoice": [
+                    {
+                        "InvoiceId": "INTEGER",
+                        "CustomerId": "INTEGER",
+                        "InvoiceDate": "datetime",
+                        "BillingAddress": "varchar(70)",
+                        "BillingCity": "varchar(40)",
+                        "BillingState": "varchar(40)",
+                        "BillingCountry": "varchar(40)",
+                        "BillingPostalCode": "varchar(10)",
+                        "Total": "decimal(10,2)",
+                        "InvoiceLine": [
+                            {
+                                "InvoiceLineId": "INTEGER",
+                                "InvoiceId": "INTEGER",
+                                "TrackId": "INTEGER",
+                                "UnitPrice": "decimal(10,2)",
+                                "Quantity": "INTEGER"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Playlist": {
+        "PlaylistId": "INTEGER",
+        "Name": "varchar(120)",
+        "PlaylistTrack": [
+            {
+                "PlaylistId": "INTEGER",
+                "TrackId": "INTEGER"
+            }
+        ]
+    },
+    "MediaType": {
+        "MediaTypeId": "INTEGER",
+        "Name": "varchar(120)",
+        "Track": [
+            {
+                "TrackId": "INTEGER",
+                "Name": "varchar(200)",
+                "AlbumId": "INTEGER",
+                "MediaTypeId": "INTEGER",
+                "GenreId": "INTEGER",
+                "Composer": "varchar(220)",
+                "Milliseconds": "INTEGER",
+                "Bytes": "INTEGER",
+                "UnitPrice": "decimal(10,2)",
+                "InvoiceLine": [
+                    {
+                        "InvoiceLineId": "INTEGER",
+                        "InvoiceId": "INTEGER",
+                        "TrackId": "INTEGER",
+                        "UnitPrice": "decimal(10,2)",
+                        "Quantity": "INTEGER"
+                    }
+                ],
+                "PlaylistTrack": [
+                    {
+                        "PlaylistId": "INTEGER",
+                        "TrackId": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    },
+    "Genre": {
+        "GenreId": "INTEGER",
+        "Name": "varchar(120)",
+        "Track": [
+            {
+                "TrackId": "INTEGER",
+                "Name": "varchar(200)",
+                "AlbumId": "INTEGER",
+                "MediaTypeId": "INTEGER",
+                "GenreId": "INTEGER",
+                "Composer": "varchar(220)",
+                "Milliseconds": "INTEGER",
+                "Bytes": "INTEGER",
+                "UnitPrice": "decimal(10,2)",
+                "InvoiceLine": [
+                    {
+                        "InvoiceLineId": "INTEGER",
+                        "InvoiceId": "INTEGER",
+                        "TrackId": "INTEGER",
+                        "UnitPrice": "decimal(10,2)",
+                        "Quantity": "INTEGER"
+                    }
+                ],
+                "PlaylistTrack": [
+                    {
+                        "PlaylistId": "INTEGER",
+                        "TrackId": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    }
+}

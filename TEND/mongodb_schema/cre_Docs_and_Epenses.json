@@ -1,0 +1,84 @@
+{
+    "Projects": {
+        "Project_ID": "INTEGER",
+        "Project_Details": "VARCHAR(255)",
+        "Documents": [
+            {
+                "Document_ID": "INTEGER",
+                "Document_Type_Code": "CHAR(15)",
+                "Project_ID": "INTEGER",
+                "Document_Date": "DATETIME",
+                "Document_Name": "VARCHAR(255)",
+                "Document_Description": "VARCHAR(255)",
+                "Other_Details": "VARCHAR(255)",
+                "Statements": [
+                    {
+                        "Statement_ID": "INTEGER",
+                        "Statement_Details": "VARCHAR(255)",
+                        "Accounts": [
+                            {
+                                "Account_ID": "INTEGER",
+                                "Statement_ID": "INTEGER",
+                                "Account_Details": "VARCHAR(255)"
+                            }
+                        ]
+                    }
+                ],
+                "Documents_with_Expenses": [
+                    {
+                        "Document_ID": "INTEGER",
+                        "Budget_Type_Code": "CHAR(15)",
+                        "Document_Details": "VARCHAR(255)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Ref_Document_Types": {
+        "Document_Type_Code": "CHAR(15)",
+        "Document_Type_Name": "VARCHAR(255)",
+        "Document_Type_Description": "VARCHAR(255)",
+        "Documents": [
+            {
+                "Document_ID": "INTEGER",
+                "Document_Type_Code": "CHAR(15)",
+                "Project_ID": "INTEGER",
+                "Document_Date": "DATETIME",
+                "Document_Name": "VARCHAR(255)",
+                "Document_Description": "VARCHAR(255)",
+                "Other_Details": "VARCHAR(255)",
+                "Statements": [
+                    {
+                        "Statement_ID": "INTEGER",
+                        "Statement_Details": "VARCHAR(255)",
+                        "Accounts": [
+                            {
+                                "Account_ID": "INTEGER",
+                                "Statement_ID": "INTEGER",
+                                "Account_Details": "VARCHAR(255)"
+                            }
+                        ]
+                    }
+                ],
+                "Documents_with_Expenses": [
+                    {
+                        "Document_ID": "INTEGER",
+                        "Budget_Type_Code": "CHAR(15)",
+                        "Document_Details": "VARCHAR(255)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Ref_Budget_Codes": {
+        "Budget_Type_Code": "CHAR(15)",
+        "Budget_Type_Description": "VARCHAR(255)",
+        "Documents_with_Expenses": [
+            {
+                "Document_ID": "INTEGER",
+                "Budget_Type_Code": "CHAR(15)",
+                "Document_Details": "VARCHAR(255)"
+            }
+        ]
+    }
+}

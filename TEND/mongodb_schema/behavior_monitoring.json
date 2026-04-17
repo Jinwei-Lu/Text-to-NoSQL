@@ -1,0 +1,173 @@
+{
+    "Addresses": {
+        "address_id": "INTEGER",
+        "line_1": "VARCHAR(120)",
+        "line_2": "VARCHAR(120)",
+        "line_3": "VARCHAR(120)",
+        "city": "VARCHAR(80)",
+        "zip_postcode": "VARCHAR(20)",
+        "state_province_county": "VARCHAR(50)",
+        "country": "VARCHAR(50)",
+        "other_address_details": "VARCHAR(255)",
+        "Students": [
+            {
+                "student_id": "INTEGER",
+                "address_id": "INTEGER",
+                "first_name": "VARCHAR(80)",
+                "middle_name": "VARCHAR(40)",
+                "last_name": "VARCHAR(40)",
+                "cell_mobile_number": "VARCHAR(40)",
+                "email_address": "VARCHAR(40)",
+                "date_first_rental": "DATETIME",
+                "date_left_university": "DATETIME",
+                "other_student_details": "VARCHAR(255)",
+                "Assessment_Notes": [
+                    {
+                        "notes_id": "INTEGER",
+                        "student_id": "INTEGER",
+                        "teacher_id": "INTEGER",
+                        "date_of_notes": "DATETIME",
+                        "text_of_notes": "VARCHAR(255)",
+                        "other_details": "VARCHAR(255)"
+                    }
+                ],
+                "Behavior_Incident": [
+                    {
+                        "incident_id": "INTEGER",
+                        "incident_type_code": "VARCHAR(10)",
+                        "student_id": "INTEGER",
+                        "date_incident_start": "DATETIME",
+                        "date_incident_end": "DATETIME",
+                        "incident_summary": "VARCHAR(255)",
+                        "recommendations": "VARCHAR(255)",
+                        "other_details": "VARCHAR(255)",
+                        "Students_in_Detention": [
+                            {
+                                "student_id": "INTEGER",
+                                "detention_id": "INTEGER",
+                                "incident_id": "INTEGER"
+                            }
+                        ]
+                    }
+                ],
+                "Student_Addresses": [
+                    {
+                        "student_id": "INTEGER",
+                        "address_id": "INTEGER",
+                        "date_address_from": "DATETIME",
+                        "date_address_to": "DATETIME",
+                        "monthly_rental": "DECIMAL(19,4)",
+                        "other_details": "VARCHAR(255)"
+                    }
+                ],
+                "Students_in_Detention": [
+                    {
+                        "student_id": "INTEGER",
+                        "detention_id": "INTEGER",
+                        "incident_id": "INTEGER"
+                    }
+                ]
+            }
+        ],
+        "Teachers": [
+            {
+                "teacher_id": "INTEGER",
+                "address_id": "INTEGER",
+                "first_name": "VARCHAR(80)",
+                "middle_name": "VARCHAR(80)",
+                "last_name": "VARCHAR(80)",
+                "gender": "VARCHAR(1)",
+                "cell_mobile_number": "VARCHAR(40)",
+                "email_address": "VARCHAR(40)",
+                "other_details": "VARCHAR(255)",
+                "Assessment_Notes": [
+                    {
+                        "notes_id": "INTEGER",
+                        "student_id": "INTEGER",
+                        "teacher_id": "INTEGER",
+                        "date_of_notes": "DATETIME",
+                        "text_of_notes": "VARCHAR(255)",
+                        "other_details": "VARCHAR(255)"
+                    }
+                ],
+                "Detention": [
+                    {
+                        "detention_id": "INTEGER",
+                        "detention_type_code": "VARCHAR(10)",
+                        "teacher_id": "INTEGER",
+                        "datetime_detention_start": "DATETIME",
+                        "datetime_detention_end": "DATETIME",
+                        "detention_summary": "VARCHAR(255)",
+                        "other_details": "VARCHAR(255)",
+                        "Students_in_Detention": [
+                            {
+                                "student_id": "INTEGER",
+                                "detention_id": "INTEGER",
+                                "incident_id": "INTEGER"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "Student_Addresses": [
+            {
+                "student_id": "INTEGER",
+                "address_id": "INTEGER",
+                "date_address_from": "DATETIME",
+                "date_address_to": "DATETIME",
+                "monthly_rental": "DECIMAL(19,4)",
+                "other_details": "VARCHAR(255)"
+            }
+        ]
+    },
+    "Ref_Incident_Type": {
+        "incident_type_code": "VARCHAR(10)",
+        "incident_type_description": "VARCHAR(80)",
+        "Behavior_Incident": [
+            {
+                "incident_id": "INTEGER",
+                "incident_type_code": "VARCHAR(10)",
+                "student_id": "INTEGER",
+                "date_incident_start": "DATETIME",
+                "date_incident_end": "DATETIME",
+                "incident_summary": "VARCHAR(255)",
+                "recommendations": "VARCHAR(255)",
+                "other_details": "VARCHAR(255)",
+                "Students_in_Detention": [
+                    {
+                        "student_id": "INTEGER",
+                        "detention_id": "INTEGER",
+                        "incident_id": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    },
+    "Ref_Detention_Type": {
+        "detention_type_code": "VARCHAR(10)",
+        "detention_type_description": "VARCHAR(80)",
+        "Detention": [
+            {
+                "detention_id": "INTEGER",
+                "detention_type_code": "VARCHAR(10)",
+                "teacher_id": "INTEGER",
+                "datetime_detention_start": "DATETIME",
+                "datetime_detention_end": "DATETIME",
+                "detention_summary": "VARCHAR(255)",
+                "other_details": "VARCHAR(255)",
+                "Students_in_Detention": [
+                    {
+                        "student_id": "INTEGER",
+                        "detention_id": "INTEGER",
+                        "incident_id": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    },
+    "Ref_Address_Types": {
+        "address_type_code": "VARCHAR(15)",
+        "address_type_description": "VARCHAR(80)"
+    }
+}

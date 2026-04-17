@@ -1,0 +1,30 @@
+{
+    "Services": {
+        "Service_ID": "INTEGER",
+        "Service_Type_Code": "CHAR(15)",
+        "Events": [
+            {
+                "Event_ID": "INTEGER",
+                "Service_ID": "INTEGER",
+                "Event_Details": "VARCHAR(255)",
+                "Participants_in_Events": [
+                    {
+                        "Event_ID": "INTEGER",
+                        "Participant_ID": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    },
+    "Participants": {
+        "Participant_ID": "INTEGER",
+        "Participant_Type_Code": "CHAR(15)",
+        "Participant_Details": "VARCHAR(255)",
+        "Participants_in_Events": [
+            {
+                "Event_ID": "INTEGER",
+                "Participant_ID": "INTEGER"
+            }
+        ]
+    }
+}

@@ -1,0 +1,139 @@
+{
+    "Properties": {
+        "property_id": "INTEGER",
+        "property_type_code": "CHAR(15)",
+        "property_address": "VARCHAR(255)",
+        "other_details": "VARCHAR(255)",
+        "Residents": [
+            {
+                "resident_id": "INTEGER",
+                "property_id": "INTEGER",
+                "date_moved_in": "DATETIME",
+                "date_moved_out": "DATETIME",
+                "other_details": "VARCHAR(255)",
+                "Residents_Services": [
+                    {
+                        "resident_id": "INTEGER",
+                        "service_id": "INTEGER",
+                        "date_moved_in": "DATETIME",
+                        "property_id": "INTEGER",
+                        "date_requested": "DATETIME",
+                        "date_provided": "DATETIME",
+                        "other_details": "VARCHAR(255)"
+                    }
+                ],
+                "Customer_Events": [
+                    {
+                        "Customer_Event_ID": "INTEGER",
+                        "customer_id": "INTEGER",
+                        "date_moved_in": "DATETIME",
+                        "property_id": "INTEGER",
+                        "resident_id": "INTEGER",
+                        "thing_id": "INTEGER",
+                        "Customer_Event_Notes": [
+                            {
+                                "Customer_Event_Note_ID": "INTEGER",
+                                "Customer_Event_ID": "INTEGER",
+                                "service_type_code": "CHAR(15)",
+                                "resident_id": "INTEGER",
+                                "property_id": "INTEGER",
+                                "date_moved_in": "DATETIME"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Organizations": {
+        "organization_id": "INTEGER",
+        "parent_organization_id": "INTEGER",
+        "organization_details": "VARCHAR(255)",
+        "Services": [
+            {
+                "service_id": "INTEGER",
+                "organization_id": "INTEGER",
+                "service_type_code": "CHAR(15)",
+                "service_details": "VARCHAR(255)",
+                "Residents_Services": [
+                    {
+                        "resident_id": "INTEGER",
+                        "service_id": "INTEGER",
+                        "date_moved_in": "DATETIME",
+                        "property_id": "INTEGER",
+                        "date_requested": "DATETIME",
+                        "date_provided": "DATETIME",
+                        "other_details": "VARCHAR(255)"
+                    }
+                ]
+            }
+        ],
+        "Things": [
+            {
+                "thing_id": "INTEGER",
+                "organization_id": "INTEGER",
+                "Type_of_Thing_Code": "CHAR(15)",
+                "service_type_code": "CHAR(10)",
+                "service_details": "VARCHAR(255)",
+                "Customer_Events": [
+                    {
+                        "Customer_Event_ID": "INTEGER",
+                        "customer_id": "INTEGER",
+                        "date_moved_in": "DATETIME",
+                        "property_id": "INTEGER",
+                        "resident_id": "INTEGER",
+                        "thing_id": "INTEGER",
+                        "Customer_Event_Notes": [
+                            {
+                                "Customer_Event_Note_ID": "INTEGER",
+                                "Customer_Event_ID": "INTEGER",
+                                "service_type_code": "CHAR(15)",
+                                "resident_id": "INTEGER",
+                                "property_id": "INTEGER",
+                                "date_moved_in": "DATETIME"
+                            }
+                        ]
+                    }
+                ],
+                "Timed_Status_of_Things": [
+                    {
+                        "thing_id": "INTEGER",
+                        "Date_and_Date": "DATETIME",
+                        "Status_of_Thing_Code": "CHAR(15)"
+                    }
+                ],
+                "Timed_Locations_of_Things": [
+                    {
+                        "thing_id": "INTEGER",
+                        "Date_and_Time": "DATETIME",
+                        "Location_Code": "CHAR(15)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Customers": {
+        "customer_id": "INTEGER",
+        "customer_details": "VARCHAR(255)",
+        "Customer_Events": [
+            {
+                "Customer_Event_ID": "INTEGER",
+                "customer_id": "INTEGER",
+                "date_moved_in": "DATETIME",
+                "property_id": "INTEGER",
+                "resident_id": "INTEGER",
+                "thing_id": "INTEGER",
+                "Customer_Event_Notes": [
+                    {
+                        "Customer_Event_Note_ID": "INTEGER",
+                        "Customer_Event_ID": "INTEGER",
+                        "service_type_code": "CHAR(15)",
+                        "resident_id": "INTEGER",
+                        "property_id": "INTEGER",
+                        "date_moved_in": "DATETIME"
+                    }
+                ]
+            }
+        ]
+    }
+}

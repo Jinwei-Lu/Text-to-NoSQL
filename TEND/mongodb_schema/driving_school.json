@@ -1,0 +1,86 @@
+{
+    "Addresses": {
+        "address_id": "INTEGER",
+        "line_1_number_building": "VARCHAR(80)",
+        "city": "VARCHAR(50)",
+        "zip_postcode": "VARCHAR(20)",
+        "state_province_county": "VARCHAR(50)",
+        "country": "VARCHAR(50)",
+        "Staff": [
+            {
+                "staff_id": "INTEGER",
+                "staff_address_id": "INTEGER",
+                "nickname": "VARCHAR(80)",
+                "first_name": "VARCHAR(80)",
+                "middle_name": "VARCHAR(80)",
+                "last_name": "VARCHAR(80)",
+                "date_of_birth": "DATETIME",
+                "date_joined_staff": "DATETIME",
+                "date_left_staff": "DATETIME",
+                "Lessons": [
+                    {
+                        "lesson_id": "INTEGER",
+                        "customer_id": "INTEGER",
+                        "lesson_status_code": "VARCHAR(15)",
+                        "staff_id": "INTEGER",
+                        "vehicle_id": "INTEGER",
+                        "lesson_date": "DATETIME",
+                        "lesson_time": "VARCHAR(10)",
+                        "price": "DOUBLE"
+                    }
+                ]
+            }
+        ],
+        "Customers": [
+            {
+                "customer_id": "INTEGER",
+                "customer_address_id": "INTEGER",
+                "customer_status_code": "VARCHAR(15)",
+                "date_became_customer": "DATETIME",
+                "date_of_birth": "DATETIME",
+                "first_name": "VARCHAR(80)",
+                "last_name": "VARCHAR(80)",
+                "amount_outstanding": "DOUBLE",
+                "email_address": "VARCHAR(250)",
+                "phone_number": "VARCHAR(255)",
+                "cell_mobile_phone_number": "VARCHAR(255)",
+                "Customer_Payments": [
+                    {
+                        "customer_id": "INTEGER",
+                        "datetime_payment": "DATETIME",
+                        "payment_method_code": "VARCHAR(10)",
+                        "amount_payment": "DOUBLE"
+                    }
+                ],
+                "Lessons": [
+                    {
+                        "lesson_id": "INTEGER",
+                        "customer_id": "INTEGER",
+                        "lesson_status_code": "VARCHAR(15)",
+                        "staff_id": "INTEGER",
+                        "vehicle_id": "INTEGER",
+                        "lesson_date": "DATETIME",
+                        "lesson_time": "VARCHAR(10)",
+                        "price": "DOUBLE"
+                    }
+                ]
+            }
+        ]
+    },
+    "Vehicles": {
+        "vehicle_id": "INTEGER",
+        "vehicle_details": "VARCHAR(255)",
+        "Lessons": [
+            {
+                "lesson_id": "INTEGER",
+                "customer_id": "INTEGER",
+                "lesson_status_code": "VARCHAR(15)",
+                "staff_id": "INTEGER",
+                "vehicle_id": "INTEGER",
+                "lesson_date": "DATETIME",
+                "lesson_time": "VARCHAR(10)",
+                "price": "DOUBLE"
+            }
+        ]
+    }
+}

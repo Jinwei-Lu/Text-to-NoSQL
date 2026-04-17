@@ -1,0 +1,52 @@
+{
+    "club": {
+        "Club_ID": "INT",
+        "Club_name": "TEXT",
+        "Region": "TEXT",
+        "Start_year": "INT",
+        "coach": [
+            {
+                "Coach_ID": "INT",
+                "Coach_name": "TEXT",
+                "Gender": "TEXT",
+                "Club_ID": "INT",
+                "Rank": "INT",
+                "player_coach": [
+                    {
+                        "Player_ID": "INT",
+                        "Coach_ID": "INT",
+                        "Starting_year": "INT"
+                    }
+                ]
+            }
+        ],
+        "match_result": [
+            {
+                "Rank": "INT",
+                "Club_ID": "INT",
+                "Gold": "INT",
+                "Big_Silver": "INT",
+                "Small_Silver": "INT",
+                "Bronze": "INT",
+                "Points": "INT"
+            }
+        ]
+    },
+    "player": {
+        "Player_ID": "INT",
+        "Sponsor_name": "TEXT",
+        "Player_name": "TEXT",
+        "Gender": "TEXT",
+        "Residence": "TEXT",
+        "Occupation": "TEXT",
+        "Votes": "INT",
+        "Rank": "TEXT",
+        "player_coach": [
+            {
+                "Player_ID": "INT",
+                "Coach_ID": "INT",
+                "Starting_year": "INT"
+            }
+        ]
+    }
+}

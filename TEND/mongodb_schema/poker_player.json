@@ -1,0 +1,19 @@
+{
+    "people": {
+        "People_ID": "INT",
+        "Nationality": "TEXT",
+        "Name": "TEXT",
+        "Birth_Date": "TEXT",
+        "Height": "REAL",
+        "poker_player": [
+            {
+                "Poker_Player_ID": "INT",
+                "People_ID": "INT",
+                "Final_Table_Made": "REAL",
+                "Best_Finish": "REAL",
+                "Money_Rank": "REAL",
+                "Earnings": "REAL"
+            }
+        ]
+    }
+}

@@ -1,0 +1,71 @@
+{
+    "Customers": {
+        "Customer_ID": "INTEGER",
+        "Customer_Details": "VARCHAR(255)",
+        "Policies": [
+            {
+                "Policy_ID": "INTEGER",
+                "Customer_ID": "INTEGER",
+                "Policy_Type_Code": "CHAR(15)",
+                "Start_Date": "DATETIME",
+                "End_Date": "DATETIME",
+                "Claim_Headers": [
+                    {
+                        "Claim_Header_ID": "INTEGER",
+                        "Claim_Status_Code": "CHAR(15)",
+                        "Claim_Type_Code": "CHAR(15)",
+                        "Policy_ID": "INTEGER",
+                        "Date_of_Claim": "DATETIME",
+                        "Date_of_Settlement": "DATETIME",
+                        "Amount_Claimed": "DECIMAL(20,4)",
+                        "Amount_Piad": "DECIMAL(20,4)",
+                        "Claims_Documents": [
+                            {
+                                "Claim_ID": "INTEGER",
+                                "Document_Type_Code": "CHAR(15)",
+                                "Created_by_Staff_ID": "INTEGER",
+                                "Created_Date": "INTEGER"
+                            }
+                        ],
+                        "Claims_Processing": [
+                            {
+                                "Claim_Processing_ID": "INTEGER",
+                                "Claim_ID": "INTEGER",
+                                "Claim_Outcome_Code": "CHAR(15)",
+                                "Claim_Stage_ID": "INTEGER",
+                                "Staff_ID": "INTEGER"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Staff": {
+        "Staff_ID": "INTEGER",
+        "Staff_Details": "VARCHAR(255)",
+        "Claims_Documents": [
+            {
+                "Claim_ID": "INTEGER",
+                "Document_Type_Code": "CHAR(15)",
+                "Created_by_Staff_ID": "INTEGER",
+                "Created_Date": "INTEGER"
+            }
+        ],
+        "Claims_Processing": [
+            {
+                "Claim_Processing_ID": "INTEGER",
+                "Claim_ID": "INTEGER",
+                "Claim_Outcome_Code": "CHAR(15)",
+                "Claim_Stage_ID": "INTEGER",
+                "Staff_ID": "INTEGER"
+            }
+        ]
+    },
+    "Claims_Processing_Stages": {
+        "Claim_Stage_ID": "INTEGER",
+        "Next_Claim_Stage_ID": "INTEGER",
+        "Claim_Status_Name": "VARCHAR(255)",
+        "Claim_Status_Description": "VARCHAR(255)"
+    }
+}

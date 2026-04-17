@@ -1,0 +1,35 @@
+{
+    "mountain": {
+        "id": "INT",
+        "name": "TEXT",
+        "Height": "REAL",
+        "Prominence": "REAL",
+        "Range": "TEXT",
+        "Country": "TEXT",
+        "photos": [
+            {
+                "id": "INT",
+                "camera_lens_id": "INT",
+                "mountain_id": "INT",
+                "color": "TEXT",
+                "name": "TEXT"
+            }
+        ]
+    },
+    "camera_lens": {
+        "id": "INT",
+        "brand": "TEXT",
+        "name": "TEXT",
+        "focal_length_mm": "REAL",
+        "max_aperture": "REAL",
+        "photos": [
+            {
+                "id": "INT",
+                "camera_lens_id": "INT",
+                "mountain_id": "INT",
+                "color": "TEXT",
+                "name": "TEXT"
+            }
+        ]
+    }
+}

@@ -1,0 +1,35 @@
+{
+    "company": {
+        "Company_ID": "INT",
+        "Rank": "INT",
+        "Company": "TEXT",
+        "Headquarters": "TEXT",
+        "Main_Industry": "TEXT",
+        "Sales_billion": "REAL",
+        "Profits_billion": "REAL",
+        "Assets_billion": "REAL",
+        "Market_Value": "REAL",
+        "station_company": [
+            {
+                "Station_ID": "INT",
+                "Company_ID": "INT",
+                "Rank_of_the_Year": "INT"
+            }
+        ]
+    },
+    "gas_station": {
+        "Station_ID": "INT",
+        "Open_Year": "INT",
+        "Location": "TEXT",
+        "Manager_Name": "TEXT",
+        "Vice_Manager_Name": "TEXT",
+        "Representative_Name": "TEXT",
+        "station_company": [
+            {
+                "Station_ID": "INT",
+                "Company_ID": "INT",
+                "Rank_of_the_Year": "INT"
+            }
+        ]
+    }
+}

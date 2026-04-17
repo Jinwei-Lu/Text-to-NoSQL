@@ -1,0 +1,31 @@
+{
+    "School": {
+        "School_id": "TEXT",
+        "School_name": "TEXT",
+        "Location": "TEXT",
+        "Mascot": "TEXT",
+        "Enrollment": "INT",
+        "IHSAA_Class": "TEXT",
+        "IHSAA_Football_Class": "TEXT",
+        "County": "TEXT",
+        "budget": [
+            {
+                "School_id": "INT",
+                "Year": "INT",
+                "Budgeted": "INT",
+                "total_budget_percent_budgeted": "REAL",
+                "Invested": "INT",
+                "total_budget_percent_invested": "REAL",
+                "Budget_invested_percent": "TEXT"
+            }
+        ],
+        "endowment": [
+            {
+                "endowment_id": "INT",
+                "School_id": "INT",
+                "donator_name": "TEXT",
+                "amount": "REAL"
+            }
+        ]
+    }
+}

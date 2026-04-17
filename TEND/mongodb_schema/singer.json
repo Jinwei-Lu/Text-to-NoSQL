@@ -1,0 +1,18 @@
+{
+    "singer": {
+        "Singer_ID": "INT",
+        "Name": "TEXT",
+        "Birth_Year": "REAL",
+        "Net_Worth_Millions": "REAL",
+        "Citizenship": "TEXT",
+        "song": [
+            {
+                "Song_ID": "INT",
+                "Title": "TEXT",
+                "Singer_ID": "INT",
+                "Sales": "REAL",
+                "Highest_Position": "REAL"
+            }
+        ]
+    }
+}

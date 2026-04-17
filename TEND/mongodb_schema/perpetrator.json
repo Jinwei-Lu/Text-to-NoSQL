@@ -1,0 +1,21 @@
+{
+    "people": {
+        "People_ID": "INT",
+        "Name": "TEXT",
+        "Height": "REAL",
+        "Weight": "REAL",
+        "Home Town": "TEXT",
+        "perpetrator": [
+            {
+                "Perpetrator_ID": "INT",
+                "People_ID": "INT",
+                "Date": "TEXT",
+                "Year": "REAL",
+                "Location": "TEXT",
+                "Country": "TEXT",
+                "Killed": "INT",
+                "Injured": "INT"
+            }
+        ]
+    }
+}

@@ -1,0 +1,164 @@
+{
+    "Customers": {
+        "customer_id": "INTEGER",
+        "payment_method": "VARCHAR(10)",
+        "customer_name": "VARCHAR(80)",
+        "customer_phone": "VARCHAR(80)",
+        "customer_email": "VARCHAR(80)",
+        "date_became_customer": "DATETIME",
+        "Regular_Orders": [
+            {
+                "regular_order_id": "INTEGER",
+                "distributer_id": "INTEGER",
+                "Regular_Order_Products": [
+                    {
+                        "regular_order_id": "INTEGER",
+                        "product_id": "INTEGER"
+                    }
+                ],
+                "Actual_Orders": [
+                    {
+                        "actual_order_id": "INTEGER",
+                        "order_status_code": "VARCHAR(10)",
+                        "regular_order_id": "INTEGER",
+                        "actual_order_date": "DATETIME",
+                        "Actual_Order_Products": [
+                            {
+                                "actual_order_id": "INTEGER",
+                                "product_id": "INTEGER"
+                            }
+                        ],
+                        "Order_Deliveries": [
+                            {
+                                "location_code": "VARCHAR(10)",
+                                "actual_order_id": "INTEGER",
+                                "delivery_status_code": "VARCHAR(10)",
+                                "driver_employee_id": "INTEGER",
+                                "truck_id": "INTEGER",
+                                "delivery_date": "DATETIME"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "Customer_Addresses": [
+            {
+                "customer_id": "INTEGER",
+                "address_id": "INTEGER",
+                "date_from": "DATETIME",
+                "address_type": "VARCHAR(10)",
+                "date_to": "DATETIME"
+            }
+        ]
+    },
+    "Products": {
+        "product_id": "INTEGER",
+        "product_name": "VARCHAR(20)",
+        "product_price": "DECIMAL(19,4)",
+        "product_description": "VARCHAR(255)",
+        "Regular_Order_Products": [
+            {
+                "regular_order_id": "INTEGER",
+                "product_id": "INTEGER"
+            }
+        ],
+        "Actual_Order_Products": [
+            {
+                "actual_order_id": "INTEGER",
+                "product_id": "INTEGER"
+            }
+        ]
+    },
+    "Addresses": {
+        "address_id": "INTEGER",
+        "address_details": "VARCHAR(80)",
+        "city": "VARCHAR(50)",
+        "zip_postcode": "VARCHAR(20)",
+        "state_province_county": "VARCHAR(50)",
+        "country": "VARCHAR(50)",
+        "Customer_Addresses": [
+            {
+                "customer_id": "INTEGER",
+                "address_id": "INTEGER",
+                "date_from": "DATETIME",
+                "address_type": "VARCHAR(10)",
+                "date_to": "DATETIME"
+            }
+        ],
+        "Delivery_Route_Locations": [
+            {
+                "location_code": "VARCHAR(10)",
+                "route_id": "INTEGER",
+                "location_address_id": "INTEGER",
+                "location_name": "VARCHAR(50)",
+                "Order_Deliveries": [
+                    {
+                        "location_code": "VARCHAR(10)",
+                        "actual_order_id": "INTEGER",
+                        "delivery_status_code": "VARCHAR(10)",
+                        "driver_employee_id": "INTEGER",
+                        "truck_id": "INTEGER",
+                        "delivery_date": "DATETIME"
+                    }
+                ]
+            }
+        ],
+        "Employees": [
+            {
+                "employee_id": "INTEGER",
+                "employee_address_id": "INTEGER",
+                "employee_name": "VARCHAR(80)",
+                "employee_phone": "VARCHAR(80)",
+                "Order_Deliveries": [
+                    {
+                        "location_code": "VARCHAR(10)",
+                        "actual_order_id": "INTEGER",
+                        "delivery_status_code": "VARCHAR(10)",
+                        "driver_employee_id": "INTEGER",
+                        "truck_id": "INTEGER",
+                        "delivery_date": "DATETIME"
+                    }
+                ]
+            }
+        ]
+    },
+    "Delivery_Routes": {
+        "route_id": "INTEGER",
+        "route_name": "VARCHAR(50)",
+        "other_route_details": "VARCHAR(255)",
+        "Delivery_Route_Locations": [
+            {
+                "location_code": "VARCHAR(10)",
+                "route_id": "INTEGER",
+                "location_address_id": "INTEGER",
+                "location_name": "VARCHAR(50)",
+                "Order_Deliveries": [
+                    {
+                        "location_code": "VARCHAR(10)",
+                        "actual_order_id": "INTEGER",
+                        "delivery_status_code": "VARCHAR(10)",
+                        "driver_employee_id": "INTEGER",
+                        "truck_id": "INTEGER",
+                        "delivery_date": "DATETIME"
+                    }
+                ]
+            }
+        ]
+    },
+    "Trucks": {
+        "truck_id": "INTEGER",
+        "truck_licence_number": "VARCHAR(20)",
+        "truck_details": "VARCHAR(255)",
+        "Order_Deliveries": [
+            {
+                "location_code": "VARCHAR(10)",
+                "actual_order_id": "INTEGER",
+                "delivery_status_code": "VARCHAR(10)",
+                "driver_employee_id": "INTEGER",
+                "truck_id": "INTEGER",
+                "delivery_date": "DATETIME"
+            }
+        ]
+    }
+}

@@ -1,0 +1,36 @@
+{
+    "market": {
+        "Market_ID": "INT",
+        "Country": "TEXT",
+        "Number_cities": "INT",
+        "film_market_estimation": [
+            {
+                "Estimation_ID": "INT",
+                "Low_Estimate": "REAL",
+                "High_Estimate": "REAL",
+                "Film_ID": "INT",
+                "Type": "TEXT",
+                "Market_ID": "INT",
+                "Year": "INT"
+            }
+        ]
+    },
+    "film": {
+        "Film_ID": "INT",
+        "Title": "TEXT",
+        "Studio": "TEXT",
+        "Director": "TEXT",
+        "Gross_in_dollar": "INT",
+        "film_market_estimation": [
+            {
+                "Estimation_ID": "INT",
+                "Low_Estimate": "REAL",
+                "High_Estimate": "REAL",
+                "Film_ID": "INT",
+                "Type": "TEXT",
+                "Market_ID": "INT",
+                "Year": "INT"
+            }
+        ]
+    }
+}

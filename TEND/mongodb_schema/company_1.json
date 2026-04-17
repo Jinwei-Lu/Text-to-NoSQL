@@ -1,0 +1,42 @@
+{
+    "works_on": {
+        "Essn": "INTEGER",
+        "Pno": "INTEGER",
+        "Hours": "REAL"
+    },
+    "employee": {
+        "Fname": "TEXT",
+        "Minit": "TEXT",
+        "Lname": "TEXT",
+        "Ssn": "INTEGER",
+        "Bdate": "TEXT",
+        "Address": "TEXT",
+        "Sex": "TEXT",
+        "Salary": "INTEGER",
+        "Super_ssn": "INTEGER",
+        "Dno": "INTEGER"
+    },
+    "department": {
+        "Dname": "TEXT",
+        "Dnumber": "INTEGER",
+        "Mgr_ssn": "INTEGER",
+        "Mgr_start_date": "TEXT"
+    },
+    "project": {
+        "Pname": "TEXT",
+        "Pnumber": "INTEGER",
+        "Plocation": "TEXT",
+        "Dnum": "INTEGER"
+    },
+    "dependent": {
+        "Essn": "INTEGER",
+        "Dependent_name": "TEXT",
+        "Sex": "TEXT",
+        "Bdate": "TEXT",
+        "Relationship": "TEXT"
+    },
+    "dept_locations": {
+        "Dnumber": "INTEGER",
+        "Dlocation": "TEXT"
+    }
+}

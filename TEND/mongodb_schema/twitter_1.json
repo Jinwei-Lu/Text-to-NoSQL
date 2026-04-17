@@ -1,0 +1,23 @@
+{
+    "user_profiles": {
+        "uid": "int(11)",
+        "name": "varchar(255)",
+        "email": "varchar(255)",
+        "partitionid": "int(11)",
+        "followers": "int(11)",
+        "follows": [
+            {
+                "f1": "int(11)",
+                "f2": "int(11)"
+            }
+        ],
+        "tweets": [
+            {
+                "id": "bigint(20)",
+                "uid": "int(11)",
+                "text": "char(140)",
+                "createdate": "datetime"
+            }
+        ]
+    }
+}

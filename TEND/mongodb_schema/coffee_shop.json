@@ -1,0 +1,33 @@
+{
+    "shop": {
+        "Shop_ID": "INT",
+        "Address": "TEXT",
+        "Num_of_staff": "TEXT",
+        "Score": "REAL",
+        "Open_Year": "TEXT",
+        "happy_hour": [
+            {
+                "HH_ID": "INT",
+                "Shop_ID": "INT",
+                "Month": "TEXT",
+                "Num_of_shaff_in_charge": "INT"
+            }
+        ]
+    },
+    "member": {
+        "Member_ID": "INT",
+        "Name": "TEXT",
+        "Membership_card": "TEXT",
+        "Age": "INT",
+        "Time_of_purchase": "INT",
+        "Level_of_membership": "INT",
+        "Address": "TEXT",
+        "happy_hour_member": [
+            {
+                "HH_ID": "INT",
+                "Member_ID": "INT",
+                "Total_amount": "REAL"
+            }
+        ]
+    }
+}

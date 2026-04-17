@@ -1,0 +1,30 @@
+{
+    "battle": {
+        "id": "INT",
+        "name": "TEXT",
+        "date": "TEXT",
+        "bulgarian_commander": "TEXT",
+        "latin_commander": "TEXT",
+        "result": "TEXT",
+        "ship": [
+            {
+                "lost_in_battle": "INT",
+                "id": "INT",
+                "name": "TEXT",
+                "tonnage": "TEXT",
+                "ship_type": "TEXT",
+                "location": "TEXT",
+                "disposition_of_ship": "TEXT",
+                "death": [
+                    {
+                        "caused_by_ship_id": "INT",
+                        "id": "INT",
+                        "note": "TEXT",
+                        "killed": "INT",
+                        "injured": "INT"
+                    }
+                ]
+            }
+        ]
+    }
+}

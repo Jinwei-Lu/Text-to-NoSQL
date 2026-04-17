@@ -1,0 +1,30 @@
+{
+    "Student": {
+        "StuID": "INTEGER",
+        "LName": "VARCHAR(12)",
+        "Fname": "VARCHAR(12)",
+        "Age": "INTEGER",
+        "Sex": "VARCHAR(1)",
+        "Major": "INTEGER",
+        "Advisor": "INTEGER",
+        "city_code": "VARCHAR(3)",
+        "Has_Pet": [
+            {
+                "StuID": "INTEGER",
+                "PetID": "INTEGER"
+            }
+        ]
+    },
+    "Pets": {
+        "PetID": "INTEGER",
+        "PetType": "VARCHAR(20)",
+        "pet_age": "INTEGER",
+        "weight": "REAL",
+        "Has_Pet": [
+            {
+                "StuID": "INTEGER",
+                "PetID": "INTEGER"
+            }
+        ]
+    }
+}

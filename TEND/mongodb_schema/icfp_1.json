@@ -1,0 +1,40 @@
+{
+    "Papers": {
+        "paperID": "INTEGER",
+        "title": "TEXT",
+        "Authorship": [
+            {
+                "authID": "INTEGER",
+                "instID": "INTEGER",
+                "paperID": "INTEGER",
+                "authOrder": "INTEGER"
+            }
+        ]
+    },
+    "Inst": {
+        "instID": "INTEGER",
+        "name": "TEXT",
+        "country": "TEXT",
+        "Authorship": [
+            {
+                "authID": "INTEGER",
+                "instID": "INTEGER",
+                "paperID": "INTEGER",
+                "authOrder": "INTEGER"
+            }
+        ]
+    },
+    "Authors": {
+        "authID": "INTEGER",
+        "lname": "TEXT",
+        "fname": "TEXT",
+        "Authorship": [
+            {
+                "authID": "INTEGER",
+                "instID": "INTEGER",
+                "paperID": "INTEGER",
+                "authOrder": "INTEGER"
+            }
+        ]
+    }
+}

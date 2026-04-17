@@ -1,0 +1,63 @@
+{
+    "genre": {
+        "g_name": "varchar2(20)",
+        "rating": "varchar2(10)",
+        "most_popular_in": "varchar2(50)",
+        "artist": [
+            {
+                "artist_name": "varchar2(50)",
+                "country": "varchar2(20)",
+                "gender": "varchar2(20)",
+                "preferred_genre": "varchar2(50)",
+                "files": [
+                    {
+                        "f_id": "number(10)",
+                        "artist_name": "varchar2(50)",
+                        "file_size": "varchar2(20)",
+                        "duration": "varchar2(20)",
+                        "formats": "varchar2(20)",
+                        "song": [
+                            {
+                                "song_name": "varchar2(50)",
+                                "artist_name": "varchar2(50)",
+                                "country": "varchar2(20)",
+                                "f_id": "number(10)",
+                                "genre_is": "varchar2(20)",
+                                "rating": "number(10)",
+                                "languages": "varchar2(20)",
+                                "releasedate": "Date",
+                                "resolution": "number(10)"
+                            }
+                        ]
+                    }
+                ],
+                "song": [
+                    {
+                        "song_name": "varchar2(50)",
+                        "artist_name": "varchar2(50)",
+                        "country": "varchar2(20)",
+                        "f_id": "number(10)",
+                        "genre_is": "varchar2(20)",
+                        "rating": "number(10)",
+                        "languages": "varchar2(20)",
+                        "releasedate": "Date",
+                        "resolution": "number(10)"
+                    }
+                ]
+            }
+        ],
+        "song": [
+            {
+                "song_name": "varchar2(50)",
+                "artist_name": "varchar2(50)",
+                "country": "varchar2(20)",
+                "f_id": "number(10)",
+                "genre_is": "varchar2(20)",
+                "rating": "number(10)",
+                "languages": "varchar2(20)",
+                "releasedate": "Date",
+                "resolution": "number(10)"
+            }
+        ]
+    }
+}

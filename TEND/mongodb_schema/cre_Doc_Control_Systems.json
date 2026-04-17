@@ -1,0 +1,166 @@
+{
+    "Ref_Shipping_Agents": {
+        "shipping_agent_code": "CHAR(15)",
+        "shipping_agent_name": "VARCHAR(255)",
+        "shipping_agent_description": "VARCHAR(255)",
+        "Documents": [
+            {
+                "document_id": "INTEGER",
+                "document_status_code": "CHAR(15)",
+                "document_type_code": "CHAR(15)",
+                "shipping_agent_code": "CHAR(15)",
+                "receipt_date": "DATETIME",
+                "receipt_number": "VARCHAR(255)",
+                "other_details": "VARCHAR(255)",
+                "Document_Drafts": [
+                    {
+                        "document_id": "INTEGER",
+                        "draft_number": "INTEGER",
+                        "draft_details": "VARCHAR(255)",
+                        "Draft_Copies": [
+                            {
+                                "document_id": "INTEGER",
+                                "draft_number": "INTEGER",
+                                "copy_number": "INTEGER",
+                                "Circulation_History": [
+                                    {
+                                        "document_id": "INTEGER",
+                                        "draft_number": "INTEGER",
+                                        "copy_number": "INTEGER",
+                                        "employee_id": "INTEGER"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "Documents_Mailed": [
+                    {
+                        "document_id": "INTEGER",
+                        "mailed_to_address_id": "INTEGER",
+                        "mailing_date": "DATETIME"
+                    }
+                ]
+            }
+        ]
+    },
+    "Ref_Document_Status": {
+        "document_status_code": "CHAR(15)",
+        "document_status_description": "VARCHAR(255)",
+        "Documents": [
+            {
+                "document_id": "INTEGER",
+                "document_status_code": "CHAR(15)",
+                "document_type_code": "CHAR(15)",
+                "shipping_agent_code": "CHAR(15)",
+                "receipt_date": "DATETIME",
+                "receipt_number": "VARCHAR(255)",
+                "other_details": "VARCHAR(255)",
+                "Document_Drafts": [
+                    {
+                        "document_id": "INTEGER",
+                        "draft_number": "INTEGER",
+                        "draft_details": "VARCHAR(255)",
+                        "Draft_Copies": [
+                            {
+                                "document_id": "INTEGER",
+                                "draft_number": "INTEGER",
+                                "copy_number": "INTEGER",
+                                "Circulation_History": [
+                                    {
+                                        "document_id": "INTEGER",
+                                        "draft_number": "INTEGER",
+                                        "copy_number": "INTEGER",
+                                        "employee_id": "INTEGER"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "Documents_Mailed": [
+                    {
+                        "document_id": "INTEGER",
+                        "mailed_to_address_id": "INTEGER",
+                        "mailing_date": "DATETIME"
+                    }
+                ]
+            }
+        ]
+    },
+    "Ref_Document_Types": {
+        "document_type_code": "CHAR(15)",
+        "document_type_description": "VARCHAR(255)",
+        "Documents": [
+            {
+                "document_id": "INTEGER",
+                "document_status_code": "CHAR(15)",
+                "document_type_code": "CHAR(15)",
+                "shipping_agent_code": "CHAR(15)",
+                "receipt_date": "DATETIME",
+                "receipt_number": "VARCHAR(255)",
+                "other_details": "VARCHAR(255)",
+                "Document_Drafts": [
+                    {
+                        "document_id": "INTEGER",
+                        "draft_number": "INTEGER",
+                        "draft_details": "VARCHAR(255)",
+                        "Draft_Copies": [
+                            {
+                                "document_id": "INTEGER",
+                                "draft_number": "INTEGER",
+                                "copy_number": "INTEGER",
+                                "Circulation_History": [
+                                    {
+                                        "document_id": "INTEGER",
+                                        "draft_number": "INTEGER",
+                                        "copy_number": "INTEGER",
+                                        "employee_id": "INTEGER"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "Documents_Mailed": [
+                    {
+                        "document_id": "INTEGER",
+                        "mailed_to_address_id": "INTEGER",
+                        "mailing_date": "DATETIME"
+                    }
+                ]
+            }
+        ]
+    },
+    "Roles": {
+        "role_code": "CHAR(15)",
+        "role_description": "VARCHAR(255)",
+        "Employees": [
+            {
+                "employee_id": "INTEGER",
+                "role_code": "CHAR(15)",
+                "employee_name": "VARCHAR(255)",
+                "other_details": "VARCHAR(255)",
+                "Circulation_History": [
+                    {
+                        "document_id": "INTEGER",
+                        "draft_number": "INTEGER",
+                        "copy_number": "INTEGER",
+                        "employee_id": "INTEGER"
+                    }
+                ]
+            }
+        ]
+    },
+    "Addresses": {
+        "address_id": "INTEGER",
+        "address_details": "VARCHAR(255)",
+        "Documents_Mailed": [
+            {
+                "document_id": "INTEGER",
+                "mailed_to_address_id": "INTEGER",
+                "mailing_date": "DATETIME"
+            }
+        ]
+    }
+}

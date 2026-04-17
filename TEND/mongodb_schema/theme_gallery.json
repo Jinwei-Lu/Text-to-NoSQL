@@ -1,0 +1,25 @@
+{
+    "artist": {
+        "Artist_ID": "INT",
+        "Name": "TEXT",
+        "Country": "TEXT",
+        "Year_Join": "INT",
+        "Age": "INT",
+        "exhibition": [
+            {
+                "Exhibition_ID": "INT",
+                "Year": "INT",
+                "Theme": "TEXT",
+                "Artist_ID": "INT",
+                "Ticket_Price": "REAL",
+                "exhibition_record": [
+                    {
+                        "Exhibition_ID": "INT",
+                        "Date": "TEXT",
+                        "Attendance": "INT"
+                    }
+                ]
+            }
+        ]
+    }
+}

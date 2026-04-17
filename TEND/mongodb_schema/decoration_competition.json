@@ -1,0 +1,24 @@
+{
+    "college": {
+        "College_ID": "INT",
+        "Name": "TEXT",
+        "Leader_Name": "TEXT",
+        "College_Location": "TEXT",
+        "member": [
+            {
+                "Member_ID": "INT",
+                "Name": "TEXT",
+                "Country": "TEXT",
+                "College_ID": "INT",
+                "round": [
+                    {
+                        "Round_ID": "INT",
+                        "Member_ID": "INT",
+                        "Decoration_Theme": "TEXT",
+                        "Rank_in_Round": "INT"
+                    }
+                ]
+            }
+        ]
+    }
+}

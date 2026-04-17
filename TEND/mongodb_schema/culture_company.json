@@ -1,0 +1,39 @@
+{
+    "movie": {
+        "movie_id": "INT",
+        "Title": "TEXT",
+        "Year": "INT",
+        "Director": "TEXT",
+        "Budget_million": "REAL",
+        "Gross_worldwide": "INT",
+        "culture_company": [
+            {
+                "Company_name": "TEXT",
+                "Type": "TEXT",
+                "Incorporated_in": "TEXT",
+                "Group_Equity_Shareholding": "REAL",
+                "book_club_id": "TEXT",
+                "movie_id": "TEXT"
+            }
+        ]
+    },
+    "book_club": {
+        "book_club_id": "INT",
+        "Year": "INT",
+        "Author_or_Editor": "TEXT",
+        "Book_Title": "TEXT",
+        "Publisher": "TEXT",
+        "Category": "TEXT",
+        "Result": "TEXT",
+        "culture_company": [
+            {
+                "Company_name": "TEXT",
+                "Type": "TEXT",
+                "Incorporated_in": "TEXT",
+                "Group_Equity_Shareholding": "REAL",
+                "book_club_id": "TEXT",
+                "movie_id": "TEXT"
+            }
+        ]
+    }
+}

@@ -1,0 +1,23 @@
+{
+    "Projects": {
+        "Code": "Char(4)",
+        "Name": "Char(50)",
+        "Hours": "INT",
+        "AssignedTo": [
+            {
+                "Scientist": "INT",
+                "Project": "char(4)"
+            }
+        ]
+    },
+    "Scientists": {
+        "SSN": "INT",
+        "Name": "Char(30)",
+        "AssignedTo": [
+            {
+                "Scientist": "INT",
+                "Project": "char(4)"
+            }
+        ]
+    }
+}

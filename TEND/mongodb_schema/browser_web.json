@@ -1,0 +1,28 @@
+{
+    "browser": {
+        "id": "INT",
+        "name": "TEXT",
+        "market_share": "REAL",
+        "accelerator_compatible_browser": [
+            {
+                "accelerator_id": "INT",
+                "browser_id": "INT",
+                "compatible_since_year": "INT"
+            }
+        ]
+    },
+    "Web_client_accelerator": {
+        "id": "INT",
+        "name": "TEXT",
+        "Operating_system": "TEXT",
+        "Client": "TEXT",
+        "Connection": "TEXT",
+        "accelerator_compatible_browser": [
+            {
+                "accelerator_id": "INT",
+                "browser_id": "INT",
+                "compatible_since_year": "INT"
+            }
+        ]
+    }
+}

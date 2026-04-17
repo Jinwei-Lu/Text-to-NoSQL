@@ -1,0 +1,104 @@
+{
+    "EMPLOYEE": {
+        "EMP_NUM": "INT",
+        "EMP_LNAME": "varchar(15)",
+        "EMP_FNAME": "varchar(12)",
+        "EMP_INITIAL": "varchar(1)",
+        "EMP_JOBCODE": "varchar(5)",
+        "EMP_HIREDATE": "datetime",
+        "EMP_DOB": "datetime",
+        "CLASS": [
+            {
+                "CLASS_CODE": "varchar(5)",
+                "CRS_CODE": "varchar(10)",
+                "CLASS_SECTION": "varchar(2)",
+                "CLASS_TIME": "varchar(20)",
+                "CLASS_ROOM": "varchar(8)",
+                "PROF_NUM": "INT",
+                "ENROLL": [
+                    {
+                        "CLASS_CODE": "varchar(5)",
+                        "STU_NUM": "INT",
+                        "ENROLL_GRADE": "varchar(50)"
+                    }
+                ]
+            }
+        ],
+        "DEPARTMENT": [
+            {
+                "DEPT_CODE": "varchar(10)",
+                "DEPT_NAME": "varchar(30)",
+                "SCHOOL_CODE": "varchar(8)",
+                "EMP_NUM": "INT",
+                "DEPT_ADDRESS": "varchar(20)",
+                "DEPT_EXTENSION": "varchar(4)",
+                "COURSE": [
+                    {
+                        "CRS_CODE": "varchar(10)",
+                        "DEPT_CODE": "varchar(10)",
+                        "CRS_DESCRIPTION": "varchar(35)",
+                        "CRS_CREDIT": "float(8)",
+                        "CLASS": [
+                            {
+                                "CLASS_CODE": "varchar(5)",
+                                "CRS_CODE": "varchar(10)",
+                                "CLASS_SECTION": "varchar(2)",
+                                "CLASS_TIME": "varchar(20)",
+                                "CLASS_ROOM": "varchar(8)",
+                                "PROF_NUM": "INT",
+                                "ENROLL": [
+                                    {
+                                        "CLASS_CODE": "varchar(5)",
+                                        "STU_NUM": "INT",
+                                        "ENROLL_GRADE": "varchar(50)"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "PROFESSOR": [
+                    {
+                        "EMP_NUM": "INT",
+                        "DEPT_CODE": "varchar(10)",
+                        "PROF_OFFICE": "varchar(50)",
+                        "PROF_EXTENSION": "varchar(4)",
+                        "PROF_HIGH_DEGREE": "varchar(5)"
+                    }
+                ],
+                "STUDENT": [
+                    {
+                        "STU_NUM": "INT",
+                        "STU_LNAME": "varchar(15)",
+                        "STU_FNAME": "varchar(15)",
+                        "STU_INIT": "varchar(1)",
+                        "STU_DOB": "datetime",
+                        "STU_HRS": "INT",
+                        "STU_CLASS": "varchar(2)",
+                        "STU_GPA": "float(8)",
+                        "STU_TRANSFER": "numeric",
+                        "DEPT_CODE": "varchar(18)",
+                        "STU_PHONE": "varchar(4)",
+                        "PROF_NUM": "INT",
+                        "ENROLL": [
+                            {
+                                "CLASS_CODE": "varchar(5)",
+                                "STU_NUM": "INT",
+                                "ENROLL_GRADE": "varchar(50)"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "PROFESSOR": [
+            {
+                "EMP_NUM": "INT",
+                "DEPT_CODE": "varchar(10)",
+                "PROF_OFFICE": "varchar(50)",
+                "PROF_EXTENSION": "varchar(4)",
+                "PROF_HIGH_DEGREE": "varchar(5)"
+            }
+        ]
+    }
+}

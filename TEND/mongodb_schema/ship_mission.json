@@ -1,0 +1,20 @@
+{
+    "ship": {
+        "Ship_ID": "INT",
+        "Name": "TEXT",
+        "Type": "TEXT",
+        "Nationality": "TEXT",
+        "Tonnage": "INT",
+        "mission": [
+            {
+                "Mission_ID": "INT",
+                "Ship_ID": "INT",
+                "Code": "TEXT",
+                "Launched_Year": "INT",
+                "Location": "TEXT",
+                "Speed_knots": "INT",
+                "Fate": "TEXT"
+            }
+        ]
+    }
+}

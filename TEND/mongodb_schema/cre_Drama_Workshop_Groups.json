@@ -1,0 +1,475 @@
+{
+    "Addresses": {
+        "Address_ID": "VARCHAR(100)",
+        "Line_1": "VARCHAR(255)",
+        "Line_2": "VARCHAR(255)",
+        "City_Town": "VARCHAR(255)",
+        "State_County": "VARCHAR(255)",
+        "Other_Details": "VARCHAR(255)",
+        "Clients": [
+            {
+                "Client_ID": "INTEGER",
+                "Address_ID": "INTEGER",
+                "Customer_Email_Address": "VARCHAR(255)",
+                "Customer_Name": "VARCHAR(255)",
+                "Customer_Phone": "VARCHAR(255)",
+                "Other_Details": "VARCHAR(255)",
+                "Bookings": [
+                    {
+                        "Booking_ID": "INTEGER",
+                        "Customer_ID": "INTEGER",
+                        "Workshop_Group_ID": "VARCHAR(100)",
+                        "Status_Code": "CHAR(15)",
+                        "Store_ID": "INTEGER",
+                        "Order_Date": "DATETIME",
+                        "Planned_Delivery_Date": "DATETIME",
+                        "Actual_Delivery_Date": "DATETIME",
+                        "Other_Order_Details": "VARCHAR(255)",
+                        "Performers_in_Bookings": [
+                            {
+                                "Order_ID": "INTEGER",
+                                "Performer_ID": "INTEGER"
+                            }
+                        ],
+                        "Invoices": [
+                            {
+                                "Invoice_ID": "INTEGER",
+                                "Order_ID": "INTEGER",
+                                "payment_method_code": "CHAR(15)",
+                                "Product_ID": "INTEGER",
+                                "Order_Quantity": "VARCHAR(288)",
+                                "Other_Item_Details": "VARCHAR(255)",
+                                "Order_Item_ID": "INTEGER",
+                                "Invoice_Items": [
+                                    {
+                                        "Invoice_Item_ID": "INTEGER",
+                                        "Invoice_ID": "INTEGER",
+                                        "Order_ID": "INTEGER",
+                                        "Order_Item_ID": "INTEGER",
+                                        "Product_ID": "INTEGER",
+                                        "Order_Quantity": "INTEGER",
+                                        "Other_Item_Details": "VARCHAR(255)"
+                                    }
+                                ]
+                            }
+                        ],
+                        "Bookings_Services": [
+                            {
+                                "Order_ID": "INTEGER",
+                                "Product_ID": "INTEGER",
+                                "Invoice_Items": [
+                                    {
+                                        "Invoice_Item_ID": "INTEGER",
+                                        "Invoice_ID": "INTEGER",
+                                        "Order_ID": "INTEGER",
+                                        "Order_Item_ID": "INTEGER",
+                                        "Product_ID": "INTEGER",
+                                        "Order_Quantity": "INTEGER",
+                                        "Other_Item_Details": "VARCHAR(255)"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "Drama_Workshop_Groups": [
+            {
+                "Workshop_Group_ID": "INTEGER",
+                "Address_ID": "INTEGER",
+                "Currency_Code": "CHAR(15)",
+                "Marketing_Region_Code": "CHAR(15)",
+                "Store_Name": "VARCHAR(255)",
+                "Store_Phone": "VARCHAR(255)",
+                "Store_Email_Address": "VARCHAR(255)",
+                "Other_Details": "VARCHAR(255)",
+                "Bookings": [
+                    {
+                        "Booking_ID": "INTEGER",
+                        "Customer_ID": "INTEGER",
+                        "Workshop_Group_ID": "VARCHAR(100)",
+                        "Status_Code": "CHAR(15)",
+                        "Store_ID": "INTEGER",
+                        "Order_Date": "DATETIME",
+                        "Planned_Delivery_Date": "DATETIME",
+                        "Actual_Delivery_Date": "DATETIME",
+                        "Other_Order_Details": "VARCHAR(255)",
+                        "Performers_in_Bookings": [
+                            {
+                                "Order_ID": "INTEGER",
+                                "Performer_ID": "INTEGER"
+                            }
+                        ],
+                        "Invoices": [
+                            {
+                                "Invoice_ID": "INTEGER",
+                                "Order_ID": "INTEGER",
+                                "payment_method_code": "CHAR(15)",
+                                "Product_ID": "INTEGER",
+                                "Order_Quantity": "VARCHAR(288)",
+                                "Other_Item_Details": "VARCHAR(255)",
+                                "Order_Item_ID": "INTEGER",
+                                "Invoice_Items": [
+                                    {
+                                        "Invoice_Item_ID": "INTEGER",
+                                        "Invoice_ID": "INTEGER",
+                                        "Order_ID": "INTEGER",
+                                        "Order_Item_ID": "INTEGER",
+                                        "Product_ID": "INTEGER",
+                                        "Order_Quantity": "INTEGER",
+                                        "Other_Item_Details": "VARCHAR(255)"
+                                    }
+                                ]
+                            }
+                        ],
+                        "Bookings_Services": [
+                            {
+                                "Order_ID": "INTEGER",
+                                "Product_ID": "INTEGER",
+                                "Invoice_Items": [
+                                    {
+                                        "Invoice_Item_ID": "INTEGER",
+                                        "Invoice_ID": "INTEGER",
+                                        "Order_ID": "INTEGER",
+                                        "Order_Item_ID": "INTEGER",
+                                        "Product_ID": "INTEGER",
+                                        "Order_Quantity": "INTEGER",
+                                        "Other_Item_Details": "VARCHAR(255)"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "Services": [
+                    {
+                        "Service_ID": "INTEGER",
+                        "Service_Type_Code": "CHAR(15)",
+                        "Workshop_Group_ID": "INTEGER",
+                        "Product_Description": "VARCHAR(255)",
+                        "Product_Name": "VARCHAR(255)",
+                        "Product_Price": "DECIMAL(20,4)",
+                        "Other_Product_Service_Details": "VARCHAR(255)",
+                        "Bookings_Services": [
+                            {
+                                "Order_ID": "INTEGER",
+                                "Product_ID": "INTEGER",
+                                "Invoice_Items": [
+                                    {
+                                        "Invoice_Item_ID": "INTEGER",
+                                        "Invoice_ID": "INTEGER",
+                                        "Order_ID": "INTEGER",
+                                        "Order_Item_ID": "INTEGER",
+                                        "Product_ID": "INTEGER",
+                                        "Order_Quantity": "INTEGER",
+                                        "Other_Item_Details": "VARCHAR(255)"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "Performers": [
+            {
+                "Performer_ID": "INTEGER",
+                "Address_ID": "INTEGER",
+                "Customer_Name": "VARCHAR(255)",
+                "Customer_Phone": "VARCHAR(255)",
+                "Customer_Email_Address": "VARCHAR(255)",
+                "Other_Details": "VARCHAR(255)",
+                "Performers_in_Bookings": [
+                    {
+                        "Order_ID": "INTEGER",
+                        "Performer_ID": "INTEGER"
+                    }
+                ]
+            }
+        ],
+        "Customers": [
+            {
+                "Customer_ID": "VARCHAR(100)",
+                "Address_ID": "INTEGER",
+                "Customer_Name": "VARCHAR(255)",
+                "Customer_Phone": "VARCHAR(255)",
+                "Customer_Email_Address": "VARCHAR(255)",
+                "Other_Details": "VARCHAR(255)",
+                "Customer_Orders": [
+                    {
+                        "Order_ID": "INTEGER",
+                        "Customer_ID": "INTEGER",
+                        "Store_ID": "INTEGER",
+                        "Order_Date": "DATETIME",
+                        "Planned_Delivery_Date": "DATETIME",
+                        "Actual_Delivery_Date": "DATETIME",
+                        "Other_Order_Details": "VARCHAR(255)",
+                        "Order_Items": [
+                            {
+                                "Order_Item_ID": "INTEGER",
+                                "Order_ID": "INTEGER",
+                                "Product_ID": "INTEGER",
+                                "Order_Quantity": "VARCHAR(288)",
+                                "Other_Item_Details": "VARCHAR(255)",
+                                "Invoice_Items": [
+                                    {
+                                        "Invoice_Item_ID": "INTEGER",
+                                        "Invoice_ID": "INTEGER",
+                                        "Order_ID": "INTEGER",
+                                        "Order_Item_ID": "INTEGER",
+                                        "Product_ID": "INTEGER",
+                                        "Order_Quantity": "INTEGER",
+                                        "Other_Item_Details": "VARCHAR(255)"
+                                    }
+                                ]
+                            }
+                        ],
+                        "Invoices": [
+                            {
+                                "Invoice_ID": "INTEGER",
+                                "Order_ID": "INTEGER",
+                                "payment_method_code": "CHAR(15)",
+                                "Product_ID": "INTEGER",
+                                "Order_Quantity": "VARCHAR(288)",
+                                "Other_Item_Details": "VARCHAR(255)",
+                                "Order_Item_ID": "INTEGER",
+                                "Invoice_Items": [
+                                    {
+                                        "Invoice_Item_ID": "INTEGER",
+                                        "Invoice_ID": "INTEGER",
+                                        "Order_ID": "INTEGER",
+                                        "Order_Item_ID": "INTEGER",
+                                        "Product_ID": "INTEGER",
+                                        "Order_Quantity": "INTEGER",
+                                        "Other_Item_Details": "VARCHAR(255)"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "Stores": [
+            {
+                "Store_ID": "VARCHAR(100)",
+                "Address_ID": "INTEGER",
+                "Marketing_Region_Code": "CHAR(15)",
+                "Store_Name": "VARCHAR(255)",
+                "Store_Phone": "VARCHAR(255)",
+                "Store_Email_Address": "VARCHAR(255)",
+                "Other_Details": "VARCHAR(255)",
+                "Customer_Orders": [
+                    {
+                        "Order_ID": "INTEGER",
+                        "Customer_ID": "INTEGER",
+                        "Store_ID": "INTEGER",
+                        "Order_Date": "DATETIME",
+                        "Planned_Delivery_Date": "DATETIME",
+                        "Actual_Delivery_Date": "DATETIME",
+                        "Other_Order_Details": "VARCHAR(255)",
+                        "Order_Items": [
+                            {
+                                "Order_Item_ID": "INTEGER",
+                                "Order_ID": "INTEGER",
+                                "Product_ID": "INTEGER",
+                                "Order_Quantity": "VARCHAR(288)",
+                                "Other_Item_Details": "VARCHAR(255)",
+                                "Invoice_Items": [
+                                    {
+                                        "Invoice_Item_ID": "INTEGER",
+                                        "Invoice_ID": "INTEGER",
+                                        "Order_ID": "INTEGER",
+                                        "Order_Item_ID": "INTEGER",
+                                        "Product_ID": "INTEGER",
+                                        "Order_Quantity": "INTEGER",
+                                        "Other_Item_Details": "VARCHAR(255)"
+                                    }
+                                ]
+                            }
+                        ],
+                        "Invoices": [
+                            {
+                                "Invoice_ID": "INTEGER",
+                                "Order_ID": "INTEGER",
+                                "payment_method_code": "CHAR(15)",
+                                "Product_ID": "INTEGER",
+                                "Order_Quantity": "VARCHAR(288)",
+                                "Other_Item_Details": "VARCHAR(255)",
+                                "Order_Item_ID": "INTEGER",
+                                "Invoice_Items": [
+                                    {
+                                        "Invoice_Item_ID": "INTEGER",
+                                        "Invoice_ID": "INTEGER",
+                                        "Order_ID": "INTEGER",
+                                        "Order_Item_ID": "INTEGER",
+                                        "Product_ID": "INTEGER",
+                                        "Order_Quantity": "INTEGER",
+                                        "Other_Item_Details": "VARCHAR(255)"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Marketing_Regions": {
+        "Marketing_Region_Code": "CHAR(15)",
+        "Marketing_Region_Name": "VARCHAR(255)",
+        "Marketing_Region_Descriptrion": "VARCHAR(255)",
+        "Other_Details": "VARCHAR(255)",
+        "Stores": [
+            {
+                "Store_ID": "VARCHAR(100)",
+                "Address_ID": "INTEGER",
+                "Marketing_Region_Code": "CHAR(15)",
+                "Store_Name": "VARCHAR(255)",
+                "Store_Phone": "VARCHAR(255)",
+                "Store_Email_Address": "VARCHAR(255)",
+                "Other_Details": "VARCHAR(255)",
+                "Customer_Orders": [
+                    {
+                        "Order_ID": "INTEGER",
+                        "Customer_ID": "INTEGER",
+                        "Store_ID": "INTEGER",
+                        "Order_Date": "DATETIME",
+                        "Planned_Delivery_Date": "DATETIME",
+                        "Actual_Delivery_Date": "DATETIME",
+                        "Other_Order_Details": "VARCHAR(255)",
+                        "Order_Items": [
+                            {
+                                "Order_Item_ID": "INTEGER",
+                                "Order_ID": "INTEGER",
+                                "Product_ID": "INTEGER",
+                                "Order_Quantity": "VARCHAR(288)",
+                                "Other_Item_Details": "VARCHAR(255)",
+                                "Invoice_Items": [
+                                    {
+                                        "Invoice_Item_ID": "INTEGER",
+                                        "Invoice_ID": "INTEGER",
+                                        "Order_ID": "INTEGER",
+                                        "Order_Item_ID": "INTEGER",
+                                        "Product_ID": "INTEGER",
+                                        "Order_Quantity": "INTEGER",
+                                        "Other_Item_Details": "VARCHAR(255)"
+                                    }
+                                ]
+                            }
+                        ],
+                        "Invoices": [
+                            {
+                                "Invoice_ID": "INTEGER",
+                                "Order_ID": "INTEGER",
+                                "payment_method_code": "CHAR(15)",
+                                "Product_ID": "INTEGER",
+                                "Order_Quantity": "VARCHAR(288)",
+                                "Other_Item_Details": "VARCHAR(255)",
+                                "Order_Item_ID": "INTEGER",
+                                "Invoice_Items": [
+                                    {
+                                        "Invoice_Item_ID": "INTEGER",
+                                        "Invoice_ID": "INTEGER",
+                                        "Order_ID": "INTEGER",
+                                        "Order_Item_ID": "INTEGER",
+                                        "Product_ID": "INTEGER",
+                                        "Order_Quantity": "INTEGER",
+                                        "Other_Item_Details": "VARCHAR(255)"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "Products": {
+        "Product_ID": "VARCHAR(100)",
+        "Product_Name": "VARCHAR(255)",
+        "Product_Price": "DECIMAL(20,4)",
+        "Product_Description": "VARCHAR(255)",
+        "Other_Product_Service_Details": "VARCHAR(255)",
+        "Order_Items": [
+            {
+                "Order_Item_ID": "INTEGER",
+                "Order_ID": "INTEGER",
+                "Product_ID": "INTEGER",
+                "Order_Quantity": "VARCHAR(288)",
+                "Other_Item_Details": "VARCHAR(255)",
+                "Invoice_Items": [
+                    {
+                        "Invoice_Item_ID": "INTEGER",
+                        "Invoice_ID": "INTEGER",
+                        "Order_ID": "INTEGER",
+                        "Order_Item_ID": "INTEGER",
+                        "Product_ID": "INTEGER",
+                        "Order_Quantity": "INTEGER",
+                        "Other_Item_Details": "VARCHAR(255)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Ref_Payment_Methods": {
+        "payment_method_code": "CHAR(10)",
+        "payment_method_description": "VARCHAR(80)",
+        "Invoices": [
+            {
+                "Invoice_ID": "INTEGER",
+                "Order_ID": "INTEGER",
+                "payment_method_code": "CHAR(15)",
+                "Product_ID": "INTEGER",
+                "Order_Quantity": "VARCHAR(288)",
+                "Other_Item_Details": "VARCHAR(255)",
+                "Order_Item_ID": "INTEGER",
+                "Invoice_Items": [
+                    {
+                        "Invoice_Item_ID": "INTEGER",
+                        "Invoice_ID": "INTEGER",
+                        "Order_ID": "INTEGER",
+                        "Order_Item_ID": "INTEGER",
+                        "Product_ID": "INTEGER",
+                        "Order_Quantity": "INTEGER",
+                        "Other_Item_Details": "VARCHAR(255)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Ref_Service_Types": {
+        "Service_Type_Code": "CHAR(15)",
+        "Parent_Service_Type_Code": "CHAR(15)",
+        "Service_Type_Description": "VARCHAR(255)",
+        "Services": [
+            {
+                "Service_ID": "INTEGER",
+                "Service_Type_Code": "CHAR(15)",
+                "Workshop_Group_ID": "INTEGER",
+                "Product_Description": "VARCHAR(255)",
+                "Product_Name": "VARCHAR(255)",
+                "Product_Price": "DECIMAL(20,4)",
+                "Other_Product_Service_Details": "VARCHAR(255)",
+                "Bookings_Services": [
+                    {
+                        "Order_ID": "INTEGER",
+                        "Product_ID": "INTEGER",
+                        "Invoice_Items": [
+                            {
+                                "Invoice_Item_ID": "INTEGER",
+                                "Invoice_ID": "INTEGER",
+                                "Order_ID": "INTEGER",
+                                "Order_Item_ID": "INTEGER",
+                                "Product_ID": "INTEGER",
+                                "Order_Quantity": "INTEGER",
+                                "Other_Item_Details": "VARCHAR(255)"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}

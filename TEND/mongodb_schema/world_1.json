@@ -1,0 +1,40 @@
+{
+    "country": {
+        "Code": "char(3)",
+        "Name": "char(52)",
+        "Continent": "TEXT",
+        "Region": "char(26)",
+        "SurfaceArea": "float(10,2)",
+        "IndepYear": "INTEGER",
+        "Population": "INTEGER",
+        "LifeExpectancy": "float(3,1)",
+        "GNP": "float(10,2)",
+        "GNPOld": "float(10,2)",
+        "LocalName": "char(45)",
+        "GovernmentForm": "char(45)",
+        "HeadOfState": "char(60)",
+        "Capital": "INTEGER",
+        "Code2": "char(2)",
+        "city": [
+            {
+                "ID": "INTEGER",
+                "Name": "char(35)",
+                "CountryCode": "char(3)",
+                "District": "char(20)",
+                "Population": "INTEGER"
+            }
+        ],
+        "countrylanguage": [
+            {
+                "CountryCode": "char(3)",
+                "Language": "char(30)",
+                "IsOfficial": "TEXT",
+                "Percentage": "float(4,1)"
+            }
+        ]
+    },
+    "sqlite_sequence": {
+        "name": "",
+        "seq": ""
+    }
+}

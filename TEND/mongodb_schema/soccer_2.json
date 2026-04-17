@@ -1,0 +1,29 @@
+{
+    "College": {
+        "cName": "varchar(20)",
+        "state": "varchar(2)",
+        "enr": "numeric(5,0)",
+        "Tryout": [
+            {
+                "pID": "numeric(5,0)",
+                "cName": "varchar(20)",
+                "pPos": "varchar(8)",
+                "decision": "varchar(3)"
+            }
+        ]
+    },
+    "Player": {
+        "pID": "numeric(5,0)",
+        "pName": "varchar(20)",
+        "yCard": "varchar(3)",
+        "HS": "numeric(5,0)",
+        "Tryout": [
+            {
+                "pID": "numeric(5,0)",
+                "cName": "varchar(20)",
+                "pPos": "varchar(8)",
+                "decision": "varchar(3)"
+            }
+        ]
+    }
+}

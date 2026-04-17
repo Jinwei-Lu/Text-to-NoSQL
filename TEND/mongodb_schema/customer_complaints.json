@@ -1,0 +1,69 @@
+{
+    "Customers": {
+        "customer_id": "INTEGER",
+        "customer_type_code": "VARCHAR(20)",
+        "address_line_1": "VARCHAR(80)",
+        "address_line_2": "VARCHAR(80)",
+        "town_city": "VARCHAR(80)",
+        "state": "VARCHAR(80)",
+        "email_address": "VARCHAR(255)",
+        "phone_number": "VARCHAR(80)",
+        "Complaints": [
+            {
+                "complaint_id": "INTEGER",
+                "product_id": "INTEGER",
+                "customer_id": "INTEGER",
+                "complaint_outcome_code": "VARCHAR(20)",
+                "complaint_status_code": "VARCHAR(20)",
+                "complaint_type_code": "VARCHAR(20)",
+                "date_complaint_raised": "DATETIME",
+                "date_complaint_closed": "DATETIME",
+                "staff_id": "INTEGER"
+            }
+        ]
+    },
+    "Products": {
+        "product_id": "INTEGER",
+        "parent_product_id": "INTEGER",
+        "product_category_code": "VARCHAR(20)",
+        "date_product_first_available": "DATETIME",
+        "date_product_discontinued": "DATETIME",
+        "product_name": "VARCHAR(80)",
+        "product_description": "VARCHAR(255)",
+        "product_price": "DECIMAL(19,4)",
+        "Complaints": [
+            {
+                "complaint_id": "INTEGER",
+                "product_id": "INTEGER",
+                "customer_id": "INTEGER",
+                "complaint_outcome_code": "VARCHAR(20)",
+                "complaint_status_code": "VARCHAR(20)",
+                "complaint_type_code": "VARCHAR(20)",
+                "date_complaint_raised": "DATETIME",
+                "date_complaint_closed": "DATETIME",
+                "staff_id": "INTEGER"
+            }
+        ]
+    },
+    "Staff": {
+        "staff_id": "INTEGER",
+        "gender": "VARCHAR(1)",
+        "first_name": "VARCHAR(80)",
+        "last_name": "VARCHAR(80)",
+        "email_address": "VARCHAR(255)",
+        "phone_number": "VARCHAR(80)",
+        "Complaints": [
+            {
+                "complaint_id": "INTEGER",
+                "product_id": "INTEGER",
+                "customer_id": "INTEGER",
+                "complaint_outcome_code": "VARCHAR(20)",
+                "complaint_status_code": "VARCHAR(20)",
+                "complaint_type_code": "VARCHAR(20)",
+                "date_complaint_raised": "DATETIME",
+                "date_complaint_closed": "DATETIME",
+                "staff_id": "INTEGER"
+            }
+        ]
+    }
+}

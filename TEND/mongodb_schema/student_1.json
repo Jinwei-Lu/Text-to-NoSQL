@@ -1,0 +1,13 @@
+{
+    "list": {
+        "LastName": "TEXT",
+        "FirstName": "TEXT",
+        "Grade": "INTEGER",
+        "Classroom": "INTEGER"
+    },
+    "teachers": {
+        "LastName": "TEXT",
+        "FirstName": "TEXT",
+        "Classroom": "INTEGER"
+    }
+}

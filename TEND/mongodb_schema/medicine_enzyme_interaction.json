@@ -1,0 +1,31 @@
+{
+    "medicine": {
+        "id": "INT",
+        "name": "TEXT",
+        "Trade_Name": "TEXT",
+        "FDA_approved": "TEXT",
+        "medicine_enzyme_interaction": [
+            {
+                "enzyme_id": "INT",
+                "medicine_id": "INT",
+                "interaction_type": "TEXT"
+            }
+        ]
+    },
+    "enzyme": {
+        "id": "INT",
+        "name": "TEXT",
+        "Location": "TEXT",
+        "Product": "TEXT",
+        "Chromosome": "TEXT",
+        "OMIM": "INT",
+        "Porphyria": "TEXT",
+        "medicine_enzyme_interaction": [
+            {
+                "enzyme_id": "INT",
+                "medicine_id": "INT",
+                "interaction_type": "TEXT"
+            }
+        ]
+    }
+}

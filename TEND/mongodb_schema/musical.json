@@ -1,0 +1,19 @@
+{
+    "actor": {
+        "Actor_ID": "INT",
+        "Name": "TEXT",
+        "Musical_ID": "INT",
+        "Character": "TEXT",
+        "Duration": "TEXT",
+        "age": "INT"
+    },
+    "musical": {
+        "Musical_ID": "INT",
+        "Name": "TEXT",
+        "Year": "INT",
+        "Award": "TEXT",
+        "Category": "TEXT",
+        "Nominee": "TEXT",
+        "Result": "TEXT"
+    }
+}

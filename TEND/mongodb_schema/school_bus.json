@@ -1,0 +1,32 @@
+{
+    "driver": {
+        "Driver_ID": "INT",
+        "Name": "TEXT",
+        "Party": "TEXT",
+        "Home_city": "TEXT",
+        "Age": "INT",
+        "school_bus": [
+            {
+                "School_ID": "INT",
+                "Driver_ID": "INT",
+                "Years_Working": "INT",
+                "If_full_time": "bool"
+            }
+        ]
+    },
+    "school": {
+        "School_ID": "INT",
+        "Grade": "TEXT",
+        "School": "TEXT",
+        "Location": "TEXT",
+        "Type": "TEXT",
+        "school_bus": [
+            {
+                "School_ID": "INT",
+                "Driver_ID": "INT",
+                "Years_Working": "INT",
+                "If_full_time": "bool"
+            }
+        ]
+    }
+}

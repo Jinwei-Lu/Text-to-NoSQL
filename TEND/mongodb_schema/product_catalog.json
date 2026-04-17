@@ -1,0 +1,55 @@
+{
+    "Catalogs": {
+        "catalog_id": "INTEGER",
+        "catalog_name": "VARCHAR(50)",
+        "catalog_publisher": "VARCHAR(80)",
+        "date_of_publication": "DATETIME",
+        "date_of_latest_revision": "DATETIME",
+        "Catalog_Structure": [
+            {
+                "catalog_level_number": "INTEGER",
+                "catalog_id": "INTEGER",
+                "catalog_level_name": "VARCHAR(50)",
+                "Catalog_Contents": [
+                    {
+                        "catalog_entry_id": "INTEGER",
+                        "catalog_level_number": "INTEGER",
+                        "parent_entry_id": "INTEGER",
+                        "previous_entry_id": "INTEGER",
+                        "next_entry_id": "INTEGER",
+                        "catalog_entry_name": "VARCHAR(80)",
+                        "product_stock_number": "VARCHAR(50)",
+                        "price_in_dollars": "DOUBLE",
+                        "price_in_euros": "DOUBLE",
+                        "price_in_pounds": "DOUBLE",
+                        "capacity": "VARCHAR(20)",
+                        "length": "VARCHAR(20)",
+                        "height": "VARCHAR(20)",
+                        "width": "VARCHAR(20)",
+                        "Catalog_Contents_Additional_Attributes": [
+                            {
+                                "catalog_entry_id": "INTEGER",
+                                "catalog_level_number": "INTEGER",
+                                "attribute_id": "INTEGER",
+                                "attribute_value": "VARCHAR(255)"
+                            }
+                        ]
+                    }
+                ],
+                "Catalog_Contents_Additional_Attributes": [
+                    {
+                        "catalog_entry_id": "INTEGER",
+                        "catalog_level_number": "INTEGER",
+                        "attribute_id": "INTEGER",
+                        "attribute_value": "VARCHAR(255)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Attribute_Definitions": {
+        "attribute_id": "INTEGER",
+        "attribute_name": "VARCHAR(30)",
+        "attribute_data_type": "VARCHAR(10)"
+    }
+}

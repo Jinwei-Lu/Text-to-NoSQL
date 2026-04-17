@@ -1,0 +1,45 @@
+{
+    "appellations": {
+        "No": "INTEGER",
+        "Appelation": "TEXT",
+        "County": "TEXT",
+        "State": "TEXT",
+        "Area": "TEXT",
+        "isAVA": "TEXT",
+        "wine": [
+            {
+                "No": "INTEGER",
+                "Grape": "TEXT",
+                "Winery": "TEXT",
+                "Appelation": "TEXT",
+                "State": "TEXT",
+                "Name": "TEXT",
+                "Year": "INTEGER",
+                "Price": "INTEGER",
+                "Score": "INTEGER",
+                "Cases": "INTEGER",
+                "Drink": "TEXT"
+            }
+        ]
+    },
+    "grapes": {
+        "ID": "INTEGER",
+        "Grape": "TEXT",
+        "Color": "TEXT",
+        "wine": [
+            {
+                "No": "INTEGER",
+                "Grape": "TEXT",
+                "Winery": "TEXT",
+                "Appelation": "TEXT",
+                "State": "TEXT",
+                "Name": "TEXT",
+                "Year": "INTEGER",
+                "Price": "INTEGER",
+                "Score": "INTEGER",
+                "Cases": "INTEGER",
+                "Drink": "TEXT"
+            }
+        ]
+    }
+}

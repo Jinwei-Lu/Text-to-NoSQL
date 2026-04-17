@@ -1,0 +1,42 @@
+{
+    "chip_model": {
+        "Model_name": "TEXT",
+        "Launch_year": "REAL",
+        "RAM_MiB": "REAL",
+        "ROM_MiB": "REAL",
+        "Slots": "TEXT",
+        "WiFi": "TEXT",
+        "Bluetooth": "TEXT",
+        "phone": [
+            {
+                "Company_name": "TEXT",
+                "Hardware_Model_name": "TEXT",
+                "Accreditation_type": "TEXT",
+                "Accreditation_level": "TEXT",
+                "Date": "TEXT",
+                "chip_model": "TEXT",
+                "screen_mode": "TEXT"
+            }
+        ]
+    },
+    "screen_mode": {
+        "Graphics_mode": "REAL",
+        "Char_cells": "TEXT",
+        "Pixels": "TEXT",
+        "Hardware_colours": "REAL",
+        "used_kb": "REAL",
+        "map": "TEXT",
+        "Type": "TEXT",
+        "phone": [
+            {
+                "Company_name": "TEXT",
+                "Hardware_Model_name": "TEXT",
+                "Accreditation_type": "TEXT",
+                "Accreditation_level": "TEXT",
+                "Date": "TEXT",
+                "chip_model": "TEXT",
+                "screen_mode": "TEXT"
+            }
+        ]
+    }
+}

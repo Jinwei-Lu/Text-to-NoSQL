@@ -1,0 +1,72 @@
+{
+    "Customers": {
+        "customer_id": "INTEGER",
+        "payment_method": "VARCHAR(15)",
+        "customer_name": "VARCHAR(80)",
+        "date_became_customer": "DATETIME",
+        "other_customer_details": "VARCHAR(255)",
+        "Customer_Addresses": [
+            {
+                "customer_id": "INTEGER",
+                "address_id": "INTEGER",
+                "date_address_from": "DATETIME",
+                "address_type": "VARCHAR(15)",
+                "date_address_to": "DATETIME"
+            }
+        ],
+        "Customer_Contact_Channels": [
+            {
+                "customer_id": "INTEGER",
+                "channel_code": "VARCHAR(15)",
+                "active_from_date": "DATETIME",
+                "active_to_date": "DATETIME",
+                "contact_number": "VARCHAR(50)"
+            }
+        ],
+        "Customer_Orders": [
+            {
+                "order_id": "INTEGER",
+                "customer_id": "INTEGER",
+                "order_status": "VARCHAR(15)",
+                "order_date": "DATETIME",
+                "order_details": "VARCHAR(255)",
+                "Order_Items": [
+                    {
+                        "order_id": "INTEGER",
+                        "product_id": "INTEGER",
+                        "order_quantity": "VARCHAR(15)"
+                    }
+                ]
+            }
+        ]
+    },
+    "Addresses": {
+        "address_id": "INTEGER",
+        "address_content": "VARCHAR(80)",
+        "city": "VARCHAR(50)",
+        "zip_postcode": "VARCHAR(20)",
+        "state_province_county": "VARCHAR(50)",
+        "country": "VARCHAR(50)",
+        "other_address_details": "VARCHAR(255)",
+        "Customer_Addresses": [
+            {
+                "customer_id": "INTEGER",
+                "address_id": "INTEGER",
+                "date_address_from": "DATETIME",
+                "address_type": "VARCHAR(15)",
+                "date_address_to": "DATETIME"
+            }
+        ]
+    },
+    "Products": {
+        "product_id": "INTEGER",
+        "product_details": "VARCHAR(255)",
+        "Order_Items": [
+            {
+                "order_id": "INTEGER",
+                "product_id": "INTEGER",
+                "order_quantity": "VARCHAR(15)"
+            }
+        ]
+    }
+}

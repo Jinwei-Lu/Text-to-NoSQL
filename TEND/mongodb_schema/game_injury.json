@@ -1,0 +1,32 @@
+{
+    "stadium": {
+        "id": "INT",
+        "name": "TEXT",
+        "Home_Games": "INT",
+        "Average_Attendance": "REAL",
+        "Total_Attendance": "REAL",
+        "Capacity_Percentage": "REAL",
+        "game": [
+            {
+                "stadium_id": "INT",
+                "id": "INT",
+                "Season": "INT",
+                "Date": "TEXT",
+                "Home_team": "TEXT",
+                "Away_team": "TEXT",
+                "Score": "TEXT",
+                "Competition": "TEXT",
+                "injury_accident": [
+                    {
+                        "game_id": "INT",
+                        "id": "INT",
+                        "Player": "TEXT",
+                        "Injury": "TEXT",
+                        "Number_of_matches": "TEXT",
+                        "Source": "TEXT"
+                    }
+                ]
+            }
+        ]
+    }
+}

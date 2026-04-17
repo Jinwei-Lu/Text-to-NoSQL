@@ -1,0 +1,22 @@
+{
+    "country": {
+        "Country_ID": "INT",
+        "Name": "TEXT",
+        "Population": "INT",
+        "Area": "INT",
+        "Languages": "TEXT",
+        "roller_coaster": [
+            {
+                "Roller_Coaster_ID": "INT",
+                "Name": "TEXT",
+                "Park": "TEXT",
+                "Country_ID": "INT",
+                "Length": "REAL",
+                "Height": "REAL",
+                "Speed": "TEXT",
+                "Opened": "TEXT",
+                "Status": "TEXT"
+            }
+        ]
+    }
+}

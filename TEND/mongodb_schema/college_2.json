@@ -1,0 +1,141 @@
+{
+    "department": {
+        "dept_name": "varchar(20)",
+        "building": "varchar(15)",
+        "budget": "numeric(12,2)",
+        "course": [
+            {
+                "course_id": "varchar(8)",
+                "title": "varchar(50)",
+                "dept_name": "varchar(20)",
+                "credits": "numeric(2,0)",
+                "section": [
+                    {
+                        "course_id": "varchar(8)",
+                        "sec_id": "varchar(8)",
+                        "semester": "varchar(6)",
+                        "year": "numeric(4,0)",
+                        "building": "varchar(15)",
+                        "room_number": "varchar(7)",
+                        "time_slot_id": "varchar(4)",
+                        "teaches": [
+                            {
+                                "ID": "varchar(5)",
+                                "course_id": "varchar(8)",
+                                "sec_id": "varchar(8)",
+                                "semester": "varchar(6)",
+                                "year": "numeric(4,0)"
+                            }
+                        ],
+                        "takes": [
+                            {
+                                "ID": "varchar(5)",
+                                "course_id": "varchar(8)",
+                                "sec_id": "varchar(8)",
+                                "semester": "varchar(6)",
+                                "year": "numeric(4,0)",
+                                "grade": "varchar(2)"
+                            }
+                        ]
+                    }
+                ],
+                "prereq": [
+                    {
+                        "course_id": "varchar(8)",
+                        "prereq_id": "varchar(8)"
+                    }
+                ]
+            }
+        ],
+        "instructor": [
+            {
+                "ID": "varchar(5)",
+                "name": "varchar(20)",
+                "dept_name": "varchar(20)",
+                "salary": "numeric(8,2)",
+                "teaches": [
+                    {
+                        "ID": "varchar(5)",
+                        "course_id": "varchar(8)",
+                        "sec_id": "varchar(8)",
+                        "semester": "varchar(6)",
+                        "year": "numeric(4,0)"
+                    }
+                ],
+                "advisor": [
+                    {
+                        "s_ID": "varchar(5)",
+                        "i_ID": "varchar(5)"
+                    }
+                ]
+            }
+        ],
+        "student": [
+            {
+                "ID": "varchar(5)",
+                "name": "varchar(20)",
+                "dept_name": "varchar(20)",
+                "tot_cred": "numeric(3,0)",
+                "takes": [
+                    {
+                        "ID": "varchar(5)",
+                        "course_id": "varchar(8)",
+                        "sec_id": "varchar(8)",
+                        "semester": "varchar(6)",
+                        "year": "numeric(4,0)",
+                        "grade": "varchar(2)"
+                    }
+                ],
+                "advisor": [
+                    {
+                        "s_ID": "varchar(5)",
+                        "i_ID": "varchar(5)"
+                    }
+                ]
+            }
+        ]
+    },
+    "classroom": {
+        "building": "varchar(15)",
+        "room_number": "varchar(7)",
+        "capacity": "numeric(4,0)",
+        "section": [
+            {
+                "course_id": "varchar(8)",
+                "sec_id": "varchar(8)",
+                "semester": "varchar(6)",
+                "year": "numeric(4,0)",
+                "building": "varchar(15)",
+                "room_number": "varchar(7)",
+                "time_slot_id": "varchar(4)",
+                "teaches": [
+                    {
+                        "ID": "varchar(5)",
+                        "course_id": "varchar(8)",
+                        "sec_id": "varchar(8)",
+                        "semester": "varchar(6)",
+                        "year": "numeric(4,0)"
+                    }
+                ],
+                "takes": [
+                    {
+                        "ID": "varchar(5)",
+                        "course_id": "varchar(8)",
+                        "sec_id": "varchar(8)",
+                        "semester": "varchar(6)",
+                        "year": "numeric(4,0)",
+                        "grade": "varchar(2)"
+                    }
+                ]
+            }
+        ]
+    },
+    "time_slot": {
+        "time_slot_id": "varchar(4)",
+        "day": "varchar(1)",
+        "start_hr": "numeric(2)",
+        "start_min": "numeric(2)",
+        "end_hr": "numeric(2)",
+        "end_min": "numeric(2)"
+    }
+}
