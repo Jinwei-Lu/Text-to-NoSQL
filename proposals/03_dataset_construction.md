@@ -1,1573 +1,857 @@
-# MonGen 数据集构建方法
+# 数据集构造规范
 
-> 文档定位: 阐述 MonGen Pipeline 的三轨分治架构 / cMRL+fAST 双层表示 / 六道防线 / IRT 难度
-> 目标读者: 数据团队 / 复现者
-> 前置阅读: [01 任务定义](./01_task_definition.md), [02 数据集设计](./02_dataset_design.md)
-> 最近更新: 2026-04-17
+> 文档定位: 本文只定义 MonGen 基准的构造机制, 即候选样本如何被生成、验证、分桶、写盘. 任务定义与数学符号以 [01 任务定义](./01_task_definition.md) 为准, 记录字段与 split 契约以 [02 数据集设计](./02_dataset_design.md) 为准, 评测与报告口径以 [04 评估方法](./04_evaluation_methodology.md) 为准.
+> 目标读者: 数据构造者 / 审核者 / 复现者
 
 <a id="03-0"></a>
 ## 0. 摘要
 
-MonGen Pipeline 把 Sample Family 的合成拆为三轨分治。**Synth 轨** 正向合成: 产品文档 mining 驱动 Event Planner, Document Accreter 按事件流沉积库, Modeling Style Skew 把 6 种建模哲学按目标比例分配到 220 个逻辑库, cMRL Sampler 在 30 原语的紧凑空间里做约束求解, Lowering 机械产出 fAST 再 unparse 为 MQL; 目标 16,000 Sample Families (MonGen-Synth)。**Real 轨** 从开源代码 / 公开论坛挖矿真实 MQL, fAST parser 解析, 对产出的 fAST 做尽力 Lifting 得到 cMRL, Reverse NLQ 生成自然语言; 目标 ~4,000 samples (MonGen-Real)。**Hybrid 轨** 把 Real 的意图骨架 (去掉具体字段与字面量) 挪到 Synth 的异质合成库上重新 Lowering 与执行, 专测组合泛化; 目标 2,000 samples (MonGen-Hybrid)。
+本文把 MonGen 的构造过程收敛为一条严格的准入合同: **只有 deterministic、read-only、schema-grounded、liftable、A/B/C 三路共识、且通过 Reverse Instance Verification (RIV) 的样本, 才能进入主基准**. 主基准唯一允许的入库状态是 `triple_consensus_status = pass`. `longtail_AB_only` 与全部公开分歧桶都只是 sidecar 审核制品, 不进入主集 split; 仅具内部审核价值的状态只保留在 staging。
 
-cMRL + fAST 双层是整条管线的"心脏"。cMRL (Compact-MRL, 30 原语紧凑 DSL) 作 Sampler 采样空间, 让约束求解在低维高效进行; fAST (Full-AST, MongoDB AST 完整镜像) 作执行真源, 覆盖 `$setWindowFields` / `$densify` / `$fill` / `$facet` 等 cMRL 原语表外的长尾算子; Lowering 把 cMRL 确定性地转为 fAST, Lifting 把 fAST 尽力还原为 cMRL 并允许失败。这一分工使 Sampler 不必为追全 MongoDB 算子而膨胀到 200+ 原语, 同时不对 MongoDB 表达力形成盲区。
+三条构造轨道在这一收紧口径下分工明确:
 
-6 道防线: ① MRL Validator 管 cMRL 层句法 + ② 双编译器差异 + 形式语义 + Property Test (把 Lowering 正确性从"信任"升级为"可证明 + 持续测试") + ③ Execution Grounder 真库实跑 + ④ Skeleton Coverage 字面 + 语义双对齐 + ⑤ 3-way Reverse Verifier (三家异源 LLM + Ambiguous / Abstain 桶) + ⑥ Active-Learning Human Loop (主动选最不确定样本人工复核, 目标错误率 <2%)。
+- **Synth**: 从显式 schema 与 benchmark-owned world 正向生成 `cmrl_canonical`, 再确定性 Lowering 为 `fast_canonical` 与 `mql_canonical`. Synth 主集只使用 deterministic、read-only、可 full-lift 的 Core / Extension 子集, 不生成 Long-Tail.
+- **Real**: 从公开来源挖掘真实 MQL, 经 parser 得到 `fast_canonical`, 经 full lifting 得到 `cmrl_canonical`, 再在 benchmark-owned、schema-grounded 的快照上做三路验证. 只有 full-lift 且 `pass` 的样本进入主集; Long-Tail、内部审核状态与 unresolved 样本都只保留为审核旁路.
+- **Hybrid**: 仅以 **已通过主集准入的 Real 骨架** 为输入, 将其 remap 到 **已通过主集准入的 Synth schema / world 配置** 上重建样本. 因而 Hybrid 主集天然不含 Long-Tail, 也不含 unresolved skeleton.
 
-难度度量换成 IRT (Item Response Theory): 8-12 个 pilot 模型跑 pass 率, `difficulty = 1 − 平均 pass 率`, 5 等级各 20%, 入库要求 `discrimination ≥ 0.3`。整体规模 ~60,000 (NLQ, MQL) pairs, train / test = 8 : 2。
+构造流水线包含六道防线: `schema grounding -> world validity -> query admissibility & liftability -> triple compiler consensus -> RIV -> NLQ family assembly`. 任何一步失败都不会写入主集.
+
+本文不另起一套公开 JSONL schema. **最终公开记录一律复用 02 的 top-level 字段**: `record_id`, `family_id`, `subset`, `record_grain`, `asset_bucket`, `split`, `db_id`, `nlq_canonical`, `nlq_variants`, `cmrl_canonical`, `fast_canonical`, `mql_canonical`, `gold_result_norm`, `result_a_norm`, `result_b_norm`, `result_c_norm`, `triple_consensus_status`, `instance_certificate_status`, `instance_certificate_checks`, `instance_certificate_ref`, `sci_score`, `sci_bucket`, `sd_norm`, `sdt_level`, `is_horizon`, `modeling_style`, `activated_features` 以及相关来源字段。
+
+贯穿本文的 canonical 样例为 `ecommerce_017`: canonical NLQ 为 `Top 3 customers by total paid item spending in 2026.`, canonical query **无 join**, 管道严格为 6 个 stage: `[$match, $unwind, $group, $project, $sort, $limit]`, 结果键为 `user_id` 与 `total_spent`, 激活特性集为 `{F10, F15, F17}`, NLQ family 总数取 `K = 5`.
 
 <a id="03-1"></a>
-## 1. 总览架构
+## 1. 主基准准入合同
 
-三轨分治的设计依据是职责正交: **外部有效性** 由 Real 轨承担 (挖矿真实用户意图与代码); **分布可控** 由 Synth 轨承担 (17 特性触达率、6 建模哲学占比、IRT 难度分布均以采样约束显式达成); **组合泛化测量** 由 Hybrid 轨承担 (把 Real 的意图骨架挪到 Synth 的新 schema 上实例化)。一条端到端链路若在中段塌缩, 上游证据全部失效; 三轨分治让任一轨故障都能在本轨被捕捉。
+主基准不是“所有能执行的样本”的合集, 而是满足下列合同的严格子集. 记候选 family 为 `F`, 则其进入主基准的充要条件是:
 
-```mermaid
-flowchart LR
-  subgraph synth [Synth Track]
-    DocsMine[产品文档挖矿<br/>Stripe/Shopify/Saleor] --> EP[Event Planner]
-    EP --> MSS[Modeling Style Skew<br/>6 哲学分配]
-    MSS --> Acc[Document Accreter]
-    Acc --> MongoDB[(MongoDB Instance)]
-    Acc --> SE[Schema Exporter]
-    SE --> Sampler[cMRL Sampler]
-    Sampler --> Mutator[Intent Mutator]
-    Sampler --> Lower[Lowering<br/>cMRL → fAST]
-    Mutator --> Lower
-    Lower --> Unparse[fAST → MQL]
-    Sampler --> Skel[NLQ Skeleton Compiler]
-    Skel --> Naturalizer[NLQ Naturalizer]
-    Naturalizer --> Paraphraser[Paraphraser]
-  end
-  subgraph real [Real Track]
-    Mine[MQL 挖矿<br/>GitHub/SO/MongoDB Forum] --> Sanitize[脱敏与许可证过滤]
-    Sanitize --> Parser[fAST Parser]
-    Parser --> Lift[尽力 Lifting]
-    Parser --> RevNLQ[Reverse NLQ Generator]
-  end
-  subgraph hybrid [Hybrid Track]
-    RealIntent[Real 意图骨架] --> SynthLib[Synth 合成库]
-    SynthLib --> Relower[重新 Lowering]
-  end
-  subgraph validate [Validate Layer]
-    V1[① MRL Validator] --> V2[② 双编译器差异<br/>+ 形式语义 + Property Test]
-    V2 --> V3[③ Execution Grounder]
-    V3 --> V4[④ Skeleton Coverage<br/>语义对齐]
-    V4 --> V5[⑤ 3-way Reverse Verifier<br/>+ Ambiguous/Abstain]
-    V5 --> IRT[IRT 难度评分]
-    IRT --> V6[⑥ Active-Learning Human Loop]
-    V6 --> FinalRecord[(Sample Family 落盘)]
-  end
-  Unparse --> V1
-  Paraphraser --> V4
-  Lift --> V1
-  Relower --> V1
-  MongoDB --> V3
-```
+$$
+\text{admit\_main}(F)
+\iff
+\text{deterministic}(F)
+\wedge
+\text{read\_only}(F)
+\wedge
+\text{schema\_grounded}(F)
+\wedge
+\text{liftable}(F)
+\wedge
+(\text{triple\_consensus\_status}(F)=\texttt{pass})
+\wedge
+\text{riv\_status}(F)=\texttt{pass}
+\wedge
+\text{nlq\_family\_valid}(F)
+$$
 
-三轨缺一不可:
+其中各项含义如下:
 
-- **Synth 轨不可省**: 17 特性触达率要按目标比例达标 (每特性 ≥5%、二元组 ≥60%、三元组 ≥30%), 必须由事件驱动沉积 + 6 种建模哲学可控分配。Real 挖矿的分布随缘不受控, 会导致长尾特性 (F5 动态键 / F11 GeoJSON / F16 深连接) 样本量远低于目标。
-- **Real 轨不可省**: 纯合成管线全链路自循环, 没有外部真值锚点。Real 从开源代码 + 公开论坛挖矿 ~4,000 样本, 提供真实用户意图锚点, 用于兑现 externally-anchored 设计原则。
-- **Hybrid 轨不可省**: 单独的 Synth / Real 无法测量"真实意图能否泛化到新 schema"。Hybrid 取 Real 的意图骨架, 放到 Synth 的不同建模哲学库上重新 Lowering 与执行, 专测组合泛化 (对应评估 RQ4)。
+- `deterministic`: 查询不依赖随机性、系统时钟、外部搜索索引状态或宿主函数副作用.
+- `read_only`: 查询不写库、不导出结果、不合并结果、不依赖运行中系统状态.
+- `schema_grounded`: 每个字段路径、集合引用、类型约束、输出键都能在显式 schema package 中解析.
+- `liftable`: `mql_canonical -> fast_canonical -> cmrl_canonical` 的往返链条是 full、无歧义、无 Long-Tail 悬空节点.
+- `triple_consensus_status = pass`: Compiler A / B / C 全部已定义且 `r_A \equiv_{rec} r_B \equiv_{rec} r_C`.
+- `riv_status = pass`: 当前实例可以将 gold query 与一组 near-miss counterqueries 机械分开.
+- `nlq_family_valid`: `nlq_canonical` 与 `nlq_variants` 满足 02 的 family 契约, 且 family 中保留的每条 NLQ 都经 translator 共识通过.
 
-本 pipeline 是 [01 §1 任务形式化](./01_task_definition.md#01-1) 所定义"(NLQ, schema) ⇒ MQL"任务的实现锚, 数量 / 分布 / 切分契约由 02 设计文档给出, 本文档不重复。
+这一定义直接导出三条硬边界:
+
+1. **主集不接收 `longtail_AB_only`**.
+2. **主集不接收 `a_only`**.
+3. **主集不接收分歧桶**: `engine_quirk`, `A_bug`, `B_bug`, `C_bug`, `spec_ambiguity` 全部只保留在 sidecar.
 
 <a id="03-2"></a>
-## 2. 正向构建 (Synth 轨)
+## 2. 三轨构造架构
 
-Synth 轨的目标不是"造一个能跑的库", 而是"让 17 大 MongoDB 特性 + 6 种建模哲学按可控比例出现"。这要求库的生成由可解释的事件流驱动 + 建模哲学显式分配, 而不是从 schema 反推记录。
+### 2.1 三轨职责表
 
-<a id="03-2-1"></a>
-### 2.1 17 特性 Checklist
-
-本 benchmark 必须覆盖的 17 大特性 (F1-F17):
-
-| 类别 | ID | 特性 | 触发机制 (关键词) | 典型查询算子 |
-|---|---|---|---|---|
-| Schema 异质 | F1 | 稀疏字段 | 部分事件省略字段 | `$exists: true/false` |
-| Schema 异质 | F2 | 多态类型 | 同字段跨版本类型变化 | `$type`, `$cond` 类型路由 |
-| Schema 异质 | F3 | 可选嵌套层 | 嵌套对象可空 / 可缺 | 嵌套路径 + `$exists` |
-| Schema 异质 | F4 | 数组元素多态 | 数组内元素结构异构 | `$filter` + `$type` |
-| 动态键 | F5 | 日期 / 租户作 key | map 结构 key 是数据维度 | `$objectToArray` |
-| 动态键 | F6 | `$objectToArray` 可转映射 | map 需转 array 聚合 | `$objectToArray` + `$unwind` |
-| 动态键 | F7 | key 集合随文档演化 | 新版本引入新 key | `$ifNull` 分支 |
-| 原生 BSON | F8 | ObjectId | 系统生成 id | `ObjectId()` 构造 |
-| 原生 BSON | F9 | Decimal128 | 金融精度 | `NumberDecimal()` |
-| 原生 BSON | F10 | Date | 时间维度 | `$dateToString`, `$dateDiff` |
-| 原生 BSON | F11 | GeoJSON | 地理查询 | `$geoWithin`, `$near` |
-| 文档形态 | F12 | 嵌入 vs 引用并存 | 1:N 用嵌入, 大粒度用引用 | `$lookup` pipeline |
-| 文档形态 | F13 | 多版本共存 (schema drift) | 不回填新字段 | `$ifNull`, `$type` 分支 |
-| 文档形态 | F14 | 大数组 / 分桶 | bucket pattern 按时间分桶 | `$unwind` + `$bucket` |
-| 查询算子 | F15 | 存在性 | 稀疏字段检测 | `$exists` / `$type` |
-| 查询算子 | F16 | 深连接 | 递归层级 | `$lookup` with pipeline + `$graphLookup` |
-| 查询算子 | F17 | unwind 保空 | 空数组保留 | `$unwind` + preserveNullAndEmptyArrays |
-
-Accreter 的突变规则 + Modeling Style Skew + Sampler 采样目标都必须对照此表设计。
-
-<a id="03-2-2"></a>
-### 2.2 Event Planner (产品文档 mining)
-
-人工编写事件模板容易得到"典型套路 + 高度冗余的库形态", 220 个库的结构独立性可能只有 10-20 种, 远低于真实 MongoDB 生态的多样性。把事件流从"人工草拟"改为"真实产品文档 mining", 能得到 50-100 种结构独立形态, 这是 Synth 轨异质性的第一道保证。
-
-**Step 1 — 文档源清单**: 每个业务域挑 5-10 个产品文档, 覆盖不同厂商的事件流建模风格:
-
-- Stripe API Reference (电商 / 金融): `PaymentIntent` / `Invoice` / `Subscription` 全套 webhook
-- Shopify Developer Docs (电商): `Order` / `Checkout` / `Fulfillment` 资源事件
-- Saleor / Medusa / Odoo (电商 / SaaS 开源业务系统): README + webhook docs
-- MongoDB Realm / Atlas App Services (跨域): todo / inventory / ticketing 示例应用
-- AWS IoT Core / Azure IoT Hub / Particle Cloud (IoT): shadow / lifecycle / job 事件
-- HL7 FHIR / Epic APIs / Doximity (医疗): `Observation` / `Encounter` / `MedicationRequest`
-- Plaid / Stripe Treasury / Coinbase / Revolut Business (金融): `Transaction` / `Transfer` / `BalanceUpdate`
-- Unity Gaming Services / PlayFab / GameAnalytics (游戏): `PlayerSession` / `LeaderboardUpdate` / `PurchaseCompleted`
-
-**Step 2 — LLM 结构化抽取**: 用 Claude / GPT 对每份文档抽取事件流 DAG, 输出标准 YAML DSL:
-
-```yaml
-domain: ecommerce
-product_source: stripe
-events:
-  - name: PaymentIntent.requires_payment_method
-    actor: customer
-    timestamp_rule: business_hours_uniform
-    mutations:
-      - {op: insert, collection: payment_intents,
-         fields: {amount: Decimal128, currency: string,
-                  status: requires_payment_method, created: Date}}
-  - name: PaymentIntent.succeeded
-    actor: payment_gateway
-    timestamp_rule: after(PaymentIntent.requires_payment_method, lag=[1s, 5m])
-    mutations:
-      - {op: update, collection: payment_intents, filter: {by: id},
-         set: {status: succeeded, paid_at: Date}}
-      - {op: sub-insert, collection: customers, filter: {by: customer_id},
-         array_field: payment_history,
-         element: {intent_id: ref, amount: Decimal128, ts: Date}}
-```
-
-**Step 3 — 人工复核 + 去重**: 每个域产出 5-10 个事件流模板, 人工 pick 3-5 个结构独立性最高的入库 (基于 Graph Edit Distance, 见 §2-4 末尾)。
-
-**事件流样例 (ecommerce_017 的来源)**: ecommerce_017 的事件流源自 Stripe API Reference 的 `PaymentIntent` + `Invoice` + 开源业务系统 `Order` 事件, 事件名遵循源产品命名约定 (`PaymentIntent.succeeded` 而非 `PaymentReceived`), 更贴近真实用户代码里查询的 collection 形态:
-
-```yaml
-domain: ecommerce
-product_source: stripe
-db_id: ecommerce_017
-events:
-  - name: Order.created
-    actor: customer
-    timestamp_rule: business_hours_uniform
-    mutations:
-      - {op: insert, collection: orders,
-         fields: {user_id: ObjectId, status: pending, total: Decimal128,
-                  items: array[{sku: str, price: Decimal128, qty: int}],
-                  created_at: Date}}
-  - name: PaymentIntent.succeeded
-    actor: payment_gateway
-    timestamp_rule: after(Order.created, lag=[1s, 30m])
-    mutations:
-      - {op: update, collection: orders, filter: {by: order_id},
-         set: {status: paid, paid_at: Date}}
-  - name: Shipment.delivered
-    actor: logistics
-    timestamp_rule: after(PaymentIntent.succeeded, lag=[1h, 72h])
-    mutations:
-      - {op: dynamic-key-set, collection: orders, filter: {by: order_id},
-         map_field: shipment_events, key: "{ts:YYYYMMDD}",
-         value: {carrier: str, status: str}}
-```
-
-10 个业务域的事件模板规模 (补列"产品源数"表示结构独立的库形态来源数):
-
-| 业务域 | 事件数 | 产品源数 (结构独立库形态) | 代表事件 (源产品命名) |
+| 轨道 | 输入起点 | 主集范围 | 旁路范围 |
 |---|---|---|---|
-| 电商 | 8-12 | 6-8 | `PaymentIntent.succeeded` (Stripe) / `orders/create` (Shopify) / `CheckoutComplete` (Saleor) |
-| IoT | 5-8 | 4-6 | `iot/lifecycle/connected` (AWS IoT) / `device.telemetry` (Azure IoT Hub) / `particle.online` (Particle) |
-| 日志 | 3-5 | 3-4 | `log.ingested` (ELK) / `otel.trace.span` (OpenTelemetry) / `dd.trace.exception` (Datadog) |
-| CMS | 6-10 | 4-6 | `Entry.publish` (Contentful) / `content-type.created` (Strapi) / `post_saved` (WordPress) |
-| 社交 | 8-12 | 5-7 | `statuses/create` (Mastodon) / `m.room.message` (Matrix) / `MESSAGE_CREATE` (Discord) |
-| 金融 | 10-14 | 6-8 | `transactions.update` (Plaid) / `received_credit.created` (Stripe Treasury) / `charge.pending` (Coinbase) |
-| 医疗 | 7-10 | 4-6 | `Encounter.admitted` (FHIR) / `Observation.final` (FHIR) / `MedicationRequest.active` (Epic) |
-| 游戏 | 8-12 | 4-6 | `session.start` (PlayFab) / `purchase.completed` (Unity Gaming Services) / `achievement.unlocked` (GameAnalytics) |
-| SaaS | 6-10 | 5-7 | `user.created` (Clerk) / `workspace.provisioned` (WorkOS) / `deployment.ready` (Vercel) |
-| 教育 | 6-10 | 4-6 | `enrollment.created` (Canvas LMS) / `submission.graded` (Moodle) / `mastery.attained` (Khan Academy) |
+| `synth` | Schema Generator + World Materializer + cMRL Sampler | deterministic、read-only、liftable 的 Core / Extension 样本 | Long-Tail 审核样本, 编译分歧样本, RIV 失败样本, NLQ 失败样本 |
+| `real` | 公开来源中的 MQL + 代码 / 论坛上下文 | 可解析、可 full-lift、可重建 schema / world、且三路 `pass` 的样本 | `longtail_AB_only`, unresolved schema, partial / failed lift, 编译分歧, internal `a_only` |
+| `hybrid` | 已通过主集准入的 Real `cmrl_canonical` 骨架 + 已通过主集准入的 Synth schema / world 配置 | remap 后仍 deterministic、read-only、full-lift、三路 `pass` 的样本 | remap 冲突、类型不闭合、RIV 失败、NLQ 失败 |
 
-事件之间保留偏序约束: `PaymentIntent.requires_payment_method` → `PaymentIntent.succeeded` → `Shipment.delivered`。Event Planner 用 DAG 表达此偏序, 生成事件流时按拓扑序抽样, 并按 `timestamp_rule` 加扰动 (poisson lag / business-hour 分布), 既保证因果合理又保留时间分布的真实长尾。
+### 2.2 三轨统一产物
 
-<a id="03-2-3"></a>
-### 2.3 Document Accreter
+三轨都收敛到同一公开 family 记录:
 
-Accreter 是事件 → 文档突变的执行器, 核心是"沉积 (accrete) 而非重建": 老文档不会因 schema 演化被回写, 这正是真实 MongoDB 库长尾形态 (F1 稀疏 / F13 多版本) 的成因。
+- `cmrl_canonical`
+- `fast_canonical`
+- `mql_canonical`
+- `r_A`, `r_B`, `r_C`
+- `triple_consensus_status`
+- `nlq_canonical`, `nlq_variants`
+- `structural_difficulty`, `sdt_level`, `is_horizon`
+- `sci_score`, `sci_bucket`, `modeling_style`, `activated_features`
+- `provenance`
 
-突变规则共 4 类:
+因此三轨的差异只体现在**候选样本从哪里来, 如何被 grounding, 如何被重建 world**, 而不体现在公开写盘字段上.
 
-| 突变 op | 语义 | 触发的特性 |
-|---|---|---|
-| `insert` | 全新文档落库 | 引入当前 schema 版本的字段集 |
-| `update` | 给已有文档打 patch | 仅写入 `set` 指定字段, 保留旧字段 → F1 / F13 |
-| `sub-insert` | 往嵌套数组追加元素 | F4 (数组元素多态), 取决于元素 schema 是否随时间演化 |
-| `dynamic-key-set` | 往 map 字段写 key | F5 / F6 / F7 (动态键) 直接由此触发 |
+### 2.3 三轨统一状态机
 
-Accreter 收到一个事件序列后, 先根据 Modeling Style Skew (§2-4) 决定本库的建模哲学, 再按 op 逐条 apply:
+所有轨道都服从同一状态机:
 
-```python
-def apply_event(db, event, style_config):
-    for mut in event.mutations:
-        mut = rewrite_for_style(mut, style_config)  # §2-4 风格改写
-        target = db[mut.collection]
-        if mut.op == "insert":
-            target.insert(render_doc(mut.fields))
-        elif mut.op == "update":
-            target.update(mut.filter, apply_patch(mut.set))
-        elif mut.op == "sub-insert":
-            target.update(mut.filter,
-                {"$push": {mut.array_field: render_doc(mut.element)}})
-        elif mut.op == "dynamic-key-set":
-            target.update(mut.filter,
-                {"$set": {f"{mut.map_field}.{mut.key}": mut.value}})
+```text
+candidate
+  -> schema_grounded
+  -> world_frozen
+  -> canonicalized
+  -> triple_checked
+  -> riv_checked
+  -> nlq_assembled
+  -> main_or_sidecar_route
 ```
 
-**Schema 演化不迁移规则**: 事件模板新增字段时, Accreter 只在新事件触发的 `insert` / `update` 中写入该字段, 不对历史文档回填。同一 collection 在不同时间窗口内的文档会有不同字段集, F1 稀疏与 F13 多版本因此自然涌现, 不需要额外人为注入。
-
-<a id="03-2-4"></a>
-### 2.4 Modeling Style Skew
-
-同一业务域下 22 个库若都用同一建模哲学, 模型只需学一套 schema 就能跨库泛化, 无法测试跨建模哲学的推理。Modeling Style Skew 把 6 种建模哲学按可控比例分配到 Synth 220 库的每个域, 强制模型见到"同意图 / 异 schema"的多样化 ground truth。
-
-6 种建模哲学:
-
-| 哲学 | 特征 | 触发特性偏好 | Synth 占比 |
-|---|---|---|---|
-| Normalized | 小文档 + 多 collection + `_id` 引用 | F16 偏高 | 17% |
-| Embedded | 大文档 + 多层嵌入数组 | F4 / F14 偏高 | 17% |
-| Bucket | 按时间 / 维度分桶 collection | F14 / F10 偏高 | 17% |
-| Polyglot | 同库混用多种哲学 | F2 / F12 偏高 | 17% |
-| Legacy-drifting | 多 schema 版本并存 | F1 / F13 偏高 | 17% |
-| Tenant-sharded | 租户 ID 作动态键 | F5 / F7 偏高 | 15% |
-
-**实现机制**: Event Planner 产出事件流之后、Accreter 开始执行之前, 根据一份 `(domain, philosophy) → modeling_style_config` 配置表, 调整 mutation 的默认策略:
-
-- **Normalized**: `$push` 改写为"插新 collection + 引用", `users.payment_history[]` 拆成独立的 `payments` collection
-- **Embedded**: 所有 `insert` 优先嵌入到父文档, `payments` 嵌入到 `users.payments[]` 数组
-- **Bucket**: 周期性新建 `orders_202601` / `orders_202602` 而非同一 collection 持续写入
-- **Polyglot**: 按字段类别随机选择: 小 1:N 嵌入、大 1:N 引用、高频聚合走 bucket
-- **Legacy-drifting**: 事件 schema 每 N 次演化一次 (字段加 / 删 / 重命名), 老文档不回填
-- **Tenant-sharded**: 所有 mutation 路由到 `tenant_data.{tenant_id}.*` 路径, 租户 id 作为动态键
-
-**运行示例**: ecommerce_017 被分配到 **Legacy-drifting** 哲学。其 `orders` collection 内共存 3 代 schema:
-
-- Gen-A (2024 至 2025 上半年): `{status, total, items}`, `total` 是 `Double` 类型
-- Gen-B (2025 下半年): 新增 `paid_at` 字段 (`Date`), `total` 仍为 `Double`
-- Gen-C (2026): `total` 改为 `Decimal128` (金融精度需求), 新 order 都用 Gen-C, 老 order 保留 `Double`
-
-这让 ecommerce_017 的"paid 订单总计"查询天然激活 F9 (Decimal128) + F10 (Date) + F13 (schema drift) + F15 (`paid_at exists`) + F17 (`$unwind items`), 与本文档主线的 cMRL / MQL 特性集完全吻合。
-
-**结构独立性指标**: 对全 Synth 220 库做两两 Graph Edit Distance (GED) 计算, 要求平均 GED ≥ 0.4, 且任意"相似度 > 80%"的库对 ≤ 5%。不达标则补 Event Planner 源 (加新的产品文档源或提升 Polyglot 占比), 直到指标达标。
-
-<a id="03-2-5"></a>
-### 2.5 异质注入 hook
-
-部分特性 (BSON 类型、数组多态、显式动态键) 不能仅靠事件演化 + Modeling Style Skew 自然出现, Accreter 需在 `render_doc` 阶段主动注入。注入 hook 的概率参数化, 事后由 Schema Exporter 统计触达率, 不达标则反馈调参。
-
-| Hook | 概率 / 触发条件 | 对应特性 | 实现要点 |
-|---|---|---|---|
-| 稀疏注入 | `p_sparse = 0.15-0.30`, 省略可选字段 | F1 | 字段需在事件 schema 中标记 `optional: true` 才参与抽样 |
-| 多态注入 | `p_poly = 0.05-0.10`, 切换字段类型 | F2 / F4 | 同字段维护 `type_pool: [int, str, ...]`, 抽样写入 |
-| 动态键注入 | 字段标记 `dynamic_key: true` | F5 / F7 | 由 `dynamic-key-set` 突变触发, key 取自数据维度 (date / tenant_id) |
-| BSON 类型注入 | 字段绑定 `bson_type` | F8-F11 | 见下表 |
-
-BSON 特殊类型的注入点必须显式绑定字段, 否则下游模型会失去触发线索:
-
-| BSON 类型 | 字段命名约定 | 触发特性 |
-|---|---|---|
-| ObjectId | 任意 `_id` 字段 / 引用字段 (`*_ref`) | F8 |
-| Decimal128 | 金额 / 价格类字段 (`amount`, `price`, `total`, `balance`) | F9 |
-| Date | 时间戳字段 (`*_at`, `*_ts`) | F10 |
-| GeoJSON | 经纬度容器 (`location`, `geo`, `coords`) | F11 |
-
-Modeling Style Skew 与异质注入 hook 互补: **Skew 决定库的宏观架构** (小文档 vs 嵌入 vs 分桶 vs 多版本并存), **hook 决定微观字段级异质** (稀疏 / 多态 / 动态键 / BSON 类型)。两者一起生成最终的异质 Synth 库。
-
-**采样控制**: Schema Exporter 跑完后统计每个 F1-F17 的触达率 (= 含该特性的文档数 / 总文档数), 目标下界 5%。低于阈值则: (1) 调整对应 `p_*` 参数重抽该 collection; (2) 追加事件批次以补特性; (3) 在事件模板中加入包含目标特性的新事件类型。
-
-<a id="03-2-6"></a>
-### 2.6 Schema Exporter
-
-下游 cMRL Sampler 与 Reverse Verifier 都需要"这条 collection 字段 X 实际可能是哪些类型 / 出现率多少", Schema Exporter 把这些运行时事实从生成的库中反向推断, 与 Accreter 解耦后可随时重抽。
-
-推断流程:
-
-1. 遍历每个 collection 的所有文档, 对每条文档展开嵌套路径 (`a.b.c`)
-2. 对每条路径合并类型集合 (union types), 记录出现次数
-3. 计算字段稀疏度 `sparsity = 1 − 出现次数 / 文档总数`
-4. 抽样 5-10 条非空 `example_values` 供 Sampler 选值参考
-5. 从 Accreter 元数据继承 `modeling_style` 字段, 写入 Schema Exporter 输出头
-
-输出格式 (ecommerce_017 片段):
-
-```yaml
-db_id: ecommerce_017
-modeling_style: Legacy-drifting
-collections:
-  orders:
-    status:
-      types: [string]
-      sparsity: 0.00
-      examples: [pending, paid, cancelled, refunded]
-    total:
-      types: [Double, Decimal128]    # schema drift: Gen-A/B Double, Gen-C Decimal128
-      sparsity: 0.00
-      examples: ["199.99", "12.50"]
-    paid_at:
-      types: [Date, null]
-      sparsity: 0.35                 # 35% 订单未支付
-    items:
-      types: [array]
-      sparsity: 0.00
-      element_schema:
-        sku: {types: [string]}
-        price: {types: [Decimal128]}
-        qty: {types: [int]}
-    shipment_events:
-      types: [object]
-      sparsity: 0.42
-      is_dynamic_key_map: true       # F5 动态键
-      inner_value_schema:
-        carrier: {types: [string]}
-        status: {types: [string]}
-```
-
-Schema Exporter 的输出同时承担三重角色: (1) cMRL Sampler 字段引用合法性校验的字典; (2) Reverse Verifier 重构 MQL 时的 schema markdown 来源; (3) Intent Mutator 生成 variant 时的字段类型感知层。Schema Exporter 与 Accreter 解耦, 可在不改库的前提下独立重抽, 便于回溯某条样本"当时看到的 schema 是什么样"。
+任一阶段失败, 都不会越过该阶段直接写入主集.
 
 <a id="03-3"></a>
-## 3. cMRL + fAST 双层表示
+## 3. 主集算子范围与可提升约束
 
-cMRL 是 30 原语的紧凑 DSL, 服务于 Sampler 的约束求解; fAST 是 MongoDB AST 的完整镜像, 服务于执行与完整表达力。Lowering 把 cMRL 确定性地转为 fAST, Lifting 把 fAST 尽力还原为 cMRL。这一双层设计是 MonGen 的架构基石。
+01 定义的是 MonGen 可表达的表示空间; **03 进一步定义进入主集构造的可接纳子空间**. 主集的 admissible operator set 只保留 deterministic、read-only、可 full-lift 的算子.
 
-<a id="03-3-1"></a>
-### 3.1 cMRL 规范 (紧凑 DSL)
+### 3.1 主集允许的 Core / Extension 子集
 
-cMRL (Compact-MRL) 是 YAML / JSON 形式的结构化意图表示, 顶层字段固定:
+主集允许使用的算子类别如下:
 
-| 字段 | 类型 | 作用 |
-|---|---|---|
-| `intent` | enum | `retrieve` / `aggregate` / `count` / `exists` |
-| `scope` | object | `{collection, filters[], joins[], unwinds[]}` |
-| `projection` | object | 返回字段集 + alias 规范 |
-| `grouping` | object | 分组维度 + 聚合算子 |
-| `ordering` | array | 排序键与方向 |
-| `limits` | object | `{limit, skip}` |
-| `features` | list[str] | 激活的 F1-F17 子集 |
+- Core 中的常规 filter / projection / grouping / unwind / sort / limit / skip / count / simple lookup / pipeline lookup
+- deterministic 的 `graphLookup`
+- deterministic 的 `facet`
+- deterministic 的 `setWindowFields`
+- deterministic 的 `bucket`, `bucketAuto`
+- deterministic 的 `densify`, `fill`
+- deterministic 的 `unionWith`
+- deterministic 的 `redact`
+- deterministic 的 `replaceRoot` / `replaceWith`
+- deterministic 的 `push` / `addToSet`
+- deterministic 的 `map` / `reduce` / `objectToArray` / `expr_complex`
 
-cMRL 共定义 30 个原语, 分类表 (含典型下沉到 fAST 节点示例):
+是否允许某一具体节点进入主集, 由三条条件同时决定:
 
-| 类别 | 数量 | 原语 | 下沉示例 |
-|---|---|---|---|
-| Filter | 12 | `eq`/`ne`/`lt`/`lte`/`gt`/`gte`/`in`/`nin`/`exists`/`type`/`regex`/`geoWithin` | `{$match:{field:{$eq:v}}}` |
-| Projection | 5 | `include`/`exclude`/`alias`/`compute`/`objectToArray` | `{$project:{...}}` |
-| Grouping | 8 | `sum`/`avg`/`min`/`max`/`count`/`stdDev`/`push`/`addToSet` | `{$group:{...}}` |
-| Join | 3 | `lookup_simple`/`lookup_pipeline`/`graphLookup` | `{$lookup:{...}}` |
-| Array | 5 | `unwind`/`filter`/`map`/`reduce`/`slice` | `{$unwind:"$path"}` |
-| Sort/Page | 4 | `sort_asc`/`sort_desc`/`limit`/`skip` | `{$sort:{...}}` + `{$limit:N}` |
+1. 可 full-lift 到 `cmrl_canonical`
+2. Compiler C 对该节点有定义
+3. 节点不引入随机性、外部依赖或写副作用
 
-**样例 1 — ecommerce_017 主线 (聚合, items.price sum)**:
+### 3.2 主集明确排除的节点
 
-```yaml
-intent: aggregate
-scope:
-  collection: orders
-  filters:
-    - {field: status, op: eq, value: paid}
-    - {field: paid_at, op: exists, value: true}
-    - {field: paid_at, op: gte, value: "2026-01-01", type: Date}
-  unwinds:
-    - {path: items, preserveNullAndEmptyArrays: false}
-grouping:
-  by: [user_id]
-  aggs:
-    - {alias: total_spent, op: sum, field: items.price}
-projection:
-  include: [user_id, total_spent]
-ordering: [{field: total_spent, direction: desc}]
-limits: {limit: 3}
-features: [F9, F10, F15, F17]
-```
+以下节点**不进入主集构造**, 只可作为 sidecar 的 Long-Tail 示例或审核材料:
 
-**样例 2 — ecommerce_017 子集 (递归连接, categories 树)**:
+- `$sample`
+- `$search`
+- `$out`
+- `$merge`
+- `$rand`
+- `$$NOW`
+- 宿主语言函数调用
+- 依赖运行态系统表或系统统计的查询
 
-```yaml
-intent: retrieve
-scope:
-  collection: categories
-  filters:
-    - {field: slug, op: eq, value: "electronics"}
-  joins:
-    - op: graphLookup
-      from: categories
-      startWith: $_id
-      connectFromField: _id
-      connectToField: parent_id
-      as: descendant_tree
-      maxDepth: 5
-projection:
-  include: [name, slug, descendant_tree.name]
-limits: {limit: 50}
-features: [F8, F16]
-```
+这条规则同时作用于三轨:
 
-**约束**: `intent=count` 时 `projection` / `grouping` 为空; `intent=exists` 时 `limits.limit=1`; `joins` 的 `localField` / `foreignField` 必须 in Schema Exporter 的 `union_schema`。
+- Synth 不生成这些节点
+- Real 发现这些节点后只能进入 sidecar
+- Hybrid 不从含这些节点的骨架派生主集样本
 
-**cMRL 的用途**: MRL Sampler 在 cMRL 层做约束求解 (覆盖 / 难度 / 去重), Intent Mutator 在 cMRL 层做 Intent Variant 生成, 之后再 Lowering 到 fAST 执行。cMRL 是"采样友好 + 语义闭合"的窄谱, 不追求覆盖 MongoDB 全集算子, 长尾部分 (`$setWindowFields` / `$densify` / `$fill` / `$facet` / 等) 交由 fAST 兜底; 本层的形式正确性证明见 §3-5。
+### 3.3 `null` 与 `missing` 的公开归一化
 
-<a id="03-3-2"></a>
-### 3.2 fAST 规范 (MongoDB AST 镜像)
+主集与公开 sidecar 都执行同一套结果归一化规则, 且**严格区分 `null` 与 `missing`**:
 
-cMRL 的 30 原语不够覆盖 MongoDB 全集: `$setWindowFields` (窗口聚合) / `$densify` (时间填充) / `$fill` (缺失值插补) / `$facet` (多管道分支) 等 MongoDB 7.0+ 算子都在 cMRL 原语表外。fAST 是 MongoDB Aggregation AST 的完整镜像, 每个合法 MQL 管道阶段对应一个 fAST 节点, 对 MongoDB 表达力无盲区。
+- 显式 `null` 保留为 `null`
+- 缺失字段在归一化结果 dict 中保持**缺失**, 不回填 `null`
+- 结果哈希、`equiv_rec` 比较、RIV witness 抽取都以这一规则为准
 
-**结构**:
-
-- 顶层: `{op: "aggregate" | "find", collection: str, stages: list[Stage]}`
-- Stage: `{op: "$match" | "$project" | ... | "$setWindowFields" | "$densify" | "$facet" | ..., args: object}`
-- args 递归: 支持任意深度的 `$expr` 表达式 (含 `$let` / `$switch` / `$reduce` / `$map` / `$filter`)
-- 类型标注: 每个字段值有 `{value, type}` 形式 (保留 `$date` / `$numberDecimal` / `$oid` 等 BSON 类型标识)
-
-**fAST 支持的 24 个核心 Stage 节点** (与 MongoDB 7.0+ AST 1:1 镜像, 下游引用时直接按此表查):
-
-| # | Stage op | 语义 | Lift 入 cMRL | 典型激活特性 |
-|---|---|---|---|---|
-| 1 | `$match` | 文档过滤 | ✓ Filter 原语 | F1/F10/F11/F15 |
-| 2 | `$project` | 字段裁剪 / 计算投影 | ✓ Projection 原语 | — |
-| 3 | `$addFields` / `$set` | 追加计算字段 | ✓ Projection.compute | — |
-| 4 | `$group` | 分组聚合 | ✓ Grouping 原语 | F5 (objectToArray 后) |
-| 5 | `$sort` | 排序 | ✓ Sort 原语 | — |
-| 6 | `$limit` | 截断前 N 条 | ✓ Limit 原语 | — |
-| 7 | `$skip` | 跳过前 N 条 | ✓ Skip 原语 | — |
-| 8 | `$unwind` | 展开数组, 支持 preserveNullAndEmptyArrays | ✓ Array.unwind | F4/F17 |
-| 9 | `$lookup` (simple) | 等值 join | ✓ Join.lookup_simple | F12/F16 |
-| 10 | `$lookup` (pipeline) | 管道 join, 带 `let` + `pipeline` | ✓ Join.lookup_pipeline | F12/F16 |
-| 11 | `$graphLookup` | 递归 join | ✓ Join.graphLookup | F16 |
-| 12 | `$facet` | 多管道分支并行 | ✗ Lift 失败 | — |
-| 13 | `$bucket` | 手动边界分桶 | ✗ Lift 失败 (可 partial) | F14 |
-| 14 | `$bucketAuto` | 自动等频分桶 | ✗ Lift 失败 | F14 |
-| 15 | `$setWindowFields` | 窗口聚合 (MongoDB 5.0+) | ✗ Lift 失败 | F10/F14 |
-| 16 | `$densify` | 时间 / 数值稠密化 (MongoDB 5.1+) | ✗ Lift 失败 | F10 |
-| 17 | `$fill` | 缺失值插补 (MongoDB 5.3+) | ✗ Lift 失败 | F1/F10 |
-| 18 | `$replaceRoot` / `$replaceWith` | 重塑文档根 | ✗ Lift 失败 (可 partial) | F3 |
-| 19 | `$redact` | 按条件裁剪子树 | ✗ Lift 失败 | F3/F15 |
-| 20 | `$sample` | 随机抽样 | ✗ Lift 失败 | — |
-| 21 | `$count` | 计数 | ✓ Grouping (count) | — |
-| 22 | `$geoNear` | 地理就近 | ✗ Lift 失败 (可 partial filter) | F11 |
-| 23 | `$search` / `$searchMeta` | Atlas Search 文本查询 | ✗ Lift 失败 | — |
-| 24 | `$out` / `$merge` | 写回 (副作用 stage) | ✗ 数据集不采纳 (读任务) | — |
-
-第 12-20、22-23 号 stage 一律在 Lifting 时返回 `None`, 样本落入 `provenance.lifting_status: "failed"` 桶, 只保留 fAST + MQL, 不进入 Synth Sampler 复用 (Sampler 只在 cMRL 层采样); 第 24 号 `$out` / `$merge` 是写副作用 stage, MonGen 任务定义为只读 (见 01 §1), 直接被 MQL Miner 过滤掉, 不进 fAST Parser。
-
-**ecommerce_017 主线 fAST (6 stage 完整结构)**:
+例如:
 
 ```json
-{"op":"aggregate","collection":"orders","stages":[
-  {"op":"$match","args":{"status":"paid","paid_at":{"$exists":true,"$gte":{"$date":"2026-01-01"}}}},
-  {"op":"$unwind","args":{"path":"$items"}},
-  {"op":"$group","args":{"_id":"$user_id","total_spent":{"$sum":"$items.price"}}},
-  {"op":"$project","args":{"_id":0,"user_id":"$_id","total_spent":1}},
-  {"op":"$sort","args":{"total_spent":-1}},
-  {"op":"$limit","args":3}
-]}
+{"paid_at": null}
 ```
 
-**两条关键性质**:
-
-1. **每个 fAST 节点都可直接 unparse 为合法 MQL 字符串**, 不经过 cMRL。这让 Synth 管线上游即便出错, fAST → MQL 的 unparse 仍是机械无损的。
-2. **MongoDB 新算子只需扩展 fAST 规范 (增加新 op 标签), 不需要改 cMRL**。新算子未必能压缩进 cMRL 30 原语, 但总能作为 fAST stage 出现在 Real / Hybrid 样本中 (可能触发 Lifting failed, 但样本可入 fAST-only 桶)。
-
-**长尾算子示例** (Lifting failed 但 fAST 完整支持, `$setWindowFields` 做月度累计销售额):
+与
 
 ```json
-{"op":"aggregate","collection":"orders","stages":[
-  {"op":"$match","args":{"status":"paid"}},
-  {"op":"$group","args":{"_id":{"year":{"$year":"$paid_at"},"month":{"$month":"$paid_at"}},
-                          "monthly_total":{"$sum":"$total"}}},
-  {"op":"$setWindowFields","args":{
-    "partitionBy":null,
-    "sortBy":{"_id.year":1,"_id.month":1},
-    "output":{"ytd_total":{"$sum":"$monthly_total",
-              "window":{"documents":["unbounded","current"]}}}}}
-]}
+{}
 ```
 
-此 fAST 的 `$setWindowFields` 不在 cMRL 30 原语中, Lifting 返回 `None`, 样本落入 `provenance.lifting_status: "failed"` 桶, 作为纯 fAST-only 样本进入 Real / Hybrid 数据集。
+在公开归一化层面不是同一个结果.
 
-这让 cMRL 保持紧凑 (30 原语, 采样高效), fAST 自动同步 MongoDB Release Note (每版新算子扩展即可)。
+<a id="03-4"></a>
+## 4. Synth 轨操作规程
 
-<a id="03-3-3"></a>
-### 3.3 Lowering (cMRL → fAST)
+Synth 轨从零开始生成 schema、world 与 query, 但主集准入合同会把可写入范围收缩到 deterministic、read-only、triple-pass 的 family.
 
-Lowering 是从 cMRL 到 fAST 的**确定性编译**。给定一条合法 cMRL, 只有一条 Lowering 路径, 不存在 Lowering 歧义。
+### 4.1 Schema Generator
 
-```python
-def lower(cmrl: CMRL) -> FAST:
-    stages = []
-    if cmrl.scope.filters:
-        stages.append(FAST.Stage(op="$match", args=lower_filters(cmrl.scope.filters)))
-    for j in cmrl.scope.joins:
-        stages.append(FAST.Stage(op="$lookup", args=lower_join(j)))
-    for u in cmrl.scope.unwinds:
-        stages.append(FAST.Stage(op="$unwind", args=lower_unwind(u)))
-    if cmrl.grouping:
-        stages.append(FAST.Stage(op="$group", args=lower_group(cmrl.grouping)))
-    if cmrl.projection:
-        stages.append(FAST.Stage(op="$project", args=lower_project(cmrl.projection)))
-    if cmrl.ordering:
-        stages.append(FAST.Stage(op="$sort", args=lower_sort(cmrl.ordering)))
-    stages.extend(lower_limits(cmrl.limits))
-    return FAST(op="aggregate", collection=cmrl.scope.collection, stages=stages)
-```
+Schema Generator 的职责不是“写一个方便查询通过的库”, 而是生成一个**显式、可导出、可校验**的 schema package. 每个 Synth `db_id` 至少产出以下 staging 资产:
 
-**Lowering 内置 self-check** (即 §7-2 的输入), 5 条:
+- `schema.json`: 机器可读 schema
+- `schema.md`: 提供给 NLQ 构造与 translator 的 schema markdown
+- `json_schema/`: 各 collection 的 `$jsonSchema` 导出
+- `field_inventory.json`: 全字段路径、类型、稀疏约束、引用约束
+- `role_inventory.json`: 可被 Hybrid remap 复用的角色槽位
 
-| 检查 | 规则 |
-|---|---|
-| 字段引用合法 | 所有字段路径 in `schema.union_schema` (Schema Exporter 输出) |
-| alias 不冲突 | group / project alias 在同一 pipeline 内唯一 |
-| 阶段顺序合法 | `$group` 必须在 `$lookup` / `$unwind` 之后, `$sort` 不得早于产生其排序键的阶段 |
-| 类型与算子兼容 | `gt` / `lt` 仅适用于数值 / Date; `regex` 仅适用于 string; `geoWithin` 仅适用于 GeoJSON |
-| BSON 字面量正确 | `Decimal128` 标注 `{value:"199.99", type:"$numberDecimal"}`; `Date` 标注 `{value:"2026-01-01", type:"$date"}`; `ObjectId` 标注 `{value:"6512...", type:"$oid"}` |
+Schema Generator 的产出必须满足:
 
-**ecommerce_017 主线的完整 Lowering 过程**:
+1. 所有 collection 与字段名显式列出
+2. 所有引用路径闭合
+3. 所有 union / sparsity / nested 结构可导出为 validator
+4. 不在文档中植入任何“只为评测服务”的隐藏 truth 字段
 
-1. `scope.filters` → `$match {status:"paid", paid_at:{$exists:true, $gte:{$date:"2026-01-01"}}}`
-2. `scope.unwinds[items]` → `$unwind {path:"$items"}`
-3. `grouping` → `$group {_id:"$user_id", total_spent:{$sum:"$items.price"}}`
-4. `projection.include` → `$project {_id:0, user_id:"$_id", total_spent:1}`
-5. `ordering[total_spent desc]` → `$sort {total_spent:-1}`
-6. `limits.limit=3` → `$limit 3`
+`ecommerce_017` 的 schema package 中, canonical query 只使用 `orders` 集合, 但 schema 仍然可以包含 `customers` 等其他 collection. 关键约束不是“库里只能有一张表”, 而是 **canonical query 本身不做 join**.
 
-fAST 输出与 §3-2 的 JSON 一致, 再 unparse 得到 Gold MQL:
+### 4.2 World Materializer
 
-```
+World Materializer 以 schema package 为唯一结构上游, 产出一个冻结的数据快照 `D` 与对应的 event trace. 每个 Synth world 至少产出:
+
+- `collections/<coll>.ndjson`: 物化后的文档快照
+- `event_log.ndjson`: 事件轨迹
+- `world_stats.json`: collection 级计数、字段缺失率、值域摘要
+- `lineage_index.json`: 为 RIV 和调试准备的文档来源索引
+
+World Materializer 的操作约束:
+
+1. 事件模板只写 schema 中存在的字段
+2. 显式 `null` 与字段缺失分别生成
+3. 同一个 world seed 重跑必须得到同一快照
+4. 查询正确性不依赖 `event_log`; `event_log` 只用于审计与 witness 追溯
+
+### 4.3 cMRL Sampler
+
+cMRL Sampler 在显式 schema 与冻结 world 上采样 `cmrl_canonical`. Synth 主集中的 `cmrl_canonical` 必须同时满足:
+
+- 字段路径全部可解析
+- 类型约束全部可满足
+- 算子属于主集允许子集
+- 结果非空
+- 结果不退化为“几乎全表”
+- `mql_canonical` 经 parser 后可以 full-lift 回原 `cmrl_canonical`
+
+操作上, Sampler 以“先结构, 后字段, 再字面量”的顺序工作:
+
+1. 先选 stage skeleton
+2. 再为每个节点绑定 schema-grounded 字段
+3. 最后根据 world 统计绑定字面量边界与 limit
+4. 再做一次 full-lift 回环校验
+
+### 4.4 `ecommerce_017` 的 Synth canonical
+
+`ecommerce_017` 的 canonical family 在 Synth 轨中的 `cmrl_canonical` 与 `mql_canonical` 固定为下列 6-stage 管道:
+
+```javascript
 db.orders.aggregate([
-  {$match:{status:"paid",paid_at:{$exists:true,$gte:ISODate("2026-01-01")}}},
-  {$unwind:"$items"},
-  {$group:{_id:"$user_id",total_spent:{$sum:"$items.price"}}},
-  {$project:{_id:0,user_id:"$_id",total_spent:1}},
-  {$sort:{total_spent:-1}},
-  {$limit:3}
+  { $match: { status: "paid", paid_at: { $exists: true, $gte: ISODate("2026-01-01") } } },
+  { $unwind: "$items" },
+  { $group: { _id: "$user_id", total_spent: { $sum: "$items.price" } } },
+  { $project: { _id: 0, user_id: "$_id", total_spent: 1 } },
+  { $sort: { total_spent: -1 } },
+  { $limit: 3 }
 ])
 ```
 
-<a id="03-3-4"></a>
-### 3.4 Lifting (fAST → cMRL)
-
-Lifting 是尽力还原: 给定 fAST, 尝试匹配到 cMRL 的 30 原语组合; 匹配失败则标记为 fAST-only 长尾。
-
-```python
-def lift(fast: FAST) -> Optional[CMRL]:
-    cmrl = CMRL.empty()
-    for stage in fast.stages:
-        match stage.op:
-            case "$match":
-                cmrl.scope.filters.extend(lift_filters(stage.args))
-            case "$lookup":
-                cmrl.scope.joins.append(lift_join(stage.args))
-            case "$unwind":
-                cmrl.scope.unwinds.append(lift_unwind(stage.args))
-            case "$group":
-                cmrl.grouping = lift_group(stage.args)
-            case "$project":
-                cmrl.projection = lift_project(stage.args)
-            case "$sort":
-                cmrl.ordering = lift_sort(stage.args)
-            case "$limit" | "$skip":
-                cmrl.limits |= lift_limits(stage.args)
-            case "$setWindowFields" | "$densify" | "$fill" | "$facet":
-                return None  # cMRL 原语表外, Lift 失败
-            case _:
-                if not can_lift_to_cmrl_primitive(stage.args):
-                    return None
-    return cmrl if cmrl.is_valid() else None
-```
-
-**Lifting 结果三态**:
-
-- **full**: 所有 stage 都能 lift, 得到合法 cMRL → 入 Synth-style Sample Family
-- **partial**: 大部分 stage 能 lift, 但 projection 里有复杂 `$expr` 无法压缩 → 入 Hybrid 候选
-- **failed**: 存在 cMRL 原语表外 op → fAST-only 样本, 不入 cMRL, 只保留 fAST
-
-**Lifting 失败率预期** (Real 挖矿): ~20-40% 落入 fAST-only 长尾, 取决于挖矿来源复杂度。GitHub 生产代码 `$setWindowFields` / `$facet` 使用率较高, Stack Overflow 提问多为基础 `$match` + `$group`, 两者综合平均失败率 25-30%。
-
-**ecommerce_017 主线的 Lifting 全流程**: 取 §3-2 的主线 fAST (6 stage), 逐 stage 回捞到 cMRL:
-
-| fAST stage | 匹配分支 | 写入 cMRL 片段 |
-|---|---|---|
-| `$match{status:"paid",paid_at:{$exists:true,$gte:{$date:"2026-01-01"}}}` | `lift_filters` | `scope.filters += [{status, eq, paid}, {paid_at, exists, true}, {paid_at, gte, "2026-01-01", type:Date}]` |
-| `$unwind{path:"$items"}` | `lift_unwind` | `scope.unwinds += [{path: items, preserveNullAndEmptyArrays: false}]` |
-| `$group{_id:"$user_id", total_spent:{$sum:"$items.price"}}` | `lift_group` | `grouping = {by:[user_id], aggs:[{alias:total_spent, op:sum, field:items.price}]}` |
-| `$project{_id:0, user_id:"$_id", total_spent:1}` | `lift_project` | `projection.include = [user_id, total_spent]` |
-| `$sort{total_spent:-1}` | `lift_sort` | `ordering = [{field:total_spent, direction:desc}]` |
-| `$limit 3` | `lift_limits` | `limits = {limit: 3}` |
-
-6 个 stage 全部命中 cMRL 原语 → Lifting 结果为 **full**, 回灌的 cMRL 与 §3-1 的 canonical cMRL 字段级一致 (字段顺序归一化后), 与 Lowering 形成"往返恒等": `lift(lower(cmrl)) ≡ cmrl` (模 canonical 形式)。这条恒等不对所有 cMRL 成立 (有损 lift), 但对 cMRL 子集内的主线样本成立, 作为 §7-2 的回归测试之一。
-
-如把第 5 个 stage 换成 `$setWindowFields{sortBy:{paid_at:1}, output:{running_total:{$sum:"$items.price"}}}`, `lift()` 直接返回 `None`, 整条样本落入 `provenance.lifting_status: "failed"`, 保留 fAST + MQL 但不产出 cMRL, 不被 Synth Sampler 重用。
-
-<a id="03-3-5"></a>
-### 3.5 形式语义与双实现差异测试
-
-Lowering 正确性若出 bug, 会系统性污染 Synth 全部样本 (所有 gold MQL 都错)。光靠 §3-3 的 self-check 5 条规则不足以保证语义正确, Sampler 产出的 16,000 Sample Families 一旦遇到 Lowering bug 就是系统性返工。采用形式语义 + 双实现差异测试 + property-based testing 三管齐下, 才能把编译器正确性从"信任"升级为"可证明 + 持续测试"。
-
-**三道机制**:
-
-**(1) 形式语义 (Denotational Semantics)**: 对 cMRL 30 原语定义指称语义 ⟦·⟧: DocumentSet → DocumentSet。
-
-- Python 手写一份参考实现 `cmrl_semantics.py` (不考虑性能, 只考虑语义正确)
-- cMRL 每个原语都有一个对应的 `semantic_fn(docs: list, args) → list`
-- 示例: `sum_fn(docs, {field: "items.price", group_by: "user_id"}) = [{user_id: u, total: sum(d.items.price for d in docs if d.user_id==u)} for u in distinct(docs.user_id)]`
-- 这是 Lowering 正确性的"真值"
-
-**(2) 双实现差异测试**:
-
-- **Compiler A** (Python 实现, 团队 X 写): 产出的 fAST 通过 PyMongo 执行
-- **Compiler B** (Rust / TypeScript 实现, 团队 Y 写或 LLM 翻译后人工 review): 产出的 fAST 通过 mongosh 执行
-- 对同一 cMRL 跑双实现, fAST 结构层面 diff 不一致 (或执行结果不一致) 即 halt, 进入人工仲裁
-- 允许"等价多解" (例如 A 产出 `{$sort,$limit}` 而 B 产出 `{$sort,$slice}`), 这类记入"多解 MQL"但不判错
-
-**(3) Property-based Testing**:
-
-- 对 cMRL 每个原语, 用 Hypothesis 框架随机生成 ≥ 10k 条 cMRL 实例 + 配对的随机文档集合
-- 断言: `execute(Lowering(cmrl), docs) ≡ ⟦cmrl⟧_semantic(docs)` (按集合语义或按 zip 顺序递归比较)
-- 30 原语 × 10k 测试 = 300k+ 属性测试, 每次 Lowering 代码改动 CI 必跑
-- 任一反例触发修复 + 回归全集
-
-示例 (针对 `sum` 原语的 property test):
-
-```python
-@given(
-    docs=st.lists(st.builds(dict, user_id=st.text(), amount=st.decimals()), max_size=50),
-    group_field=st.just("user_id"),
-    sum_field=st.just("amount"),
-)
-def test_sum_lowering_equiv_semantic(docs, group_field, sum_field):
-    cmrl = CMRL.make_group_sum(group_field, sum_field)
-    fast = lower(cmrl)
-    real_out = pymongo_execute(fast, docs)
-    ref_out = cmrl_semantics.sum_fn(docs, {"group_by": group_field, "field": sum_field})
-    assert canonical(real_out) == canonical(ref_out)
-```
-
-此 property 确保"任意文档集合 × 任意 group/sum 配置下, Lowering 产出的 fAST 经 PyMongo 执行的结果等同于参考语义"。任一反例都是 Lowering 的严重 bug, 必须修复并回归全集。
-
-三道机制对应防线 ② (§7-2) 的实现。形式语义服务于 [02 §1-2 MongoDB-aligned](./02_dataset_design.md#02-1-2) 原则, 确保 cMRL 子集的可证明正确性。
-
-<a id="03-3-6"></a>
-### 3.6 MRL Sampler (cMRL 层采样)
-
-随机采样会塌缩到模板高频区, 必须用带约束的优化目标在多样性、覆盖率、难度三向取平衡。Sampler 的采样空间是 cMRL 30 原语, 这是整条 pipeline 选择紧凑 DSL 的直接动因: 如果 Sampler 直接在 fAST 上做约束求解, 空间维度爆炸到 200+ 算子, 优化器难以收敛。
-
-**采样目标函数**:
-
-```
-obj = w1 · op_diversity
-    + w2 · feature_hit
-    + w3 · difficulty_balance
-    − w4 · duplication
-
-推荐: w1 = 0.35, w2 = 0.30, w3 = 0.20, w4 = 0.15
-```
-
-四项含义:
-
-- `op_diversity`: 当前 batch 中 cMRL 原语集合的香农熵, 鼓励高频原语之外的 join / array / objectToArray 出现
-- `feature_hit`: 17 大特性的累计触达率与目标 (各自 ≥ 5%, 二元组 ≥ 60%, 三元组 ≥ 30%) 的差距, 缺什么补什么
-- `difficulty_balance`: **IRT 难度直方图与 5 等级各 20% 目标的 KL 距离** (§8-1)
-- `duplication`: 与历史样本的 MinHash 签名相似度 (canonical cMRL), 高于阈值则倒扣
-
-**IRT 反馈的两轮采样**:
-
-- 第一轮 Sampler 不知道 IRT 分数 (IRT 在 §8-1 才评), 用 `legacy_structural` 分数做代理 (pipeline 深度 + 特性数 + ambiguity + filter 数 + join 深度 加权)
-- 第二轮根据第一轮样本的 IRT 反馈重算 `difficulty_balance`, 欠覆盖 bucket 的权重上调 1.5-2.0 倍, 再 Sample 一批补充
-- 通常 2-3 轮收敛到目标分布
-
-**约束条件**:
-
-1. **特性下界**: 每个 F1-F17 触达率 ≥ 5%
-2. **难度分布**: 5 等级各 20% (按 IRT)
-3. **schema 一致性**: 所有字段引用 in Schema Exporter 的 `union_schema`
-4. **建模哲学覆盖**: 6 种建模哲学按 §2-4 目标占比命中 (每个 cMRL 绑定的 db_id, 库的 `modeling_style` 已由 Schema Exporter 继承)
-
-**采样主循环**:
-
-```python
-def sample_cmrl(target_count, schema, history):
-    out = []
-    while len(out) < target_count:
-        cand = weighted_random_cmrl(schema, weights=current_weights)
-        if not validate_against_schema(cand, schema):
-            continue
-        if minhash_dup(cand, history, threshold=0.8):
-            continue
-        gain = score(out + [cand]) - score(out)
-        if gain > 0:
-            out.append(cand)
-            variants = intent_mutator.generate(cand)  # §3-7
-            out.extend([v for v in variants if score_with(out, v) > 0])
-        update_weights_for_uncovered(out)
-    return out
-```
-
-`update_weights_for_uncovered` 是 iterative boosting: 每 N 步统计当前 batch 中触达率不足的 (F_i 或 op) 集合, 临时上调它们的采样权重, 直至覆盖率达标。与 [03 §2-6 Schema Exporter](#03-2-6) 的耦合保持为"强耦合": 字段选择必须 in union schema, 否则 `validate_against_schema` 直接退回。
-
-<a id="03-3-7"></a>
-### 3.7 Intent Mutator
-
-表面 Paraphraser 只做 5 种风格改写 (简洁 / 口语 / 正式 / 疑问 / 命令), 意图完全相同。真实 NLQ 的多样性主要在**意图层** (否定 / 省略 / 指代 / 黑话 / 组合), 不是表面风格。Intent Mutator 在 cMRL 层显式生成 Intent Variant, 保证意图多样性不是表面文章。
-
-**5 种 variant_type**:
-
-| variant_type | 机制 | cMRL 修改 | MQL 修改 | NLQ 改写要点 |
-|---|---|---|---|---|
-| **negation** | 取反 | `filters` 某条 op 取反 (`eq`→`ne`, `in`→`nin`, `exists:true`→`exists:false`) | 相应 `$match` 改 `$not` / `$ne` | 加否定词 "not" / "never" / "except" |
-| **omission** | 省略槽位 | cMRL 不变 (或置 null), NLQ 故意省略某槽 | MQL 不变 (保留 canonical) | 生成省略关键约束的 NLQ (考察模型能否补全默认值) |
-| **coreference** | 指代 / 模糊 | cMRL 中时间字面量 `"2026-01-01"` 在 NLQ 中改为 "recent" / "last year" | MQL 不变 | 加指代词, 模型需映射默认值 |
-| **jargon** | 业务黑话 | cMRL 不变, NLQ 用业务术语替换白话 | MQL 不变 | "VIP customers" / "whales" 映射 `paid_total > threshold` 的群体 |
-| **composition** | 多意图组合 | cMRL 拼接两个独立 cMRL (例如 top 3 + 其 AOV) | 通过 `$facet` 或两段 pipeline | 多问句 "... and their average order value" |
-
-**ecommerce_017 主线 5 种 Intent Variant 示例**:
-
-| variant_type | NLQ |
-|---|---|
-| canonical | "Top 3 customers by total paid item spending in 2026." |
-| negation | "Which customers have no paid orders in 2026?" (cMRL: `status` op `ne` paid) |
-| omission | "Show me the top customers since the start of 2026." (省略 metric 与 limit=3) |
-| coreference | "Top 3 customers by their total spending this year." ("this year" → 2026-01-01) |
-| jargon | "Which are the top 3 whales in 2026?" (whales ≈ top spenders in glossary) |
-| composition | "Top 3 customers by total paid spending in 2026 and their average order value." (拼 top-3 cMRL + AOV cMRL) |
-
-**重要**: Intent Mutator 保留机械规则 (cMRL AST rewrite rules), 不允许 LLM 自由改写 cMRL; NLQ 改写由 Intent Variant NLQ Generator (§6-5) 在机械规则约束下产出。这保证 cMRL / MQL / NLQ 三者的语义关系仍由编译器机械保证。
-
-**机械规则示例 (negation 类型)**: 取反规则表:
-
-| canonical filter | negated filter |
-|---|---|
-| `{op: eq, value: v}` | `{op: ne, value: v}` |
-| `{op: in, value: vs}` | `{op: nin, value: vs}` |
-| `{op: exists, value: true}` | `{op: exists, value: false}` |
-| `{op: gte, value: v}` | `{op: lt, value: v}` |
-| `{op: lte, value: v}` | `{op: gt, value: v}` |
-
-ecommerce_017 主线 canonical 的第一条 filter `{status, eq, paid}` 经 negation 规则得 `{status, ne, paid}`, 再 Lowering 产出 `$match{status:{$ne:"paid"}}`, 整条 MQL 改变 4 个字符但语义完全反转。这类确定性改写由 Mutator 机械完成, 无需 LLM。
-
-<a id="03-3-8"></a>
-### 3.8 NLQ Skeleton Compiler
-
-NLQ Skeleton Compiler 把 cMRL 转写为带槽位的英文骨架串, 与 Lowering 共享同一祖先 cMRL, 保证 NLQ 与 MQL 语义同源。骨架阶段不追求自然度, 只确保槽位与 cMRL 字段一一对应。
-
-**模板引擎** (按 cMRL 顶层字段拼接子句):
-
-| cMRL 段 | 骨架片段 |
-|---|---|
-| `intent: retrieve` | `Find {projection}` |
-| `intent: aggregate + grouping` | `Find the {agg.op} of {agg.field} {grouped_by group.by}` |
-| `intent: count` | `Count {scope.collection}` |
-| `scope.filters` | `where {filter.field} {filter.op} {filter.value}` |
-| `scope.joins` | `joined with {join.from}` |
-| `scope.unwinds` | `expanding {unwind.path}` |
-| `ordering` | `sorted by {ordering.field} {ordering.direction}` |
-| `limits.limit` | `taking the top {limits.limit}` |
-
-**ecommerce_017 主线骨架**:
-
-```
-Find the {agg:sum} of {field:items.price} {grouped_by user_id}
-where {filter:status=paid} and {filter:paid_at exists} and {filter:paid_at>=2026-01-01},
-sorted by total_spent desc, taking the top 3.
-```
-
-经 NLQ Naturalizer (§6-2) 消化槽位后得到 canonical NLQ "Top 3 customers by total paid item spending in 2026.", 再经 Paraphraser (§6-3) 产出 4 条风格改写, 共 5 条 NLQ。
-
-**composition variant 的骨架拼接示例**: 两段 cMRL 分别编骨架后用连接符拼:
-
-```
-(A) Find the {agg:sum} of {field:items.price} {grouped_by user_id}
-    where {filter:status=paid} and {filter:paid_at>=2026-01-01},
-    sorted by total_spent desc, taking the top 3.
-(B) For those top 3 users, find the {agg:avg} of {field:total}
-    among orders with {filter:status=paid}.
-
-JOIN: "and their" / "as well as" / ", plus"
-```
-
-骨架覆盖 canonical cMRL; 对 Intent Variant, Skeleton 单独跑一次 (基于 variant cMRL, composition 类拼两段), 产出骨架串再给 Intent Variant NLQ Generator (§6-5)。槽位标记 `{filter:status=paid}` 等不是给人读的, 而是供后续 NLQ Naturalizer 替换为自然表达, 同时供 Skeleton Coverage 校验槽位完整性 (§7-4)。
-
-<a id="03-4"></a>
-## 4. Reverse 轨 · Real
-
-纯合成管线全链路自循环, 没有外部真值锚点。Real 轨从开源代码 / 公开论坛挖矿真实 MQL + 反向生成 NLQ, 提供外部有效性锚点, 目标 ~4,000 samples。
-
-<a id="03-4-1"></a>
-### 4.1 MQL 挖矿与脱敏
-
-**挖矿来源**:
-
-| 来源 | 挖矿方法 | 预期样本数 |
-|---|---|---|
-| GitHub MIT / Apache 仓库 (star ≥ 100) | 正则 + AST 搜 `db.*.aggregate([` / `db.*.find(` 调用, 提取代码上下文 | ~2,000 |
-| Stack Overflow `mongodb` 标签 | Stack Exchange API 拉取 Q&A, 标题作 NLQ 初稿, 最高票答案的 MQL 作 gold | ~1,000 |
-| MongoDB Community Forums | 官方社区 scrape (遵守 ToS), 同 SO | ~500 |
-| 开源业务系统 (Odoo / Saleor / Medusa) reporting 代码 | 手工挑选高价值 MQL | ~500 |
-
-**脱敏流程** (先挖后净):
-
-1. **字符串常量脱敏**: 替换公司名 / 邮箱 / API key / 租户名为占位符 (`<COMPANY>` / `<EMAIL>` / `<API_KEY>` / `<TENANT>`)
-2. **Collection / 字段名语义保留哈希**: 保留通用业务名 (`orders` / `customers`), 但把明显专有的字段 (产品内部代号, 例如 `acme_internal_sku`) 哈希混淆
-3. **许可证过滤**: MIT / Apache 直接用, 并在 `provenance.license` 标注; Stack Overflow CC BY-SA 保留 `provenance.source_url` 做归属; GPL 排除 (避免污染下游商用场景)
-4. **重复检测**: 与已入库样本做 MQL canonical hash 比对, 重复丢弃
-
-**Stack Overflow 挑选标准**:
-
-- Score ≥ 2 (最低门槛) 且回答 score ≥ 回答者 quota
-- 问题含完整的 schema 提示 (`db.col.find` 示例或 Mongoose schema 片段)
-- 最高票答案提供可执行的 MQL (有 `db.` prefix, 非伪代码)
-- 问题非 ask-for-opinion 类 (排除 "which is better" 之类的主观问题)
-- 排除标签含 `homework` / `tutorial`
-
-**目标通过率**: 挖矿 pool 约 15k-25k 条, 经脱敏 + 去重 + 合规过滤后保留 ~4,000。
-
-<a id="03-4-2"></a>
-### 4.2 fAST parser
-
-挖到的真实 MQL 是字符串 (JS / Python 代码片段), 必须 parse 为 fAST 结构才能进入管线。
-
-**Parser 实现要点**:
-
-- **基础**: 用现有 JavaScript / BSON AST 解析库 (如 Babel + 定制 visitor), 提取 `db.X.aggregate([...])` 或 `db.X.find(...)` 的实参 AST
-- **BSON 类型还原**: 识别 `ISODate(...)` / `ObjectId(...)` / `NumberDecimal(...)` / `/pattern/` 正则, 转为 fAST 的类型标注结构 (`{value, type}`)
-- **鲁棒性**: 允许 JSON5 / relaxed JSON 输入; 对变量引用 (`db.col.find(filter)` 里 `filter` 是变量) 尝试回溯解析, 失败则跳过该样本
-- **Python 客户端**: `collection.aggregate(pipeline)` 同理解析 pipeline 变量
-- **mongosh session**: shell 输出 `db.col.aggregate([...])` 可直接按 JS 分支解析
-
-**GitHub 代码片段解析示例**:
-
-```javascript
-// ecommerce-dashboard.js (GitHub 开源 repo, MIT)
-const rev = await db.orders.aggregate([
-  { $match: { status: "paid", paid_at: { $gte: ISODate("2026-01-01") } } },
-  { $unwind: "$items" },
-  { $group: { _id: "$user_id", total_spent: { $sum: "$items.price" } } },
-  { $sort: { total_spent: -1 } },
-  { $limit: 3 }
-]);
-```
-
-Parser 先用 Babel 产出 JS AST, 定位到 `CallExpression(object=MemberExpression(orders, aggregate))` 节点, 抽出 ArrayExpression 里的 5 个 stage 对象, 递归把每个 ObjectExpression 转为 Python dict, 最后 `ISODate("2026-01-01")` 转为 fAST 的 `{"value": "2026-01-01", "type": "$date"}`。产出的 fAST 与 §3-2 的主线结构同构 (缺少一个 `$project` 阶段, 但仍是合法 fAST)。
-
-Parser 产出 fAST 后, 调 Lifting (§3-4) 尝试还原为 cMRL; Lifting 失败者保留 fAST-only 标记, 进入 `provenance.lifting_status: "failed"` 桶。
-
-<a id="03-4-3"></a>
-### 4.3 Reverse NLQ 生成
-
-Real 样本的 NLQ 有两种来源:
-
-- **SO / MongoDB Forum 样本**: 问题标题 / 正文就是天然 NLQ, 只需清洗与对齐
-- **GitHub 代码 / 开源业务系统**: 代码上下文只有注释或函数名, 需要反向生成 NLQ
-
-**Reverse NLQ 生成流程**:
-
-1. **Context 收集**: 从代码上下文收集 (函数名 / docstring / 注释 / 周边变量名); schema 提示 (从 collection / 字段名推断, 如果有 Mongoose schema 则直接用); 对 SO 问题直接保留帖子标题 + 正文简述
-2. **3-way LLM 反向生成**: 让 3 家异源 LLM 基于 (fAST + context + schema) 各自生成 3 条候选 NLQ (共 9 条)
-3. **自洽性过滤**: 再让 LLM 基于生成的 NLQ + schema 反向写 MQL, 与原 fAST 执行比对; 一致者保留为 gold NLQ 候选
-4. **Paraphraser** (§6-3): 基于过滤后的 gold NLQ 生成 5 条不同风格表达
-
-**SO 样本特例**: 问题标题直接作为第 1 条 NLQ (保留原真实用户口吻, 包括拼写错误 / 非标准语法, 有助于外部有效性); Paraphraser 基于标题产出 4 条不同风格的改写, 共 5 条。
-
-Real 子集规模目标对齐 [02 §2-7 Real 子集规模与来源](./02_dataset_design.md#02-2-7): ~4,000 samples, train / test = 8 : 2。
+该 family 的主集属性是:
+
+- 无 join
+- 输出键固定为 `user_id`, `total_spent`
+- `activated_features = ["F10", "F15", "F17"]`
+- `nlq_canonical = "Top 3 customers by total paid item spending in 2026."`
+- NLQ family 总数 `K = 5`
 
 <a id="03-5"></a>
-## 5. Hybrid 轨
+## 5. Real 轨操作规程
 
-Synth 测特性覆盖, Real 测外部有效性, Hybrid 才真正测"真实意图能否泛化到新 schema"。这对组合泛化评估至关重要: 模型在 Real schema 上 pass 未必在同意图 + 新 schema 上 pass, Hybrid 把"意图"与"schema"解耦后单独测量 schema 侧的泛化。
+Real 轨从公开来源获得真实 MQL, 但主集并不直接信任“原始真实查询”. 它必须被重新 grounding 到 benchmark-owned 的 schema 与 world 上, 然后接受与 Synth 同样严格的三路验证与 RIV.
 
-**Hybrid 构造流程**:
+### 5.1 来源接入与合规过滤
 
-1. **意图骨架抽取**: 从 Real 样本中, 只保留 cMRL 抽象结构 (算子组合 + 字段角色), 去掉具体字段名与字面量, 得到"意图骨架" (例如 canonical intent pattern: `aggregate → group_by[role=EntityID] → sum[role=MonetaryValue] → sort desc → limit 3`)
+Real 候选样本进入构造流水线前, 先经过来源接入与过滤:
 
-2. **合成库选择**: 从 Synth 220 库中选 K 个建模哲学各异但业务域匹配的库 (例如电商意图选 Normalized 电商库 + Embedded 电商库 + Bucket 电商库各一个), 对单条 Real 意图骨架展开为 K 条 Hybrid 样本
+1. 抽取原始 MQL 与最小上下文
+2. 脱敏专有名词、账号、标识符与私密字面量
+3. 过滤 license 不可用来源
+4. 过滤写操作、随机操作、外部搜索依赖与系统态依赖
+5. 以 canonical MQL hash 去重
 
-3. **字段角色绑定**: 把意图骨架的"字段角色"绑定到合成库的实际字段
-   - `role=EntityID` → `user_id` (Normalized) / `customer_id` (Embedded) / `uid` (Bucket)
-   - `role=MonetaryValue` → `total` / `items.price` / `bucket_totals.amount`
-   - 类型兼容校验 (Decimal128 / Double / int 可互换, string 不可与 number 绑定)
+通过这一步的样本才进入 parser / lifting.
 
-4. **重新 Lowering**: 把绑定后的 cMRL 重新 Lowering, 在合成库上执行, 生成 `exec_result_head`
+### 5.2 Parser -> fAST -> canonicalization
 
-5. **NLQ 改写**: 把原 Real NLQ 的业务术语替换为合成库的命名约定 (`acme_internal_sku` → `product_id`), 保留原意图, 仅调整专有名词
+Real 轨的 parser 输出 `fast_canonical`. 这一步要求:
 
-**规模目标** 2,000 samples。入库标记 `subset: "hybrid"`, `provenance.source: "synthetic_hybrid"`, 同时记录"源 Real family_id"与"合成库 db_id"供组合泛化评估时拆分。
+- 输入可以来自 mongosh、驱动 API 或代码字符串
+- BSON 字面量必须被恢复为 typed AST 节点
+- 字段路径、集合名、字面量类型被显式抽出
+- query 先 canonicalize, 再进入 lifting
 
-**ecommerce 意图骨架的 Hybrid 示例**: 某 Real 样本意图为"某月内某用户消费总额 top K" (源自 Stack Overflow GitHub MongoDB tag 帖子), 抽象骨架:
+若 parser 失败, 样本停留在 staging, 不进入 sidecar JSONL.
 
-```
-aggregate →
-  $match[role=Status, op=eq] +
-  $match[role=Timestamp, op=gte] →
-  $unwind[role=ItemArray] →
-  $group[by=EntityID, agg=sum(role=MonetaryValue)] →
-  $sort desc → $limit K
-```
+### 5.3 Schema dossier 重建
 
-绑定到 3 个不同 Synth 电商库:
+Real 样本不能只靠一条查询字符串进入主集, 还必须被 grounding 到显式 schema dossier. Schema dossier 的来源按优先级合并:
 
-- **Normalized 库 (ecommerce_017 也属此类)**: `orders.status` / `orders.paid_at` / `orders.items[]` / `orders.user_id` / `orders.items.price` → 与 canonical 结构一致
-- **Embedded 库**: `users[].orders[].status` / `users[].orders[].paid_at` / `users[].orders[].items[]` / `users[]._id` / `users[].orders[].items[].price` → Lowering 需要多层 `$unwind` (users.orders + users.orders.items)
-- **Bucket 库**: `orders_202601.status` / `orders_202601.paid_at` / `orders_202601.items[]` → 需要枚举月度 bucket collection 并用 `$unionWith`
+1. 代码中的 ODM / schema 定义
+2. 同文件或同帖子中的 sample docs
+3. 查询本身暴露的字段与字面量类型
+4. projection / group / sort / lookup 暴露的输出键与外键关系
+5. 论坛上下文中的字段解释文字
 
-同一意图在 3 种 schema 下产出完全不同的 MQL, 但语义等价。模型要在 Hybrid 上 pass, 必须真正学会"意图 → schema 映射", 而不是死记某种 schema 下的模板。
+只有当上述信息能收敛成**显式 schema package**时, Real 样本才继续向前推进. 否则标记为 unresolved, 只留在 staging.
 
-**切分关系**: Hybrid train 样本的源 Real Sample Family 必须不在 Synth test 或 Real test 中, 避免测试集泄漏; Hybrid test 样本只能使用"既未在 Real train 也未在 Synth train 出现过"的意图骨架 × 合成库组合; 具体拆分约束由 02 设计文档集中给出, 本文档不复制。
+### 5.4 Full lifting
+
+Real 主集只接受 `lifting_status = full`.
+
+full lifting 的定义是:
+
+- `fast_canonical` 的所有关键节点都能映射到 `cmrl_canonical`
+- 没有 Long-Tail 悬空节点
+- 没有“只能保留部分语义”的 partial 占位
+- `cmrl_canonical` 再 Lowering 回 `fast_canonical` 时语义不丢失
+
+路由规则:
+
+- `full` -> 继续
+- `partial` -> staging only
+- `failed` 且 A/B 可比较 -> 只可能去 `longtail_AB_only` sidecar
+- `failed` 且连 A/B 审核价值都不足 -> staging only
+
+### 5.5 Real world 重建
+
+Real 主集使用 benchmark-owned world, 而不是依赖外部真实库. world 重建流程如下:
+
+1. 从 schema dossier 抽取字段域、枚举、键关系与字面量模板
+2. 生成一个 deterministic event program
+3. 由 World Materializer 在显式 schema 下物化快照
+4. 用原始查询与 near-miss 集合共同校验该快照具有区分度
+
+这一步的目标不是复制原来源数据库, 而是构造一个**结构上忠实、语义上可验证、对 gold query 有判别力**的 benchmark-owned 实例.
+
+### 5.6 Real 主集与旁路的分界
+
+Real 轨进入主集的最小路径是:
+
+`source MQL -> parser -> full lift -> schema dossier -> world freeze -> triple pass -> RIV pass -> NLQ family pass`
+
+以下情况都不得进入主集:
+
+- 仅 A 路可运行的 `a_only`
+- A/B 一致但 C 未定义的 `longtail_AB_only`
+- 无法恢复显式 schema 的 unresolved
+- partial lift
+- 分歧桶
 
 <a id="03-6"></a>
-## 6. LLM Agent 精确职责
+## 6. Hybrid 轨 remap 操作规程
 
-LLM 在 MonGen Pipeline 中的角色是"在确定性框架的窄缝里发挥创造力", 而不是"端到端写出可执行样本"。6 种 Agent 角色全部围绕 "cMRL / fAST / MQL 语义由编译器机械保证, NLQ 语义由 LLM 自然化" 的分工展开; 每个角色均明确规定: 输入空间 → 输出空间 → system prompt 策略 → 模型家族选择原则 → 失败回退。
+Hybrid 轨的输入不是任意 Real 候选, 而是**已经满足主集合同的 Real family**. 这使得 Hybrid 主集自动继承两条性质: 输入骨架已经 full-lift, 输入骨架已经 `pass`.
 
-**总览**:
+### 6.1 输入约束
 
-| # | Agent | 上游 | 下游 | 是否 black-box | 模型家族偏好 |
-|---|---|---|---|---|---|
-| 6.1 | Event Planner Extractor + Content Synthesizer | 产品文档 / Accreter 字段请求 | Event YAML / `render_doc` JSON | 允许 system prompt 不可见 | 长上下文强 LLM (Claude Opus / GPT-5) |
-| 6.2 | Schema Describer | Schema Exporter YAML | schema markdown (供 Verifier / Reverse NLQ) | system prompt 公开 | 中型通用 LLM (GPT-4o / Gemini 2.5 Flash) |
-| 6.3 | Canonical NLQ Generator (Naturalizer + Paraphraser) | NLQ skeleton + slots | 5 条不同风格 canonical NLQ | system prompt 公开 | 写作能力强的 LLM (Claude Sonnet 4) |
-| 6.4 | Reverse NLQ Generator | fAST + code context + schema markdown | Real NLQ 候选 | system prompt 公开 | 3 家异源 (见 §4-3) |
-| 6.5 | Intent Variant NLQ Generator | variant cMRL + canonical NLQ | variant NLQ | system prompt 公开 | 写作能力强的 LLM |
-| 6.6 | Verifier 判官 | NLQ + schema markdown | 重构的 MQL | system prompt 公开 (评估可审计) | 3 家异源 + ≥ 1 开源 |
+Hybrid remap 的输入必须同时满足:
 
-**模型家族选择原则 (全局)**:
+- 源 Real family 的 `triple_consensus_status = pass`
+- 源 Real 记录的 `lifting_status = full`
+- 源 Real 记录的 `instance_certificate_status = pass`
+- 目标 Synth schema / world 配置已经通过 Synth 主集准入
 
-- 生成类 Agent (6.1 / 6.3 / 6.4 / 6.5) 可以用闭源强模型, 追求 NLQ / 内容自然度
-- 评估类 Agent (6.6 Verifier) 必须异源, 其中 ≥ 1 家开源可审计 (避免单一供应商的系统性偏见被内化到数据集)
-- 结构化任务 Agent (6.1 Event Planner 抽取、6.2 Schema Describer) 偏好长上下文 + 强指令跟随 + 低幻觉, 可用中型模型控制成本
+因此 Hybrid 主集**不从 Long-Tail Real skeleton 派生**.
 
-<a id="03-6-1"></a>
-### 6.1 Event Planner Extractor + Document Content Synthesizer
+### 6.2 角色抽象与字段绑定
 
-**合并理由**: 两者都是"把结构化 schema 规约 + 业务域常识"映射为真实业务语料, 接口近似, 可共用一套 system prompt 与校验层。
+remap 分两步:
 
-**输入**:
-- (Event Planner 侧) 产品文档 URL / 文本块 (Stripe / Shopify / FHIR 等) + 域标签
-- (Content Synthesizer 侧) Accreter 调用时传入的字段 schema + 事件上下文
+1. **角色抽象**: 从 Real `cmrl_canonical` 抽取角色槽位, 例如 `EntityID`, `MonetaryValue`, `Timestamp`, `Category`, `Status`
+2. **字段绑定**: 在目标 Synth schema 的 `role_inventory.json` 中寻找唯一或可裁决绑定
 
-**输出**:
-- (Event Planner) YAML 格式的事件流模板 (见 §2-2 Step 2 样例)
-- (Content Synthesizer) 严格匹配 expected schema 的 JSON, 每个字段值类型正确
+字段绑定必须通过:
 
-**system prompt 策略**: 闭源。Event Planner 用"你是结构化事件抽取器, 只输出 YAML, 不输出散文"; Content Synthesizer 用"你是字段值合成器, 必须尊重类型与业务常识"。System prompt 的具体措辞是工程细节, 实际发布数据集时在 data card 披露高层策略, 不泄漏精细 prompt 工程。
+- 路径存在
+- 类型兼容
+- cardinality 兼容
+- 输出键与 alias 可恢复
 
-**约束 (Content Synthesizer 侧)**:
-- 不得新增字段, 不得删字段, 输出 JSON 必须严格匹配 expected 字段名集合
-- 字段值类型必须与 schema 标注一致 (string / int / Decimal128 / Date / GeoJSON)
-- 业务域上下文 (例如电商 `orders.items[].name` 取自合理商品类目) 通过 prompt 显式注入
+如果某角色需要二义裁决且无法机械收敛, remap 失败, 样本停留在 staging.
 
-**防 hallucination**:
+### 6.3 Hybrid world 重建
 
-```python
-def validate_synth_output(out_json, expected_schema):
-    keys_out = set(out_json.keys())
-    keys_exp = set(expected_schema.keys())
-    extra = keys_out - keys_exp
-    for k in extra:
-        del out_json[k]
-    for k, v in out_json.items():
-        if not type_match(v, expected_schema[k]):
-            raise SchemaMismatch(k)
-    return out_json
-```
+Hybrid 不直接复用源 Real 的 world. 它复用的是**目标 Synth schema 与其 world 构造配置**, 再在该 schema 下物化一个新的冻结快照. 这样做有两个目的:
 
-输出 JSON 的所有键必须 in schema, 多余键直接弃; 类型不匹配则抛错由上游重生成。
+1. 保持目标 schema 的结构压力
+2. 防止源 Real world 中的字面量偶然性影响 remap 结果
 
-**模型家族选择**: 长上下文 + 低幻觉 + 强指令跟随类, 如 Claude Opus / GPT-5 / Gemini 2.5 Pro; 低成本兜底使用 Claude Haiku / GPT-4o-mini。Event Planner 优先长上下文 (产品文档常超 8k token), Content Synthesizer 可用更小模型 (单条字段填充 context 短)。
+### 6.4 Hybrid 主集边界
 
-**失败回退**: 输出 schema 校验失败 → 重试 ≤ 3 次 → 仍失败则事件丢弃并上报 Event Planner review queue (人工修 prompt 或换模型)。
+Hybrid 主集中的样本必须再次满足完整合同:
 
-<a id="03-6-2"></a>
-### 6.2 Schema Describer
+- remap 后仍 deterministic
+- remap 后仍 read-only
+- remap 后仍 full-lift
+- remap 后三路仍 `pass`
+- remap 后 RIV 仍 `pass`
 
-**职责**: 把 Schema Exporter 输出的 YAML 转换为适合 Verifier / Reverse NLQ Generator 消费的 schema markdown (字段列表 + 类型 + 稀疏度 + 示例值 + 建模哲学说明)。
-
-**输入**: Schema Exporter YAML (§2-6) + db_id
-
-**输出**: Markdown 字符串, 结构:
-
-```markdown
-## Collection: orders (modeling_style=Legacy-drifting)
-
-| field | types | sparsity | notes |
-|---|---|---|---|
-| status | string | 0.00 | enum {pending, paid, cancelled, refunded} |
-| paid_at | Date / null | 0.35 | set when status transitions to paid |
-| total | Double / Decimal128 | 0.00 | Gen-A/B use Double, Gen-C+ use Decimal128 (schema drift) |
-| items | array<object> | 0.00 | items[].sku string, items[].price Decimal128, items[].qty int |
-| shipment_events | object (dynamic-key map) | 0.42 | key = "YYYYMMDD", value = {carrier, status} |
-```
-
-**为何需要独立的 Describer**: 原始 YAML 对 LLM 的"友好度"不够 (Verifier 面对 YAML 要额外一层解析开销), markdown 把字段信息按"人类读 + LLM 提示"友好的形式呈现。
-
-**约束**:
-- 字段名 / 类型 / sparsity 与 YAML 源一一对应, 不得漏字段、不得加字段
-- Modeling style 注释基于 Accreter 元数据, 不由 LLM 猜测
-- 每个 collection 独立一段, 不做跨 collection merge
-
-**system prompt 策略**: 公开。prompt 模板简单、纯转写, 没有需要保密的工程 trick。
-
-**模型家族选择**: 中型通用 LLM (GPT-4o / Gemini 2.5 Flash / Claude Haiku) 已足够。成本是主要因素: 全数据集 220 个库 × 平均 5 个 collection ≈ 1,100 次 describer 调用, 与其他 Agent 规模量级相当, 不是瓶颈。
-
-**失败回退**: schema markdown 校验失败 (例如字段数对不上) → 重试 ≤ 2 次 → 仍失败则回退到程序化生成 (非 LLM) 的基础版本。
-
-<a id="03-6-3"></a>
-### 6.3 Canonical NLQ Generator (Naturalizer + Paraphraser)
-
-**职责**: 把 §3-8 的 NLQ skeleton 转为 5 条不同风格的 canonical NLQ (1 条自然化主句 + 4 条风格改写), 保证每条 canonical cMRL 有 5 条高质量 NLQ 入库。
-
-**输入**: NLQ skeleton (slot 形式) + slots 字典 + 风格标签 ∈ {简洁, 口语, 正式, 疑问, 命令}
-
-**输出**: 5 条英文 NLQ 字符串
-
-**流程**:
-
-1. **Naturalize 阶段**: 用中性风格 (信息完整、不追求华丽) 自然化 skeleton, 得到"基础 canonical NLQ"
-2. **Paraphrase 阶段**: 以基础 NLQ 为 seed, 分别按 4 种目标风格 (口语 / 正式 / 疑问 / 命令) 改写
-3. **校验**: 5 条都跑 §7-4 Skeleton Coverage; 不通过的单独重生成 ≤ 3 次; 整条 canonical 的 5 条至少保留 3 条有效, 不足则整条 Family 丢弃
-
-**5 种风格** (ecommerce_017 主线示例):
-
-| 风格 | 特征 | 示例 |
-|---|---|---|
-| 简洁 | 短句, 删冗余 | `Top 3 customers by paid spending in 2026.` |
-| 口语 | 第二人称, 带情感 | `Hey, can you list the three customers who spent the most on paid orders in 2026?` |
-| 正式 | 完整主谓宾, 名词化 | `Provide the three customers with the highest total payment amount among orders placed in 2026.` |
-| 疑问 | 完整 wh- 疑问句 | `Which three customers have the largest sum of paid item prices in 2026?` |
-| 命令 | 祈使句, 直接动词 | `Return the three customers with maximum total spending on paid items in 2026.` |
-
-**约束**:
-
-- **槽完整性**: 必需语义槽 (field / operator / filter value / aggregation alias / limit 值) 在每条 NLQ 中 100% 保留 (字面或语义)
-- **不得引入骨架未承载的实体**: 骨架未提及 `country`, 自然化输出也不能出现
-- **风格独立性**: 5 条 NLQ 的共享 sentence-embedding (E5 / GTE) 两两 cosine < 0.85, 避免风格塌缩
-- **不得拆多句**: 除 composition variant 外, 每条 NLQ 是单句
-
-**校验伪码**:
-
-```python
-def generate_canonical_5(skeleton, slots):
-    base = naturalize(skeleton, style="neutral")
-    if not skeleton_cover(base, slots):
-        raise CoverFailed
-    outs = [base]
-    for style in ["spoken", "formal", "question", "command"]:
-        for _ in range(3):
-            cand = paraphrase(base, style)
-            if skeleton_cover(cand, slots) and not dup(cand, outs):
-                outs.append(cand); break
-    return outs if len(outs) >= 3 else None
-```
-
-**system prompt 策略**: 公开。prompt 模板独立于风格, 任一条 prompt 泄漏不影响其他。
-
-**模型家族选择**: 写作能力强的 LLM 优先 (Claude Sonnet 4 / GPT-4o), 对口语 / 疑问风格效果更佳; 正式 / 命令风格可用中型模型。
-
-<a id="03-6-4"></a>
-### 6.4 Reverse NLQ Generator (for Real)
-
-**职责**: 从 (fAST + code context + schema markdown) 反向生成 NLQ, 用于 MonGen-Real (§4-3)。
-
-**输入**: fAST JSON + 代码注释 / 函数名 / docstring (若有) + Schema Describer 输出的 schema markdown
-
-**输出**: 每家 Verifier 输出 3 条候选 NLQ, 共 9 条进入自洽性过滤
-
-**约束**:
-
-- 必须覆盖 fAST 中所有字段引用与算子语义
-- 输出 3 条候选, 经自洽性过滤 (再反向写 MQL 比对) 保留通过者
-- 黑话 / 缩写保留 (保持"真实味"), 但必须在 `provenance` 中记录 glossary
-- 对 SO 样本: 优先把问题标题作为第一候选 (保留原真实用户口吻)
-
-**system prompt 策略**: 公开 (与 6.6 Verifier 的 prompt 同源)。
-
-**模型家族选择**: 3 家异源 (OpenAI / Anthropic / Google), 与 §7-5 的 3-way 约束对齐。不同 Reverse NLQ 家族生成的候选可交叉用于自洽性过滤, 避免"同家族自我印证"。
-
-**失败处理**: 3 家 LLM 全部无法生成一致 NLQ → 入 ambiguous 桶 (§7-5), 人工仲裁或丢弃。
-
-<a id="03-6-5"></a>
-### 6.5 Intent Variant NLQ Generator
-
-**职责**: 对 Intent Mutator (§3-7) 产生的每个 Intent Variant cMRL, 生成对应的 variant NLQ。本 Agent 与 Intent Mutator 配套: Mutator 机械产出 variant cMRL (确定性 rewrite rules), Generator 只负责把 cMRL 改动反映到 NLQ。
-
-**输入**:
-- canonical NLQ (供"对比重写", 保证 variant 与 canonical 的句式相似度, 只在意图上不同)
-- variant_type ∈ {negation, omission, coreference, jargon, composition}
-- variant cMRL (canonical 的 AST rewrite 后版本) 与 canonical cMRL 的 diff
-- (jargon 类专用) glossary: 白话 ↔ 黑话映射表
-
-**输出**: 1 条英文 variant NLQ
-
-**约束** (按 variant_type):
-
-- **negation**: NLQ 必须显式含否定词 ("not" / "no" / "never" / "excluding" / "except")
-- **omission**: NLQ 必须在指定槽位省略, 但保留句子可理解; 不得把其他槽位也一并省略
-- **coreference**: NLQ 必须含指代词 ("recent" / "last year" / "this month"), 对应 cMRL 中的具体字面量; 字面量与指代词的映射写入 `provenance.coreference_map`
-- **jargon**: NLQ 必须用业务术语, 且业务术语须出现在 glossary 中; 若 glossary 未预定义, 拒绝生成
-- **composition**: NLQ 必须是一个合成问句或两个关联问句, 覆盖两段 cMRL 的字段 / 算子集
-
-**校验**: 每条 variant NLQ 跑 §7-4 Skeleton Coverage 语义对齐; 不通过则重生成 ≤ 3 次; 3 次失败弃该 variant (canonical 不受影响)。
-
-**system prompt 策略**: 公开。prompt 按 variant_type 分 5 份独立模板, 避免混合导致风格塌缩。
-
-**模型家族选择**: 与 §6.3 一致 (写作强的 Claude Sonnet 4 / GPT-4o)。
-
-<a id="03-6-6"></a>
-### 6.6 Verifier 判官 (3-way)
-
-**职责**: 在 §7-5 中扮演"NLQ 反向重构 MQL"的裁判, 独立于 gold MQL 生成, 给出对每条 NLQ 的 MQL 候选。
-
-**输入**: NLQ (单句) + schema markdown (§6-2 产出)
-
-**输出**: 单条 MQL 字符串 (或 `abstain` 标签)
-
-**约束**:
-
-- 必须输出可执行的 MongoDB aggregation / find (有 `db.<coll>.aggregate(...)` 或 `db.<coll>.find(...)` 语法)
-- 可返回 `abstain` 表明 NLQ 不可理解 / schema 不支持, 但不得瞎猜
-- 禁止跨调用对话 (每条 NLQ 独立调用, 避免历史污染)
-
-**system prompt 策略**: 公开且同一套。三家 Verifier 共享 system prompt 设计, 差异只来自模型本身, 保证"裁决的异源性"来自模型 / 训练语料, 而非 prompt engineering。
-
-**模型家族选择 (硬约束)**:
-
-- 至少 3 家不同供应商 (OpenAI + Anthropic + Google, 或其他组合)
-- 至少 2 个不同预训练语料基座
-- 至少 1 个开源可审计模型 (Llama-3 / DeepSeek-V3 / Mixtral 等)
-
-这三条硬约束支持 §7-5 所实施的 reverse-cross-checked 验证协议; 外部 anchor 的 link 统一在 §7-5 出, 本节不重复。
-
-**裁决规则**: 见 §7-5 裁决表。
-
-**失败回退**: 3 家全部 abstain → 样本直接丢弃; 任一家超时 / 非法输出 → 记为 abstain, 其他两家的一致性决定裁决。
+因此 Hybrid 的 admission 是一次**完整重验证**, 不是拷贝源状态.
 
 <a id="03-7"></a>
-## 7. 多层正确性保证 (6 道防线)
+## 7. Triple Compiler 操作协议
 
-任何单一校验都有 false pass 风险, 6 道独立机制以"且"关系串联。失败样本丢弃或回退, 不做"概率性放行"。
+Triple Compiler 是主集 admission 的核心门槛. 但在 03 中, 它是一个**操作协议**, 不是再定义 01 的数学语义.
 
-| 序号 | 防线 | 机制 | 失败后果 |
-|---|---|---|---|
-| ① | MRL Validator | cMRL 句法 / 引用完整性校验 | Sampler 重抽 |
-| ② | 双编译器差异 + 形式语义 + Property Test | Compiler A/B 输出 diff; 随机 cMRL 的语义等价 | Lowering 修复 + 回归 |
-| ③ | Execution Grounder | mongosh 实跑, 结果非空且无错 | 丢弃或重抽 |
-| ④ | Skeleton Coverage (语义对齐) | NLQ 槽位字面 + 语义双对齐 | Naturalizer / Paraphraser / Mutator 重生成 |
-| ⑤ | 3-way Reverse Verifier + Ambiguous/Abstain 桶 | 三家异源 LLM 独立重构 + 裁决表 | 按裁决状态分发 |
-| ⑥ | Active-Learning Human Loop | 主动选不确定样本做人工 rubric | 反馈到上游 prompt / Sampler 权重 |
+### 7.1 输入合同
 
-<a id="03-7-1"></a>
-### 7.1 ① MRL Validator
+进入 Triple Compiler 的候选必须已经拥有:
 
-**职责**: 只验证 cMRL 合法性, 不验证语义。
+- `cmrl_canonical`
+- 冻结 world `D`
+- 显式 schema package
+- 由 Compiler A 生成的 `fast_canonical`
+- 由 Compiler A unparse 的 `mql_canonical`
 
-**检查项**:
+在执行前, 先做两件事:
 
-- 顶层字段完整性 (`intent` / `scope` / `projection` / ...)
-- 枚举取值合法 (`intent ∈ {retrieve, aggregate, count, exists}`, `op ∈ {eq, ne, lt, ...}`)
-- 字段路径格式 (`a.b.c` 合法, `a..b` 非法)
-- 字段引用完整性 (对照 Schema Exporter 的 `union_schema`, 未出现的字段直接拒绝)
-- intent 与结构的约束 (`intent=count` 时 `projection` / `grouping` 为空)
+1. 对 `mql_canonical` 重新 parser 一次, 确认可回到 `fast_canonical`
+2. 对 `fast_canonical` 重新 lift 一次, 确认可回到 `cmrl_canonical`
 
-**失败后果**: Sampler 重抽。Validator 不做任何语义推断, 只做纯句法校验, 这是 6 道防线中最轻量的一道。
+只有回环闭合的样本才进入三路执行.
 
-<a id="03-7-2"></a>
-### 7.2 ② 双编译器差异 + 形式语义 + Property Test
+### 7.2 三路执行
 
-具体实现见 §3-5。三件事:
+- **Compiler A**: `cmrl_canonical -> fast_canonical -> mql_canonical -> MongoDB`
+- **Compiler B**: `cmrl_canonical -> alternate lowering / planner -> MQL -> MongoDB`
+- **Compiler C**: `cmrl_canonical -> denotational interpretation -> in-memory result`
 
-1. **形式语义**: Python 参考实现 `semantic_fn` for each cMRL 原语, 作为 Lowering 正确性的真值
-2. **双实现差异测试**: Compiler A (Python) + Compiler B (Rust / TS), 对同一 cMRL 输出 fAST 做结构 diff 与执行 diff
-3. **Property-based Testing**: 每个原语 ≥ 10k 条随机测试, 300k+ 总规模, CI 强制门禁
+三路都读取同一个冻结 world, 并使用同一套 BSON 归一化.
 
-任一不一致 → halt + 人工仲裁 + Lowering 修复 + 回归全集。这一防线是"Lowering 正确性"的保险, 失败一次则整个 Lowering 代码全量重测。
+### 7.3 归一化与递归相等
 
-<a id="03-7-3"></a>
-### 7.3 ③ Execution Grounder
+主集与公开 sidecar 共享同一套归一化:
 
-gold MQL 在真实 MongoDB 实例上执行 (mongosh 子进程), 返回非空且无 BSON / 类型错误。结果集前 10 行经 BSON 归一化 (§9-3) 后写入 `exec_result_head`, 供下游训练与评估直接使用。
+| 类型 | 公开归一化 |
+|---|---|
+| `ObjectId` | 24 位 hex string |
+| `Date` | ISO-8601 UTC string |
+| `Decimal128` | 保留精度的 string |
+| `Long` | 安全范围内为 int, 否则为 string |
+| `Binary` | base64 string |
+| `Regex` | 规范化结构或字符串 |
+| `null` | `null` |
+| `missing` | 键缺失, 不回填 |
 
-**执行配置**:
+若查询无显式排序, 则在比较前按 canonical row hash 做稳定排序; 若查询声明了排序, 则按原顺序比对.
 
-- MongoDB 7.0+ 实例 (覆盖 `$setWindowFields` / `$densify` 等新算子)
-- mongosh 子进程, 30 秒 hard timeout
-- 结果集超过 10 行只取前 10 行 (避免超大结果膨胀)
-- 结果集为空不一定丢弃 (某些合法查询确实 0 命中), 仅标记 `is_empty: true`; 连续 N 条库的"0 命中"才触发库重抽
+### 7.4 状态路由
 
-**典型错误分类 (Execution Grounder 拦截)**:
+Triple Compiler 的路由在构造层面固定如下:
 
-| 错误类型 | 根因 | 处理 |
+| 条件 | 路由 | 是否主集可用 |
 |---|---|---|
-| `CodecConfigurationException` | fAST 类型标注错 (例如 Decimal128 被当成 string) | Lowering self-check 漏洞, 回 §7-2 修 |
-| `FieldPath field names may not be empty strings` | cMRL 字段路径生成 bug (例如 `.a.b`) | MRL Validator 漏过, 回 §7-1 修 |
-| `Argument to $unwind must be a string...` | Lowering 对 `$unwind` stage 参数渲染错误 | Lowering 修复 + 回归 |
-| `Executor error... $lookup "from" field must be a string` | join 目标 collection 不存在于 schema | Sampler 字段引用校验漏过, 回 §3-6 修 |
-| timeout | 嵌套 `$lookup` + 无索引 + 大 cross join | 标记 "heavy", 丢弃或改用 `$lookup pipeline` + `let`
+| `r_A = r_B = r_C` | `triple_consensus_status = pass` | 是 |
+| `r_A = r_B`, `r_C = undefined` | `triple_consensus_status = longtail_AB_only` | 否 |
+| 三路分歧, 可归因到 `engine_quirk` / `A_bug` / `B_bug` / `C_bug` / `spec_ambiguity` | 对应 sidecar divergence bucket | 否 |
+| 只有 A 路可维持临时审核价值 | internal `a_only` staging route | 否 |
 
-<a id="03-7-4"></a>
-### 7.4 ④ Skeleton Coverage (语义对齐)
+这里特别强调两点:
 
-仅做字面槽位对齐会误杀合法改写 (`status=paid` ↔ "completed orders"), 仅做语义对齐又会漏掉"NLQ 整体没提 `status` 约束"的丢槽。双对齐策略:
+1. **`longtail_AB_only` 只保留旁路价值, 不进入主集**
+2. **`a_only` 不属于 02 的公开 `triple_consensus_status` 枚举, 因而只保存在 staging 审核目录, 不写公开 JSONL**
 
-- **字面对齐**: 对每个槽位 (filter / projection / group / sort / limit), NLQ 中必须出现指向该槽位的 token (字面字符串 / 同义词表中的映射)
-- **语义对齐**: 对合法改写 (例如 `status=paid` → "completed orders"), 用 embedding cosine + NLI 判断器做语义等价判定
-- **槽位归一化**: Intent Variant (negation / coreference / jargon / composition) 的槽位可能变形, 对齐规则按 `variant_type` 配置
+### 7.5 `ecommerce_017` 的三路通过条件
 
-**通过标准**:
+`ecommerce_017` 的 canonical family 之所以可入主集, 必须同时满足:
 
-- 字面对齐或语义对齐命中 → 通过
-- 两者都不中 → 失败, 重生成 ≤ 3 次
-- 必需语义槽 (field / operator / aggregation alias / limit 值) 缺失 → 直接丢弃
+- A 路得到按 `total_spent` 降序的前三个 `user_id`
+- B 路得到相同三行与相同顺序
+- C 路在内存解释下得到相同三行与相同顺序
+- 结果行中若某键缺失, 仍保持缺失; 不能被归一化流程补成 `null`
 
-**ecommerce_017 主线覆盖检查**:
-
-| 槽位 | 字面对齐 (原 NLQ "Top 3 customers by total paid item spending in 2026") | 判定 |
-|---|---|---|
-| `filter: status=paid` | "paid" 出现 | ✓ 字面 |
-| `filter: paid_at exists` | 隐含 (paid → paid_at 必然 exists) | ✓ 语义 (NLI 判决 entailment) |
-| `filter: paid_at >= 2026-01-01` | "in 2026" 映射 | ✓ 语义 (embedding cosine 0.88 > 0.80) |
-| `group by user_id` | "customers" 映射 | ✓ 字面 (synonym table) |
-| `agg sum items.price` | "total ... spending" 映射 | ✓ 字面 + 语义 |
-| `sort total_spent desc` | "Top" + 隐含 desc | ✓ 字面 |
-| `limit 3` | "3" | ✓ 字面 |
-
-7 个槽位全部命中, 防线通过。若去掉 "paid" 留下 "Top 3 customers by total item spending in 2026", `filter: status=paid` 就会缺失, 重生成。
-
-<a id="03-7-5"></a>
-### 7.5 ⑤ 3-way Reverse Verifier + Ambiguous/Abstain 桶
-
-**3-way 协议**: 取三家 LLM 做 Verifier, 硬性要求:
-
-- 至少 3 家不同供应商 (例如 OpenAI + Anthropic + Google)
-- 至少 2 个不同预训练语料基座
-- 至少 1 个开源模型 (可本地审计, 例如 Llama-3 / DeepSeek)
-
-对每条 NLQ + schema markdown, 三个 Verifier 独立重构 MQL → 执行得到 r_A / r_B / r_C, 与 gold 结果 r_gold 比对。
-
-**裁决表**:
-
-| 情况 | 裁决 | 后果 |
-|---|---|---|
-| r_A / r_B / r_C 三者均 = r_gold (3/3 一致) | **pass** | 入库, `status=pass` |
-| 三者中恰 2 个 = r_gold (2/3 一致) | **probable-pass** | 入库, `status=probable`, 优先进 §7-6 复核 |
-| 三者中恰 1 个 = r_gold (1/3 一致) | 人工仲裁 | 进队列, 由 §7-6 处理 |
-| 三者均 ≠ r_gold 但三者间一致 (0/3 一致) | **fail** | 丢弃 (gold 可能错) |
-| 三者互不一致 (r_A ≠ r_B ≠ r_C) | **ambiguous** | 进 NLQ 歧义修复队列 |
-
-**Verifier abstain**: 若某个 Verifier 返回"无法生成可执行 MQL" (语法错 / 超时 / 拒绝响应), 记为 abstain; 剩下两者的一致性决定裁决 (例如剩下 2 个都 = gold → probable-pass; 2 个一致但 ≠ gold → fail; 2 个互不一致 → ambiguous)。3 个全 abstain 则直接丢弃样本。
-
-**NLQ 歧义修复**: ambiguous 样本进特化 LLM repair Agent, 读三个 MQL 的差异, 给 NLQ 加澄清短语 (例如把 "recent" 改为 "from the last 30 days", 把 "top" 改为 "top 3 by total"), 然后重跑 3-way; 仍 ambiguous 则丢弃。
-
-**ecommerce_017 主线 3-way 裁决记录**:
-
-| Verifier | 输出 MQL 摘要 | 执行结果 | vs r_gold |
-|---|---|---|---|
-| Verifier A (OpenAI GPT-4o) | `$match(status=paid, paid_at≥2026-01-01) → $unwind(items) → $group(user_id, sum items.price) → $sort → $limit 3` | 3 条 user_id + total_spent | 一致 |
-| Verifier B (Anthropic Claude Sonnet 4) | 同上结构, 仅 `$project` 字段顺序不同 | 3 条 user_id + total_spent (值相同) | 一致 |
-| Verifier C (Google Gemini 2.5) | `$match(status=paid, paid_at exists) → $group(user_id, sum total)` (漏掉 `$unwind items`) | 3 条 user_id + total_of_order_total | 不一致 |
-
-三者 2/3 一致 → **probable-pass**, 入库 `status=probable`, 优先进 §7-6 人工复核。人工确认 Verifier C 误解了 NLQ (把 "total paid item spending" 理解为 "订单总额" 而非 "items 逐项求和"), 样本通过。该 NLQ 可选择性进 NLQ 歧义修复队列 (加上 "summing each item's price" 使意图更明确)。
-
-此防线对应 [02 §1-3 reverse-cross-checked](./02_dataset_design.md#02-1-3) 原则, 是把"NLQ ↔ MQL 语义等价"从概率问题升级为三重独立交叉验证的核心机制。
-
-<a id="03-7-6"></a>
-### 7.6 ⑥ Active-Learning Human Loop
-
-不随机抽样, 主动选最可能错的样本复核, 让有限的人力预算投入到信息量最大的区域。
-
-**选样策略**:
-
-- 3-way Verifier 裁决为 probable-pass / 1-3 一致 / ambiguous 的样本
-- IRT discrimination 极高的 (信息量最大)
-- cMRL 长尾组合 (Sampler 权重外围, 一般是罕见的 F_i × F_j × F_k 三元组)
-
-**迭代循环**:
-
-1. 每批 50-100 条人工复核, 标注 pass / fail / 不确定
-2. 以此为训练集训 `quality_classifier` (GBDT 或 small LM), 用它对剩余样本打 pass 概率
-3. 主动选 pass 概率最低的下一批 50-100 条复核
-4. 循环到错误率估计值 < 2%
-
-**quality_classifier 特征集合**:
-
-- 3-way Verifier 裁决 (one-hot: pass / probable / arbitrate / fail / ambiguous)
-- 3 个 Verifier 的结果相似度矩阵 (jaccard(r_A, r_B), jaccard(r_A, r_C), jaccard(r_B, r_C))
-- IRT difficulty / discrimination
-- cMRL 原语分布 (17 大特性激活 one-hot + join 深度 + filter 数)
-- NLQ 长度 + 歧义词数 (coreference / jargon)
-- modeling_style (6 哲学 one-hot)
-- pilot 模型 pass 率方差
-
-训练目标: 以人工标注为 label, 二分类 pass vs fail, AUC ≥ 0.85 方可用于主动选样; 否则继续扩充标注集。
-
-**人工投入**: 初始 200 条, 收敛后总量 500-1,000 条 (相当于全数据集 2-5% 抽样, 但信息量密度高一个数量级于随机 1%)。
+只有这样, 它才会被标记为 `triple_consensus_status = pass`.
 
 <a id="03-8"></a>
-## 8. 多样性 / 复杂度 / 难度量化控制 (IRT)
+## 8. Reverse Instance Verification (RIV)
 
-<a id="03-8-1"></a>
-### 8.1 IRT 难度评分 (pilot 集合)
+RIV 是 03 中新增的硬门. Triple Compiler 只能证明“gold query 的三路语义一致”; **RIV 还要证明“当前实例本身能把 gold query 与近似错误查询区分开”**. 一个样本若缺少 instance discriminativity, 即使三路共识成立, 也不进入主集.
 
-结构公式难度 (pipeline 深度 + 特性数 + ambiguity) 与人类 / 模型感知都不完全对齐。IRT (Item Response Theory) 直接用模型 pass 率定义难度, 外部校准, 可预测新模型的 pass 概率。
+### 8.1 RIV 的输入与输出
 
-**pilot 模型集合要求**:
+RIV 的输入是:
 
-- **8-12 个模型**
-- 覆盖能力梯度: 小 LM (Llama-3.2-1B / 3B) + 中 LLM (DeepSeek-V2-Lite / Qwen-7B) + 大 LLM (GPT-4o / Claude Sonnet 4 / Gemini 2.5 / ...)
-- 覆盖至少 3 个不同预训练语料基座
-- 含 ≥ 1 个开源可审计模型
+- `cmrl_canonical`
+- 冻结 world `D`
+- `mql_canonical`, `fast_canonical`
+- 三路一致的 `r_A = r_B = r_C`
 
-**评分流程** (对每条样本 s):
+RIV 的输出是:
 
-1. 三家 / 多家 Verifier 跑过后 (§7-5), 换成 pilot 模型集合跑一遍 gold MQL 生成
-2. 记录每个模型是否 pass (EX 判定, 执行结果一致): 令 \( x_i(s) \in \{0, 1\} \) 为 pilot 模型 \( i \) 对样本 \( s \) 是否 pass
-3. 定义:
-   - IRT Difficulty (pilot 相对难度):
-     \[ \mathrm{difficulty}(s) \;=\; 1 - \frac{1}{N_{\mathrm{pilot}}} \sum_{i=1}^{N_{\mathrm{pilot}}} x_i(s) \]
-   - 模型能力代理: \( C_i = \frac{1}{|\mathcal{D}|} \sum_{s \in \mathcal{D}} x_i(s) \), 即 pilot 模型 \( i \) 在整个候选集 \( \mathcal{D} \) 上的平均 pass 率
-   - Discrimination (point-biserial 相关系数, 版本一, 对模型能力):
-     \[ \mathrm{discrimination}(s) \;=\; \mathrm{corr}_i\bigl( C_i,\; x_i(s) \bigr) \;=\; \frac{\sum_i (C_i - \bar{C})(x_i(s) - \bar{x}(s))}{\sqrt{\sum_i (C_i - \bar{C})^2} \cdot \sqrt{\sum_i (x_i(s) - \bar{x}(s))^2}} \]
-   - 等价的 point-biserial 闭式 (版本二, 对 pass / fail 两组均值差):
-     \[ r_{pb}(s) \;=\; \frac{\bar{C}_{\mathrm{pass}}(s) - \bar{C}_{\mathrm{fail}}(s)}{\sigma_C} \sqrt{\frac{n_{\mathrm{pass}}(s) \cdot n_{\mathrm{fail}}(s)}{N_{\mathrm{pilot}}^{2}}} \]
-     其中 \( \bar{C}_{\mathrm{pass}}(s) \) 为所有对 \( s \) pass 的 pilot 模型的 \( C_i \) 均值, \( \bar{C}_{\mathrm{fail}}(s) \) 同理; \( \sigma_C \) 为 \( \{C_i\} \) 的全体标准差。
+- `riv_status ∈ {pass, fail}`
+- 一组 near-miss counterqueries
+- 每个 counterquery 对应的 witness 集合
+- 一份证书文件 `certificate.json`
 
-**入库规则**:
+### 8.2 witness 抽取
 
-- `discrimination(s) ≥ 0.3` → 入库 (Discrimination 足够, 能拉开不同能力模型)
-- `discrimination(s) < 0.3` → 标记 "low information", 不入主报告, 但保留在附属桶供研究用 (例如所有模型都过 / 都不过)
-- 按 `difficulty` 分 5 等级 (L1 [0.0, 0.2) .. L5 [0.8, 1.0]), 各占 20%
+RIV 对每个 counterquery `q'` 抽取两层 witness:
 
-**pilot 动态更新**: 每半年重跑一次, 难度漂移 > 10% 的样本重新分级。
+1. **输出层 witness**
+   - `positive_witness`: 在 gold 结果中存在, 在 `q'` 结果中不存在的行
+   - `negative_witness`: 在 `q'` 结果中存在, 在 gold 结果中不存在的行
+   - `rank_witness`: 行集合相同但排序或截断不同的首个分歧位置
+2. **来源层 witness**
+   - 由 `lineage_index.json` 或 stage trace 追到的最小输入文档集合
+   - 用于说明差异由哪些源文档触发
 
-**ecommerce_017 主线的 pilot 跑分明细**:
+输出层 witness 用公开归一化行哈希保存; 来源层 witness 用脱敏后的 `_id` 或行哈希保存.
 
-| Pilot Model | Capability (整集平均 pass 率) | 对本样本 pass? |
-|---|---|---|
-| Llama-3.2-1B | 0.18 | ✗ |
-| Llama-3.2-3B | 0.32 | ✗ |
-| DeepSeek-V2-Lite | 0.45 | ✗ |
-| Qwen-2.5-7B | 0.54 | ✓ |
-| CodeLlama-13B | 0.49 | ✗ |
-| Mixtral-8x7B | 0.62 | ✓ |
-| DeepSeek-V2-236B | 0.71 | ✓ |
-| GPT-4o-mini | 0.68 | ✓ |
-| Claude Sonnet 4 | 0.79 | ✓ |
-| Gemini 2.5 Pro | 0.81 | ✓ |
+### 8.3 near-miss counterquery 变异族
 
-pass 6 / 10 → `difficulty = 0.40` (舍入后 0.42, 入 L3 bucket [0.40, 0.60))。capability 与 pass 的 pearson 相关系数 = 0.58 → `discrimination = 0.58`, ≥ 0.3 门槛, 入主报告。此样本能拉开中等与强模型, 是"高信息量"样本。
+RIV 不靠人工拍脑袋写反例, 而是按固定 mutation family 机械生成 near-miss:
 
-<a id="03-8-2"></a>
-### 8.2 Cross-arity 组合覆盖 (一元 / 二元 / 三元)
+| 变异族 | 变异方式 |
+|---|---|
+| `predicate_boundary` | 调整数值 / 日期边界, 如 `gte` 改成更宽或更窄边界 |
+| `predicate_operator` | `eq/ne/gt/gte/lt/lte/exists/type` 间做近邻替换 |
+| `missing_null_confusion` | 删除 `exists`、把显式 `null` 条件改成缺失容忍, 或反向修改 |
+| `aggregation_operator` | `sum/avg/min/max/count` 做近邻替换 |
+| `group_key` | 替换 group key 或删除关键 group key |
+| `stage_drop_or_bypass` | 删除 `unwind`、删除 `project`、删除关键 filter stage |
+| `sort_limit` | 反转排序方向、改 `limit`、删除 `limit` |
+| `join_binding` | 仅对含 join 的样本, 改 foreign key、改 join path、删 join stage |
 
-**覆盖目标**:
+并非每个 family 对所有样本都适用. RIV 只要求**适用的 mutation family**全部被覆盖.
 
-- **一元**: 每个 F1-F17 触达率 ≥ 5%
-- **二元**: (F_i, F_j) 二元组 (i ≠ j) 同时触达率 ≥ 60%
-- **三元**: (F_i, F_j, F_k) 三元组同时触达率 ≥ 30%
+### 8.4 RIV 接受条件
 
-**操作化**:
+主集样本必须同时满足下列 RIV 条件:
 
-- 组合频次由 Sampler 跟踪, 每 N 步 rebalance 权重 (iterative boosting)
-- cross-feature × cross-modeling-style 交叉覆盖: 目标 (feature, style) 二维表 (17 × 6 = 102 单元) 中 ≥ 70% 单元非空
+1. 对每个适用的 mutation family, 至少生成 1 条可执行、deterministic、read-only、schema-grounded、liftable 的 counterquery
+2. 全部适用 family 合计至少得到 6 条有效 counterquery
+3. 对每条有效 counterquery, `result(gold, D)` 与 `result(q', D)` 在归一化后必须不相等
+4. 每条有效 counterquery 都必须抽取到至少 1 个输出层 witness
+5. 整个 family 至少抽取到 1 组来源层 witness
 
-**ecommerce_017 主线贡献**: 激活特性 [F9, F10, F15, F17], 贡献 6 个二元组 (F9,F10) / (F9,F15) / (F9,F17) / (F10,F15) / (F10,F17) / (F15,F17) 与 4 个三元组。全数据集约 16,000 Sample Families 均摊下来, 任一二元组平均被 ~600 条 Sample Families 覆盖, ≥ 60% 门槛是充裕的。
+只要有一条有效 counterquery 与 gold 在当前实例上不可区分, `riv_status = fail`, 该样本不得进入主集.
 
-<a id="03-8-3"></a>
-### 8.3 去重 (结构 + 执行结果 hash)
+### 8.5 证书写法
 
-双重去重:
+RIV 证书的**完整内容**保留在 staging, 公开记录只写入 02 已定义的顶层证书字段:
 
-- **结构去重**: MinHash canonical cMRL (字段排序 / op 归一 / 字面值哈希), 阈值 0.8 Jaccard 相似度视为重复, 丢弃
-- **执行去重**: 对 gold MQL 跑一次执行, 对结果集做 canonical hash (字段排序 + 字典序值排序 + SHA256), 相同 hash 视为"语义等价但结构不同"的重复, 只保留 discrimination 最高的一条
+- staging 中保存完整证书:
+  - `staging/<subset>/<family_id>/05_riv/certificate.json`
+- 公开记录写入以下 top-level 字段:
+  - `instance_certificate_status`
+  - `instance_certificate_checks`
+  - `instance_certificate_ref`
 
-两道都不过方入库。
+如需保存 counterquery 数量或 witness 摘要, 只能进入 staging 证书正文或来源侧 trace, 不得额外发明新的公开 top-level 字段。
+
+### 8.6 `ecommerce_017` 的 RIV
+
+`ecommerce_017` 的 canonical family 至少覆盖下列 near-miss:
+
+1. 删除 `paid_at: {$exists: true}`
+2. 将 `paid_at >= 2026-01-01` 改为更宽边界
+3. 将 `$sum: "$items.price"` 改为 `$avg: "$items.price"`
+4. 删除 `$unwind`
+5. 将 `$sort: {total_spent: -1}` 改为升序
+6. 将 `$limit: 3` 改为 `5`
+
+其 witness 以输出键 `user_id` 与 `total_spent` 的归一化行哈希保存. 只要上述任一 near-miss 在当前实例上与 gold 不可分, 该 family 就不会被写入主集.
 
 <a id="03-9"></a>
-## 9. 记录写盘格式
+## 9. 六道防线
 
-<a id="03-9-1"></a>
-### 9.1 Sample Family 落盘结构
+03 的操作栈用六道防线串起全流程. 这六道防线在 admission 上是“与”关系, 不是加权打分.
 
-Sample Family 落盘对应 [02 §3 数据记录 schema](./02_dataset_design.md#02-3) 的数据契约。完整落盘 JSON 结构 (ecommerce_017 主线):
+| 防线 | 负责问题 | 失败路由 |
+|---|---|---|
+| ① Schema Grounding | 字段、类型、引用、输出键是否显式可解析 | staging reject |
+| ② World Validity | world 是否满足 schema validator, 且 `null` / `missing` 被分别物化 | 重新物化或 staging reject |
+| ③ Query Admissibility & Liftability | 查询是否 deterministic、read-only、可 full-lift | 主集拒绝; 仅部分样本可去 sidecar |
+| ④ Triple Compiler Consensus | A/B/C 是否都定义且三路一致 | `pass` 之外全部旁路 |
+| ⑤ RIV | 当前实例是否能区分 gold 与 near-miss | 主集拒绝 |
+| ⑥ NLQ Family Assembly | 是否形成满足 02 契约的 NLQ family | 主集拒绝或只留 staging |
+
+这六道防线的职责分工是:
+
+- ①② 保障 **实例本身合法**
+- ③ 保障 **查询属于主集可接纳空间**
+- ④ 保障 **gold 正确性**
+- ⑤ 保障 **实例判别力**
+- ⑥ 保障 **语言接口质量**
+
+<a id="03-10"></a>
+## 10. NLQ family 组装
+
+主集中的公开 family 记录必须形成 02 所定义的 `nlq_canonical + nlq_variants` 结构. 03 只定义如何构造, 不重写 02 的字段契约.
+
+### 10.1 构造原则
+
+NLQ 构造只看:
+
+- `cmrl_canonical` 的 pseudo-code
+- `schema.md`
+- 必要的 domain glossary
+
+不直接把 `mql_canonical` 原样喂给 NLG, 以避免语言层抄写 MongoDB 语法.
+
+### 10.2 translator 共识
+
+每条候选 NLQ 都必须经过 translator 共识. 只有严格通过的候选, 才会进入公开 family:
+
+- `nlq_canonical`: 从通过候选中选择一条最清晰、槽位最完整的主问句
+- `nlq_variants`: 其余通过候选进入变体列表
+
+未通过候选的去向:
+
+- `one_translator_disagree` -> 留在 staging `06_nlq/rejected/`
+- 明显多解或歧义候选 -> 留在 staging `06_nlq/ambiguous/`
+
+它们都不进入公开 `nlq_variants`.
+
+### 10.3 `ecommerce_017` 的 K=5
+
+`ecommerce_017` 的公开 family 采用 `K = 5` 的写法:
+
+- `nlq_canonical`: `"Top 3 customers by total paid item spending in 2026."`
+- `nlq_variants`: 4 条通过 translator 共识的变体
+
+无论变体语言风格如何, 它们共享同一 `cmrl_canonical`, `mql_canonical`, `r_A`, `r_B`, `r_C`, `triple_consensus_status`, `activated_features`.
+
+<a id="03-11"></a>
+## 11. 主集、Horizon 与 sidecar 的路由关系
+
+主集 admission 完成后, 样本还需要按 02 的 split 规则进入 train / test 或 Horizon 保留集. 这里要明确区分三种目的完全不同的出口.
+
+### 11.1 路由表
+
+| 出口 | 条件 | 说明 |
+|---|---|---|
+| 主集 `*_train.jsonl` / `*_test.jsonl` | `triple_consensus_status = pass` 且 `instance_certificate_status = pass` 且 `is_horizon = false` | 正常主集 split |
+| `synth_horizon.jsonl` / `real_horizon.jsonl` / `hybrid_horizon.jsonl` | `triple_consensus_status = pass` 且 `instance_certificate_status = pass` 且 `is_horizon = true` | 这是 pass-only holdout, 不是失败 sidecar |
+| `sidecar/longtail_AB_only.jsonl` | `triple_consensus_status = longtail_AB_only` | sidecar 审核制品 |
+| `sidecar/divergence/*.jsonl` | `engine_quirk`, `A_bug`, `B_bug`, `C_bug`, `spec_ambiguity` | sidecar 审核制品 |
+| `staging/real/a_only/` | internal `a_only` | 只保留审核证据, 不写公开 JSONL |
+| `staging/rejected/` | unresolved schema, partial lift, remap 失败, RIV 失败, NLQ 失败 | 只保留构造证据 |
+
+### 11.2 sidecar 与主集的硬隔离
+
+构造器在文件层面执行以下硬隔离:
+
+1. splitter 只读取 `triple_consensus_status = pass` 且 `instance_certificate_status = pass` 的记录
+2. sidecar 文件永远不参与 split assignment
+3. subset-specific Horizon 文件只接收 `pass` 且 `instance_certificate_status = pass` 的记录
+4. `a_only` 不产生公开 family 记录
+
+因此不会出现“sidecar 样本误入主集 split”的路径.
+
+<a id="03-12"></a>
+## 12. 写盘结构与 staging 资产
+
+### 12.1 顶层目录
+
+```text
+MonGen/
+├── meta.json
+├── synth_train.jsonl
+├── synth_test.jsonl
+├── real_train.jsonl
+├── real_test.jsonl
+├── hybrid_train.jsonl
+├── hybrid_test.jsonl
+├── synth_horizon.jsonl
+├── real_horizon.jsonl
+├── hybrid_horizon.jsonl
+├── sidecar/
+│   ├── longtail_AB_only.jsonl
+│   └── divergence/
+│       ├── engine_quirk.jsonl
+│       ├── A_bug.jsonl
+│       ├── B_bug.jsonl
+│       ├── C_bug.jsonl
+│       └── spec_ambiguity.jsonl
+├── schemas/
+│   ├── ecommerce_017.json
+│   └── ecommerce_017.md
+└── staging/
+    ├── synth/
+    ├── real/
+    ├── hybrid/
+    └── rejected/
+```
+
+这里有三个关键点:
+
+1. subset-specific Horizon 文件是 **pass 样本的保留视图**
+2. `sidecar/` 是 **非主集审核视图**
+3. `staging/` 是 **构造证据仓**
+
+### 12.2 staging 目录粒度
+
+每个候选 family 都有自己的 staging 目录:
+
+```text
+staging/<subset>/<family_id>/
+├── 01_schema/
+├── 02_world/
+├── 03_query/
+├── 04_compilers/
+├── 05_riv/
+├── 06_nlq/
+└── final_record.json
+```
+
+其中:
+
+- `01_schema/` 保存 schema package
+- `02_world/` 保存冻结快照、event trace 与 lineage index
+- `03_query/` 保存 `cmrl_canonical`, `fast_canonical`, `mql_canonical`
+- `04_compilers/` 保存 A/B/C 的原始输出与归一化结果
+- `05_riv/` 保存 near-miss 集合与证书
+- `06_nlq/` 保存候选 NLQ、translator 结果与保留清单
+- `final_record.json` 是待写盘的 02 公开记录
+
+### 12.3 公开记录字段
+
+03 不定义新的 top-level 字段. `final_record.json` 必须与 02 对齐. 以 `ecommerce_017` 为例:
 
 ```json
 {
-  "family_id": 8243,
+  "record_id": "rec_synth_fam_ecommerce_017_top3_paid_2026",
+  "family_id": "fam_ecommerce_017_top3_paid_2026",
   "subset": "synth",
+  "record_grain": "family",
+  "asset_bucket": "main",
+  "split": "train",
   "db_id": "ecommerce_017",
-  "modeling_style": "Legacy-drifting",
-  "canonical": {
-    "cmrl": {
-      "intent": "aggregate",
-      "scope": {
-        "collection": "orders",
-        "filters": [
-          {"field": "status", "op": "eq", "value": "paid"},
-          {"field": "paid_at", "op": "exists", "value": true},
-          {"field": "paid_at", "op": "gte", "value": "2026-01-01", "type": "Date"}
-        ],
-        "unwinds": [{"path": "items", "preserveNullAndEmptyArrays": false}]
-      },
-      "grouping": {"by": ["user_id"], "aggs": [{"alias": "total_spent", "op": "sum", "field": "items.price"}]},
-      "projection": {"include": ["user_id", "total_spent"]},
-      "ordering": [{"field": "total_spent", "direction": "desc"}],
-      "limits": {"limit": 3},
-      "features": ["F9", "F10", "F15", "F17"]
-    },
-    "fast": {"op": "aggregate", "collection": "orders", "stages": [ "... 6 stages ..." ]},
-    "mql": "db.orders.aggregate([{$match:{status:\"paid\",paid_at:{$exists:true,$gte:ISODate(\"2026-01-01\")}}},{$unwind:\"$items\"},{$group:{_id:\"$user_id\",total_spent:{$sum:\"$items.price\"}}},{$project:{_id:0,user_id:\"$_id\",total_spent:1}},{$sort:{total_spent:-1}},{$limit:3}])",
-    "exec_result_head": [
-      {"user_id": "6512a0bb21c7f1e8d9a4b123", "total_spent": "2845.80"},
-      {"user_id": "6512b1cc32d8f2f9e0a5c234", "total_spent": "2301.15"},
-      {"user_id": "6512c2dd43e9f3fae1b6d345", "total_spent": "1987.60"}
-    ],
-    "nl_queries": [
-      "Top 3 customers by total paid item spending in 2026.",
-      "Which three customers have the largest sum of paid item prices in 2026?",
-      "Hey, can you list the three customers who spent the most on paid orders in 2026?",
-      "Provide the three customers with the highest total payment amount among orders placed in 2026.",
-      "Return the three customers with maximum total spending on paid items in 2026."
-    ],
-    "feature_ids": ["F9", "F10", "F15", "F17"]
-  },
-  "intent_variants": [
-    {"variant_type": "negation", "cmrl": { "...": "..." }, "fast": { "...": "..." }, "mql": "...", "nl_queries": ["Which customers have no paid orders in 2026?"], "exec_result_head": ["..."]},
-    {"variant_type": "omission", "cmrl": null, "fast": null, "mql": null, "nl_queries": ["Show me the top customers since the start of 2026."], "exec_result_head": null},
-    {"variant_type": "coreference", "cmrl": { "...": "..." }, "fast": null, "mql": null, "nl_queries": ["Top 3 customers by their total spending this year."], "exec_result_head": null},
-    {"variant_type": "jargon", "cmrl": null, "fast": null, "mql": null, "nl_queries": ["Which are the top 3 whales in 2026?"], "exec_result_head": null},
-    {"variant_type": "composition", "cmrl": { "...": "..." }, "fast": { "...": "..." }, "mql": "...", "nl_queries": ["Top 3 customers by total paid spending in 2026 and their average order value."], "exec_result_head": ["..."]}
+  "split_unit_kind": "db_modeling_style",
+  "split_unit_id": "ecommerce_017|legacy_drifting",
+  "source_kind": "synthetic",
+  "source_group_id": "ecommerce_017|legacy_drifting",
+  "license_tag": "synthetic",
+  "desensitized": false,
+  "nlq_canonical": "Top 3 customers by total paid item spending in 2026.",
+  "nlq_canonical_style": "formal",
+  "nlq_canonical_lang": "en",
+  "nlq_count": 5,
+  "nlq_variants": [
+    {"nlq_text": "Which three customers spent the most on paid items in 2026?", "nlq_style": "colloquial", "nlq_lang": "en"},
+    {"nlq_text": "Rank the top 3 customers by paid item GMV in 2026.", "nlq_style": "jargon", "nlq_lang": "en"},
+    {"nlq_text": "Give the three customers with the highest paid-item total in 2026.", "nlq_style": "formal", "nlq_lang": "en"},
+    {"nlq_text": "2026 年按已支付商品消费总额排名前三的顾客是谁?", "nlq_style": "multilingual", "nlq_lang": "zh"}
   ],
-  "irt": {
-    "difficulty": 0.42,
-    "discrimination": 0.58,
-    "bucket": "L3",
-    "pilot_pass_vector": [true, true, false, false, false, true, false, true, true, true],
-    "legacy_structural": {"pipeline_depth": 6, "feature_count": 4, "ambiguity_score": 0.1, "filter_cardinality": 3, "join_depth": 0}
+  "cmrl_canonical": {
+    "intent": "aggregate",
+    "scope": {
+      "collection": "orders",
+      "filters": [
+        {"field": "status", "op": "eq", "value": "paid"},
+        {"field": "paid_at", "op": "exists", "value": true},
+        {"field": "paid_at", "op": "gte", "value": "2026-01-01", "type": "Date"}
+      ],
+      "unwinds": [{"path": "items"}]
+    },
+    "grouping": {
+      "by": ["user_id"],
+      "aggs": [{"alias": "total_spent", "op": "sum", "field": "items.price"}]
+    },
+    "projection": {"include": ["user_id", "total_spent"]},
+    "ordering": [{"field": "total_spent", "direction": "desc"}],
+    "limits": {"limit": 3}
   },
-  "provenance": {
-    "source": "sampler",
-    "source_url": null,
-    "license": "synthetic",
-    "anonymized": false,
-    "lifting_status": "full"
-  }
+  "fast_canonical": {"op": "aggregate", "collection": "orders", "stages": ["$match", "$unwind", "$group", "$project", "$sort", "$limit"]},
+  "mql_canonical": "db.orders.aggregate([...])",
+  "output_keys": ["user_id", "total_spent"],
+  "activated_features": ["F10", "F15", "F17"],
+  "operator_layer": "core",
+  "modeling_style": "legacy_drifting",
+  "query_read_only": true,
+  "query_deterministic": true,
+  "lifting_status": "full",
+  "gold_result_norm": [
+    {"user_id": "6512a0bb21c7f1e8d9a4b123", "total_spent": "2845.80"},
+    {"user_id": "6512b1cc32d8f2f9e0a5c234", "total_spent": "2301.15"},
+    {"user_id": "6512c2dd43e9f3fae1b6d345", "total_spent": "1987.60"}
+  ],
+  "result_a_norm": [
+    {"user_id": "6512a0bb21c7f1e8d9a4b123", "total_spent": "2845.80"},
+    {"user_id": "6512b1cc32d8f2f9e0a5c234", "total_spent": "2301.15"},
+    {"user_id": "6512c2dd43e9f3fae1b6d345", "total_spent": "1987.60"}
+  ],
+  "result_b_norm": [
+    {"user_id": "6512a0bb21c7f1e8d9a4b123", "total_spent": "2845.80"},
+    {"user_id": "6512b1cc32d8f2f9e0a5c234", "total_spent": "2301.15"},
+    {"user_id": "6512c2dd43e9f3fae1b6d345", "total_spent": "1987.60"}
+  ],
+  "result_c_norm": [
+    {"user_id": "6512a0bb21c7f1e8d9a4b123", "total_spent": "2845.80"},
+    {"user_id": "6512b1cc32d8f2f9e0a5c234", "total_spent": "2301.15"},
+    {"user_id": "6512c2dd43e9f3fae1b6d345", "total_spent": "1987.60"}
+  ],
+  "triple_consensus_status": "pass",
+  "instance_certificate_status": "pass",
+  "instance_certificate_checks": [
+    "schema_grounding_checked",
+    "lift_roundtrip_checked",
+    "normalized_output_checked",
+    "reverse_instance_checked"
+  ],
+  "instance_certificate_ref": "staging/synth/fam_ecommerce_017_top3_paid_2026/05_riv/certificate.json",
+  "sci_score": 0.44,
+  "sci_bucket": "mid",
+  "sd_norm": 0.43,
+  "sdt_level": "L3",
+  "is_horizon": false,
+  "combo_signature": "legacy_drifting|F10+F15+F17"
 }
 ```
 
-**说明 (intent_variants 的非 canonical 版本)**:
+### 12.4 原子写盘协议
 
-- `omission` / `coreference` / `jargon` 的 `cmrl` / `fast` / `mql` / `exec_result_head` 通常为 null, 因为它们共享 canonical 的 cMRL (只改 NLQ)
-- `negation` / `composition` 有独立的 cMRL / fAST / MQL / exec_result_head (改了 cMRL)
+写盘按以下顺序执行:
 
-<a id="03-9-2"></a>
-### 9.2 provenance / subset 标记
+1. 在 staging 中生成 `final_record.json`
+2. 用 02 的字段契约校验 `final_record.json`
+3. 校验 `triple_consensus_status` 与路由出口一致
+4. 若是 `pass` family, 再根据 `is_horizon` 与 split assignment 选择写入目标文件
+5. 以原子 append 的方式写入 JSONL
+6. 写入后更新 `meta.json` 中的计数、哈希与索引
 
-完整枚举:
+sidecar 的公开 JSONL 也复用同一写盘协议, 只是目标文件不同.
 
-| 字段 | 取值 |
-|---|---|
-| `subset` | `"synth"` / `"real"` / `"hybrid"` |
-| `provenance.source` | `"sampler"` / `"github"` / `"stackoverflow"` / `"mongodb_forum"` / `"synthetic_hybrid"` / `"open_source_biz"` |
-| `provenance.license` | `"MIT"` / `"Apache-2.0"` / `"CC BY-SA 4.0"` / `"synthetic"` (Synth) / `null` |
-| `provenance.lifting_status` | `"full"` / `"partial"` / `"failed"` |
-| `provenance.anonymized` | `true` (Real 脱敏过) / `false` (Synth / Hybrid) |
-| `provenance.source_url` | Real 样本原贴 URL / `null` |
-| `provenance.source_family_id` | Hybrid 样本的源 Real family_id / `null` (Synth / Real) |
+<a id="03-13"></a>
+## 13. 构造总流程伪码
 
-<a id="03-9-3"></a>
-### 9.3 BSON 归一化规则
+```python
+def build_family(track, candidate):
+    schema_pkg = build_or_recover_schema(track, candidate)
+    if not schema_pkg.ok:
+        return route_staging("schema_unresolved", candidate)
 
-`exec_result_head` 写盘前必跑 BSON 归一化:
+    world = materialize_world(track, candidate, schema_pkg)
+    if not world.ok:
+        return route_staging("world_invalid", candidate)
 
-| BSON 类型 | 归一化目标 | 示例 |
-|---|---|---|
-| ObjectId | hex 字符串 | `"6512a0bb21c7f1e8d9a4b123"` |
-| Date | ISO8601 字符串 | `"2026-01-15T08:00:00.000Z"` |
-| Decimal128 | string (保留全精度) | `"199.99"` |
-| Long | int (≤ 53 bit) / string (> 53 bit) | `123456789` |
-| Binary | base64 字符串 | `"AQID..."` |
+    canonical = derive_canonical_query(track, candidate, schema_pkg, world)
+    if not canonical.full_lift or not canonical.admissible:
+        return route_nonmain(track, canonical)
 
-**写盘时机**: 6 道防线全过后 + IRT 评分完成后, atomic write 到 `MonGen/{subset}_{train,test}.json`; 任一道未过则不落盘。
+    triple = run_triple_compiler(canonical, world)
+    if triple.status != "pass":
+      
+        return route_nonmain(track, triple)
 
-**中间产物保留**: `staging/{family_id}/` 保留事件流 / Schema Exporter 输出 / cMRL YAML / 各 Agent prompt & response / Verifier 重构 MQL / IRT pilot 结果, 即使最终丢弃也保留, 便于回溯与错误分析。
+    riv = run_riv(canonical, world, triple)
+    if riv.status != "pass":
+        return route_staging("riv_fail", canonical)
 
-**staging 目录布局** (单个 Sample Family 展开):
+    nlq_pack = build_nlq_family(canonical, schema_pkg)
+    if not nlq_pack.ok:
+        return route_staging("nlq_fail", canonical)
 
-```
-staging/00008243/
-├── event_stream.yaml              # Event Planner 产物
-├── modeling_style_config.yaml     # §2-4 风格决策
-├── schema_exporter.yaml           # §2-6 union schema
-├── canonical/
-│   ├── cmrl.yaml                  # Sampler 产出
-│   ├── fast.json                  # Lowering 产出
-│   ├── mql.js                     # fAST unparse
-│   ├── exec_result.json           # Grounder 原始结果
-│   ├── exec_result_head.json      # BSON 归一化后写盘版
-│   └── nl_queries.json            # 5 条 NLQ
-├── variants/
-│   ├── negation/...
-│   ├── omission/...
-│   └── ...
-├── agents/
-│   ├── content_synthesizer.jsonl  # prompt + response
-│   ├── naturalizer.jsonl
-│   ├── paraphraser.jsonl
-│   └── intent_variant_nlq.jsonl
-├── verifier_3way/
-│   ├── A_openai.json              # 重构 MQL + 执行结果
-│   ├── B_anthropic.json
-│   └── C_gemini.json
-└── irt/
-    └── pilot_pass_vector.json     # 8-12 个 pilot 模型结果
+    record = assemble_record_according_to_02(
+        track=track,
+        schema_pkg=schema_pkg,
+        world=world,
+        canonical=canonical,
+        triple=triple,
+        riv=riv,
+        nlq_pack=nlq_pack,
+    )
+
+    return write_record(record)
 ```
 
-staging 滚动保留 90 天, 正式 `MonGen/{subset}_{train,test}.json` 为长期制品。所有阶段制品均可溯源到此目录, 便于 §7-6 Active-Learning 人工复核对照。
-
-<a id="03-X"></a>
-## X. 主要构件清单
-
-| 主题 | 文件 (占位路径, 待实现) |
-|---|---|
-| Event Planner | [dataset_construct/event_planner.py](../dataset_construct/event_planner.py) |
-| Document Accreter | [dataset_construct/doc_accreter.py](../dataset_construct/doc_accreter.py) |
-| Modeling Style Skew | [dataset_construct/modeling_style.py](../dataset_construct/modeling_style.py) |
-| Schema Exporter | [dataset_construct/schema_exporter.py](../dataset_construct/schema_exporter.py) |
-| cMRL 规范 | [dataset_construct/cmrl_spec.yaml](../dataset_construct/cmrl_spec.yaml) |
-| fAST 规范 | [dataset_construct/fast_spec.py](../dataset_construct/fast_spec.py) |
-| Lowering | [dataset_construct/lowering.py](../dataset_construct/lowering.py) |
-| Lifting | [dataset_construct/lifting.py](../dataset_construct/lifting.py) |
-| 形式语义 | [dataset_construct/cmrl_semantics.py](../dataset_construct/cmrl_semantics.py) |
-| 双实现 B (Rust/TS) | [dataset_construct/lowering_b/](../dataset_construct/lowering_b/) |
-| Property Test | [dataset_construct/tests/property_tests.py](../dataset_construct/tests/property_tests.py) |
-| MRL Sampler | [dataset_construct/mrl_sampler.py](../dataset_construct/mrl_sampler.py) |
-| Intent Mutator | [dataset_construct/intent_mutator.py](../dataset_construct/intent_mutator.py) |
-| NLQ Skeleton Compiler | [dataset_construct/nlq_skeleton_compiler.py](../dataset_construct/nlq_skeleton_compiler.py) |
-| NLQ Naturalizer | [dataset_construct/nlq_naturalizer.py](../dataset_construct/nlq_naturalizer.py) |
-| Paraphraser | [dataset_construct/paraphraser.py](../dataset_construct/paraphraser.py) |
-| Reverse NLQ Generator (Real) | [dataset_construct/reverse_nlq_generator.py](../dataset_construct/reverse_nlq_generator.py) |
-| Intent Variant NLQ Generator | [dataset_construct/intent_variant_nlq.py](../dataset_construct/intent_variant_nlq.py) |
-| MQL Miner | [dataset_construct/mql_miner.py](../dataset_construct/mql_miner.py) |
-| fAST Parser | [dataset_construct/fast_parser.py](../dataset_construct/fast_parser.py) |
-| 3-way Reverse Verifier | [dataset_construct/reverse_verifier_3way.py](../dataset_construct/reverse_verifier_3way.py) |
-| IRT Scorer | [dataset_construct/irt_scorer.py](../dataset_construct/irt_scorer.py) |
-| Quality Classifier | [dataset_construct/quality_classifier.py](../dataset_construct/quality_classifier.py) |
-| 输出数据集 | [MonGen/](../MonGen/) |
-
-<a id="03-Y"></a>
-## Y. 未尽事项与已知风险
-
-1. **TODO(@dataset-team) — Event Planner 产品文档 mining 的 LLM 抽取精度实测**: 从 10 个域各挑 3 个产品文档做人工 ground-truth 标注, 计算 LLM 事件抽取的 F1; 低于 0.8 则回退到"LLM 抽取 + 人工 2 遍审校"混合模式, 成本相应上调。
-2. **TODO(@dataset-team) — cMRL 形式语义与 Lowering 双实现差异测试的工程成本**: 30 原语 × 10k property test 至少需一次 CI 全跑 (~数小时规模), Compiler B (Rust / TS) 独立实现需 ~2 人月; 资源不足时退化为"单 Compiler + Property Test 强化 + 扩充 Execution Grounder 随机回归", 代价是系统性 Lowering bug 的捕获率下降。
-3. **TODO(@dataset-team) — 6 道防线各自的 false pass / false reject 率实测**: 对 200-500 条人工金标子集回归, 给出每道防线的混淆矩阵, 用于复审防线权重与阈值 (例如 §7-4 双对齐的 embedding 阈值是否合适)。
-4. **TODO(@dataset-team) — Lifting 失败率 (Real 挖矿) 实测与 Hybrid 规模可达性**: 预期 Lifting 失败率 20-40%, 若实测 > 50% 则 Hybrid 2,000 目标规模可能不达标, 需把 "partial lift" 档放宽 (允许 fAST-only 分支挂靠到 cMRL 上游结构) 来补救, 并同步回灌 §3-4 的 Lifting 规则。
-5. **风险 — 3-way Verifier API 成本与供应商依赖**: 每条 Synth 样本 × 3 次 LLM 调用, 约 20k 条 canonical × 3 ≈ 60k 次, 按主流定价 $3k–$6k; 同时"必须 ≥ 1 家开源可审计"会随开源模型能力漂移而需每半年复评 pilot / Verifier 列表。
-6. **风险 — Reverse NLQ 自洽性过滤误杀 + Modeling Style 自动标签**: (a) 3 家 LLM 自洽过滤可能把合法但罕见的 NLQ 判为不自洽, 对策是保留 "3 家中 2 家一致" 的 probable-pass 档; (b) Schema Exporter 自动区分 Polyglot / Legacy-drifting 的精度需抽样 200+ 库人工复核, 错误标签会污染 cross-style 切分与评估 RQ4。
-7. **风险 — Active-Learning quality classifier 的冷启动不足**: 初始 200 条人工标注可能训不出稳定分类器 (目标 AUC ≥ 0.85), 需要迭代到 500-1,000 条才进入稳态; 在此之前主动选样会退化为"按 Verifier 裁决 + IRT discrimination 简单排序", 信息量略低于分类器稳态期。
+这段伪码体现的关键点是: **主集写盘永远发生在 triple pass 与 RIV pass 之后**, 而不是之前.
