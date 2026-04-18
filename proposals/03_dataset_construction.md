@@ -1,857 +1,649 @@
-# 数据集构造规范
-
-> 文档定位: 本文只定义 MonGen 基准的构造机制, 即候选样本如何被生成、验证、分桶、写盘. 任务定义与数学符号以 [01 任务定义](./01_task_definition.md) 为准, 记录字段与 split 契约以 [02 数据集设计](./02_dataset_design.md) 为准, 评测与报告口径以 [04 评估方法](./04_evaluation_methodology.md) 为准.
-> 目标读者: 数据构造者 / 审核者 / 复现者
+# 03 数据集构造方法
 
 <a id="03-0"></a>
-## 0. 摘要
 
-本文把 MonGen 的构造过程收敛为一条严格的准入合同: **只有 deterministic、read-only、schema-grounded、liftable、A/B/C 三路共识、且通过 Reverse Instance Verification (RIV) 的样本, 才能进入主基准**. 主基准唯一允许的入库状态是 `triple_consensus_status = pass`. `longtail_AB_only` 与全部公开分歧桶都只是 sidecar 审核制品, 不进入主集 split; 仅具内部审核价值的状态只保留在 staging。
+## §0 摘要
 
-三条构造轨道在这一收紧口径下分工明确:
+本文档定义 TEND 的**完整构造流水线**，从 Spider SQLite 出发，经由 NoSQL-native schema 重塑、世界物化、idiomatic MQL 重写、5 条 NLQ 重写，最终落到**逆向工程证书（RE 证书 / instance 正确性证书）**的四问准入，再写入 [02 数据集设计](./02_dataset_design.md) 所定义的资产路径。
 
-- **Synth**: 从显式 schema 与 benchmark-owned world 正向生成 `cmrl_canonical`, 再确定性 Lowering 为 `fast_canonical` 与 `mql_canonical`. Synth 主集只使用 deterministic、read-only、可 full-lift 的 Core / Extension 子集, 不生成 Long-Tail.
-- **Real**: 从公开来源挖掘真实 MQL, 经 parser 得到 `fast_canonical`, 经 full lifting 得到 `cmrl_canonical`, 再在 benchmark-owned、schema-grounded 的快照上做三路验证. 只有 full-lift 且 `pass` 的样本进入主集; Long-Tail、内部审核状态与 unresolved 样本都只保留为审核旁路.
-- **Hybrid**: 仅以 **已通过主集准入的 Real 骨架** 为输入, 将其 remap 到 **已通过主集准入的 Synth schema / world 配置** 上重建样本. 因而 Hybrid 主集天然不含 Long-Tail, 也不含 unresolved skeleton.
+本文档要解决的是 TEND 当前实现中的四个真实瓶颈：
 
-构造流水线包含六道防线: `schema grounding -> world validity -> query admissibility & liftability -> triple compiler consensus -> RIV -> NLQ family assembly`. 任何一步失败都不会写入主集.
+1. MongoDB schema 是关系表的浅嵌套，不是 NoSQL native 文档建模；
+2. gold MQL 经常带 SQL 转换器的翻译痕迹（如 `localField` 与 `foreignField` 同时写成 `employees.EMPLOYEE_ID` 这种双前缀错误，或者 `Docs1.X` 这种翻译器命名）；
+3. NLQ 是从 SQL 回译来的，与文档建模脱节，看不出嵌套结构；
+4. 没有"这个 MQL 在这个 world 上是该 NLQ 的唯一正确解"的证书，导致 Q3 失败时（near-miss MQL 跑出同样结果）我们无法判别。
 
-本文不另起一套公开 JSONL schema. **最终公开记录一律复用 02 的 top-level 字段**: `record_id`, `family_id`, `subset`, `record_grain`, `asset_bucket`, `split`, `db_id`, `nlq_canonical`, `nlq_variants`, `cmrl_canonical`, `fast_canonical`, `mql_canonical`, `gold_result_norm`, `result_a_norm`, `result_b_norm`, `result_c_norm`, `triple_consensus_status`, `instance_certificate_status`, `instance_certificate_checks`, `instance_certificate_ref`, `sci_score`, `sci_bucket`, `sd_norm`, `sdt_level`, `is_horizon`, `modeling_style`, `activated_features` 以及相关来源字段。
+本文档以 `orchestra` 库 + `"List the top 3 conductors with the most performances."` 作为 canonical 例子，端到端贯穿全文（见 [§9](#03-9)）。
 
-贯穿本文的 canonical 样例为 `ecommerce_017`: canonical NLQ 为 `Top 3 customers by total paid item spending in 2026.`, canonical query **无 join**, 管道严格为 6 个 stage: `[$match, $unwind, $group, $project, $sort, $limit]`, 结果键为 `user_id` 与 `total_spent`, 激活特性集为 `{F10, F15, F17}`, NLQ family 总数取 `K = 5`.
+**本文档的 SSoT 边界**：本文档**只**定义"如何把一条 record 造出来"，**不**定义 record 字段名（属于 [02](./02_dataset_design.md)）、不定义任务正确性 ≡_rec 的归一化规则（属于 [01 任务定义](./01_task_definition.md)）、不定义评测指标、不定义方法架构。
+
+---
 
 <a id="03-1"></a>
-## 1. 主基准准入合同
 
-主基准不是“所有能执行的样本”的合集, 而是满足下列合同的严格子集. 记候选 family 为 `F`, 则其进入主基准的充要条件是:
+## §1 总流水线概览
 
-$$
-\text{admit\_main}(F)
-\iff
-\text{deterministic}(F)
-\wedge
-\text{read\_only}(F)
-\wedge
-\text{schema\_grounded}(F)
-\wedge
-\text{liftable}(F)
-\wedge
-(\text{triple\_consensus\_status}(F)=\texttt{pass})
-\wedge
-\text{riv\_status}(F)=\texttt{pass}
-\wedge
-\text{nlq\_family\_valid}(F)
-$$
+每条候选 record 都按下列六段流水线生成。前五段是构造，第六段是准入：
 
-其中各项含义如下:
+```
+Spider SQLite (db, ref_sql)
+        │
+        ▼
+[§2] NoSQL-native Schema Rewriting          → TEND/mongodb_schema/<db_id>.json
+        │
+        ▼
+[§3] World Materialization (deterministic)  → TEND/mongodb_data/<db_id>.json
+        │
+        ▼
+[§4] Idiomatic MQL Rewriting                 → record.MQL
+        │
+        ▼
+[§5] NLQ Rewriting (5 条覆盖约束)            → record.nl_queries[5]
+        │
+        ▼
+[§6] 逆向工程证书 (Q1 ~ Q4)                  → audit/<db_id>/<record_id>/certificate.json
+        │
+        ▼
+[§7] 路由：通过 → train.json / test.json；未通过 → audit/rejected/
+```
 
-- `deterministic`: 查询不依赖随机性、系统时钟、外部搜索索引状态或宿主函数副作用.
-- `read_only`: 查询不写库、不导出结果、不合并结果、不依赖运行中系统状态.
-- `schema_grounded`: 每个字段路径、集合引用、类型约束、输出键都能在显式 schema package 中解析.
-- `liftable`: `mql_canonical -> fast_canonical -> cmrl_canonical` 的往返链条是 full、无歧义、无 Long-Tail 悬空节点.
-- `triple_consensus_status = pass`: Compiler A / B / C 全部已定义且 `r_A \equiv_{rec} r_B \equiv_{rec} r_C`.
-- `riv_status = pass`: 当前实例可以将 gold query 与一组 near-miss counterqueries 机械分开.
-- `nlq_family_valid`: `nlq_canonical` 与 `nlq_variants` 满足 02 的 family 契约, 且 family 中保留的每条 NLQ 都经 translator 共识通过.
+每段的输入、输出、契约、失败处理在后续章节展开。完整伪码见 [§8](#03-8)。
 
-这一定义直接导出三条硬边界:
+| 阶段 | 输入 | 输出 | 失败动作 |
+|---|---|---|---|
+| §2 schema | Spider SQLite | NoSQL-native schema | 该 db 重塑失败 → 整库降级或人工介入 |
+| §3 world | schema + Spider 数据 | `TEND/mongodb_data/<db_id>.json` + signature | 判别压力不足 → 调整注入参数后重试 |
+| §4 MQL | ref_sql + schema + world | idiomatic MQL | 在 world 上结果与 ref_sql 不一致 → 重写 MQL |
+| §5 NLQ | ref_sql + schema + MQL | 5 条 nl_queries | translator consensus 不通过 → 改写或丢弃 |
+| §6 证书 | record candidate + world | certificate.json (Q1~Q4 状态) | 任一 Q 不通过 → 路由到 rejected |
+| §7 路由 | candidate + 证书 | train.json / test.json / rejected/ | — |
 
-1. **主集不接收 `longtail_AB_only`**.
-2. **主集不接收 `a_only`**.
-3. **主集不接收分歧桶**: `engine_quirk`, `A_bug`, `B_bug`, `C_bug`, `spec_ambiguity` 全部只保留在 sidecar.
+---
 
 <a id="03-2"></a>
-## 2. 三轨构造架构
 
-### 2.1 三轨职责表
+## §2 NoSQL-native Schema Rewriting
 
-| 轨道 | 输入起点 | 主集范围 | 旁路范围 |
-|---|---|---|---|
-| `synth` | Schema Generator + World Materializer + cMRL Sampler | deterministic、read-only、liftable 的 Core / Extension 样本 | Long-Tail 审核样本, 编译分歧样本, RIV 失败样本, NLQ 失败样本 |
-| `real` | 公开来源中的 MQL + 代码 / 论坛上下文 | 可解析、可 full-lift、可重建 schema / world、且三路 `pass` 的样本 | `longtail_AB_only`, unresolved schema, partial / failed lift, 编译分歧, internal `a_only` |
-| `hybrid` | 已通过主集准入的 Real `cmrl_canonical` 骨架 + 已通过主集准入的 Synth schema / world 配置 | remap 后仍 deterministic、read-only、full-lift、三路 `pass` 的样本 | remap 冲突、类型不闭合、RIV 失败、NLQ 失败 |
+### §2.1 目标
 
-### 2.2 三轨统一产物
+把 Spider 关系 schema 重写成**符合 MongoDB 文档建模惯例**的 schema，写到 `TEND/mongodb_schema/<db_id>.json`（路径由 [02](./02_dataset_design.md) 定义）。重写规则不是机械转表，而是按"查询负载 + 选择性"做建模决策。
 
-三轨都收敛到同一公开 family 记录:
+### §2.2 主实体（root entity）选择
 
-- `cmrl_canonical`
-- `fast_canonical`
-- `mql_canonical`
-- `r_A`, `r_B`, `r_C`
-- `triple_consensus_status`
-- `nlq_canonical`, `nlq_variants`
-- `structural_difficulty`, `sdt_level`, `is_horizon`
-- `sci_score`, `sci_bucket`, `modeling_style`, `activated_features`
-- `provenance`
+按外键拓扑构建有向图，节点是表，边是外键引用。选择 root 的优先级：
 
-因此三轨的差异只体现在**候选样本从哪里来, 如何被 grounding, 如何被重建 world**, 而不体现在公开写盘字段上.
+1. 入度最大的表通常是被多对多引用的字典表（如 `country`），不适合作 root；
+2. 出度（含被引用方向）反映"以谁为主语展开"，出度最大的表优先；
+3. 在 1:N 链中，N 端通常嵌入 1 端，因此 1 端是 root；
+4. 同分上多个候选时，按业务语义选（如 `orchestra` 库中 conductor 拥有 orchestra，orchestra 又拥有 performance，root = `conductor`）。
 
-### 2.3 三轨统一状态机
+`orchestra` 库的 root 选 `conductor`，得到嵌入链 `conductor → orchestra[] → performance[] → show[]`，与现有 `TEND/mongodb_schema/orchestra.json` 一致。
 
-所有轨道都服从同一状态机:
+### §2.3 关系到嵌入的映射规则
 
-```text
-candidate
-  -> schema_grounded
-  -> world_frozen
-  -> canonicalized
-  -> triple_checked
-  -> riv_checked
-  -> nlq_assembled
-  -> main_or_sidecar_route
-```
+| 关系 | 默认策略 | 例外 |
+|---|---|---|
+| 1:1 | 嵌入子文档 | 子表字段过多（>30）或频繁独立查询 → 保留为引用 |
+| 1:N（N 平均小、查询模式以 parent 为主）| N 嵌入 parent 数组 | N 大且独立查询频繁 → 引用 + lookup |
+| 1:N（N 大、独立查询多）| 引用 + lookup | — |
+| M:N | 保留两个集合 + 中间引用 | 中间表带额外属性时，中间表保留 |
 
-任一阶段失败, 都不会越过该阶段直接写入主集.
+**重点**：嵌入不是无脑全部下沉。决策依据是 Spider 中该子表的"被独立 SELECT"频率与 join 频率，统计自该 db 下的全部 ref_sql 集合。
+
+### §2.4 NoSQL-native 特性的可控注入
+
+以下五类特性是 MongoDB 实际部署中常见、但 SQL 转换器不会自然产生的现象。注入时严格控制比率与位置，且**不破坏 ref_sql 的语义可达性**。
+
+| 特性 | 操作化定义 | 默认注入比率 |
+|---|---|---|
+| **polymorphism** | 同一 collection 中存在结构不同的子集（按 discriminator 字段区分） | 10% – 30% 的 collection 受影响 |
+| **sparsity** | 字段在部分文档中物理缺失（不是 null） | 字段缺失率落在 [10%, 60%] |
+| **type drift** | 同一字段在不同文档中类型不同（如年份字段同时出现 int 与 string） | 整库 1 – 3 个字段受影响 |
+| **embedding depth** | 嵌套层数（root 算第 1 层） | 由 §2.2 拓扑自然决定，多数库为 2 – 4 层 |
+| **dynamic key** | 用文档键名编码 tenant 标识或枚举值 | 仅在少量库（<10%）适用 |
+
+`orchestra` 库的注入示例（贯穿后续章节）：
+
+| 特性 | 在 orchestra 库的具体注入 |
+|---|---|
+| polymorphism | `performance` 子文档增加 `Type ∈ {"live", "recorded"}`，两类各自可有不同补充字段 |
+| sparsity | `Year_of_Work` 在 conductor 文档中以 ~30% 概率缺失 |
+| type drift | `Year_of_Founded` 在 30% 文档中是 string（如 "1985"），其余是 int |
+| embedding depth | 4 层（conductor → orchestra → performance → show） |
+| dynamic key | 不注入（库规模小，注入会污染 join 路径） |
+
+这些注入参数是**设计参数**，不是硬编码常量；为每个库单独标定。
+
+### §2.5 schema_complexity_profile 可计算分量
+
+构造侧负责把下列分量算出，写入 [02](./02_dataset_design.md) 在 record 上定义的 `schema_complexity_profile` 字段：
+
+| 分量 | 定义 |
+|---|---|
+| `normalized_ratio` | 重塑后保留为独立 collection 的表数 / Spider 原表数 |
+| `max_embed_depth` | 该库 schema 树的最大嵌套层数 |
+| `polymorphism_rate` | 受 polymorphism 影响的 collection 占比 |
+| `sparsity_rate` | 受 sparsity 影响的字段平均缺失率 |
+| `type_drift_count` | 受 type drift 影响的字段数 |
+| `dynamic_key_count` | 使用 dynamic key 的字段数 |
+| `cross_collection_ref_count` | 跨 collection 的引用边数（即未嵌入而保留为 lookup 的关系数） |
+
+字段名定义在 [02](./02_dataset_design.md)；本文档只承担**值的来源**。
+
+---
 
 <a id="03-3"></a>
-## 3. 主集算子范围与可提升约束
 
-01 定义的是 MonGen 可表达的表示空间; **03 进一步定义进入主集构造的可接纳子空间**. 主集的 admissible operator set 只保留 deterministic、read-only、可 full-lift 的算子.
+## §3 World Materialization
 
-### 3.1 主集允许的 Core / Extension 子集
+### §3.1 目标
 
-主集允许使用的算子类别如下:
+把 Spider 原 SQLite 数据按重塑后的 schema 物化为一份 MongoDB 数据快照，写到 `TEND/mongodb_data/<db_id>.json`，并产出 `world_signature` 写入 record。世界必须对查询有判别力，不能是平凡世界。
 
-- Core 中的常规 filter / projection / grouping / unwind / sort / limit / skip / count / simple lookup / pipeline lookup
-- deterministic 的 `graphLookup`
-- deterministic 的 `facet`
-- deterministic 的 `setWindowFields`
-- deterministic 的 `bucket`, `bucketAuto`
-- deterministic 的 `densify`, `fill`
-- deterministic 的 `unionWith`
-- deterministic 的 `redact`
-- deterministic 的 `replaceRoot` / `replaceWith`
-- deterministic 的 `push` / `addToSet`
-- deterministic 的 `map` / `reduce` / `objectToArray` / `expr_complex`
+### §3.2 物化规则
 
-是否允许某一具体节点进入主集, 由三条条件同时决定:
+1. **复用优先**：所有原始字段直接复用 SQLite 数据，按 [§2.3](#03-2) 的嵌入路径重组；
+2. **新增字段确定性填充**：因 polymorphism / type drift 引入的新字段，按确定性规则（基于 row id 与 seed 的哈希）赋值；
+3. **缺失注入**：受 sparsity 影响的字段，按 row id 与 seed 的哈希决定是否物理删除该字段；
+4. **顺序稳定**：collection 内文档按 `_id` 排序，键序按 schema 顺序固定。
 
-1. 可 full-lift 到 `cmrl_canonical`
-2. Compiler C 对该节点有定义
-3. 节点不引入随机性、外部依赖或写副作用
+### §3.3 deterministic seed
 
-### 3.2 主集明确排除的节点
+整个物化过程接收 `(db_id, seed)` 二元组，**同一 seed 重跑产生字节级一致的快照**。这是 `world_signature` 可哈希、可复现的前提。
 
-以下节点**不进入主集构造**, 只可作为 sidecar 的 Long-Tail 示例或审核材料:
+### §3.4 判别压力约束
 
-- `$sample`
-- `$search`
-- `$out`
-- `$merge`
-- `$rand`
-- `$$NOW`
-- 宿主语言函数调用
-- 依赖运行态系统表或系统统计的查询
+世界必须满足下列硬约束，否则不构成有判别力的物化（具体阈值依库规模微调）：
 
-这条规则同时作用于三轨:
+| 约束 | 含义 | 默认阈值 |
+|---|---|---|
+| **边界数据点** | 对每个出现在 ref_sql 中的数值/时间字段，至少存在若干文档落在 gold predicate 边界的 ε 邻域内 | ≥ 1 个 |
+| **稀疏分布健康** | 受 sparsity 影响字段的实际缺失率 | 落在 [10%, 90%] |
+| **group cardinality** | 对 gold MQL 涉及的 group key，分组数 | ≥ k_group（默认 3） |
+| **过滤后行数非退化** | gold MQL 在 world 上跑出的中间结果行数 | ≥ k_rows（默认 1，且不为"几乎全表"） |
+| **输出非退化** | gold result | 非空，且行数 < 总行数 95% |
 
-- Synth 不生成这些节点
-- Real 发现这些节点后只能进入 sidecar
-- Hybrid 不从含这些节点的骨架派生主集样本
+不满足时，回到 [§3.2](#03-2) 调整数据补充策略（如插入额外的边界点、重平衡分布），重新物化。
 
-### 3.3 `null` 与 `missing` 的公开归一化
+### §3.5 world_signature 计算
 
-主集与公开 sidecar 都执行同一套结果归一化规则, 且**严格区分 `null` 与 `missing`**:
-
-- 显式 `null` 保留为 `null`
-- 缺失字段在归一化结果 dict 中保持**缺失**, 不回填 `null`
-- 结果哈希、`equiv_rec` 比较、RIV witness 抽取都以这一规则为准
-
-例如:
-
-```json
-{"paid_at": null}
+```
+canonical_world := { collection_name : sorted_by_id([ canonical_json(doc) for doc in collection ]) }
+world_signature := "sha256:" + hex( SHA256( canonical_json(canonical_world) ) )
 ```
 
-与
+其中 `canonical_json` 指 RFC 8785 风格的稳定序列化（键排序、固定数值精度、无可选空白）。该值写入 record 的 `world_signature` 字段（字段名定义见 [02](./02_dataset_design.md)）。
 
-```json
-{}
-```
-
-在公开归一化层面不是同一个结果.
+---
 
 <a id="03-4"></a>
-## 4. Synth 轨操作规程
 
-Synth 轨从零开始生成 schema、world 与 query, 但主集准入合同会把可写入范围收缩到 deterministic、read-only、triple-pass 的 family.
+## §4 Idiomatic MQL Rewriting
 
-### 4.1 Schema Generator
+### §4.1 不复用机械转换器输出
 
-Schema Generator 的职责不是“写一个方便查询通过的库”, 而是生成一个**显式、可导出、可校验**的 schema package. 每个 Synth `db_id` 至少产出以下 staging 资产:
+SQL→MongoDB 机械转换器的翻译痕迹（如 `Docs1.X` 命名、`localField` 与 `foreignField` 同时写成 `employees.EMPLOYEE_ID` 的双前缀错误）必须在本阶段清除。本阶段**不直接采用** SQL 转换器输出，而是把它当作"**起点提示**"，由人 + LLM 协作重写。
 
-- `schema.json`: 机器可读 schema
-- `schema.md`: 提供给 NLQ 构造与 translator 的 schema markdown
-- `json_schema/`: 各 collection 的 `$jsonSchema` 导出
-- `field_inventory.json`: 全字段路径、类型、稀疏约束、引用约束
-- `role_inventory.json`: 可被 Hybrid remap 复用的角色槽位
+### §4.2 重写流程
 
-Schema Generator 的产出必须满足:
+1. 取该 db 下的 `ref_sql`；
+2. 在新 schema 上重写 idiomatic MQL，**最大化使用 MongoDB-native 算子**；
+3. 修复转换器残留 bug：双前缀字段引用、错误的 `from` 集合、`Docs1`/`Docs2` 之类的非语义命名；
+4. 在 [§3](#03-3) 物化好的 world 上用 `mongosh` 执行新 MQL，得到结果 `R_mql`；
+5. 在原 SQLite 上执行 `ref_sql`，得到结果 `R_sql`；
+6. 按 [01 任务定义](./01_task_definition.md) 的归一化契约，要求 `R_mql ≡_rec R_sql`，否则回到第 2 步重写。
 
-1. 所有 collection 与字段名显式列出
-2. 所有引用路径闭合
-3. 所有 union / sparsity / nested 结构可导出为 validator
-4. 不在文档中植入任何“只为评测服务”的隐藏 truth 字段
+### §4.3 idiomatic 偏好清单
 
-`ecommerce_017` 的 schema package 中, canonical query 只使用 `orders` 集合, 但 schema 仍然可以包含 `customers` 等其他 collection. 关键约束不是“库里只能有一张表”, 而是 **canonical query 本身不做 join**.
+| 偏好 | 说明 |
+|---|---|
+| 优先 aggregation pipeline | 而非多次 find；除非确实只是简单 projection |
+| 善用 `$unwind` / `$lookup with pipeline` / `$project` / `$group` | 而非把所有字段先抽到 root 再 group |
+| 单 collection 查询尽量不用 `$lookup` | 嵌入字段直接走 `$unwind` |
+| 输出键命名按 NLQ 自然名 | 如 `Name`、`performance_count`，而非 `Docs1.X` |
+| `$lookup` 的 `localField` / `foreignField` 不带跨 collection 前缀 | `localField` 用本集合的字段路径，`foreignField` 用目标集合的字段路径 |
+| 谓词放在能下推的地方 | `$match` 尽量前置；`$lookup` 内部用 pipeline 形式过滤 |
 
-### 4.2 World Materializer
+### §4.4 canonical 示例（orchestra）
 
-World Materializer 以 schema package 为唯一结构上游, 产出一个冻结的数据快照 `D` 与对应的 event trace. 每个 Synth world 至少产出:
+ref_sql：
 
-- `collections/<coll>.ndjson`: 物化后的文档快照
-- `event_log.ndjson`: 事件轨迹
-- `world_stats.json`: collection 级计数、字段缺失率、值域摘要
-- `lineage_index.json`: 为 RIV 和调试准备的文档来源索引
+```sql
+SELECT T1.Name, COUNT(*) AS performance_count
+FROM conductor T1
+JOIN orchestra T2 ON T1.Conductor_ID = T2.Conductor_ID
+JOIN performance T3 ON T2.Orchestra_ID = T3.Orchestra_ID
+GROUP BY T1.Conductor_ID, T1.Name
+ORDER BY performance_count DESC
+LIMIT 3;
+```
 
-World Materializer 的操作约束:
-
-1. 事件模板只写 schema 中存在的字段
-2. 显式 `null` 与字段缺失分别生成
-3. 同一个 world seed 重跑必须得到同一快照
-4. 查询正确性不依赖 `event_log`; `event_log` 只用于审计与 witness 追溯
-
-### 4.3 cMRL Sampler
-
-cMRL Sampler 在显式 schema 与冻结 world 上采样 `cmrl_canonical`. Synth 主集中的 `cmrl_canonical` 必须同时满足:
-
-- 字段路径全部可解析
-- 类型约束全部可满足
-- 算子属于主集允许子集
-- 结果非空
-- 结果不退化为“几乎全表”
-- `mql_canonical` 经 parser 后可以 full-lift 回原 `cmrl_canonical`
-
-操作上, Sampler 以“先结构, 后字段, 再字面量”的顺序工作:
-
-1. 先选 stage skeleton
-2. 再为每个节点绑定 schema-grounded 字段
-3. 最后根据 world 统计绑定字面量边界与 limit
-4. 再做一次 full-lift 回环校验
-
-### 4.4 `ecommerce_017` 的 Synth canonical
-
-`ecommerce_017` 的 canonical family 在 Synth 轨中的 `cmrl_canonical` 与 `mql_canonical` 固定为下列 6-stage 管道:
+idiomatic MQL（重写结果）：
 
 ```javascript
-db.orders.aggregate([
-  { $match: { status: "paid", paid_at: { $exists: true, $gte: ISODate("2026-01-01") } } },
-  { $unwind: "$items" },
-  { $group: { _id: "$user_id", total_spent: { $sum: "$items.price" } } },
-  { $project: { _id: 0, user_id: "$_id", total_spent: 1 } },
-  { $sort: { total_spent: -1 } },
-  { $limit: 3 }
-])
+db.conductor.aggregate([
+  { $unwind: "$orchestra" },
+  { $unwind: "$orchestra.performance" },
+  {
+    $group: {
+      _id: "$Conductor_ID",
+      Name: { $first: "$Name" },
+      performance_count: { $sum: 1 }
+    }
+  },
+  { $sort: { performance_count: -1 } },
+  { $limit: 3 },
+  {
+    $project: {
+      _id: 0,
+      Name: 1,
+      performance_count: 1
+    }
+  }
+]);
 ```
 
-该 family 的主集属性是:
+注意键名 `Name`、`performance_count` 来自 NLQ 自然语义，不是 `Docs1.Name`。两次 `$unwind` 沿嵌入路径展开，无需 `$lookup`，因为 schema 已经把 orchestra/performance 嵌入到 conductor。
 
-- 无 join
-- 输出键固定为 `user_id`, `total_spent`
-- `activated_features = ["F10", "F15", "F17"]`
-- `nlq_canonical = "Top 3 customers by total paid item spending in 2026."`
-- NLQ family 总数 `K = 5`
+---
 
 <a id="03-5"></a>
-## 5. Real 轨操作规程
 
-Real 轨从公开来源获得真实 MQL, 但主集并不直接信任“原始真实查询”. 它必须被重新 grounding 到 benchmark-owned 的 schema 与 world 上, 然后接受与 Synth 同样严格的三路验证与 RIV.
+## §5 NLQ Rewriting Reflecting MongoDB Structure
 
-### 5.1 来源接入与合规过滤
+### §5.1 5 条 nl_queries 的覆盖约束
 
-Real 候选样本进入构造流水线前, 先经过来源接入与过滤:
+`nl_queries[0..4]` 不再是同义改写堆叠，而是覆盖五种"用户书写习惯"，且至少一条要让 MongoDB 嵌套结构能从问句中辨认出来。
 
-1. 抽取原始 MQL 与最小上下文
-2. 脱敏专有名词、账号、标识符与私密字面量
-3. 过滤 license 不可用来源
-4. 过滤写操作、随机操作、外部搜索依赖与系统态依赖
-5. 以 canonical MQL hash 去重
+| 槽位 | 风格 | 示例（基于 canonical NLQ） |
+|---|---|---|
+| `nl_queries[0]` | canonical：业务用户口吻、清晰、最短形式 | "List the top 3 conductors with the most performances." |
+| `nl_queries[1]` | 暴露 MongoDB 嵌套结构（提及 conductor 的 orchestras 与其 performances） | "Across all conductors, count performances under each conductor's orchestras and return the top 3 conductors by total performances." |
+| `nl_queries[2]` | NoSQL 习惯术语（document / embedded 等可提及；不直接抄算子名） | "For each conductor document, total the performances embedded under their orchestras and return the three conductors with the highest totals." |
+| `nl_queries[3]` | 业务问句风格（"Which..." / "What..."） | "Which three conductors have led the most performances overall?" |
+| `nl_queries[4]` | 自由表达 / multilingual（如中文版） | "列出指挥过演出最多的前三位指挥家。" |
 
-通过这一步的样本才进入 parser / lifting.
+约束：
 
-### 5.2 Parser -> fAST -> canonicalization
+- 五条都必须在 [§4](#03-4) 重写的 idiomatic MQL 上语义等价（在同一 world 上跑出相同结果）；
+- 槽位 `[1]` 与 `[2]` 至少有一条能从问句中读出嵌套结构（提及 orchestra 与 performance 的归属关系），目的是给后续训练提供"NLQ 到嵌套路径"的可学习信号；
+- 槽位 `[4]` 不强制中文，可以是任何与训练数据自然分布相符的语言；当库语义本身是中文/多语种时，多语种版本是自然候选。
 
-Real 轨的 parser 输出 `fast_canonical`. 这一步要求:
+### §5.2 translator consensus 校验
 
-- 输入可以来自 mongosh、驱动 API 或代码字符串
-- BSON 字面量必须被恢复为 typed AST 节点
-- 字段路径、集合名、字面量类型被显式抽出
-- query 先 canonicalize, 再进入 lifting
+写完 5 条 NLQ 后，对**每一条**执行：
 
-若 parser 失败, 样本停留在 staging, 不进入 sidecar JSONL.
+1. 派 ≥ 3 个独立 LLM（不同模型族，避免同质化），各自把该 NLQ 翻译成 SQL；
+2. 把 3+ 条翻译结果与原 `ref_sql` 在原 SQLite 上执行；
+3. 按 [01 任务定义](./01_task_definition.md) 的 ≡_rec 比较结果集；
+4. 全部 ≡_rec → 该 NLQ 通过；任一不 ≡_rec → 该 NLQ 改写或丢弃；
+5. 5 条全部通过后该 record 进入 [§6](#03-6) 证书阶段；不足 5 条则补写直到满足。
 
-### 5.3 Schema dossier 重建
+translator consensus 的目的是"NLQ 不带歧义"。后续的 candidate MQL consensus（[§6](#03-6) Q2）目的是"NLQ + world 锁定唯一答案"。两者方向不同：前者前向写 SQL，后者前向写 MQL。
 
-Real 样本不能只靠一条查询字符串进入主集, 还必须被 grounding 到显式 schema dossier. Schema dossier 的来源按优先级合并:
-
-1. 代码中的 ODM / schema 定义
-2. 同文件或同帖子中的 sample docs
-3. 查询本身暴露的字段与字面量类型
-4. projection / group / sort / lookup 暴露的输出键与外键关系
-5. 论坛上下文中的字段解释文字
-
-只有当上述信息能收敛成**显式 schema package**时, Real 样本才继续向前推进. 否则标记为 unresolved, 只留在 staging.
-
-### 5.4 Full lifting
-
-Real 主集只接受 `lifting_status = full`.
-
-full lifting 的定义是:
-
-- `fast_canonical` 的所有关键节点都能映射到 `cmrl_canonical`
-- 没有 Long-Tail 悬空节点
-- 没有“只能保留部分语义”的 partial 占位
-- `cmrl_canonical` 再 Lowering 回 `fast_canonical` 时语义不丢失
-
-路由规则:
-
-- `full` -> 继续
-- `partial` -> staging only
-- `failed` 且 A/B 可比较 -> 只可能去 `longtail_AB_only` sidecar
-- `failed` 且连 A/B 审核价值都不足 -> staging only
-
-### 5.5 Real world 重建
-
-Real 主集使用 benchmark-owned world, 而不是依赖外部真实库. world 重建流程如下:
-
-1. 从 schema dossier 抽取字段域、枚举、键关系与字面量模板
-2. 生成一个 deterministic event program
-3. 由 World Materializer 在显式 schema 下物化快照
-4. 用原始查询与 near-miss 集合共同校验该快照具有区分度
-
-这一步的目标不是复制原来源数据库, 而是构造一个**结构上忠实、语义上可验证、对 gold query 有判别力**的 benchmark-owned 实例.
-
-### 5.6 Real 主集与旁路的分界
-
-Real 轨进入主集的最小路径是:
-
-`source MQL -> parser -> full lift -> schema dossier -> world freeze -> triple pass -> RIV pass -> NLQ family pass`
-
-以下情况都不得进入主集:
-
-- 仅 A 路可运行的 `a_only`
-- A/B 一致但 C 未定义的 `longtail_AB_only`
-- 无法恢复显式 schema 的 unresolved
-- partial lift
-- 分歧桶
+---
 
 <a id="03-6"></a>
-## 6. Hybrid 轨 remap 操作规程
 
-Hybrid 轨的输入不是任意 Real 候选, 而是**已经满足主集合同的 Real family**. 这使得 Hybrid 主集自动继承两条性质: 输入骨架已经 full-lift, 输入骨架已经 `pass`.
+## §6 逆向工程证书（核心创新）
 
-### 6.1 输入约束
+<a id="03-6-overview"></a>
 
-Hybrid remap 的输入必须同时满足:
+### §6.1 总览
 
-- 源 Real family 的 `triple_consensus_status = pass`
-- 源 Real 记录的 `lifting_status = full`
-- 源 Real 记录的 `instance_certificate_status = pass`
-- 目标 Synth schema / world 配置已经通过 Synth 主集准入
+本节是本文档的核心创新。每一条候选 record 在写入主集前必须通过四问机制，证书写到 `audit/<db_id>/<record_id>/certificate.json`，路径写入 record 的 `riv_certificate_ref` 字段（字段名定义见 [02](./02_dataset_design.md)）。
 
-因此 Hybrid 主集**不从 Long-Tail Real skeleton 派生**.
+四问设计如下：
 
-### 6.2 角色抽象与字段绑定
+| 问 | 名称 | 检查目标 | 失败动作 |
+|---|---|---|---|
+| Q1 | 执行正确 | gold MQL 在新 world 上的结果 ≡_rec ref_sql 在原 SQLite 上的结果 | 重写 MQL 或重物化 world |
+| Q2 | 语义唯一 | 由 ≥ 3 个独立 LLM 写出的 candidate MQL 集合 Q̂(NLQ)，每条在 new world 上的结果 == gold result | 改写 NLQ 或 reject |
+| Q3 | 判别力 | 枚举 near-miss MQL 变异族，每条在 new world 上的结果 ≠ gold result | 改写 world 或 reject |
+| Q4 | 世界非平凡 | world 对 gold MQL 提供非退化输入与输出 | 重物化 world |
 
-remap 分两步:
+注意：**RE 证书不是 MQL 验证器，而是 instance 正确性证书**——它判定的是"在这个 world 上，这条 (NLQ, MQL) 是唯一的、可执行的、可判别的、有意义的"，而不是"这条 MQL 在所有可能 world 上都正确"。
 
-1. **角色抽象**: 从 Real `cmrl_canonical` 抽取角色槽位, 例如 `EntityID`, `MonetaryValue`, `Timestamp`, `Category`, `Status`
-2. **字段绑定**: 在目标 Synth schema 的 `role_inventory.json` 中寻找唯一或可裁决绑定
+<a id="03-6-q1"></a>
 
-字段绑定必须通过:
+### §6.2 Q1 执行正确（Execution Correctness）
 
-- 路径存在
-- 类型兼容
-- cardinality 兼容
-- 输出键与 alias 可恢复
-
-如果某角色需要二义裁决且无法机械收敛, remap 失败, 样本停留在 staging.
-
-### 6.3 Hybrid world 重建
-
-Hybrid 不直接复用源 Real 的 world. 它复用的是**目标 Synth schema 与其 world 构造配置**, 再在该 schema 下物化一个新的冻结快照. 这样做有两个目的:
-
-1. 保持目标 schema 的结构压力
-2. 防止源 Real world 中的字面量偶然性影响 remap 结果
-
-### 6.4 Hybrid 主集边界
-
-Hybrid 主集中的样本必须再次满足完整合同:
-
-- remap 后仍 deterministic
-- remap 后仍 read-only
-- remap 后仍 full-lift
-- remap 后三路仍 `pass`
-- remap 后 RIV 仍 `pass`
-
-因此 Hybrid 的 admission 是一次**完整重验证**, 不是拷贝源状态.
-
-<a id="03-7"></a>
-## 7. Triple Compiler 操作协议
-
-Triple Compiler 是主集 admission 的核心门槛. 但在 03 中, 它是一个**操作协议**, 不是再定义 01 的数学语义.
-
-### 7.1 输入合同
-
-进入 Triple Compiler 的候选必须已经拥有:
-
-- `cmrl_canonical`
-- 冻结 world `D`
-- 显式 schema package
-- 由 Compiler A 生成的 `fast_canonical`
-- 由 Compiler A unparse 的 `mql_canonical`
-
-在执行前, 先做两件事:
-
-1. 对 `mql_canonical` 重新 parser 一次, 确认可回到 `fast_canonical`
-2. 对 `fast_canonical` 重新 lift 一次, 确认可回到 `cmrl_canonical`
-
-只有回环闭合的样本才进入三路执行.
-
-### 7.2 三路执行
-
-- **Compiler A**: `cmrl_canonical -> fast_canonical -> mql_canonical -> MongoDB`
-- **Compiler B**: `cmrl_canonical -> alternate lowering / planner -> MQL -> MongoDB`
-- **Compiler C**: `cmrl_canonical -> denotational interpretation -> in-memory result`
-
-三路都读取同一个冻结 world, 并使用同一套 BSON 归一化.
-
-### 7.3 归一化与递归相等
-
-主集与公开 sidecar 共享同一套归一化:
-
-| 类型 | 公开归一化 |
-|---|---|
-| `ObjectId` | 24 位 hex string |
-| `Date` | ISO-8601 UTC string |
-| `Decimal128` | 保留精度的 string |
-| `Long` | 安全范围内为 int, 否则为 string |
-| `Binary` | base64 string |
-| `Regex` | 规范化结构或字符串 |
-| `null` | `null` |
-| `missing` | 键缺失, 不回填 |
-
-若查询无显式排序, 则在比较前按 canonical row hash 做稳定排序; 若查询声明了排序, 则按原顺序比对.
-
-### 7.4 状态路由
-
-Triple Compiler 的路由在构造层面固定如下:
-
-| 条件 | 路由 | 是否主集可用 |
-|---|---|---|
-| `r_A = r_B = r_C` | `triple_consensus_status = pass` | 是 |
-| `r_A = r_B`, `r_C = undefined` | `triple_consensus_status = longtail_AB_only` | 否 |
-| 三路分歧, 可归因到 `engine_quirk` / `A_bug` / `B_bug` / `C_bug` / `spec_ambiguity` | 对应 sidecar divergence bucket | 否 |
-| 只有 A 路可维持临时审核价值 | internal `a_only` staging route | 否 |
-
-这里特别强调两点:
-
-1. **`longtail_AB_only` 只保留旁路价值, 不进入主集**
-2. **`a_only` 不属于 02 的公开 `triple_consensus_status` 枚举, 因而只保存在 staging 审核目录, 不写公开 JSONL**
-
-### 7.5 `ecommerce_017` 的三路通过条件
-
-`ecommerce_017` 的 canonical family 之所以可入主集, 必须同时满足:
-
-- A 路得到按 `total_spent` 降序的前三个 `user_id`
-- B 路得到相同三行与相同顺序
-- C 路在内存解释下得到相同三行与相同顺序
-- 结果行中若某键缺失, 仍保持缺失; 不能被归一化流程补成 `null`
-
-只有这样, 它才会被标记为 `triple_consensus_status = pass`.
-
-<a id="03-8"></a>
-## 8. Reverse Instance Verification (RIV)
-
-RIV 是 03 中新增的硬门. Triple Compiler 只能证明“gold query 的三路语义一致”; **RIV 还要证明“当前实例本身能把 gold query 与近似错误查询区分开”**. 一个样本若缺少 instance discriminativity, 即使三路共识成立, 也不进入主集.
-
-### 8.1 RIV 的输入与输出
-
-RIV 的输入是:
-
-- `cmrl_canonical`
-- 冻结 world `D`
-- `mql_canonical`, `fast_canonical`
-- 三路一致的 `r_A = r_B = r_C`
-
-RIV 的输出是:
-
-- `riv_status ∈ {pass, fail}`
-- 一组 near-miss counterqueries
-- 每个 counterquery 对应的 witness 集合
-- 一份证书文件 `certificate.json`
-
-### 8.2 witness 抽取
-
-RIV 对每个 counterquery `q'` 抽取两层 witness:
-
-1. **输出层 witness**
-   - `positive_witness`: 在 gold 结果中存在, 在 `q'` 结果中不存在的行
-   - `negative_witness`: 在 `q'` 结果中存在, 在 gold 结果中不存在的行
-   - `rank_witness`: 行集合相同但排序或截断不同的首个分歧位置
-2. **来源层 witness**
-   - 由 `lineage_index.json` 或 stage trace 追到的最小输入文档集合
-   - 用于说明差异由哪些源文档触发
-
-输出层 witness 用公开归一化行哈希保存; 来源层 witness 用脱敏后的 `_id` 或行哈希保存.
-
-### 8.3 near-miss counterquery 变异族
-
-RIV 不靠人工拍脑袋写反例, 而是按固定 mutation family 机械生成 near-miss:
-
-| 变异族 | 变异方式 |
-|---|---|
-| `predicate_boundary` | 调整数值 / 日期边界, 如 `gte` 改成更宽或更窄边界 |
-| `predicate_operator` | `eq/ne/gt/gte/lt/lte/exists/type` 间做近邻替换 |
-| `missing_null_confusion` | 删除 `exists`、把显式 `null` 条件改成缺失容忍, 或反向修改 |
-| `aggregation_operator` | `sum/avg/min/max/count` 做近邻替换 |
-| `group_key` | 替换 group key 或删除关键 group key |
-| `stage_drop_or_bypass` | 删除 `unwind`、删除 `project`、删除关键 filter stage |
-| `sort_limit` | 反转排序方向、改 `limit`、删除 `limit` |
-| `join_binding` | 仅对含 join 的样本, 改 foreign key、改 join path、删 join stage |
-
-并非每个 family 对所有样本都适用. RIV 只要求**适用的 mutation family**全部被覆盖.
-
-### 8.4 RIV 接受条件
-
-主集样本必须同时满足下列 RIV 条件:
-
-1. 对每个适用的 mutation family, 至少生成 1 条可执行、deterministic、read-only、schema-grounded、liftable 的 counterquery
-2. 全部适用 family 合计至少得到 6 条有效 counterquery
-3. 对每条有效 counterquery, `result(gold, D)` 与 `result(q', D)` 在归一化后必须不相等
-4. 每条有效 counterquery 都必须抽取到至少 1 个输出层 witness
-5. 整个 family 至少抽取到 1 组来源层 witness
-
-只要有一条有效 counterquery 与 gold 在当前实例上不可区分, `riv_status = fail`, 该样本不得进入主集.
-
-### 8.5 证书写法
-
-RIV 证书的**完整内容**保留在 staging, 公开记录只写入 02 已定义的顶层证书字段:
-
-- staging 中保存完整证书:
-  - `staging/<subset>/<family_id>/05_riv/certificate.json`
-- 公开记录写入以下 top-level 字段:
-  - `instance_certificate_status`
-  - `instance_certificate_checks`
-  - `instance_certificate_ref`
-
-如需保存 counterquery 数量或 witness 摘要, 只能进入 staging 证书正文或来源侧 trace, 不得额外发明新的公开 top-level 字段。
-
-### 8.6 `ecommerce_017` 的 RIV
-
-`ecommerce_017` 的 canonical family 至少覆盖下列 near-miss:
-
-1. 删除 `paid_at: {$exists: true}`
-2. 将 `paid_at >= 2026-01-01` 改为更宽边界
-3. 将 `$sum: "$items.price"` 改为 `$avg: "$items.price"`
-4. 删除 `$unwind`
-5. 将 `$sort: {total_spent: -1}` 改为升序
-6. 将 `$limit: 3` 改为 `5`
-
-其 witness 以输出键 `user_id` 与 `total_spent` 的归一化行哈希保存. 只要上述任一 near-miss 在当前实例上与 gold 不可分, 该 family 就不会被写入主集.
-
-<a id="03-9"></a>
-## 9. 六道防线
-
-03 的操作栈用六道防线串起全流程. 这六道防线在 admission 上是“与”关系, 不是加权打分.
-
-| 防线 | 负责问题 | 失败路由 |
-|---|---|---|
-| ① Schema Grounding | 字段、类型、引用、输出键是否显式可解析 | staging reject |
-| ② World Validity | world 是否满足 schema validator, 且 `null` / `missing` 被分别物化 | 重新物化或 staging reject |
-| ③ Query Admissibility & Liftability | 查询是否 deterministic、read-only、可 full-lift | 主集拒绝; 仅部分样本可去 sidecar |
-| ④ Triple Compiler Consensus | A/B/C 是否都定义且三路一致 | `pass` 之外全部旁路 |
-| ⑤ RIV | 当前实例是否能区分 gold 与 near-miss | 主集拒绝 |
-| ⑥ NLQ Family Assembly | 是否形成满足 02 契约的 NLQ family | 主集拒绝或只留 staging |
-
-这六道防线的职责分工是:
-
-- ①② 保障 **实例本身合法**
-- ③ 保障 **查询属于主集可接纳空间**
-- ④ 保障 **gold 正确性**
-- ⑤ 保障 **实例判别力**
-- ⑥ 保障 **语言接口质量**
-
-<a id="03-10"></a>
-## 10. NLQ family 组装
-
-主集中的公开 family 记录必须形成 02 所定义的 `nlq_canonical + nlq_variants` 结构. 03 只定义如何构造, 不重写 02 的字段契约.
-
-### 10.1 构造原则
-
-NLQ 构造只看:
-
-- `cmrl_canonical` 的 pseudo-code
-- `schema.md`
-- 必要的 domain glossary
-
-不直接把 `mql_canonical` 原样喂给 NLG, 以避免语言层抄写 MongoDB 语法.
-
-### 10.2 translator 共识
-
-每条候选 NLQ 都必须经过 translator 共识. 只有严格通过的候选, 才会进入公开 family:
-
-- `nlq_canonical`: 从通过候选中选择一条最清晰、槽位最完整的主问句
-- `nlq_variants`: 其余通过候选进入变体列表
-
-未通过候选的去向:
-
-- `one_translator_disagree` -> 留在 staging `06_nlq/rejected/`
-- 明显多解或歧义候选 -> 留在 staging `06_nlq/ambiguous/`
-
-它们都不进入公开 `nlq_variants`.
-
-### 10.3 `ecommerce_017` 的 K=5
-
-`ecommerce_017` 的公开 family 采用 `K = 5` 的写法:
-
-- `nlq_canonical`: `"Top 3 customers by total paid item spending in 2026."`
-- `nlq_variants`: 4 条通过 translator 共识的变体
-
-无论变体语言风格如何, 它们共享同一 `cmrl_canonical`, `mql_canonical`, `r_A`, `r_B`, `r_C`, `triple_consensus_status`, `activated_features`.
-
-<a id="03-11"></a>
-## 11. 主集、Horizon 与 sidecar 的路由关系
-
-主集 admission 完成后, 样本还需要按 02 的 split 规则进入 train / test 或 Horizon 保留集. 这里要明确区分三种目的完全不同的出口.
-
-### 11.1 路由表
-
-| 出口 | 条件 | 说明 |
-|---|---|---|
-| 主集 `*_train.jsonl` / `*_test.jsonl` | `triple_consensus_status = pass` 且 `instance_certificate_status = pass` 且 `is_horizon = false` | 正常主集 split |
-| `synth_horizon.jsonl` / `real_horizon.jsonl` / `hybrid_horizon.jsonl` | `triple_consensus_status = pass` 且 `instance_certificate_status = pass` 且 `is_horizon = true` | 这是 pass-only holdout, 不是失败 sidecar |
-| `sidecar/longtail_AB_only.jsonl` | `triple_consensus_status = longtail_AB_only` | sidecar 审核制品 |
-| `sidecar/divergence/*.jsonl` | `engine_quirk`, `A_bug`, `B_bug`, `C_bug`, `spec_ambiguity` | sidecar 审核制品 |
-| `staging/real/a_only/` | internal `a_only` | 只保留审核证据, 不写公开 JSONL |
-| `staging/rejected/` | unresolved schema, partial lift, remap 失败, RIV 失败, NLQ 失败 | 只保留构造证据 |
-
-### 11.2 sidecar 与主集的硬隔离
-
-构造器在文件层面执行以下硬隔离:
-
-1. splitter 只读取 `triple_consensus_status = pass` 且 `instance_certificate_status = pass` 的记录
-2. sidecar 文件永远不参与 split assignment
-3. subset-specific Horizon 文件只接收 `pass` 且 `instance_certificate_status = pass` 的记录
-4. `a_only` 不产生公开 family 记录
-
-因此不会出现“sidecar 样本误入主集 split”的路径.
-
-<a id="03-12"></a>
-## 12. 写盘结构与 staging 资产
-
-### 12.1 顶层目录
-
-```text
-MonGen/
-├── meta.json
-├── synth_train.jsonl
-├── synth_test.jsonl
-├── real_train.jsonl
-├── real_test.jsonl
-├── hybrid_train.jsonl
-├── hybrid_test.jsonl
-├── synth_horizon.jsonl
-├── real_horizon.jsonl
-├── hybrid_horizon.jsonl
-├── sidecar/
-│   ├── longtail_AB_only.jsonl
-│   └── divergence/
-│       ├── engine_quirk.jsonl
-│       ├── A_bug.jsonl
-│       ├── B_bug.jsonl
-│       ├── C_bug.jsonl
-│       └── spec_ambiguity.jsonl
-├── schemas/
-│   ├── ecommerce_017.json
-│   └── ecommerce_017.md
-└── staging/
-    ├── synth/
-    ├── real/
-    ├── hybrid/
-    └── rejected/
+```
+R_mql := mongosh.run(gold_MQL, new_world)
+R_sql := sqlite.run(ref_sql, original_sqlite)
+assert canonicalize_recordset(R_mql) ≡_rec canonicalize_recordset(R_sql)
 ```
 
-这里有三个关键点:
+`canonicalize_recordset` 与 ≡_rec 的具体规则在 [01 任务定义](./01_task_definition.md) 中。Q1 失败的常见原因：
 
-1. subset-specific Horizon 文件是 **pass 样本的保留视图**
-2. `sidecar/` 是 **非主集审核视图**
-3. `staging/` 是 **构造证据仓**
+- MQL 语义偏移（漏一个 `$unwind`、用错聚合算子）→ 回到 [§4](#03-4) 重写；
+- world 中相关字段类型漂移导致比较失败（如 type drift 把 `Year_of_Founded` 变成 string，而 ref_sql 用数值比较）→ 回到 [§3](#03-3) 调整注入；
+- 归一化规则边界情况（数值精度、null 排序）→ 与 [01](./01_task_definition.md) 对齐后再判定。
 
-### 12.2 staging 目录粒度
+<a id="03-6-q2"></a>
 
-每个候选 family 都有自己的 staging 目录:
+### §6.3 Q2 语义唯一（Semantic Uniqueness）
 
-```text
-staging/<subset>/<family_id>/
-├── 01_schema/
-├── 02_world/
-├── 03_query/
-├── 04_compilers/
-├── 05_riv/
-├── 06_nlq/
-└── final_record.json
+派 ≥ 3 个独立 LLM 各自针对 `nl_queries[0]` 写出 candidate MQL，构成集合 Q̂(NLQ)：
+
+```
+Q̂(NLQ) := { mql_i  for i in 1..N, N ≥ 3 }
+forall mql_i ∈ Q̂(NLQ):
+    R_i := mongosh.run(mql_i, new_world)
+    assert canonicalize_recordset(R_i) ≡_rec canonicalize_recordset(R_gold)
 ```
 
-其中:
+证书记录：
 
-- `01_schema/` 保存 schema package
-- `02_world/` 保存冻结快照、event trace 与 lineage index
-- `03_query/` 保存 `cmrl_canonical`, `fast_canonical`, `mql_canonical`
-- `04_compilers/` 保存 A/B/C 的原始输出与归一化结果
-- `05_riv/` 保存 near-miss 集合与证书
-- `06_nlq/` 保存候选 NLQ、translator 结果与保留清单
-- `final_record.json` 是待写盘的 02 公开记录
+| 字段 | 含义 |
+|---|---|
+| `candidate_count` | N，candidate MQL 总数 |
+| `consensus_rate` | 与 gold result 一致的 candidate 比例 |
+| `divergent_examples` | 不一致 candidate 的简短摘要（不入主集，仅供审计） |
 
-### 12.3 公开记录字段
+判定：
 
-03 不定义新的 top-level 字段. `final_record.json` 必须与 02 对齐. 以 `ecommerce_017` 为例:
+- `consensus_rate == 1.0` → Q2 通过；
+- `consensus_rate < 1.0` → 说明 NLQ 有歧义，或 gold MQL 选择了一种非默认解读 → 回到 [§5](#03-5) 改写 NLQ（让该解读变成唯一自然解读），或者整条 record reject。
+
+> 例如 canonical NLQ "top 3 conductors with the most performances" 如果在某个 world 上有第 3 与第 4 名 tie，那么 candidate 之间会出现 `$limit 3` 截断的不同分支 → 这是 NLQ 与 world 的联合歧义，应改写 world（让 tie 消失）或改写 NLQ（让 tie-breaking 显式）。
+
+<a id="03-6-q3"></a>
+
+### §6.4 Q3 判别力（Discriminativity）
+
+枚举 near-miss MQL 变异族，每条都应在 new world 上跑出**与 gold 不同**的结果。变异族划分如下：
+
+| 变异族 | 变异示例 | 在 canonical 上的具体应用 |
+|---|---|---|
+| **aggregation_operator** | `$sum` ↔ `$avg` / `$count` / `$max` / `$min` | 把 `performance_count: { $sum: 1 }` 改成 `{ $avg: 1 }` |
+| **sort_direction** | desc ↔ asc | `$sort: { performance_count: -1 }` 改成 `{ performance_count: 1 }` |
+| **limit_truncation** | `$limit 3` → `$limit 5` / 删除 `$limit` | top 3 改成 top 5 / 全量 |
+| **predicate_offset** | 边界值 ±1，`>=` ↔ `>`，`<=` ↔ `<` | 此条 NLQ 无显式谓词；通用情况下偏移 |
+| **stage_drop** | 删除 `$unwind` / `$project` / `$sort` / `$match` 中关键阶段 | 删除第二个 `$unwind: "$orchestra.performance"` |
+| **schema_link_swap** | 换字段为 schema 中同类型相近字段 | 把 group key 从 `Conductor_ID` 换成 `Orchestra_ID` |
+| **join_path_swap** | 换 `foreignField` / `localField` / `from` 集合 | 此条 NLQ 无 `$lookup`；带 lookup 的 record 必检 |
+| **null_missing_confusion** | 把 `$exists: true` 删除 / 改为 `$ne: null` | 用于 sparsity 字段相关的 record |
+
+枚举规则：
+
+- 每个 record 至少跑 8 个变异族中**适用**的全部条目，单族内可有多条变异；
+- 总条数有上限（默认 ≤ 24），避免组合爆炸；
+- 每条变异在 new world 上跑出结果 `R_mut_j`，要求 `canonicalize_recordset(R_mut_j) ≢_rec canonicalize_recordset(R_gold)`；
+- 全部不同 → Q3 通过；任一相同 → world 区分度不够 → 回到 [§3](#03-3) 改写 world（如增加边界点、调整分布），或者整条 record reject。
+
+证书记录：
+
+| 字段 | 含义 |
+|---|---|
+| `near_miss_count` | 实际枚举的变异条数 |
+| `all_different` | 是否全部 ≢_rec gold |
+| `near_miss_summaries[]` | 每条变异的 `{family, mutation, result_diff_rows}` |
+
+<a id="03-6-q4"></a>
+
+### §6.5 Q4 世界非平凡（World Non-Triviality）
+
+世界必须给 gold MQL 提供有意义的输入与输出，避免出现"空集 / 几乎全表 / 单组 / 退化边界"等平凡情况：
+
+| 检查 | 判据 |
+|---|---|
+| `boundary_points_present` | 对 ref_sql 中所有数值/时间字段，边界 ε 邻域内有至少 1 个文档（与 [§3.4](#03-3) 一致） |
+| `group_count` | gold MQL 的 group 阶段输出 ≥ 3 组（或该库特定阈值） |
+| `filtered_rows` | gold MQL 中 `$match` 之后剩余行数 ≥ 1，且 < 总行数 95% |
+| `output_non_trivial` | gold result 非空，且不等于"对 collection 的恒等 projection" |
+
+任一不满足 → 回到 [§3](#03-3) 重物化 world；多次重试仍不满足 → reject。
+
+<a id="03-6-cert"></a>
+
+### §6.6 证书内容示例
+
+写入 `audit/<db_id>/<record_id>/certificate.json`，示例（canonical orchestra record）：
 
 ```json
 {
-  "record_id": "rec_synth_fam_ecommerce_017_top3_paid_2026",
-  "family_id": "fam_ecommerce_017_top3_paid_2026",
-  "subset": "synth",
-  "record_grain": "family",
-  "asset_bucket": "main",
-  "split": "train",
-  "db_id": "ecommerce_017",
-  "split_unit_kind": "db_modeling_style",
-  "split_unit_id": "ecommerce_017|legacy_drifting",
-  "source_kind": "synthetic",
-  "source_group_id": "ecommerce_017|legacy_drifting",
-  "license_tag": "synthetic",
-  "desensitized": false,
-  "nlq_canonical": "Top 3 customers by total paid item spending in 2026.",
-  "nlq_canonical_style": "formal",
-  "nlq_canonical_lang": "en",
-  "nlq_count": 5,
-  "nlq_variants": [
-    {"nlq_text": "Which three customers spent the most on paid items in 2026?", "nlq_style": "colloquial", "nlq_lang": "en"},
-    {"nlq_text": "Rank the top 3 customers by paid item GMV in 2026.", "nlq_style": "jargon", "nlq_lang": "en"},
-    {"nlq_text": "Give the three customers with the highest paid-item total in 2026.", "nlq_style": "formal", "nlq_lang": "en"},
-    {"nlq_text": "2026 年按已支付商品消费总额排名前三的顾客是谁?", "nlq_style": "multilingual", "nlq_lang": "zh"}
-  ],
-  "cmrl_canonical": {
-    "intent": "aggregate",
-    "scope": {
-      "collection": "orders",
-      "filters": [
-        {"field": "status", "op": "eq", "value": "paid"},
-        {"field": "paid_at", "op": "exists", "value": true},
-        {"field": "paid_at", "op": "gte", "value": "2026-01-01", "type": "Date"}
-      ],
-      "unwinds": [{"path": "items"}]
-    },
-    "grouping": {
-      "by": ["user_id"],
-      "aggs": [{"alias": "total_spent", "op": "sum", "field": "items.price"}]
-    },
-    "projection": {"include": ["user_id", "total_spent"]},
-    "ordering": [{"field": "total_spent", "direction": "desc"}],
-    "limits": {"limit": 3}
+  "record_id": 99001,
+  "db_id": "orchestra",
+  "q1_execution": {
+    "status": "pass",
+    "compared_at": "2026-01-15T08:42:11Z"
   },
-  "fast_canonical": {"op": "aggregate", "collection": "orders", "stages": ["$match", "$unwind", "$group", "$project", "$sort", "$limit"]},
-  "mql_canonical": "db.orders.aggregate([...])",
-  "output_keys": ["user_id", "total_spent"],
-  "activated_features": ["F10", "F15", "F17"],
-  "operator_layer": "core",
-  "modeling_style": "legacy_drifting",
-  "query_read_only": true,
-  "query_deterministic": true,
-  "lifting_status": "full",
-  "gold_result_norm": [
-    {"user_id": "6512a0bb21c7f1e8d9a4b123", "total_spent": "2845.80"},
-    {"user_id": "6512b1cc32d8f2f9e0a5c234", "total_spent": "2301.15"},
-    {"user_id": "6512c2dd43e9f3fae1b6d345", "total_spent": "1987.60"}
-  ],
-  "result_a_norm": [
-    {"user_id": "6512a0bb21c7f1e8d9a4b123", "total_spent": "2845.80"},
-    {"user_id": "6512b1cc32d8f2f9e0a5c234", "total_spent": "2301.15"},
-    {"user_id": "6512c2dd43e9f3fae1b6d345", "total_spent": "1987.60"}
-  ],
-  "result_b_norm": [
-    {"user_id": "6512a0bb21c7f1e8d9a4b123", "total_spent": "2845.80"},
-    {"user_id": "6512b1cc32d8f2f9e0a5c234", "total_spent": "2301.15"},
-    {"user_id": "6512c2dd43e9f3fae1b6d345", "total_spent": "1987.60"}
-  ],
-  "result_c_norm": [
-    {"user_id": "6512a0bb21c7f1e8d9a4b123", "total_spent": "2845.80"},
-    {"user_id": "6512b1cc32d8f2f9e0a5c234", "total_spent": "2301.15"},
-    {"user_id": "6512c2dd43e9f3fae1b6d345", "total_spent": "1987.60"}
-  ],
-  "triple_consensus_status": "pass",
-  "instance_certificate_status": "pass",
-  "instance_certificate_checks": [
-    "schema_grounding_checked",
-    "lift_roundtrip_checked",
-    "normalized_output_checked",
-    "reverse_instance_checked"
-  ],
-  "instance_certificate_ref": "staging/synth/fam_ecommerce_017_top3_paid_2026/05_riv/certificate.json",
-  "sci_score": 0.44,
-  "sci_bucket": "mid",
-  "sd_norm": 0.43,
-  "sdt_level": "L3",
-  "is_horizon": false,
-  "combo_signature": "legacy_drifting|F10+F15+F17"
+  "q2_uniqueness": {
+    "status": "pass",
+    "candidate_count": 5,
+    "consensus_rate": 1.0,
+    "divergent_examples": []
+  },
+  "q3_discrimination": {
+    "status": "pass",
+    "near_miss_count": 14,
+    "all_different": true,
+    "near_miss_summaries": [
+      { "family": "aggregation_operator", "mutation": "$sum -> $avg",      "result_diff_rows": 3 },
+      { "family": "sort_direction",       "mutation": "desc -> asc",        "result_diff_rows": 3 },
+      { "family": "limit_truncation",     "mutation": "$limit 3 -> $limit 5","result_diff_rows": 2 },
+      { "family": "stage_drop",           "mutation": "drop $unwind perf",  "result_diff_rows": 3 },
+      { "family": "schema_link_swap",     "mutation": "group by Orchestra_ID", "result_diff_rows": 7 }
+    ]
+  },
+  "q4_world_non_trivial": {
+    "status": "pass",
+    "group_count": 12,
+    "filtered_rows": 47,
+    "boundary_points_present": true,
+    "output_non_trivial": true
+  },
+  "world_signature": "sha256:9c1f4a...",
+  "schema_complexity_profile": {
+    "normalized_ratio": 0.25,
+    "max_embed_depth": 4,
+    "polymorphism_rate": 0.25,
+    "sparsity_rate": 0.30,
+    "type_drift_count": 1,
+    "dynamic_key_count": 0,
+    "cross_collection_ref_count": 0
+  }
 }
 ```
 
-### 12.4 原子写盘协议
+证书路径写入 record 的 `riv_certificate_ref` 字段（字段名定义见 [02](./02_dataset_design.md)；本文档遵循已命名约定，但内文一律称为"RE 证书 / 逆向工程证书 / instance 正确性证书"）。
 
-写盘按以下顺序执行:
+---
 
-1. 在 staging 中生成 `final_record.json`
-2. 用 02 的字段契约校验 `final_record.json`
-3. 校验 `triple_consensus_status` 与路由出口一致
-4. 若是 `pass` family, 再根据 `is_horizon` 与 split assignment 选择写入目标文件
-5. 以原子 append 的方式写入 JSONL
-6. 写入后更新 `meta.json` 中的计数、哈希与索引
+<a id="03-7"></a>
 
-sidecar 的公开 JSONL 也复用同一写盘协议, 只是目标文件不同.
+## §7 路由与产物落盘
 
-<a id="03-13"></a>
-## 13. 构造总流程伪码
+### §7.1 通过证书的 record
+
+四问全部 `status == "pass"` 的候选 record，按 [02](./02_dataset_design.md) 的切分规则进入主集：
+
+- `TEND/train.json` 或 `TEND/test.json`（按 cross-domain 8:2，db 级别切分）；
+- 同一 db 的 schema 与 world 各自落到 `TEND/mongodb_schema/<db_id>.json` 与 `TEND/mongodb_data/<db_id>.json`，全 db 共享，不重复落盘；
+- 证书永久保留在 `audit/<db_id>/<record_id>/certificate.json`，主集 record 通过 `riv_certificate_ref` 引用。
+
+### §7.2 未通过证书的 record
+
+写到 `audit/rejected/<db_id>/<record_id>.json`，**不进入主集**。该文件包含：
+
+- 原始候选 record（含未通过的 MQL / NLQ）；
+- 失败的 Q 编号与失败摘要；
+- 重试历史（如 [§6.4](#03-6-q3) 改写 world 失败 N 次后放弃）。
+
+`audit/rejected/` 仅用于离线分析与构造侧 debug，不进入训练 / 评测流程。
+
+### §7.3 资产桶单一原则
+
+整个 TEND 只有两个状态：**主集（train + test）** 与 **rejected**。不存在 sidecar、staging 多层目录、长尾分桶等额外资产桶。这是有意设计：
+
+- 主集每条都有完整 RE 证书背书；
+- rejected 不参与训练 / 评测，避免污染；
+- 没有"半通过"中间态，避免准入语义模糊。
+
+---
+
+<a id="03-8"></a>
+
+## §8 构造侧总流程伪码
+
+下列伪码刻画从一条 Spider 输入到一条 TEND record 的完整路径。注意 `record_id` 在跨 db 全局唯一，由构造侧分配。
 
 ```python
-def build_family(track, candidate):
-    schema_pkg = build_or_recover_schema(track, candidate)
-    if not schema_pkg.ok:
-        return route_staging("schema_unresolved", candidate)
+def build_record(spider_db, ref_sql, candidate_record_id, seed):
+    db_id = spider_db.name
 
-    world = materialize_world(track, candidate, schema_pkg)
-    if not world.ok:
-        return route_staging("world_invalid", candidate)
+    schema = rewrite_schema_nosql_native(spider_db)
+    write_to(f"TEND/mongodb_schema/{db_id}.json", schema)
 
-    canonical = derive_canonical_query(track, candidate, schema_pkg, world)
-    if not canonical.full_lift or not canonical.admissible:
-        return route_nonmain(track, canonical)
+    world = materialize_world(spider_db, schema, seed=seed)
+    if not satisfy_discriminative_pressure(world, ref_sql, schema):
+        world = repair_world(world, ref_sql, schema, seed=seed)
+    write_to(f"TEND/mongodb_data/{db_id}.json", world)
+    world_sig = compute_world_signature(world)
 
-    triple = run_triple_compiler(canonical, world)
-    if triple.status != "pass":
-      
-        return route_nonmain(track, triple)
+    mql = rewrite_mql_idiomatic(ref_sql, schema, world)
 
-    riv = run_riv(canonical, world, triple)
-    if riv.status != "pass":
-        return route_staging("riv_fail", canonical)
+    nlqs = rewrite_5_nlqs(ref_sql, schema, world, mql)
+    if not translator_consensus_pass(nlqs, ref_sql):
+        return route_to_audit_rejected(candidate_record_id, reason="nlq_consensus_fail")
 
-    nlq_pack = build_nlq_family(canonical, schema_pkg)
-    if not nlq_pack.ok:
-        return route_staging("nlq_fail", canonical)
-
-    record = assemble_record_according_to_02(
-        track=track,
-        schema_pkg=schema_pkg,
-        world=world,
-        canonical=canonical,
-        triple=triple,
-        riv=riv,
-        nlq_pack=nlq_pack,
+    cert = run_re_certificate(
+        gold_mql=mql,
+        canonical_nlq=nlqs[0],
+        ref_sql=ref_sql,
+        new_world=world,
+        original_sqlite=spider_db,
+        schema=schema,
     )
 
-    return write_record(record)
+    if cert.all_pass():
+        record = build_record_dict(
+            record_id=candidate_record_id,
+            db_id=db_id,
+            nl_queries=nlqs,
+            ref_sql=ref_sql,
+            MQL=mql,
+            schema_complexity_profile=cert.schema_profile,
+            world_signature=world_sig,
+            riv_certificate_ref=f"audit/{db_id}/{candidate_record_id}/certificate.json",
+            construction_origin="spider_remapped",
+        )
+        write_certificate(cert, path=f"audit/{db_id}/{candidate_record_id}/certificate.json")
+        return route_to_train_or_test(record)
+    else:
+        write_certificate(cert, path=f"audit/rejected/{db_id}/{candidate_record_id}.json")
+        return route_to_audit_rejected(candidate_record_id, reason=cert.first_failed_q())
+
+
+def run_re_certificate(gold_mql, canonical_nlq, ref_sql, new_world, original_sqlite, schema):
+    cert = Certificate()
+    cert.q1_execution        = check_q1_execution(gold_mql, ref_sql, new_world, original_sqlite)
+    cert.q2_uniqueness       = check_q2_uniqueness(canonical_nlq, gold_mql, new_world, n_models=3)
+    cert.q3_discrimination   = check_q3_discrimination(gold_mql, new_world, schema)
+    cert.q4_world_non_trivial = check_q4_world_non_trivial(gold_mql, new_world)
+    cert.schema_profile      = compute_schema_complexity_profile(schema)
+    return cert
 ```
 
-这段伪码体现的关键点是: **主集写盘永远发生在 triple pass 与 RIV pass 之后**, 而不是之前.
+字段名 `record_id`、`db_id`、`nl_queries`、`ref_sql`、`MQL`、`schema_complexity_profile`、`world_signature`、`riv_certificate_ref`、`construction_origin` 均定义在 [02](./02_dataset_design.md)；本伪码仅承担"如何把这些字段值算出来"。
+
+---
+
+<a id="03-9"></a>
+
+## §9 端到端 canonical 示例
+
+把 [§2](#03-2) ~ [§7](#03-7) 串到一起，演示 `record_id = 99001` 的完整生成。
+
+### §9.1 输入：Spider 源
+
+- db：`orchestra`
+- ref_sql：
+
+```sql
+SELECT T1.Name, COUNT(*) AS performance_count
+FROM conductor T1
+JOIN orchestra T2 ON T1.Conductor_ID = T2.Conductor_ID
+JOIN performance T3 ON T2.Orchestra_ID = T3.Orchestra_ID
+GROUP BY T1.Conductor_ID, T1.Name
+ORDER BY performance_count DESC
+LIMIT 3;
+```
+
+### §9.2 §2 阶段：schema 重塑
+
+- root：`conductor`（按 [§2.2](#03-2)）；
+- 嵌入链：`conductor → orchestra[] → performance[] → show[]`，与 `TEND/mongodb_schema/orchestra.json` 一致；
+- NoSQL-native 注入：见 [§2.4](#03-2) 表格（performance 加 polymorphism、Year_of_Work 注 sparsity、Year_of_Founded 注 type drift）。
+
+### §9.3 §3 阶段：world 物化
+
+- 输入：原 SQLite + 重塑 schema + `seed`；
+- 输出：`TEND/mongodb_data/orchestra.json`，每个 conductor 文档含若干 orchestra，每个 orchestra 含若干 performance；
+- 判别压力：增加边界点使得"top 3"的 #3 与 #4 之间至少差 1 场演出（消除 tie）；
+- `world_signature = "sha256:9c1f4a..."`。
+
+### §9.4 §4 阶段：idiomatic MQL
+
+见 [§4.4](#03-4)。要点：两次 `$unwind` 沿嵌入路径展开，无 `$lookup`，输出键名为 `Name` / `performance_count`。
+
+### §9.5 §5 阶段：5 条 NLQ
+
+见 [§5.1](#03-5) 的表格。每条经 translator consensus 校验通过。
+
+### §9.6 §6 阶段：RE 证书四问
+
+- Q1：mongosh 跑 idiomatic MQL 在 new world 上得到 `[("M. Cordoba", 9), ("L. Hartmann", 8), ("E. Tanaka", 7)]`；SQLite 跑 ref_sql 在原数据上得到等价结果（按 ≡_rec）→ pass；
+- Q2：5 个 candidate MQL 全部跑出相同 top-3 → consensus_rate = 1.0 → pass；
+- Q3：14 条 near-miss 全部不同（详见 [§6.6](#03-6-cert) 证书示例的 `near_miss_summaries`）→ pass；
+- Q4：12 个 conductor 分组，filtered_rows = 47，边界点存在，输出非平凡 → pass。
+
+### §9.7 §7 阶段：路由
+
+- 四问全 pass → 写入 `TEND/train.json` 或 `TEND/test.json`（按 db 级别切分规则）；
+- 同时落盘 `audit/orchestra/99001/certificate.json`；
+- record 中 `riv_certificate_ref = "audit/orchestra/99001/certificate.json"`。
+
+最终产物 record（仅展示构造侧填充的字段，完整字段定义见 [02](./02_dataset_design.md)）：
+
+```json
+{
+  "record_id": 99001,
+  "db_id": "orchestra",
+  "nl_queries": [
+    "List the top 3 conductors with the most performances.",
+    "Across all conductors, count performances under each conductor's orchestras and return the top 3 conductors by total performances.",
+    "For each conductor document, total the performances embedded under their orchestras and return the three conductors with the highest totals.",
+    "Which three conductors have led the most performances overall?",
+    "列出指挥过演出最多的前三位指挥家。"
+  ],
+  "ref_sql": "SELECT T1.Name, COUNT(*) AS performance_count FROM conductor T1 JOIN orchestra T2 ON T1.Conductor_ID = T2.Conductor_ID JOIN performance T3 ON T2.Orchestra_ID = T3.Orchestra_ID GROUP BY T1.Conductor_ID, T1.Name ORDER BY performance_count DESC LIMIT 3",
+  "MQL": "db.conductor.aggregate([\n  { $unwind: \"$orchestra\" },\n  { $unwind: \"$orchestra.performance\" },\n  { $group: { _id: \"$Conductor_ID\", Name: { $first: \"$Name\" }, performance_count: { $sum: 1 } } },\n  { $sort: { performance_count: -1 } },\n  { $limit: 3 },\n  { $project: { _id: 0, Name: 1, performance_count: 1 } }\n]);\n",
+  "schema_complexity_profile": {
+    "normalized_ratio": 0.25,
+    "max_embed_depth": 4,
+    "polymorphism_rate": 0.25,
+    "sparsity_rate": 0.30,
+    "type_drift_count": 1,
+    "dynamic_key_count": 0,
+    "cross_collection_ref_count": 0
+  },
+  "world_signature": "sha256:9c1f4a...",
+  "riv_certificate_ref": "audit/orchestra/99001/certificate.json",
+  "construction_origin": "spider_remapped"
+}
+```
+
+至此，一条 record 从 Spider SQLite 出发，经 schema 重塑、world 物化、MQL 重写、NLQ 重写、RE 证书四问，最终落到 TEND 主集。这条链路用 NoSQL-native 文档建模、可执行判别压力世界、idiomatic MQL、结构化 NLQ 与四问准入，逐一修复了 §0 列出的四个瓶颈。
+
+---
+
+## 文档间引用清单
+
+| 引用方向 | 引用内容 |
+|---|---|
+| 03 → [01](./01_task_definition.md) | 任务正确性锚 ≡_rec、归一化契约、结果集比较规则 |
+| 03 → [02](./02_dataset_design.md) | record 字段名（`record_id` / `db_id` / `nl_queries` / `ref_sql` / `MQL` / `schema_complexity_profile` / `world_signature` / `riv_certificate_ref` / `construction_origin`）、资产路径（`TEND/train.json`、`TEND/test.json`、`TEND/mongodb_schema/<db_id>.json`、`TEND/mongodb_data/<db_id>.json`、`audit/...`）、cross-domain 8:2 切分规则 |
+
+本文档不引用 04 / 05。

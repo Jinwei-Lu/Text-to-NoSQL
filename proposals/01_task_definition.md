@@ -1,491 +1,317 @@
-# 任务定义：MonGen 基准根语义契约
+# 01 · 任务定义（Task Semantics）
 
-> 文档定位: 本文档只定义 MonGen 的任务边界、语义锚点、样本准入原则、表示分层、难度契约与结果归一化契约。它是 `02_dataset_design.md`、`03_dataset_construction.md`、`04_evaluation_methodology.md`、`05_solution_design.md` 的上游语义基线。
-> 约束原则: 本文档只陈述“是什么必须成立”，不展开数据规模、切分算法、实现伪代码、报告表格或求解方案。
-
-## 0. 摘要
-
-- MonGen 的主任务是**确定性、只读、面向 MongoDB 的查询生成**，输入是自然语言查询与 schema 上下文，输出是可执行的 MQL 查询程序。
-- 主基准样本只来自**schema-grounded、可提升、确定性、只读**的查询，并要求 **A/B/C 三路完全共识**、状态为 `pass`，同时满足基准侧的 **Reverse Instance Verification (RIV)** 概念保证。
-- `longtail_AB_only` 以及其他公开分歧或降级结果只进入**旁路桶 / 审计桶**，不进入 headline benchmark；仅具内部审核价值的状态只保留在 staging，不进入公开 benchmark 资产。
-- 表示层采用 **cMRL Core / cMRL Extension / fAST Long-Tail** 三层结构。主基准只覆盖 Core 与 Extension 的确定性只读 liftable 子域；Long-Tail 只作为覆盖与审计资产存在。
-- 难度由 **Structural Difficulty Tensor (SDT)** 六维向量与标量 `SD ∈ [0,1]` 定义，等级固定为 `L1-L5`。`Horizon` 是独立 held-out pool，不属于主 train/test，也不进入主 in-distribution 汇总。
-- `02` 是数据字段名、状态字段名、样本资产形态与切分规则的单一来源；`03` 负责构造、校验、Triple Compiler 执行流程与 RIV 的操作化；`04` 负责指标与公开报告；`05` 负责求解系统设计。
-
-<a id="01-1"></a>
-## 1. Text-to-NoSQL 任务形式化
-
-### 1.1 输入 / 输出
-
-MonGen 定义的单条任务输入为三元组:
-
-- `NLQ`: 自然语言查询。
-- `S`: 与目标逻辑库绑定的 schema 上下文。
-- `db_id`: 目标逻辑库标识符，用于绑定数据快照。
-
-输出为一个 **MQL 查询程序** `q`。在主任务中，`q` 满足以下约束:
-
-- `q` 是只读查询，不修改数据库状态；
-- `q` 是确定性的，在同一快照上重复执行得到相同的归一化结果；
-- `q` 可以解析为 fAST；
-- `q` 处于主基准允许的 Core / Extension 语义范围内时，`q` 可以从 fAST 提升回 cMRL。
-
-本基准不把写操作、不确定性行为、依赖外部检索服务的行为或不可提升行为纳入 headline task。具体样本字段名、记录格式与 split 规则不在本文定义，统一见 `02_dataset_design.md`。
-
-### 1.2 函数签名
-
-任务的外部函数签名定义为
-
-$$
-f : (\text{NLQ}, S, \text{db\_id}) \to q
-$$
-
-其中 `q` 属于 MonGen 主任务允许的确定性只读查询空间 `Q_main`。若写成分层形式，则有
-
-$$
-g : (\text{NLQ}, S) \to q^{\text{cMRL}}, \qquad
-L : q^{\text{cMRL}} \to q^{\text{fAST}}, \qquad
-h : q^{\text{fAST}} \to q^{\text{MQL}}
-$$
-
-这里:
-
-- `g` 是待学习映射；
-- `L` 是确定性 lowering；
-- `h` 是确定性 unparser。
-
-`L` 与 `h` 属于固定编译链路，不属于模型能力的一部分。
-
-### 1.3 成功条件与语义正确性锚点
-
-记模型输出为 `q_p`，gold 程序为 `q_g`，与 `db_id` 绑定的数据快照为 `D`。MonGen 在根契约层定义两类语义锚点:
-
-1. **物理执行锚**: 预测查询与 gold 查询在同一快照上的归一化执行结果递归相等。
-
-$$
-\operatorname{NormExec}(q_p, D) \equiv_{rec} \operatorname{NormExec}(q_g, D)
-$$
-
-2. **符号语义锚**: 当 `q_p` 可从 `Parse(q_p)` 提升回主域 cMRL 时，其 denotational 结果与 gold cMRL 的 denotational 结果递归相等。
-
-$$
-\llbracket j(\operatorname{Parse}(q_p)) \rrbracket_C(D)
-\equiv_{rec}
-\llbracket q_g^{\text{cMRL}} \rrbracket_C(D)
-$$
-
-其中 `j` 是 lifting，`Parse` 是 MQL 到 fAST 的解析，`⟦·⟧_C` 是 Compiler C 的语义解释函数。
-
-本文只定义这两个锚点作为语义正确性的根基；它们在公开评测中的指标命名、降级协议与聚合口径统一由 `04_evaluation_methodology.md` 定义。
-
-### 1.4 数据快照与任务边界
-
-`db_id` 唯一绑定一个评测数据快照 `D`。MonGen 任务始终在该静态快照上解释查询意图，不引入在线写入、副作用回放或外部状态变化。
-
-根契约层要求:
-
-- 查询正确性只依赖 `NLQ`、`S`、`db_id` 与由 `db_id` 指向的快照 `D`；
-- 文档本体不携带“该文档服务于哪条查询”的隐藏真值标记；
-- gold 正确性来自执行共识与实例级验证，而不是来自数据中的辅助标签。
-
-`D` 的构造方式、世界物化过程与校验流程由 `03_dataset_construction.md` 负责。
-
-### 1.5 `ecommerce_017` 规范示例
-
-本文统一使用 `ecommerce_017` 作为 canonical running example。该示例满足以下固定约束:
-
-- `db_id = ecommerce_017`
-- canonical NLQ: `Top 3 customers by total paid item spending in 2026.`
-- canonical 查询**不含 join**
-- activated features: `{F10, F15, F17}`
-- canonical pipeline:
-
-```text
-[$match, $unwind, $group, $project, $sort, $limit]
-```
-
-- 结果输出键: `user_id`, `total_spent`
-- 所属 Synth family 的总 NLQ 数 `K = 5`，且包含 canonical NLQ
-
-其 canonical cMRL 骨架写为:
-
-```text
-Match(status = paid ∧ paid_at exists ∧ paid_at >= 2026-01-01)
-→ Unwind(items)
-→ Group(by = user_id, sum(items.price) -> total_spent)
-→ Project(user_id, total_spent)
-→ Sort(total_spent desc)
-→ Limit(3)
-```
-
-该示例在 SDT 中满足:
-
-- `d_2 = log2(6) ≈ 2.58`，因为 6 个 stage 类型各出现 1 次；
-- `d_3 = 0`，因为 canonical 查询不含 join chain。
-
-<a id="01-2"></a>
-## 2. 主基准边界与资产单元
-
-### 2.1 主集准入原则
-
-主基准 headline 样本满足以下共同条件:
-
-- **schema-grounded**: gold 程序中出现的 collection、field、类型约束与输出键都由输入 schema 与编译链路解释；
-- **read-only**: 不产生数据库副作用；
-- **deterministic**: 在同一快照上重复执行得到同一归一化结果；
-- **liftable**: gold 的 fAST 可以提升回主域 cMRL Core ∪ Extension；
-- **triple-consensus**: A/B/C 三路结果完全一致；
-- **status = `pass`**: 这里的 `pass` 是主基准准入语义。具体状态字段名与枚举以 `02_dataset_design.md` 为准；
-- **RIV 通过**: 样本满足实例级 witness / discriminativity 保证。
-
-不满足上述条件的样本不进入主 headline benchmark。
-
-### 2.2 主集与旁路桶
-
-MonGen 严格区分主集与旁路桶:
-
-- `pass` 样本进入主集；
-- `longtail_AB_only` 以及其他公开分歧或降级结果只进入旁路桶 / 审计桶；仅内部审核状态不进入公开 benchmark 资产；
-- 旁路桶用于透明披露、误差分析、覆盖审计或未来扩展，不进入 headline benchmark，也不进入主 in-distribution 汇总。
-
-### 2.3 三个子集的主资产形态
-
-主集层面，三类资产形态固定如下:
-
-- **Synth main set**: family-based 资产。每个 family 至少含 `K >= 3` 个总 NLQ，且包含 canonical NLQ。
-- **Real main set**: primary sample-level 资产。默认 `K = 1`，不假定 family-level robustness。
-- **Hybrid main set**: primary sample-level 资产。默认 `K = 1`，不假定 family-level robustness。
-
-因此，family-level robustness 是**局部资产性质**，不是 benchmark-wide 的默认前提。
-
-### 2.4 Long-Tail 的主集边界
-
-MonGen 主集对子集边界作如下硬约束:
-
-- **Synth main set 不含 Long-Tail**
-- **Hybrid main set 不含 Long-Tail**
-- **Real main set 只包含可提升且三路共识为 `pass` 的样本**
-- **Real Long-Tail 只允许存在于旁路桶**
-
-<a id="01-3"></a>
-## 3. cMRL + fAST 三层表示与编译接口
-
-三层表示的目的不是扩大 headline scope，而是把“主域”和“旁路覆盖域”明确切开。
-
-<a id="01-3-1"></a>
-### 3.1 cMRL Core
-
-cMRL Core 是主基准最核心的可提升、可解释、可共识子域。它承载**高频、确定性、只读**的查询骨架，规模约为 `~30` 个原语。
-
-Core 的语义角色是:
-
-- 为主集提供紧凑、可组合、可提升的 canonical 表示；
-- 为 Compiler A / B / C 提供共同的语义输入；
-- 为主任务中的 lowering、lifting 与 symbolic evaluation 提供稳定接口。
-
-Core 的具体原语清单由 `03_dataset_construction.md` 给出；本文只固定其边界条件，不重复枚举实现清单。
-
-<a id="01-3-2"></a>
-### 3.2 cMRL Extension
-
-cMRL Extension 是主基准的扩展可提升子域。它承载**额外的确定性、只读、仍可由三路共识覆盖**的查询能力，规模约为 `~16` 个原语。
-
-Extension 的语义角色是:
-
-- 补足 Core 之外但仍属于主任务的结构能力；
-- 保持可 lowering、可 lifting、可 symbolic 解释；
-- 与 Core 一起构成主 benchmark 的 liftable deterministic scope。
-
-根契约层明确规定:
-
-- `$sample`
-- `$search`
-- `$out`
-- `$merge`
-
-**不属于 Core，也不属于 Extension 的主域范围**。若这些能力被记录，它们只处于 Long-Tail / side-bucket 语境，不进入 headline benchmark。
-
-<a id="01-3-3"></a>
-### 3.3 fAST Long-Tail
-
-fAST Long-Tail 是 MongoDB AST 的开放承载层，用于承接以下情形:
-
-- 超出 Core ∪ Extension 的节点；
-- 不满足只读 / 确定性 / liftable 约束的节点；
-- 无法由 Compiler C 赋予主域 denotational semantics 的节点。
-
-Long-Tail 的角色是**覆盖与审计**，不是 headline 语义承诺。它允许基准记录现实工作负载中的额外写法，但这些样本:
-
-- 不进入主集；
-- 不进入主 in-distribution 汇总；
-- 不与 `pass` 主样本混合报告。
-
-<a id="01-3-4"></a>
-### 3.4 Lowering / Lifting / Unparser 的职责
-
-MonGen 固定三类编译职责:
-
-- **Lowering** `L : \text{cMRL}_{\text{Core} \cup \text{Ext}} \to \text{fAST}`  
-  `L` 是总函数、确定性函数、语义保持函数。
-
-- **Lifting** `j : \text{fAST} \rightharpoonup \text{cMRL}_{\text{Core} \cup \text{Ext}}`  
-  `j` 是部分函数。主集 gold 样本要求 `j` 成功；Long-Tail 允许 `j` 失败，但只进入旁路桶。
-
-- **Unparser** `h : \text{fAST} \to \text{MQL}`  
-  `h` 是确定性 surface projection。它负责 canonical MQL 输出，不负责语义改写、优化重写或样本放行。
-
-由此，主域 gold 程序满足:
-
-$$
-q^{\text{MQL}} = h(L(q^{\text{cMRL}}))
-$$
-
-而主集 membership 的关键条件之一是:
-
-$$
-j(\operatorname{Parse}(q^{\text{MQL}})) \text{ defined}
-$$
-
-<a id="01-4"></a>
-## 4. Triple Compiler Consensus 与 RIV
-
-Triple Compiler Consensus 是 gold 正确性的主原则，RIV 是实例正确性的补充保证。两者共同决定主集是否接纳一个样本。
-
-<a id="01-4-1"></a>
-### 4.1 Triple Compiler Consensus 作为 gold 原则
-
-MonGen 固定三条彼此独立的语义路径:
-
-- **Compiler A**: `cMRL -> fAST -> MQL -> MongoDB execution`
-- **Compiler B**: `cMRL -> relational bridge -> MQL' -> MongoDB execution`
-- **Compiler C**: `cMRL -> denotational interpretation over D`
-
-对同一 gold cMRL 与同一快照 `D`，三路产出结果分别记为 `r_A`、`r_B`、`r_C`。主域的 gold 共识条件定义为
-
-$$
-\operatorname{TCC\_pass}(x)
-\iff
-r_A(x) \equiv_{rec} r_B(x) \equiv_{rec} r_C(x)
-$$
-
-TCC 的意义是:
-
-- A 保证直接 lowering 路径的工程可执行性；
-- B 提供与 A 不同中间表示下的独立交叉检查；
-- C 提供不依赖 MongoDB 引擎的符号语义锚。
-
-### 4.2 RIV 与主集接纳规则
-
-**Reverse Instance Verification (RIV)** 是 MonGen 在 TCC 之外附加的基准侧实例正确性保证。RIV 不重新定义查询语义，而是检查:
-
-- gold 结果是否由快照中的具体实例 witness 支撑；
-- 样本是否对语义邻近但实质不同的候选具有区分能力；
-- 共识是否不是由“空结果巧合”“欠约束快照”或“不可判别实例配置”造成。
-
-RIV 在概念上提供**instance discriminativity / witness-checking** 保证，具体操作流程、见证生成与检查规则统一由 `03_dataset_construction.md` 定义。
-
-因此，主集 gold 接纳规则定义为
-
-$$
-\operatorname{GoldAccept}_{main}(x)
-\iff
-\operatorname{schema\_grounded}(x)
-\land
-\operatorname{read\_only}(x)
-\land
-\operatorname{deterministic}(x)
-\land
-\operatorname{liftable}(x)
-\land
-\operatorname{status}(x)=\texttt{pass}
-\land
-\operatorname{TCC\_pass}(x)
-\land
-\operatorname{RIV\_pass}(x)
-$$
-
-旁路桶与审计桶包括但不限于:
-
-- TCC 分歧桶: `engine_quirk`, `A_bug`, `B_bug`, `C_bug`, `spec_ambiguity`
-- 降级或旁路状态: `longtail_AB_only` 及其他非 `pass` 的公开 sidecar 状态；内部审核状态不进入公开枚举
-
-这些样本可以被记录，但不属于主集。
-
-<a id="01-5"></a>
-## 5. Structural Difficulty Tensor
-
-SDT 是 MonGen 的结构难度契约。它只刻画样本结构，不承担数据资产字段设计、构造流程或公开报告格式。
-
-<a id="01-5-1"></a>
-### 5.1 SDT 六维
-
-SDT 由六个维度组成:
-
-| 维度 | 记号 | 含义 |
-|---|---|---|
-| ast depth | `d_1` | cMRL AST 的结构深度 |
-| operator entropy | `d_2` | stage 类型分布的 Shannon 熵 |
-| max join chain depth | `d_3` | join 链最大深度 |
-| schema linking ambiguity | `d_4` | NLQ 到 schema 的链接歧义度 |
-| aggregation composition count | `d_5` | 聚合组合复杂度 |
-| temporal reasoning hops | `d_6` | 时间推理步数 |
-
-其中 `d_2` 定义为
-
-$$
-d_2(q) = -\sum_{op} p(op)\log_2 p(op)
-$$
-
-`d_1` 到 `d_6` 的可计算化规则由 `03_dataset_construction.md` 操作化；`02_dataset_design.md` 负责这些量如何附着到数据资产。
-
-<a id="01-5-2"></a>
-### 5.2 标量 `SD` 与固定等级 `L1-L5`
-
-对任一样本 `x`，先把六维分量归一化到 `[0,1]`，得 `\tilde d_i(x) ∈ [0,1]`，再定义
-
-$$
-\operatorname{SD}(x) = \sum_{i=1}^{6} w_i \cdot \tilde d_i(x),
-\qquad
-w_i \ge 0,
-\qquad
-\sum_{i=1}^{6} w_i = 1
-$$
-
-因此 `SD(x) ∈ [0,1]`。根契约只固定 `SD ∈ [0,1]` 与等级边界，具体归一化常数与权重向量由 `03_dataset_construction.md` 负责实现并由 `02_dataset_design.md` 负责资产落盘。
-
-等级边界固定为:
-
-- `L1`: `[0.0, 0.2)`
-- `L2`: `[0.2, 0.4)`
-- `L3`: `[0.4, 0.6)`
-- `L4`: `[0.6, 0.8)`
-- `L5`: `[0.8, 1.0]`
-
-### 5.3 `ecommerce_017` 的难度锚点
-
-对 `ecommerce_017` canonical 查询:
-
-- `d_2 = log2(6) ≈ 2.58`
-- `d_3 = 0`
-
-该示例因此是一个**无 join、六阶段均匀混合**的规范锚点，用于跨文档对齐 `d_2` 与 `d_3` 的解释。
-
-<a id="01-5-4"></a>
-### 5.4 Horizon
-
-`Horizon` 是独立 held-out pool，不属于主 train/test，也不进入主 in-distribution aggregate。
-
-根契约层只固定两件事:
-
-- `Horizon` 依据 SDT 的高难度尾部定义；
-- `Horizon` 与主集分开构建、分开汇总、分开报告。
-
-`Horizon` 的具体成员规则、资产落盘方式与公开报告位置分别由 `02`、`03`、`04` 定义。
-
-<a id="01-6"></a>
-## 6. 多样性原则
-
-MonGen 的多样性不是把所有资产混在一个汇总里，而是把不同来源、不同结构层和不同语言变体在语义上解耦后再并列组织。
-
-### 6.1 三个正交维度
-
-MonGen 至少区分三个相互正交的多样性维度:
-
-- **schema diversity**: 不同逻辑库与不同 schema 结构；
-- **program diversity**: 不同 cMRL / fAST 结构骨架；
-- **language diversity**: 同一语义下的多种 NLQ 表达。
-
-主集要求三者互相独立地贡献变化，而不是让任一维度通过隐藏标签泄漏到另外两维。
-
-### 6.2 Family 与 Sample 的分工
-
-多样性资产的单位按子集区分:
-
-- **Synth** 以 family 为主。每个 family 至少有 `K >= 3` 个总 NLQ，canonical 包含在内。
-- **Real** 与 **Hybrid** 以 sample 为主。主集默认 `K = 1`，不把 family-level robustness 作为全基准默认假设。
-
-因此，family robustness 是 Synth 及少量扩展资产的分析维度，不是整个 benchmark 的强制结构。
-
-### 6.3 语言变体原则
-
-当 family 资产存在时，其 NLQ 变体允许覆盖多种表达风格，例如:
-
-- `formal`
-- `colloquial`
-- `jargon`
-- `noisy`
-- `negated`
-- `ambiguous`
-- `multilingual`
-
-这些风格是语言多样性的组织方式，不改变 gold 程序的语义身份。变体生成与回译共识的操作细节由 `03_dataset_construction.md` 定义，公开 robustness 指标由 `04_evaluation_methodology.md` 定义。
-
-### 6.4 主集与旁路资产不混合
-
-多样性原则不覆盖以下混合行为:
-
-- 不把 `pass` 主样本与 Long-Tail 降级样本混合成一个主汇总；
-- 不把 Synth family 资产与 Real / Hybrid 的 sample 资产当作同一假设结构；
-- 不把 Horizon 与主 in-distribution 资产放进同一 headline 聚合。
-
-<a id="01-7"></a>
-## 7. 记号与结果归一化契约
-
-### 7.1 核心记号
-
-| 记号 | 含义 |
-|---|---|
-| `S` | 输入 schema 上下文 |
-| `D` | `db_id` 绑定的数据快照 |
-| `q_p` | 预测 MQL |
-| `q_g` | gold MQL |
-| `q^{cMRL}` | cMRL 程序 |
-| `q^{fAST}` | fAST 程序 |
-| `L` | lowering |
-| `j` | lifting |
-| `h` | unparser |
-| `Parse` | MQL 到 fAST 的解析 |
-| `r_A, r_B, r_C` | A / B / C 三路结果 |
-| `\equiv_{rec}` | 结果递归相等关系 |
-| `d_1,\dots,d_6` | SDT 六维分量 |
-| `SD` | 归一化后的结构难度标量 |
-| `Horizon` | 独立 held-out 难样本池 |
-
-### 7.2 归一化与递归相等契约
-
-公开结果比较之前，BSON 结果统一做规范化。根契约固定以下规则:
-
-- `ObjectId` 规范化为 24 位 hex 字符串；
-- `Date` 规范化为 ISO-8601 UTC 字符串；
-- `Decimal128` 规范化为保留全精度的字符串；
-- `Long` 在安全整数范围内可转为整数，否则保留字符串；
-- `Binary` 规范化为 base64 字符串；
-- `Regex` 规范化为 `/pattern/flags`；
-- `NaN` / `Infinity` 使用显式 token；
-- **`null` 与 `missing` 严格区分**: `null` 保持为 `null`，missing 字段在归一化结果字典中保持缺席，不被补成 `null`。
-
-递归相等 `\equiv_{rec}` 的契约是:
-
-- 标量按规范化后的值比较；
-- 字典要求键集合一致，且每个键对应值递归相等；
-- 列表默认按顺序逐位比较；若某任务在 `04` 中被定义为无序结果，则先进入其指定的规范排序后再比较。
-
-### 7.3 文档职责边界
-
-为避免定义漂移，MonGen 各提案文档的职责边界固定如下:
-
-- `02_dataset_design.md`  
-  单一来源: 数据资产字段名、状态字段名、family/sample 记录形态、切分规则、主集与旁路桶的落盘表达。
-
-- `03_dataset_construction.md`  
-  单一来源: 构造流水线、Core / Extension 具体原语、lowering / lifting / unparser 的操作化、Triple Compiler 运行流程、RIV witness-checking、旁路桶生成与审计流程。
-
-- `04_evaluation_methodology.md`  
-  单一来源: EX / EX-Sym 等指标、聚合口径、公开报告结构、主集与 Horizon 的报告边界。
-
-- `05_solution_design.md`  
-  单一来源: 求解系统、训练与推理设计、检索与优化策略。`05` 不重新定义任务边界、样本准入规则或结果归一化契约。
+> 本文件是 TEND benchmark 任务语义层的根定义（SSoT）。它只回答"这个任务是什么、它的输出空间允许什么、它的正确性如何被锚定、结果如何被归一化、什么样的样本才有资格作为 gold"，不涉及 record schema、构造流程、评测指标公式或方法架构。下游文档（[02 数据集设计](./02_dataset_design.md) / [03 数据集构造](./03_dataset_construction.md) / [04 评测方法](./04_evaluation_methodology.md) / [05 方法设计](./05_solution_design.md)）必须把本文档作为唯一的语义参照点。
 
 ---
 
-本文到此固定 MonGen 的根语义契约: 任务 I/O、主域边界、三层表示、Triple Compiler Consensus、RIV、SDT、Horizon、Family 与 Sample 的语义分工，以及结果规范化规则。后续文档若与本文冲突，以本文为准；但任何具体字段名、状态枚举、切分与操作流程，都必须回到 `02/03/04/05` 的职责文档中查证。
+## §0 摘要 <a id="01-0"></a>
+
+TEND 是一个 Text-to-NoSQL benchmark：给定一条自然语言查询（NLQ）和它所属数据库的 MongoDB schema 上下文，要求模型生成一条**可执行的 MongoDB 查询**（`find` 或 aggregation pipeline）。整体规模为 154 个数据库 / 105 个领域 / 347 个 collection / 17,020 对 `(NLQ, NoSQL)`，按 cross-domain 比例 8:2 切分（train 14,245 / test 2,775）。
+
+本文档定义五件事：
+
+1. 任务的形式化函数签名（[§1](#01-1)）。
+2. 输出空间允许什么、不允许什么（[§2](#01-2)）。
+3. 正确性的物理执行锚——这是任务正确与否的**唯一**判定（[§3](#01-3)）。
+4. 结果归一化契约——把 BSON 结果转换为可比较的规范形式（[§4](#01-4)）。
+5. 递归相等关系 $\equiv_{rec}$ 的形式化定义（[§5](#01-5)）。
+
+之后追加两个支撑性章节：Instance 正确性的根原则（[§6](#01-6)）与 canonical 示例的语义解读（[§7](#01-7)）；最后给出全文符号表（[§8](#01-8)）。
+
+---
+
+## §1 任务的形式化 <a id="01-1"></a>
+
+任务是一个把"自然语言 + 模式上下文 + 库标识符"映射到"MongoDB 查询"的函数：
+
+$$
+f:\ (\mathrm{NLQ},\ S,\ \mathit{db\_id})\ \longrightarrow\ q^{\mathrm{MQL}}
+$$
+
+### 1.1 输入空间
+
+| 符号 | 含义 | 性质 |
+|---|---|---|
+| $\mathrm{NLQ}$ | 一条自然语言查询，例如 *"List the top 3 conductors with the most performances."* | 字符串 |
+| $S$ | 该数据库对应的 MongoDB schema 上下文（collection 列表、字段名、字段 BSON 类型、嵌套子文档结构） | 结构化对象 |
+| $\mathit{db\_id}$ | 数据库标识符（如 `orchestra`） | 字符串 |
+
+### 1.2 输出空间
+
+| 符号 | 含义 | 性质 |
+|---|---|---|
+| $q^{\mathrm{MQL}}$ | 一条 mongosh 可执行的 MongoDB 查询；形式上可以是 `db.<col>.find(...)` 或 `db.<col>.aggregate([...])` | 字符串 |
+
+### 1.3 数据快照 $D$
+
+数据快照 $D$ 是由 $\mathit{db\_id}$ **唯一绑定**的只读 MongoDB 实例状态：
+
+$$
+D \equiv D(\mathit{db\_id})
+$$
+
+- $D$ 在评测期间不被任何样本写入或修改。
+- $D$ 的内容由 $\mathit{db\_id}$ 完全决定；不存在与 $\mathit{db\_id}$ 同名但内容不同的两个快照。
+- $S$ 是 $D$ 在结构层面的描述；$D$ 是 $S$ 的具体实例化（具体文档集合）。
+
+### 1.4 解析与执行的复合算子
+
+为后续公式表达，引入两个原子算子：
+
+| 算子 | 签名 | 含义 |
+|---|---|---|
+| $\mathrm{Parse}$ | $q^{\mathrm{MQL}} \to \mathrm{AST}$ | 由标准 mongosh 把查询字符串解析为抽象语法树 |
+| $\mathrm{Exec}$ | $(\mathrm{AST},\ D) \to r$ | 在快照 $D$ 上执行 AST，返回原始 BSON 结果（文档列表） |
+
+并定义结果归一化算子 $\mathrm{Norm}$（详见 [§4](#01-4)）。三者复合后得到任务正确性使用的执行算子：
+
+$$
+\mathrm{NormExec}(q,\ D)\ \triangleq\ \mathrm{Norm}\!\bigl(\mathrm{Exec}\bigl(\mathrm{Parse}(q),\ D\bigr)\bigr)
+$$
+
+---
+
+## §2 输出空间约束 <a id="01-2"></a>
+
+属于任务输出空间 $q^{\mathrm{MQL}}$ 的查询必须同时满足三条性质。
+
+### 2.1 三条核心性质
+
+1. **read-only**：查询不写入数据库、不导出数据、不依赖任何运行时副作用。`NormExec` 在执行前后必须保证 $D$ 完全不变。
+2. **deterministic**：在固定快照 $D$ 上对同一查询重复调用 $\mathrm{NormExec}$，必须产生**完全相同**的归一化结果。
+3. **mongosh-executable**：查询必须能被标准 mongosh 解析（$\mathrm{Parse}$ 不抛出语法错误）并在 $D$ 上执行（$\mathrm{Exec}$ 不抛出运行时错误）。
+
+### 2.2 不允许使用的算子
+
+下列算子破坏上述性质，**不在任务输出空间内**：
+
+| 算子 | 破坏的性质 | 说明 |
+|---|---|---|
+| `$sample` | deterministic | 随机抽样，结果不可重复 |
+| `$rand` | deterministic | 随机数，结果不可重复 |
+| `$$NOW` | deterministic | 依赖系统当前时间，与执行时刻耦合 |
+| `$out` | read-only | 把聚合结果写入新 collection |
+| `$merge` | read-only | 把聚合结果合并到目标 collection |
+| `$function` | deterministic + read-only | 允许任意 JavaScript，副作用与不确定性都无法约束 |
+
+> **范围澄清**：本节只是声明这些算子**不在任务输出空间里**——也就是说，使用这些算子的查询不构成本任务的合法 $q^{\mathrm{MQL}}$。本节不规定模型生成时遇到这些算子如何处理，也不规定它们在数据组织上属于哪一类资产。
+
+---
+
+## §3 正确性锚点 <a id="01-3"></a>
+
+模型对一条样本的预测 $q_p$ 在该样本的快照 $D$ 上"正确"当且仅当：
+
+$$
+\mathrm{NormExec}(q_p,\ D)\ \equiv_{rec}\ \mathrm{NormExec}(q_g,\ D)
+$$
+
+其中 $q_g$ 是该样本的 gold MQL，$\equiv_{rec}$ 是 [§5](#01-5) 定义的递归相等关系。
+
+这是 TEND 任务的**唯一物理执行锚**。任务层不引入第二个独立判定：
+
+- 不存在"另有一个符号语义判定"也能判正确。
+- 不存在"先满足某个语义条件再满足执行条件"的两段式锚。
+- 任何派生指标（包括 [04 评测方法](./04_evaluation_methodology.md) 中的查询级或执行级指标）要么直接实例化本式（如 EX 把上式作为成功条件），要么是它的代理近似（如 EM/QSM/QFC 在 $q$ 串层面的近似比较）；它们都不取代本式作为根判定。
+
+---
+
+## §4 结果归一化契约（BSON 类型规范化规则） <a id="01-4"></a>
+
+$\mathrm{Norm}$ 把 $\mathrm{Exec}$ 返回的原始 BSON 结果（一棵以"文档列表"为根的嵌套结构）转换为标量、字典、列表三种构件组成的规范树。本节是任务层关于结果可比性的最权威规则；[02](./02_dataset_design.md) / [03](./03_dataset_construction.md) / [04](./04_evaluation_methodology.md) 涉及结果比较时必须引用本节。
+
+### 4.1 标量类型规范化
+
+| BSON 类型 | 规范化形式 | 示例 |
+|---|---|---|
+| `ObjectId` | 24 位小写 hex 字符串 | `507f1f77bcf86cd799439011` |
+| `Date` | ISO-8601 UTC 字符串（带 `Z`） | `2024-03-15T08:30:00Z` |
+| `Decimal128` | 保留全精度的字符串（不转 float） | `"3.141592653589793238"` |
+| `Long` (`Int64`) | 若值在 JS 安全整数范围内（$\|n\| \le 2^{53}-1$）→ Python `int`；否则 → 数字字符串 | `1234567890`, `"9223372036854775807"` |
+| `Binary` | base64 字符串 | `"SGVsbG8="` |
+| `Regex` | `/pattern/flags` 字符串 | `/^abc$/i` |
+| `NaN` | 显式 token 字符串 `"NaN"` | `"NaN"` |
+| `Infinity` / `-Infinity` | 显式 token 字符串 `"Infinity"` / `"-Infinity"` | `"Infinity"` |
+| 其它原生标量（`int`, `double`, `bool`, `string`） | 保持原值 | `42`, `3.14`, `true`, `"foo"` |
+
+### 4.2 复合结构规范化
+
+- **文档（document）** 规范化为字典：键集合保持，值递归规范化。键的字典序在比较时由 [§5](#01-5) 处理。
+- **数组（array）** 规范化为列表：元素位置保持，元素递归规范化；是否按位置比较或排序后比较由 [§5](#01-5) 决定。
+
+### 4.3 `null` 与 missing 的严格区分
+
+这是归一化中最容易出错、必须显式声明的一条规则：
+
+| 情形 | 规范化结果 |
+|---|---|
+| 字段存在且值为 `null` | 字段存在，值 = `null` |
+| 字段不存在（missing） | 字段不存在；**不补 `null`、不补默认值、不补空字符串** |
+
+也就是说，`{"a": null}` 与 `{}` 在归一化后**仍然不同**。这一条对 `$project`、`$lookup`、`$unwind` 等会引入"可能缺失字段"的算子尤其重要。
+
+### 4.4 `_id` 的处理
+
+`_id` 是 MongoDB 默认主键。归一化本身不擅自删除或注入 `_id`：
+
+- 若 $q_g$ 的输出文档包含 `_id`，则 $q_p$ 的输出也必须包含同结构的 `_id`，并按 [§5](#01-5) 比较。
+- 若 $q_g$ 的输出文档显式 `$project: {_id: 0}` 把 `_id` 抑制掉，则归一化结果中也不存在 `_id` 字段（适用 [§4.3](#01-4) 的 missing 语义）。
+
+---
+
+## §5 递归相等关系 $\equiv_{rec}$ 的形式化定义 <a id="01-5"></a>
+
+$\equiv_{rec}$ 定义在 [§4](#01-4) 给出的规范树上，按结构归纳：
+
+### 5.1 标量
+
+$$
+x \equiv_{rec} y\ \iff\ \mathrm{type}(x) = \mathrm{type}(y)\ \wedge\ \mathrm{value}(x) = \mathrm{value}(y)
+$$
+
+其中 type 与 value 都按 [§4.1](#01-4) 规范化后的形式比较。
+
+### 5.2 字典
+
+设 $a$、$b$ 都是字典，$\mathrm{keys}(a)$、$\mathrm{keys}(b)$ 是它们的键集合。
+
+$$
+a \equiv_{rec} b\ \iff\ \mathrm{keys}(a) = \mathrm{keys}(b)\ \wedge\ \forall k \in \mathrm{keys}(a):\ a[k] \equiv_{rec} b[k]
+$$
+
+> 由 [§4.3](#01-4)，`a` 中存在键 `k` 而 `b` 中不存在键 `k`，必然导致 $\mathrm{keys}(a) \neq \mathrm{keys}(b)$，即使 `a[k] = null` 也判不等。
+
+### 5.3 列表
+
+设 $u = [u_1, \dots, u_m]$、$v = [v_1, \dots, v_n]$。
+
+**默认（顺序敏感）**：
+
+$$
+u \equiv_{rec} v\ \iff\ m = n\ \wedge\ \forall i \in [1,m]:\ u_i \equiv_{rec} v_i
+$$
+
+**当 gold 来源标明为无序集合**（例如顶层结果对应 `find` 且 NLQ 不含排序意图、或聚合管道在最外层不含 `$sort`）：先对 $u$ 与 $v$ 各自按某个固定的规范全序排序，再按上式逐位比较。规范全序由"对每个元素递归生成的规范字符串字典序"给出，确保排序结果稳定且与具体语言无关。
+
+### 5.4 顶层语义
+
+$\mathrm{NormExec}(q, D)$ 的根永远是一个"文档列表"。该列表是否按位置比较，遵循 [§5.3](#01-5) 中关于顺序敏感性的判定。
+
+---
+
+## §6 Instance 正确性的根原则 <a id="01-6"></a>
+
+[§3](#01-3) 给出了一个对称形式的正确性锚：$q_p$ 与 $q_g$ 在 $D$ 上归一化执行结果递归相等。这条锚的判别力依赖于一个隐含前提：**gold $q_g$ 本身在该样本的 $(\mathrm{NLQ}, S, D)$ 上是唯一可信的正确解**。如果 gold 不唯一、不可信，或它在 $D$ 上输出退化（例如永远空），则 [§3](#01-3) 就失去了识别能力。
+
+本节把这个隐含前提显式化为四条根原则。任务边界层只**陈述**它们；具体如何在数据集构造侧把它们落实为可执行的检查与过滤，由 [03 数据集构造](./03_dataset_construction.md) 负责。
+
+### 6.1 四条根原则
+
+每个有资格作为 gold 进入 TEND 的样本 $(\mathrm{NLQ}, S, \mathit{db\_id}, q_g)$ 必须满足：
+
+| 编号 | 原则 | 形式陈述 |
+|---|---|---|
+| P1 | **执行正确** | $\mathrm{NormExec}(q_g, D)$ 不抛错、可被 [§4](#01-4) 完整归一化、且代表 NLQ 所述意图。 |
+| P2 | **语义唯一** | $\mathrm{NLQ}$ 在 $(S, D)$ 上的语义意图唯一；不存在另一个"在自然语言上同样合理但语义本质不同"的意图与 $q_g$ 的输出竞争。 |
+| P3 | **判别力** | 平凡 baseline（如返回空集合、返回未筛选全集、返回固定常量）在 $D$ 上不与 $\mathrm{NormExec}(q_g, D)$ 递归相等；任何"明显错"的查询能被 [§3](#01-3) 的锚区分出来。 |
+| P4 | **世界非平凡** | 数据快照 $D$ 中存在足够实例使得查询语义被真实触发：例如 Top-$k$ 类查询要求至少 $k$ 个候选；分组聚合要求分组键有足够多样性；过滤类查询要求满足条件与不满足条件的文档**都**存在。 |
+
+### 6.2 与正确性锚的耦合
+
+- P1 是 [§3](#01-3) 的锚能成立的执行前提：若 $q_g$ 在 $D$ 上无法归一化执行，锚式右端无定义。
+- P2 是锚的语义合法性：若 NLQ 本身歧义，则 $q_p$ 即使表达了另一个合法意图也会被误判。
+- P3 是锚的"信号—噪声比"：保证一条样本通过/未通过提供真实信息，而不是被平凡解轻易满足。
+- P4 是锚的"在 $D$ 上有效"：保证锚不被空集恒等之类的退化情况短路。
+
+### 6.3 与下游评测的关系
+
+[04 评测方法](./04_evaluation_methodology.md) 中的执行级正确性指标 EX 直接实例化 [§3](#01-3) 的锚——即 EX 把 $q_p$ 是否满足该等式作为单样本布尔判定。本节四条原则确保了 EX 在 TEND 上是有意义的判别量，而不是被 gold 退化拖垮的伪指标。
+
+> 本节四条原则在概念上是任务边界与数据集构造之间的契约：任务层声明"什么样的样本才有资格存在"，构造层负责把这种"资格"变成具体的可执行检查。任务层不规定具体的检查算法、不规定中间过程产物的命名，也不规定样本最终被如何标注。
+
+---
+
+## §7 canonical 示例的语义解读 <a id="01-7"></a>
+
+为让全部下游文档（[02](./02_dataset_design.md) / [03](./03_dataset_construction.md) / [04](./04_evaluation_methodology.md) / [05](./05_solution_design.md)）共享同一个心智锚点，约定一个 canonical 示例。所有具体的字段字面量、record 字段、构造步骤与 mongosh 命令均由下游文档负责给出，本节只解释**语义**。
+
+### 7.1 canonical 三元组
+
+| 项 | 值 |
+|---|---|
+| `db_id` | `orchestra` |
+| canonical NLQ | *"List the top 3 conductors with the most performances."* |
+| canonical `record_id` | `99001`（int 类型，与 [02 §2.1](./02_dataset_design.md#02-2) 字段定义一致） |
+
+### 7.2 schema 的语义形态
+
+`orchestra` 数据库以 `conductor` 为顶层 collection，向下嵌套四层：
+
+```
+conductor
+└── orchestra[]            （一个 conductor 指挥多支 orchestra）
+    └── performance[]      （一支 orchestra 有多场 performance）
+        └── show[]         （一场 performance 包含多个 show）
+```
+
+也就是说，"performance" 这个被 NLQ 直接计数的对象**不在 conductor 文档的顶层**，而是嵌在 `conductor.orchestra[].performance[]` 路径下。
+
+### 7.3 NLQ 的操作语义
+
+把 canonical NLQ 翻译成操作语义大致是这样：对每位 `conductor`，统计她/他名下**所有** `orchestra` 中的**所有** `performance` 的总条数；再以这个总条数为键按降序排序；最后取前 3 名。
+
+输出的形态是一个**长度为 3** 的列表，每个元素至少标识一位 conductor 并带上其 performance 总数。具体保留哪些字段、用什么键名展示，是 [02](./02_dataset_design.md) / [03](./03_dataset_construction.md) 处理的细节，本节不固定。
+
+### 7.4 为什么需要嵌套展开
+
+要在 mongosh 中数到 performance：
+
+- 必须穿透 `conductor.orchestra[]` 与 `conductor.orchestra[].performance[]` 两层数组；
+- 不能停在 conductor 的顶层字段，也不能只数 orchestra 的数量（那会回答另一个问题）；
+- 因此可执行解通常要么走 `$unwind` 展开两层、要么走 `$reduce` / `$sum` 在数组上做内部累加。
+
+无论选择哪条路径，"必须跨两层数组进行计数"是这条 NLQ 的硬约束。
+
+### 7.5 判别力来自哪里
+
+按 [§6](#01-6) 的 P3，判别力意味着平凡或近邻的错误解必须能被 [§3](#01-3) 的锚区分开。该样本的判别面至少包括：
+
+- **聚合粒度**：必须聚合到 conductor 级，而不是 orchestra 级或 performance 级。
+- **被计数对象**：必须计 performance，而不是 orchestra 或 show。
+- **排序方向**：必须按 count 降序，而不是按字母序、年份或任意序。
+- **截断长度**：必须取前 3，不是前 1、前 5 或全集。
+
+只要 $q_p$ 在以上四个面之一与 $q_g$ 不一致，[§4](#01-4) 归一化后的结果就会与 gold 不相等，从而被 [§3](#01-3) 的锚判错。
+
+### 7.6 在 $D$ 上的非平凡性
+
+按 [§6](#01-6) 的 P4，`orchestra` 数据库的快照 $D$ 必须满足：
+
+- conductor 数 $\ge 3$（否则取前 3 退化）；
+- 至少有两位 conductor 的 performance 总数不同（否则降序无信号）；
+- 至少存在跨两层嵌套的真实 performance 实例（否则两层 unwind 都返回空，结果退化为空集）。
+
+---
+
+## §8 全文符号表 <a id="01-8"></a>
+
+| 符号 | 含义 | 首次出现 |
+|---|---|---|
+| $\mathrm{NLQ}$ | 自然语言查询字符串 | [§1.1](#01-1) |
+| $S$ | MongoDB schema 上下文（collection / 字段 / BSON 类型 / 嵌套） | [§1.1](#01-1) |
+| $\mathit{db\_id}$ | 数据库标识符 | [§1.1](#01-1) |
+| $D$ | 由 $\mathit{db\_id}$ 唯一绑定的只读数据快照，$D \equiv D(\mathit{db\_id})$ | [§1.3](#01-1) |
+| $q^{\mathrm{MQL}}$ | 任务输出的 mongosh 可执行查询（`find` 或 aggregation pipeline） | [§1.2](#01-1) |
+| $q_p$ | 模型对某样本的预测查询 | [§3](#01-3) |
+| $q_g$ | 某样本的 gold 查询 | [§3](#01-3) |
+| $f$ | 任务函数 $f:(\mathrm{NLQ}, S, \mathit{db\_id}) \to q^{\mathrm{MQL}}$ | [§1](#01-1) |
+| $\mathrm{Parse}$ | mongosh 解析算子，$q^{\mathrm{MQL}} \to \mathrm{AST}$ | [§1.4](#01-1) |
+| $\mathrm{Exec}$ | mongosh 执行算子，$(\mathrm{AST}, D) \to r$，返回原始 BSON 结果 | [§1.4](#01-1) |
+| $\mathrm{Norm}$ | BSON 结果归一化算子（[§4](#01-4) 给出全部规则） | [§1.4](#01-1) |
+| $\mathrm{NormExec}$ | 复合算子 $\mathrm{Norm}\!\circ\!\mathrm{Exec}\!\circ\!\mathrm{Parse}$，对 $(q, D)$ 返回规范化执行结果 | [§1.4](#01-1) |
+| $\equiv_{rec}$ | 规范树上的递归相等关系（[§5](#01-5) 给出定义） | [§3](#01-3) |
+| P1–P4 | Instance 正确性的四条根原则（执行正确 / 语义唯一 / 判别力 / 世界非平凡） | [§6.1](#01-6) |
+
+---
+
+> 下游文档定位：record 字段与 audit 信息见 [02 数据集设计](./02_dataset_design.md)；从 schema/数据生成到 NLQ pipeline 的具体构造流水线见 [03 数据集构造](./03_dataset_construction.md)；6 个评测指标 EM/QSM/QFC/EX/EFM/EVM 的公式与协议见 [04 评测方法](./04_evaluation_methodology.md)；面向本任务的方法架构见 [05 方法设计](./05_solution_design.md)。
