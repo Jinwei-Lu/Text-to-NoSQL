@@ -1,265 +1,268 @@
-# 04 · 评测方法（Evaluation Methodology）
+# TEND 评测方法学（Evaluation Methodology）
 
-> 本文件是 TEND benchmark 评测层的根定义（SSoT）。它只回答"在 [02 数据集设计](./02_dataset_design.md) 给出的 test set 上、用 [01 任务定义](./01_task_definition.md) 给出的语义锚，怎样把模型预测翻译成 6 个标量指标、怎样组织报告、怎样保证可复现"。它不重新定义任务签名（[01](./01_task_definition.md) 的事）、不重新定义 record 字段（[02](./02_dataset_design.md) 的事）、不重新定义构造流程（[03 数据集构造](./03_dataset_construction.md) 的事）、也不规定方法架构（[05 方法设计](./05_solution_design.md) 的事）。下游方法文档必须把本文档作为指标与协议的唯一参照点。
+<a id="05-0"></a>
+## §0 摘要
 
----
+TEND 评测层（evaluation layer）做且仅做三件事：
 
-## §0 摘要 <a id="04-0"></a>
+1. 把 [01 §3](./01_task_definition.md#01-3) 给出的物理执行锚 $\operatorname{NormExec}(q_p, D) \equiv_{rec} \operatorname{NormExec}(q_g, D)$ 实例化为 7 个标量指标 EM, QSM, QFC, EX, EFM, EVM, QIM（[§1](#05-1)）。
+2. 在 [02](./02_dataset_design.md) 给出的 test set（2,775 条 record）上，按 record 逐条计算 7 指标，再求 sample-mean，并为每条 record 显式落盘失败类型（[§2](#05-2)）。
+3. 用一份 manifest 摘要锁，把"输入数据 + 运行时栈 + 评测器代码 + canonical_form_extractor + RP_diff 参考面板 + V7' SQL-bridge panel"全部 hash 进同一份记录，使任何一条 hash 不一致都直接中止评测（[§3](#05-3)）。
 
-TEND 评测层做且仅做三件事：
+EX 是 headline 指标（直接实例化 [01 §3](./01_task_definition.md#01-3) 的物理执行锚 $\operatorname{NormExec}(q_p, D) \equiv_{rec} \operatorname{NormExec}(q_g, D)$）；其余 6 个指标（EM, QSM, QFC, EFM, EVM, QIM）都是代理或诊断指标（diagnostic metrics），用于在 EX = 0 时定位错误层级，或在 EX = 1 时揭示写法层面的 idiomatic 合规性。其中 QIM 是对 $q_p$ AST 的语法层代理（见 [§1.8](#05-1-8)），归属 [01 §2.3](./01_task_definition.md#01-2-3) 的代理指标范畴，不构成独立于 $\operatorname{NormExec}$ 的第二物理锚。本文档不定义任何超出 7 指标之外的派生量；不允许把 EX 拆成多个变体；不允许把 7 指标按 family、难度档或模板分桶后再当作 headline 上报。
 
-1. 把 [01 §3](./01_task_definition.md) 的物理执行锚 $\mathrm{NormExec}(q_p,D) \equiv_{rec} \mathrm{NormExec}(q_g,D)$ 实例化为 **6 个标量指标**：`EM`、`QSM`、`QFC`、`EX`、`EFM`、`EVM`（[§1](#04-1)）。这与 `src/utils/metric.py` 第 21 行 `metrics_list = ('EX', 'EM', 'QSM', 'QFC', 'EFM', 'EVM')` 完全对齐——不增不减。
-2. 在 [02](./02_dataset_design.md) 给出的单一 test set 上按 record 逐条计算 6 指标，再求 sample-mean，并为每条 record 显式落盘失败类型（[§2](#04-2)）。
-3. 用一份 **manifest 摘要锁**把"输入数据 + 运行时栈 + 评测器代码"全部 hash 进同一份记录，使得任何一条 hash 不一致都直接中止评测、不强行产出不可比数字（[§3](#04-3)）。
+TEND benchmark 的锁定数字为 154 db / 105 domain / 347 collection / 17,020 (NLQ, NoSQL) record pairs，按 14,245 train / 2,775 test 的 cross-domain 8:2 切分（详见 [02](./02_dataset_design.md)）。本文档评测协议与该切分严格一致。
 
-**EX 是 headline 指标**，对应执行结果的递归相等；其余 5 个是诊断指标，用于回答"如果 EX 错了，错在串面、结构面、字段面还是值面"。本文档不定义任何超出 6 指标之外的派生量；不允许把 EX 拆成多个变体、不允许把 6 指标按 family / 难度档 / 模板分桶后再当作 headline 上报。
+<a id="05-1"></a>
+## §1 7 指标的形式定义
 
----
+<a id="05-1-1"></a>
+### §1.1 符号约定与依赖算子
 
-## §1 6 指标的形式定义 <a id="04-1"></a>
+固定记号表如下，本文档全程沿用：
 
-### 1.1 符号约定与依赖算子 <a id="04-1-1"></a>
+| 符号 | 含义 |
+|---|---|
+| $x$ | 一条 test record |
+| $q_g(x)$ | 该 record 的 gold MQL |
+| $q_p(x)$ | 模型对该 record 给出的预测 MQL |
+| $D(x)$ | 该 record 对应 db_id 的只读数据快照 |
+| $\operatorname{Parse}$ | 把 MQL 串解析为结构化 AST 的算子 |
+| $\operatorname{Exec}$ | 在数据快照上执行已解析查询的算子 |
+| $\operatorname{Norm}$ | [01 §4](./01_task_definition.md#01-4) 定义的结果归一化算子 |
+| $\operatorname{NormExec}$ | $\operatorname{Norm} \circ \operatorname{Exec} \circ \operatorname{Parse}$ 的复合 |
+| $\equiv_{rec}$ | [01 §5](./01_task_definition.md#01-5) 定义的递归相等关系 |
+| $\bot$ | 解析失败、执行失败、超时或运行期错误的统一占位符 |
 
-固定记号：
+为表达 7 指标，引入六个纯派生算子（pure derived operators）：
 
-| 符号 | 含义 | 来源 |
-|---|---|---|
-| $x$ | 一条 test record（[02](./02_dataset_design.md) 给出 schema） | [02](./02_dataset_design.md) |
-| $q_g(x)$ | record $x$ 的 gold MQL（来自 record 字段 `MQL`） | [02](./02_dataset_design.md) |
-| $q_p(x)$ | 模型对 record $x$ 输出的预测 MQL | 模型预测文件 |
-| $D(x)$ | record $x$ 所在 `db_id` 唯一绑定的只读数据快照 | [01 §1.3](./01_task_definition.md) |
-| $\mathrm{Parse}$ | mongosh 解析算子 | [01 §1.4](./01_task_definition.md) |
-| $\mathrm{Exec}$ | mongosh 执行算子 | [01 §1.4](./01_task_definition.md) |
-| $\mathrm{Norm}$ | BSON 结果归一化算子 | [01 §4](./01_task_definition.md) |
-| $\mathrm{NormExec}$ | $\mathrm{Norm}\circ\mathrm{Exec}\circ\mathrm{Parse}$ 的复合 | [01 §1.4](./01_task_definition.md) |
-| $\equiv_{rec}$ | 规范树上的递归相等 | [01 §5](./01_task_definition.md) |
-| $\bot$ | 解析失败 / 执行失败 / 超时 / 运行期错误的统一占位符 | 本文 [§2.3](#04-2-3) |
+- `norm_str(q)`：串面归一化。两端空白剥离后再把连续空白折叠为单个空格。仅作字符串层归一化，不做语义归一化。
+- `stages(Parse(q))`：取 aggregation pipeline 的 stage 算子序列；`find` 调用视作长度为 1 的 `[find]`。
+- `fields(Parse(q))`：取查询体中触及的字段路径集合，以完整嵌套路径为单位。
+- `keys(r)` 与 `drop_keys(r)`：`keys` 递归收集结果对象 $r$ 中所有出现过的字段名集合；`drop_keys` 把规范树按结构剥离字段名后保留值的形态。
+- `canonical_form_set(q_g)`：$q_g$ 的结构约束四元组 $C = (\text{must\_contain}, \text{must\_not\_contain}, \text{must\_contain\_at\_root}, \text{must\_not\_contain\_at\_root})$，每个分量均为 MQL operator token 集合；由 [04 §5.7](./04_dataset_construction.md#04-5) 机械派生，落盘路径 `audit/<db_id>/<record_id>/derived/canonical_form_set.json`。
+- `AST_check(AST, C)`：对 AST 与 canonical_form_set $C$ 的结构性断言算子。令 $T$ 为 AST 中全部 operator token 的集合、$T_{\mathrm{root}}$ 为 AST 根层（top-level pipeline stage）operator token 的集合，则
 
-为表达 6 指标，本文额外引入四个**纯派生算子**——它们都只是已有原子算子的封装，不引入新语义：
+$$\operatorname{AST\_check}(\mathrm{AST}, C) = \begin{cases} \text{pass} & \text{若}\ C.\text{must\_contain} \subseteq T \ \wedge\ T \cap C.\text{must\_not\_contain} = \emptyset \ \wedge \\ & \quad C.\text{must\_contain\_at\_root} \subseteq T_{\mathrm{root}} \ \wedge\ T_{\mathrm{root}} \cap C.\text{must\_not\_contain\_at\_root} = \emptyset \\ \text{fail} & \text{否则} \end{cases}$$
 
-| 算子 | 签名 | 含义 |
-|---|---|---|
-| $\mathrm{norm\_str}(q)$ | $q^{\mathrm{MQL}} \to \mathrm{string}$ | 串面归一化：把查询字符串两端空白剥离、把所有连续空白序列折叠为一个空格；对应 `src/utils/metric.py` 中 `_deal_query` 的行为 |
-| $\mathrm{stages}(\mathrm{Parse}(q))$ | $\mathrm{AST} \to [\mathrm{StageOp}]$ | 取 aggregation pipeline 的 stage 算子序列（如 `[$match, $group, $sort, $limit, $project]`）；`find` 视作长度为 1 的退化序列 `[find]`；对应 `src/utils/extract_stages.py::get_query_stages` |
-| $\mathrm{fields}(\mathrm{Parse}(q))$ | $\mathrm{AST} \to \mathrm{set}[\mathrm{FieldPath}]$ | 取查询体中触及的字段路径集合（如 `{"orchestra.performance", "Conductor_ID", "Name"}`）；对应 `src/utils/extract_fields.py::extract_fields` |
-| $\mathrm{keys}(r),\ \mathrm{drop\_keys}(r)$ | $\mathrm{NormResult} \to \mathrm{set}[\mathrm{string}]\ /\ \mathrm{NormResult}$ | $\mathrm{keys}$ 递归收集结果集中所有出现过的字段名集合；$\mathrm{drop\_keys}$ 把同一规范树按结构剥离字段名后保留值的形态（数组保持顺序、字典退化为按键字典序排序后的值序列） |
+fail 分支须附不匹配原因（missing tokens / forbidden tokens / missing root tokens / forbidden root tokens 至少一条）作为诊断字段落盘，便于 [§6](#05-6) D-16 的 record 级抽样清单回溯。
 
-> 关于 $\mathrm{drop\_keys}$ 的形态澄清：把每个字典 $\{k_1{:}v_1, k_2{:}v_2, \dots\}$ 按 $k_i$ 字典序排序后取值序列 $[v_{\sigma(1)}, v_{\sigma(2)}, \dots]$，每个 $v_{\sigma(i)}$ 递归剥离；列表保持原顺序，元素递归剥离；标量原样返回。这样，$\mathrm{drop\_keys}$ 后的 $\equiv_{rec}$ 不再受字段名差异影响，只看"位置上的值"是否一致。
+`drop_keys` 形态澄清：把每个字典 $\{k_1: v_1, k_2: v_2, \ldots\}$ 按 $k_i$ 字典序排序后取值序列 $[v_{\sigma(1)}, v_{\sigma(2)}, \ldots]$，每个 $v_{\sigma(i)}$ 递归剥离；列表保持原顺序，元素递归剥离；标量原样返回。该形态保证"键名错但值对"与"键名值都对"在 EVM 下可被区分（参见 [§1.7](#05-1-7)）。
 
-### 1.2 EM（Exact Match） <a id="04-1-2"></a>
+`canonical_form_set` 空约束行为：若四个集合全空（must_contain = must_not_contain = must_contain_at_root = must_not_contain_at_root = $\emptyset$），则 `AST_check` 对任意 AST 必然返回 pass；此时 QIM 退化为 $\mathbb{1}[\operatorname{Parse}(q_p) \neq \bot]$（详见 [§1.8](#05-1-8)）。
 
-EM 是查询字符串层的最严苛指标：两条查询在串面归一化后必须完全相同。
+<a id="05-1-2"></a>
+### §1.2 EM (Exact Match)
 
-$$
-\operatorname{EM}(x)\ =\ \mathbb{1}\!\left[\,\operatorname{norm\_str}\!\bigl(q_p(x)\bigr)\ =\ \operatorname{norm\_str}\!\bigl(q_g(x)\bigr)\,\right]
-$$
-
-性质：
-
-- 即便预测查询语义完全等价，但用了不同的算子组合（如 `$lookup` 替代 `$unwind`+`$group`），EM 也判 0。
-- $\mathrm{norm\_str}$ 不做语义层归一化（不改写算子顺序、不把 `1` 与 `true` 等同、不解析 BSON 字面量类型），仅吸收无意义的空白差。
-- EM 不依赖 $\mathrm{Parse}$、$\mathrm{Exec}$，因此不会因为解析失败或执行失败而走到 $\bot$ 分支；但若预测产物本身是空串或非字符串，EM 直接判 0。
-
-EM 的诊断意义：EM=1 时几乎确定其它五个指标全 1（仅 $\mathrm{norm\_str}$ 容许的空白差是噪声）；EM=0 时不能反推任何东西。
-
-### 1.3 QSM（Query Stage Match） <a id="04-1-3"></a>
-
-QSM 比较查询的 stage 算子序列。它衡量"查询的算子流水线骨架"是否一致。
-
-$$
-\operatorname{QSM}(x)\ =\ \mathbb{1}\!\left[\ \operatorname{Parse}\!\bigl(q_p(x)\bigr)\neq\bot\ \wedge\ \operatorname{Parse}\!\bigl(q_g(x)\bigr)\neq\bot\ \wedge\ \operatorname{stages}\!\bigl(\operatorname{Parse}(q_p)\bigr)\ =\ \operatorname{stages}\!\bigl(\operatorname{Parse}(q_g)\bigr)\,\right]
-$$
+$$\operatorname{EM}(x) = \mathbb{1}\!\left[\operatorname{norm\_str}(q_p(x)) = \operatorname{norm\_str}(q_g(x))\right]$$
 
 性质：
 
-- $\mathrm{stages}$ 只比较 stage 算子序列（如 `[$match, $group, $sort, $limit, $project]`）。同一 stage 内部的具体表达式（字段名、阈值、分组键）由 [§1.4](#04-1-4) 的 QFC 与 [§1.5](#04-1-5) 的 EX 覆盖。
-- 序列比较是有序的：调换 `$sort` 与 `$limit` 顺序会被判 0，因为它们在 mongosh 里语义不同。
-- $\mathrm{Parse}(q_p) = \bot$（语法错误）或 $\mathrm{Parse}(q_g) = \bot$（不应发生，因为 [03](./03_dataset_construction.md) 保证 gold 可解析）任一情形导致 QSM=0。
+- 即便预测查询语义完全等价但写法不同（如等价改写顺序、重命名变量名），EM 也判 0。
+- `norm_str` 不做语义层归一化；它仅做空白折叠。
+- EM 不依赖 `Parse` 或 `Exec`，因此不会因解析或执行失败而走到 $\bot$ 分支。
+- 若预测产物本身是空串或非字符串，EM 直接判 0。
 
-### 1.4 QFC（Query Field Coverage） <a id="04-1-4"></a>
+<a id="05-1-3"></a>
+### §1.3 QSM (Query Stage Match)
 
-QFC 比较查询触及的字段路径集合。它衡量"模型有没有看对字段"。
-
-$$
-\operatorname{QFC}(x)\ =\ \mathbb{1}\!\left[\ \operatorname{Parse}\!\bigl(q_p(x)\bigr)\neq\bot\ \wedge\ \operatorname{Parse}\!\bigl(q_g(x)\bigr)\neq\bot\ \wedge\ \operatorname{fields}\!\bigl(\operatorname{Parse}(q_p)\bigr)\ =\ \operatorname{fields}\!\bigl(\operatorname{Parse}(q_g)\bigr)\,\right]
-$$
+$$\operatorname{QSM}(x) = \mathbb{1}\!\left[\operatorname{Parse}(q_p) \neq \bot \,\wedge\, \operatorname{Parse}(q_g) \neq \bot \,\wedge\, \operatorname{stages}(\operatorname{Parse}(q_p)) = \operatorname{stages}(\operatorname{Parse}(q_g))\right]$$
 
 性质：
 
-- $\mathrm{fields}$ 是**集合**，不是多重集合，也不计较出现位置：同一字段在 `$match` 与 `$project` 中各用一次只算一份。
-- 字段路径以**完整嵌套路径**为单位（如 `orchestra.performance.Type` 而非 `Type`），与 schema 中的字段路径一一对应。
-- 解析失败时 QFC=0；与 QSM 的失败处理对称。
+- `stages` 只比较 stage 算子序列（如 `[$unwind, $unwind, $group, $sort, $limit, $project]`）。
+- 序列比较是有序的：调换 `$sort` 与 `$limit` 顺序会判 0（语义虽相近但骨架不同）。
+- $\operatorname{Parse}(q_p) = \bot$ 或 $\operatorname{Parse}(q_g) = \bot$（gold 解析失败不应发生，[04 §8](./04_dataset_construction.md#04-8) 已保证）任一情形导致 QSM = 0。
 
-### 1.5 EX（Execution Match） <a id="04-1-5"></a>
+<a id="05-1-4"></a>
+### §1.4 QFC (Query Field Coverage)
 
-EX 直接实例化 [01 §3](./01_task_definition.md) 的物理执行锚。它是 TEND 的 **headline 指标**：
-
-$$
-\operatorname{EX}(x)\ =\ \mathbb{1}\!\left[\ \operatorname{NormExec}\!\bigl(q_p(x),\ D(x)\bigr)\ \equiv_{rec}\ \operatorname{NormExec}\!\bigl(q_g(x),\ D(x)\bigr)\ \right]
-$$
-
-约定：若 $\mathrm{NormExec}(q_p, D) = \bot$（解析失败 / 执行失败 / 超时 / 运行期错误任一情形），则 EX=0；该 record 仍计入分母（[§2.3](#04-2-3)）。
-
-EX 是其余诊断指标的真值参照点：在 EX=1 的样本上，EFM 与 EVM 必同时为 1；在 EX=0 的样本上，EM/QSM/QFC/EFM/EVM 各自的取值能告诉我们错误的层级——
-
-| EM | QSM | QFC | EFM | EVM | EX | 典型解读 |
-|---|---|---|---|---|---|---|
-| 1 | 1 | 1 | 1 | 1 | 1 | 完全正确 |
-| 0 | 1 | 1 | 1 | 1 | 1 | 串面写法不同但语义等价 |
-| 0 | 1 | 1 | 1 | 0 | 0 | 算子选错（如 `$sum` → `$avg`），骨架对、字段对、值错 |
-| 0 | 1 | 1 | 0 | 0 | 0 | 投影字段名错（值与字段都错） |
-| 0 | 0 | 1 | 1 | 0/1 | 0 | 流水线骨架错（如漏 `$limit`） |
-| 0 | 1 | 0 | 0 | 0 | 0 | 字段对错位（看错列） |
-
-> 该表只是定性诊断模板，不是指标定义；实际报告以 [§5](#04-5) 的主表为准。
-
-### 1.6 EFM（Execution Field Match） <a id="04-1-6"></a>
-
-EFM 在执行结果层比较字段名集合。它独立于值是否正确，只问"输出文档的字段名集合对不对"。
-
-$$
-\operatorname{EFM}(x)\ =\ \mathbb{1}\!\left[\ \operatorname{NormExec}(q_p, D)\neq\bot\ \wedge\ \operatorname{NormExec}(q_g, D)\neq\bot\ \wedge\ \operatorname{keys}\!\bigl(\operatorname{NormExec}(q_p, D)\bigr)\ =\ \operatorname{keys}\!\bigl(\operatorname{NormExec}(q_g, D)\bigr)\,\right]
-$$
+$$\operatorname{QFC}(x) = \mathbb{1}\!\left[\operatorname{Parse}(q_p) \neq \bot \,\wedge\, \operatorname{Parse}(q_g) \neq \bot \,\wedge\, \operatorname{fields}(\operatorname{Parse}(q_p)) = \operatorname{fields}(\operatorname{Parse}(q_g))\right]$$
 
 性质：
 
-- $\mathrm{keys}$ 递归收集所有层级出现过的字段名，因此嵌套子文档里的字段也参与比较。
-- EFM=1 不代表 EX=1：例如 `$sum` 误写为 `$avg`，字段名 `count` 仍存在，但值不同 → EFM=1 而 EX=0。
-- $\mathrm{NormExec}$ 走 $\bot$ 分支时 EFM=0；该 record 仍计入分母。
+- `fields` 是集合（set）不是多重集合（multiset）；同一字段被多次引用不重复计数。
+- 字段路径以完整嵌套路径为单位，例如 `orchestra.performance.Type` 与 `Type` 视为不同元素。
+- 解析失败时 QFC = 0。
 
-### 1.7 EVM（Execution Value Match） <a id="04-1-7"></a>
+<a id="05-1-5"></a>
+### §1.5 EX (Execution Match)
 
-EVM 在剥离字段名后比较值结构。它独立于字段名差异，只问"位置上的值序列对不对"。
+EX 直接实例化 [01 §3](./01_task_definition.md#01-3) 的物理执行锚。**这是 TEND 的 headline 指标**：
 
-$$
-\operatorname{EVM}(x)\ =\ \mathbb{1}\!\left[\ \operatorname{NormExec}(q_p, D)\neq\bot\ \wedge\ \operatorname{NormExec}(q_g, D)\neq\bot\ \wedge\ \operatorname{drop\_keys}\!\bigl(\operatorname{NormExec}(q_p, D)\bigr)\ \equiv_{rec}\ \operatorname{drop\_keys}\!\bigl(\operatorname{NormExec}(q_g, D)\bigr)\,\right]
-$$
+$$\operatorname{EX}(x) = \mathbb{1}\!\left[\operatorname{NormExec}(q_p(x), D(x)) \equiv_{rec} \operatorname{NormExec}(q_g(x), D(x))\right]$$
+
+约定：若 $\operatorname{NormExec}(q_p, D) = \bot$ 则 EX = 0；该 record 仍计入分母（参见 [§2.3](#05-2-3)）。
+
+EX 是其它诊断指标的物理真值参照：EX = 1 时 EFM 与 EVM 必同时为 1；EX = 0 时 EM / QSM / QFC / EFM / EVM 各自取值能告诉错误层级；EX 与 QIM 的组合还能区分 "执行正确且 idiomatic" 与 "执行正确但写法不 idiomatic（SQL-bridge 退化）"。诊断模板表（7 比特指纹；"-" 表示由错误模式直接决定的从属取值）：
+
+| EM | QSM | QFC | EFM | EVM | QIM | EX | 典型解读 |
+|---|---|---|---|---|---|---|---|
+| 1 | 1 | 1 | 1 | 1 | 1 | 1 | 完全正确 |
+| 0 | 1 | 1 | 1 | 1 | 1 | 1 | 语义等价、写法不同但 canonical_form 合规 |
+| 0 | 1 | 1 | 1 | 1 | 0 | 1 | **SQL-bridge 退化**：执行正确但 AST 不满足 canonical_form_set（典型：gold 要求 shape-preserving 的 `$addFields + $map`、预测写成 `$unwind + $group`；执行结果一致但结构退化） |
+| 0 | 1 | 1 | 1 | 0 | 0 | 0 | 骨架与字段全对，错在算子或常量（值面错）；写法也不 idiomatic |
+| 0 | 1 | 1 | 0 | 0 | 0 | 0 | 骨架对，`$project` 或 `$group` 重命名错 |
+| 0 | 0 | 1 | 1 | 0 | 0 | 0 | 骨架错（漏 / 多 / 顺序），字段集合巧合相同 |
+| 0 | 0 | 0 | 0 | 0 | 0 | 0 | 全错 |
+| 0 | - | - | - | - | 0 | 0 | `parse_error`：$q_p$ 解析失败（QIM 由于 $\operatorname{Parse}(q_p) = \bot$ 取 0） |
+| 0 | - | - | - | - | - | 0 | `exec_error_*` 或 `timeout`：$q_p$ 执行失败；QIM 按 `AST_check` 结果独立取值 |
+
+说明：QIM 只依赖 $\operatorname{Parse}(q_p)$，不依赖 $\operatorname{Exec}$；`parse_error` 下 QIM = 0；`exec_error` 下 $\operatorname{Parse}$ 仍可能成功，故 QIM 取决于 `AST_check`。诊断模板表读法：前 7 列给出 7 比特指纹，最右列给出该指纹对应的典型解读；SQL-bridge 退化行是 TEND 区别于既有 benchmark 的关键诊断信号（详见 [§7.5](#05-7-5)）。
+
+<a id="05-1-6"></a>
+### §1.6 EFM (Execution Field Match)
+
+$$\operatorname{EFM}(x) = \mathbb{1}\!\left[\operatorname{NormExec}(q_p, D) \neq \bot \,\wedge\, \operatorname{NormExec}(q_g, D) \neq \bot \,\wedge\, \operatorname{keys}(\operatorname{NormExec}(q_p, D)) = \operatorname{keys}(\operatorname{NormExec}(q_g, D))\right]$$
 
 性质：
 
-- 由 [§1.1](#04-1-1) $\mathrm{drop\_keys}$ 的定义，字典按键字典序排序后取值序列，因此 `{"a":1,"b":2}` 与 `{"b":2,"a":1}` 在 $\mathrm{drop\_keys}$ 后等同；但 `{"a":1,"b":2}` 与 `{"a":2,"b":1}` 不等同。
-- EVM=1 且 EFM=1 ⟹ EX=1（结构与值都匹配 ⟹ 整体规范树匹配）；这是诊断维度的内部一致性约束。
-- EVM=1 但 EFM=0 表示"值对了但字段名错了"——例如把投影字段 `count` 重命名为 `total`，行数与值序列一致但字段名不同。
+- `keys` 递归收集所有层级出现过的字段名（包含嵌套对象内的字段）。
+- EFM = 1 不代表 EX = 1：字段名一致但值不同时 EFM = 1、EX = 0。
+- $\operatorname{NormExec}$ 走 $\bot$ 分支时 EFM = 0。
 
-### 1.8 sample-mean 的总分聚合 <a id="04-1-8"></a>
+<a id="05-1-7"></a>
+### §1.7 EVM (Execution Value Match)
 
-设 test set 为 $T = \{x_1, \dots, x_N\}$，对任一指标 $M \in \{\text{EM}, \text{QSM}, \text{QFC}, \text{EX}, \text{EFM}, \text{EVM}\}$，其 test set 总分为：
+$$\operatorname{EVM}(x) = \mathbb{1}\!\left[\operatorname{NormExec}(q_p, D) \neq \bot \,\wedge\, \operatorname{NormExec}(q_g, D) \neq \bot \,\wedge\, \operatorname{drop\_keys}(\operatorname{NormExec}(q_p, D)) \equiv_{rec} \operatorname{drop\_keys}(\operatorname{NormExec}(q_g, D))\right]$$
 
-$$
-\overline{M}(T)\ =\ \frac{1}{N}\sum_{i=1}^{N} M(x_i)
-$$
+性质：
 
-> 报告时 $\overline{M}$ 通常以百分比形式（保留两位小数）呈现；分母 $N$ 必须显式披露（[§6](#04-6)）。
+- `drop_keys` 后字典按键字典序取值序列；递归处理嵌套结构。
+- 当 EVM = 1 且 EFM = 1 时，必有 EX = 1；这是 EX 的可分解性。
+- EVM = 1 但 EFM = 0 表示值对了但字段名错了（如 gold 输出键 `Name`、预测输出键 `name`，但值序列相同）。
 
-### 1.9 EX 是 headline 指标 <a id="04-1-9"></a>
+<a id="05-1-8"></a>
+### §1.8 QIM (Query Idiomatic Match)
 
-`EX` 在 6 指标中具有特殊地位：
+QIM 对预测查询 $q_p$ 的 AST 施加结构约束检查，判断其是否落在 gold canonical_form_set 指定的 idiomatic 形态内：
 
-- EX 直接实例化任务正确性锚（[01 §3](./01_task_definition.md)），其余 5 个都是该锚的代理或诊断切面。
-- 论文与对外比较的主声明（"模型在 TEND 上的性能"）以 EX 为准；其余 5 个仅作为辅助诊断。
-- 任何把 EX 与其它 5 个指标做加权平均、几何平均、F1 合成等"复合分数"的做法**不属于本规范**。
+$$\operatorname{QIM}(x) = \mathbb{1}\!\left[\operatorname{Parse}(q_p) \neq \bot \,\wedge\, \operatorname{AST\_check}(\operatorname{Parse}(q_p),\ \operatorname{canonical\_form\_set}(q_g)) = \text{pass}\right]$$
 
----
+其中 `AST_check` 与 `canonical_form_set` 在 [§1.1](#05-1-1) 定义。
 
-## §2 评测协议 <a id="04-2"></a>
+性质：
 
-### 2.1 数据范围 <a id="04-2-1"></a>
+- QIM 是对 $q_p$ 的 AST 语法层代理，归属 [01 §2.3](./01_task_definition.md#01-2-3) 代理指标范畴；与 EM / QSM / QFC 同属"不触达执行"一类。
+- QIM 不构成独立于 $\operatorname{NormExec}$ 物理锚的第二正确性判定；它仅给出 "q_p 的写法是否落在 gold canonical 形态簇内" 的布尔答案。
+- QIM 的结构约束 `canonical_form_set(q_g)` 来自 [04 §5.7](./04_dataset_construction.md#04-5) 的机械派生产物；评测器在启动时从 `audit/<db_id>/<record_id>/derived/canonical_form_set.json` 加载 $C$，加载失败按 `gold_invalid` 处理（参见 [§2.3](#05-2-3)）。
+- QIM 与 EX 的四种组合：
+  - $(EX=1,\ QIM=1)$：**idiomatic 且正确**——预测查询既执行正确又落在 gold canonical 形态内。
+  - $(EX=1,\ QIM=0)$：**SQL-bridge 退化**——执行结果与 gold 一致但 AST 违反结构约束；是 TEND 对 NL2SQL-bridge 类方法的关键判别信号。
+  - $(EX=0,\ QIM=1)$：结构合规但执行失败——少见，通常意味着值面错或运行时错。
+  - $(EX=0,\ QIM=0)$：结构与执行均错。
+- QIM 不进入 headline；headline 仍是 EX（参见 [§1.10](#05-1-10)）。
+- 若 `canonical_form_set(q_g)` 四个集合全空，`AST_check` 必返回 pass，此时 QIM 退化为 $\mathbb{1}[\operatorname{Parse}(q_p) \neq \bot]$——该情形意味着 gold 未施加任何结构约束，通常出现在非 NoSQL-原生 pattern（L0）上。
+- QIM 与 EM / QSM / QFC 的区别：EM 是串面比较、QSM 比较 stage 序列（要求逐位相同）、QFC 比较字段路径集合（集合等价），而 QIM 比较 AST operator token 在 canonical_form_set 四个方向上的约束——它允许多种等价写法，只要 AST operator token 集合满足约束即可。
+
+<a id="05-1-9"></a>
+### §1.9 sample-mean 总分聚合
+
+设 test set $T = \{x_1, \ldots, x_N\}$，对任一指标 $M \in \{\operatorname{EM}, \operatorname{QSM}, \operatorname{QFC}, \operatorname{EX}, \operatorname{EFM}, \operatorname{EVM}, \operatorname{QIM}\}$：
+
+$$\overline{M}(T) = \frac{1}{N} \sum_{i=1}^{N} M(x_i)$$
+
+报告以百分比形式呈现，保留两位小数。$N = 2{,}775$；分母 $N$ 必须显式披露（见 [§6](#05-6) D-1 与 D-2）。
+
+<a id="05-1-10"></a>
+### §1.10 EX 是 headline 指标
+
+EX 在 7 指标中具有特殊地位：
+
+- 它直接实例化任务正确性锚 $\operatorname{NormExec}(q_p, D) \equiv_{rec} \operatorname{NormExec}(q_g, D)$（[01 §3](./01_task_definition.md#01-3)）。
+- 其余 6 个指标是该锚的代理或诊断切面：EM / QSM / QFC 是语法层串面 / 结构代理；EFM / EVM 是结果层代理；QIM 是语法层结构代理（对 $q_p$ AST 与 gold canonical_form_set 的静态比较）。
+- 论文与对外比较的主声明（headline claim）以 EX 为准。
+- 任何把 EX 与其它 6 个指标做加权平均、几何平均、F1 合成等复合分数（composite score）的做法均不属于本规范，不得作为 headline；QIM 同样不得作为 headline。
+
+<a id="05-2"></a>
+## §2 评测协议
+
+<a id="05-2-1"></a>
+### §2.1 数据范围
 
 - 评测在且仅在 [02](./02_dataset_design.md) 定义的 `TEND/test.json`（2,775 条 record）上进行。
-- 不允许在 train split（`TEND/train.json`，14,245 条）上跑指标作为 headline 数；train split 仅供模型训练 / 检索库构建。
-- 不允许子采样、不允许按 db_id 抽样、不允许"剔除某些样本后再算"——若有失败，按 [§2.3](#04-2-3) 的规则计入分母。
+- 不允许在 train split（14,245 条）上跑指标作为 headline 数。
+- 不允许子采样、不允许按 db_id 抽样、不允许"剔除某些样本后再算"。
 
-### 2.2 单 record 的计算流程 <a id="04-2-2"></a>
+<a id="05-2-2"></a>
+### §2.2 单 record 计算流程
 
-对每条 record $x = (\mathit{record\_id}, \mathit{db\_id}, \mathit{nl\_queries}, \mathit{ref\_sql}, q_g)$ 与对应的预测 $q_p(x)$，按以下顺序执行：
+对每条 record `(record_id, db_id, nl_queries, q_g)` 与对应预测 $q_p$，按下列顺序执行：
 
-1. **取数据快照** $D(x) = D(\mathit{db\_id})$；$D$ 必须从评测器自带的只读 mongosh 实例中加载（[§3.5](#04-3-5)）。
-2. **计算 EM**：调用 $\mathrm{norm\_str}$ 后比较，不需要 $\mathrm{Parse}$。
-3. **计算 QSM / QFC**：先 $\mathrm{Parse}(q_p)$；若 $\bot$ 则 QSM=0、QFC=0 并落盘"parse_error"；否则继续 $\mathrm{stages}$ / $\mathrm{fields}$ 的比较。$\mathrm{Parse}(q_g)$ 不应失败（[03](./03_dataset_construction.md) 已保证），若失败则该 record 在评测层标记为"gold_invalid"并写入诊断日志，但仍按 [§2.3](#04-2-3) 计入分母（任一指标记 0）。
-4. **计算 EX / EFM / EVM**：调用 $\mathrm{NormExec}(q_p, D)$；
-   - 若解析失败 → "parse_error"，三指标均记 0；
-   - 若执行失败 → 按错误类型细分（"exec_error_validation" / "exec_error_runtime" / "exec_error_other"），三指标均记 0；
-   - 若超过单 record 超时（默认 30 秒，与 `src/utils/metric.py` 的 `MetricConfig.timeout` 对齐）→ "timeout"，三指标均记 0；
-   - 否则对 $\mathrm{NormExec}(q_p, D)$ 与 $\mathrm{NormExec}(q_g, D)$ 应用 [§1.5](#04-1-5)–[§1.7](#04-1-7) 的判定。
-5. **逐 record 落盘**：把 6 指标取值、失败类型、$\mathrm{NormExec}$ 的输出大小（行数、字段数）、执行时长写入逐 record 诊断 JSON，形如：
-   ```json
-   {
-     "record_id": ...,
-     "db_id": ...,
-     "EM": 0, "QSM": 1, "QFC": 1, "EX": 0, "EFM": 1, "EVM": 0,
-     "pred_status": "ok" | "parse_error" | "exec_error_runtime" | "timeout" | ...,
-     "pred_rows": 5, "gold_rows": 5,
-     "elapsed_ms": 137
-   }
-   ```
+1. 取数据快照 $D(x) = D(\text{db\_id})$；$D$ 必须从评测器自带的只读 `mongosh` 实例中加载（见 [§3.5](#05-3-5)）。加载 $C = \operatorname{canonical\_form\_set}(q_g)$，读取自 `audit/<db_id>/<record_id>/derived/canonical_form_set.json`。
+2. 计算 EM：调用 `norm_str` 后比较，不需要 Parse。
+3. 计算 QSM 与 QFC：先 $\operatorname{Parse}(q_p)$。若 $\bot$ 则 QSM = 0、QFC = 0 并落盘 `parse_error`；否则继续 `stages` 与 `fields` 比较。$\operatorname{Parse}(q_g)$ 不应失败（[04 §8](./04_dataset_construction.md#04-8) 已保证），若失败则该 record 在评测层标记为 `gold_invalid` 并写入诊断日志，但仍按 [§2.3](#05-2-3) 计入分母。
+4. 计算 EX、EFM、EVM：调用 $\operatorname{NormExec}(q_p, D)$；按 $\bot$ 类型细分失败标签（`parse_error` / `exec_error_validation` / `exec_error_runtime` / `exec_error_other` / `timeout`）；否则按 [§1.5](#05-1-5)–[§1.7](#05-1-7) 判定。
+5. 计算 QIM：若 $\operatorname{Parse}(q_p) = \bot$ 则 QIM = 0 且已落盘 `parse_error`；否则令 $\operatorname{QIM} = 1\ \text{if}\ \operatorname{AST\_check}(\operatorname{Parse}(q_p), C) = \text{pass}\ \text{else}\ 0$。QIM 计算独立于步骤 4 的执行路径（QIM 只依赖 Parse，不依赖 Exec）；`exec_error_*` 与 `timeout` 不影响 QIM 取值。`AST_check` = fail 时落盘不匹配原因字段 `ast_check_violation` $\in$ {`missing_must_contain`, `forbidden_must_not_contain`, `missing_root`, `forbidden_root`, `mixed`}。
+6. 逐 record 落盘诊断 JSON，包含 `record_id` / `db_id` / 7 个指标取值（EM, QSM, QFC, EX, EFM, EVM, QIM） / `pred_status` / `pred_rows` / `gold_rows` / `elapsed_ms` / 若 QIM = 0 且 Parse ≠ $\bot$ 则附 `ast_check_violation`。
 
-> 这份逐 record 诊断 JSON 是 [§6](#04-6) 强制披露清单的输入；它不能被合成报告替代。
+<a id="05-2-3"></a>
+### §2.3 失败类型与计入规则
 
-### 2.3 失败类型与计入规则 <a id="04-2-3"></a>
-
-任一种失败都映射到统一的"该 record 在该指标上记 0"规则；失败的 record **始终保留在分母 $N$ 中**，不静默丢弃。失败类型有且只有以下五类：
+任一种失败均映射到统一的"该 record 在该指标上记 0"规则；失败的 record 始终保留在分母 N 中，不静默丢弃。失败类型表：
 
 | 类型 | 触发条件 | 影响指标 |
 |---|---|---|
-| `parse_error` | $\mathrm{Parse}(q_p) = \bot$（mongosh 解析抛出语法错误） | QSM、QFC、EX、EFM、EVM 均 0；EM 仍按串面比较 |
-| `exec_error_validation` | mongosh 拒绝执行（如算子用法非法、字段类型与算子要求不符） | EX、EFM、EVM 均 0；QSM、QFC、EM 不受影响 |
-| `exec_error_runtime` | mongosh 接受查询但运行时抛错（如 `$divide` 除零、`$convert` 类型不可转） | EX、EFM、EVM 均 0；QSM、QFC、EM 不受影响 |
-| `timeout` | 单 record 执行超过 30 秒上限 | EX、EFM、EVM 均 0；QSM、QFC、EM 不受影响 |
-| `gold_invalid` | $q_g$ 自身解析或执行失败（不应发生，[03](./03_dataset_construction.md) 已过滤；若发生，整 record 标记并人工介入） | 6 指标均 0；该 record 列入诊断报告的"gold_invalid 列表"显式披露 |
+| `parse_error` | $\operatorname{Parse}(q_p) = \bot$ | QSM, QFC, EX, EFM, EVM, QIM 均 0；EM 仍按串面比较 |
+| `exec_error_validation` | `mongosh` 拒绝执行（schema validation 或禁用算子） | EX, EFM, EVM 均 0；QSM, QFC, EM, QIM 不受影响（QIM 只依赖 $\operatorname{Parse}(q_p)$，不依赖 $\operatorname{Exec}$） |
+| `exec_error_runtime` | `mongosh` 接受查询但运行时抛错 | EX, EFM, EVM 均 0；QSM, QFC, EM, QIM 不受影响 |
+| `exec_error_other` | 其它非分类执行错误 | EX, EFM, EVM 均 0；QSM, QFC, EM, QIM 不受影响 |
+| `timeout` | 单 record 执行超过 30 秒上限 | EX, EFM, EVM 均 0；QSM, QFC, EM, QIM 不受影响 |
+| `gold_invalid` | $q_g$ 自身解析或执行失败、或 `canonical_form_set.json` 缺失 / 损坏（不应发生，[04 §8](./04_dataset_construction.md#04-8) V1'-V7' 与 [04 §5.7](./04_dataset_construction.md#04-5) 已过滤） | 7 指标均 0；该 record 列入诊断报告的 `gold_invalid` 列表显式披露 |
 
-> 所有失败类型都必须出现在 [§6](#04-6) 的强制披露清单里，按计数披露而不是只披露总分。
+所有失败类型必须出现在 [§6](#05-6) 强制披露清单中，按计数披露而非只披露总分。
 
-### 2.4 比较关系 <a id="04-2-4"></a>
+<a id="05-2-4"></a>
+### §2.4 比较关系
 
-- 标量、字典、列表三种构件的递归相等关系 $\equiv_{rec}$ 由 [01 §5](./01_task_definition.md) 定义，本文不重定义、不修改。
-- 列表是否按位置比较或排序后比较的判定（[01 §5.3](./01_task_definition.md)）由 gold 来源标明的"是否无序集合"决定；评测器读 gold 时直接使用该标注，不在评测层重新推断。
-- 标量在 BSON 类型层的归一化（如 `Decimal128` 全精度字符串、`Date` 转 ISO-8601 UTC）由 [01 §4](./01_task_definition.md) 定义，本文不重写。
+- 标量、字典、列表三种构件的递归相等关系 $\equiv_{rec}$ 由 [01 §5](./01_task_definition.md#01-5) 定义，本文档不重定义。
+- 列表是否按位置比较或排序后比较的判定（[01 §5](./01_task_definition.md#01-5)）由 gold 来源标明的"是否无序集合"决定。
+- 标量在 BSON 类型层的归一化由 [01 §4](./01_task_definition.md#01-4) 定义。
 
-### 2.5 不允许的偏离 <a id="04-2-5"></a>
+<a id="05-2-5"></a>
+### §2.5 不允许的偏离
 
-为保证 6 指标在跨论文、跨方法之间的可比性，以下偏离明确禁止：
+1. 不允许重新定义指标（不得在 EX 中加入"近似匹配"分支；不得改写 QIM 的 AST_check 语义）。
+2. 不允许改判定（不得把 EX ≈ gold 当作 EX；EX 是布尔；QIM 同样是布尔）。
+3. 不允许跳样本（任何 $q_p$ 都必须送入评测器，包括明显格式错的）。
+4. 不允许两次执行后取最优（评测必须是确定性单次执行）。
+5. 不允许在评测期间写库（详见 [§3.5](#05-3-5) 只读不变式）。
 
-1. **不允许重新定义指标**：方法文档 [05](./05_solution_design.md) 不得在 6 指标外引入新的"主指标"，也不得把 EX 拆成多个分量上报。
-2. **不允许改判定**：不得把"EX≈gold（容忍 1 行差）"或"EX≥0.9（按行匹配率折算）"当作 EX；EX 是布尔。
-3. **不允许跳样本**：不得对失败样本"丢弃"或"用平均代替"；任一种失败按 [§2.3](#04-2-3) 计 0。
-4. **不允许两次执行后取最优**：单 record 单次执行；评测层不允许多次采样后选最好。
-5. **不允许在评测期间写库**：[§3.5](#04-3-5)。
+<a id="05-3"></a>
+## §3 复现性契约（输入锁 + 运行时锁）
 
----
+manifest 由两部分构成：输入锁（[§3.1](#05-3-1)）与运行时锁（[§3.2](#05-3-2)）。所有摘要均使用 SHA-256，以小写 hex 形式记录。
 
-## §3 复现性契约（输入锁 + 运行时锁） <a id="04-3"></a>
-
-任何一份 TEND 评测报告必须附带一份 **manifest 摘要锁**。manifest 由两部分构成：输入锁（[§3.1](#04-3-1)）与运行时锁（[§3.2](#04-3-2)）。所有摘要均使用 SHA-256，以小写 hex 形式记录。manifest 的总体形态见 [§3.3](#04-3-3)；摘要不一致时的中止规则见 [§3.4](#04-3-4)；评测过程中 $D$ 的只读不变式见 [§3.5](#04-3-5)。
-
-### 3.1 输入锁 <a id="04-3-1"></a>
-
-输入锁锁住"评测器看到的所有数据"。每个条目都是文件级 SHA-256：
+<a id="05-3-1"></a>
+### §3.1 输入锁
 
 | 条目 | 路径模式 | 说明 |
 |---|---|---|
-| 预测文件 | `predictions/<run_id>.json` | 模型对 test set 的输出，schema 由 [02](./02_dataset_design.md) 给出（至少包含 `record_id` 与 `prediction`） |
+| 预测文件 | `predictions/<run_id>.json` | 模型对 test set 的输出 |
 | test set | `TEND/test.json` | 2,775 条 test record |
-| schema 集合 | `TEND/mongodb_schema/<db_id>.json` | test set 中出现的每个 `db_id` 对应的 schema 文件，逐文件 hash |
-| 数据快照集合 | `TEND/mongodb_data/<db_id>.json` | test set 中出现的每个 `db_id` 对应的数据文件，逐文件 hash |
+| schema 集合 | `TEND/mongodb_schema/<db_id>.json` | 逐文件 hash |
+| 数据快照集合 | `TEND/mongodb_data/<db_id>.json` | 逐文件 hash |
+| canonical_form_set 集合 | `audit/<db_id>/<record_id>/derived/canonical_form_set.json` | 逐文件 hash；QIM 依赖的结构约束源 |
 
-> 预测文件不允许在评测期间被替换；评测器在加载时立即计算并锁定其 hash。
-
-### 3.2 运行时锁 <a id="04-3-2"></a>
-
-运行时锁锁住"评测器自身与执行环境"：
+<a id="05-3-2"></a>
+### §3.2 运行时锁
 
 | 条目 | 取证方式 | 说明 |
 |---|---|---|
-| mongosh 镜像 | docker image digest（`sha256:...`） | 与 [03 §执行环境](./03_dataset_construction.md) 中构造侧使用的镜像保持版本一致；评测层与构造层共用同一镜像哈希以排除"gold 在构造时能跑、评测时跑不通"的环境偏差 |
-| 评测器代码 | 对 `src/utils/metric.py` 取文件级 SHA-256 | 涵盖 6 指标实现、失败处理、超时控制 |
-| 解析器代码 | 对 `src/utils/extract_stages.py`、`src/utils/extract_fields.py`、`src/utils/mongosh_exec.py` 各取文件级 SHA-256 | 涵盖 $\mathrm{stages}$、$\mathrm{fields}$ 与 $\mathrm{Parse}$/$\mathrm{Exec}$ 的代理实现 |
-| collation / locale | 显式记录 `{ locale: "en", strength: 3 }` | 控制 `$sort` 与字符串比较行为；缺省值不允许"由系统决定" |
-| timezone | 显式记录 `UTC` | 影响 `$dateToString` 等日期算子的输出 |
-| 单 record 超时 | 显式记录数值（默认 30 秒） | 与 `src/utils/metric.py` 的 `MetricConfig.timeout` 一致 |
+| `mongosh` 镜像 | docker image digest（`sha256:...`） | 与构造侧 [04 §9](./04_dataset_construction.md#04-9) RP_diff 用的镜像一致 |
+| 评测器代码 | `metric.py` SHA-256 | 7 指标实现、失败处理、超时控制 |
+| 解析器代码 | `extract_stages.py` / `extract_fields.py` / `mongosh_exec.py` 各 SHA-256 | `stages` / `fields` / `Parse` / `Exec` 代理实现 |
+| **canonical_form_extractor** | `extract_canonical_form.py` SHA-256 | `AST_check` 算子实现；消费 `Parse(q_p)` 与 canonical_form_set，产出 pass / fail + violation 字段 |
+| collation / locale | `{ locale: "en", strength: 3 }` | 控制 `$sort` 与字符串比较 |
+| timezone | UTC | 影响 `$dateToString` 等 |
+| 单 record 超时 | 默认 30 秒 | 与构造侧一致 |
+| **RP_diff 参考面板 manifest digest** | `audit/reference_panel/diff_panel_manifest.json` 的文件 SHA-256 | 锁定经验难度校准面板；评测器在启动时验证 [04 §9](./04_dataset_construction.md#04-9) 与 [06 §7.3](./06_solution_design.md#06-7) 的 disjointness 约束（求解侧 LLM ID 不得与 RP_diff models 相交） |
+| **V7' SQL-bridge panel manifest digest** | `audit/reference_panel/sql_bridge_manifest.json` 的文件 SHA-256 | 锁定构造期 NL2SQL ∘ sqltomongo defeat panel；评测器在启动时验证 [04 §9](./04_dataset_construction.md#04-9) 与 [06 §7.3](./06_solution_design.md#06-7) 的三方 disjointness 约束（SMART 求解侧 LLM ID ∩ V3' / V5' LLM ID ∩ RP_diff models ∩ V7' SQL-bridge panel models 两两空） |
 
-### 3.3 manifest 形态 <a id="04-3-3"></a>
+<a id="05-3-3"></a>
+### §3.3 manifest 形态
 
-manifest 是一个 JSON 文件，与评测报告一同发布，形如：
+完整 manifest JSON 形态：
 
 ```json
 {
@@ -268,16 +271,9 @@ manifest 是一个 JSON 文件，与评测报告一同发布，形如：
   "input_lock": {
     "predictions_sha256": "<hex>",
     "test_json_sha256": "<hex>",
-    "schema_sha256": {
-      "orchestra": "<hex>",
-      "school_bus": "<hex>",
-      "...": "..."
-    },
-    "data_sha256": {
-      "orchestra": "<hex>",
-      "school_bus": "<hex>",
-      "...": "..."
-    }
+    "schema_sha256": { "orchestra": "<hex>", "...": "..." },
+    "data_sha256": { "orchestra": "<hex>", "...": "..." },
+    "canonical_form_set_sha256": { "orchestra/99001": "<hex>", "...": "..." }
   },
   "runtime_lock": {
     "mongosh_image_digest": "sha256:<hex>",
@@ -285,349 +281,390 @@ manifest 是一个 JSON 文件，与评测报告一同发布，形如：
     "extract_stages_py_sha256": "<hex>",
     "extract_fields_py_sha256": "<hex>",
     "mongosh_exec_py_sha256": "<hex>",
+    "canonical_form_extractor_sha256": "<hex>",
     "collation": { "locale": "en", "strength": 3 },
     "timezone": "UTC",
-    "per_record_timeout_seconds": 30
+    "per_record_timeout_seconds": 30,
+    "diff_panel_manifest_sha256": "<hex>",
+    "sql_bridge_manifest_sha256": "<hex>"
   }
 }
 ```
 
-> 该 manifest 是评测报告的"指纹"。同样的指纹意味着指标可以被严格复现；指纹任一字段不同，意味着报告不可比，必须重新跑。
+<a id="05-3-4"></a>
+### §3.4 摘要不一致的中止规则
 
-### 3.4 摘要不一致的中止规则 <a id="04-3-4"></a>
+评测器启动时执行三件检查：
 
-评测器在启动时执行三件检查：
-
-1. 计算输入锁所列每个文件的 SHA-256。
-2. 计算运行时锁所列代码文件与镜像 digest。
+1. 计算输入锁所列每个文件的 SHA-256（含 `canonical_form_set.json` 逐文件摘要）。
+2. 计算运行时锁所列代码文件、镜像 digest、`diff_panel_manifest` digest 与 `sql_bridge_manifest` digest；并据 `sql_bridge_manifest.json` 验证求解侧 LLM ID 与 RP_diff models、V3' / V5' LLMs、V7' SQL-bridge panel models 的三方 disjointness。
 3. 把上述结果与 manifest 中预声明的值逐字段比对。
 
-任一字段不一致 ⟹ 评测器**中止运行**，不允许"用现场结果覆盖 manifest"或"先跑出数再补 manifest"。这一规则是为了防止"环境漂移后报告依旧声称指标"的悄无声息退化。
+任一字段不一致或三方 disjointness 校验失败 ⟹ 评测器中止运行；不允许"只警告 + 继续"。该硬中止保证任意一条复现报告都可由第三方在拿到 manifest 后逐位验证。
 
-### 3.5 评测的只读不变式 <a id="04-3-5"></a>
+<a id="05-3-5"></a>
+### §3.5 评测的只读不变式
 
-- $D$ 在评测期间是**只读快照**：评测器只接受读账户连接、不持有写权限。
-- 评测器不允许使用 [01 §2.2](./01_task_definition.md) 列出的不在任务输出空间内的算子（`$out`、`$merge`、`$function` 等）；若 $q_p$ 含这些算子，按 `exec_error_validation` 处理。
-- 评测期间不允许 import 数据、不允许重建索引、不允许做任何 schema migration——这些都是构造侧的事，应在 [03](./03_dataset_construction.md) 完成。
-- `null` 与 missing 在评测层严格区分（[01 §4.3](./01_task_definition.md)），任何把 missing 默认补 `null` 的"便利化"行为均破坏复现性。
+- $D$ 在评测期间是只读快照（`mongosh` 实例以只读模式挂载快照卷）。
+- 评测器不允许使用 [01 §2.2](./01_task_definition.md#01-2) 列出的禁用算子；若 $q_p$ 含禁用算子，按 `exec_error_validation` 处理。
+- 评测期间不允许 import 数据、不允许重建索引、不允许做任何 schema migration。
+- `null` 与 `missing` 在评测层严格区分（[01 §4.3](./01_task_definition.md#01-4)）。
 
----
+<a id="05-4"></a>
+## §4 结果归一化（引用 [01](./01_task_definition.md)）
 
-## §4 结果归一化（引用 [01](./01_task_definition.md) 的契约） <a id="04-4"></a>
+<a id="05-4-1"></a>
+### §4.1 引用关系
 
-### 4.1 引用关系 <a id="04-4-1"></a>
+本文档不重新定义结果归一化。所有规则由 [01 §4](./01_task_definition.md#01-4) 唯一定义。本文档中所有出现的 $\operatorname{NormExec}$ 都隐式调用该归一化算子。
 
-本文不重新定义结果归一化。所有结果归一化规则——BSON 标量类型规范化、复合结构规范化、`null` 与 missing 的区分、`_id` 处理——都由 [01 §4](./01_task_definition.md) 唯一定义。本文档中所有出现的 $\mathrm{NormExec}$ 都隐式调用该归一化算子。
+<a id="05-4-2"></a>
+### §4.2 null 与 missing 强调
 
-### 4.2 null 与 missing 的强调 <a id="04-4-2"></a>
+特此强调（不重定义）：`{"a": null}` 与 `{}` 在 [01 §4.3](./01_task_definition.md#01-4) 归一化下仍然不同；EFM 在两者上判 0，EX 同样判 0；`drop_keys` 在两者上也产生不同序列。这一判定不可在评测层放宽。
 
-由于这是评测层最常见的"看似差不多但被判 0"的来源，特此强调（不重定义，仅复述以醒目）：
+<a id="05-4-3"></a>
+### §4.3 顺序敏感性
 
-- `{"a": null}` 与 `{}` 在 [01 §4.3](./01_task_definition.md) 的归一化下**仍然不同**；
-- 因此 EFM 在两者上判 0（键集合 `{a}` ≠ `∅`），EX 同样判 0；
-- $\mathrm{drop\_keys}$ 在两者上也产生不同序列（`[null]` vs `[]`），故 EVM 亦判 0；
-- 这一判定不可在评测层"放宽"为 missing 等价 null。
+- 默认情形列表按位置比较（position-wise）。
+- 仅当 gold 来源标明为无序集合时，先按规范全序排序再按位置比较。
+- 评测层不自行判断 NLQ 是否暗示排序意图；该判定来自 [02](./02_dataset_design.md) 中 record 的 gold 标注。
 
-### 4.3 顺序敏感性 <a id="04-4-3"></a>
+<a id="05-5"></a>
+## §5 报告结构
 
-- 默认情形下，列表（含顶层结果列表）按位置比较——见 [01 §5.3](./01_task_definition.md)。
-- 仅当 gold 来源标明为"无序集合"（典型情况：`find` 且 NLQ 不含排序意图，或聚合管道最外层不含 `$sort`）时，评测器先对 $u$ 与 $v$ 各自按 [01 §5.3](./01_task_definition.md) 的规范全序排序，再按位置比较。
-- 评测层**不**自行判断"NLQ 是否暗示排序意图"；该判定来自 [02](./02_dataset_design.md) 中 record 的 gold 标注。
+<a id="05-5-1"></a>
+### §5.1 主表（test set 全集）
 
----
+主表覆盖 test set 全集（N = 2,775，与 [02 §4](./02_dataset_design.md#02-4) cross-domain 8:2 切分一致）。每个数字是该指标的 sample-mean。表头：分母 N / EM / QSM / QFC / **EX**（headline，加粗） / EFM / EVM / QIM。报告必须以分母 N 作为第一行；EX 必须加粗以与其它 6 个诊断指标区分；不允许把 EX 单独放到与其它指标不同的列轴上让读者无法平视。
 
-## §5 报告结构 <a id="04-5"></a>
+主表示意：
 
-TEND 的对外报告由三部分构成：主表（[§5.1](#04-5-1)）、cross-domain 切片表（[§5.2](#04-5-2)）、可选辅助切片（[§5.3](#04-5-3)）。任何超出这三部分的报告形态需在论文里显式声明并提供原始的逐 record 诊断 JSON 供复算。
+| 系统 | N | EM | QSM | QFC | **EX** | EFM | EVM | QIM |
+|---|---|---|---|---|---|---|---|---|
+| `<system_id>` | 2775 | xx.xx | xx.xx | xx.xx | **xx.xx** | xx.xx | xx.xx | xx.xx |
 
-### 5.1 主表（test set 全集） <a id="04-5-1"></a>
+<a id="05-5-2"></a>
+### §5.2 cross-domain 切片表
 
-主表覆盖 test set 全集（$N = 2{,}775$，与 [02](./02_dataset_design.md) 的 cross-domain 8:2 切分一致）。每个数字是该指标的 sample-mean。
+按 db_id（或更粗的 domain，由 [02](./02_dataset_design.md) 给出）分组，每组报告 7 指标。要求：
 
-| 指标 | test set 全集 |
-|---|---|
-| 分母 $N$ | 2,775（或当前 test set 实际样本数） |
-| EM | $\overline{\mathrm{EM}}(T)$ |
-| QSM | $\overline{\mathrm{QSM}}(T)$ |
-| QFC | $\overline{\mathrm{QFC}}(T)$ |
-| **EX** | $\overline{\mathrm{EX}}(T)$ ← headline |
-| EFM | $\overline{\mathrm{EFM}}(T)$ |
-| EVM | $\overline{\mathrm{EVM}}(T)$ |
+- $\sum_g N_g = N$（所有切片样本数之和必须等于全集）。
+- 切片不允许只展示 top-K db_id；要么列全，要么把剩余打包为 `others` 单独一行并显式写出 N。
+- 切片以 db_id 为最细粒度，不允许进一步按 record 内部 audit 字段做主切片（那属于 [§5.3](#05-5-3)）。
 
-> 报告必须以"分母 $N$"作为第一行；缺失分母的报告视为不可比。
+<a id="05-5-3"></a>
+### §5.3 可选辅助切片
 
-### 5.2 cross-domain 切片表 <a id="04-5-2"></a>
+允许下列辅助切片，仅作诊断用，不进入 headline 主张：
 
-cross-domain 切片把 test set 按 `db_id`（或更粗的 domain，由 [02](./02_dataset_design.md) 给出）分组，每组报告 6 指标。该切片用于检查"模型是否在某些 domain 上系统性失败"。
-
-| db_id / domain | $N_g$ | EM | QSM | QFC | EX | EFM | EVM |
-|---|---|---|---|---|---|---|---|
-| `orchestra` | $N_{\mathrm{orchestra}}$ | $\dots$ | $\dots$ | $\dots$ | $\dots$ | $\dots$ | $\dots$ |
-| `school_bus` | $N_{\mathrm{school\_bus}}$ | $\dots$ | $\dots$ | $\dots$ | $\dots$ | $\dots$ | $\dots$ |
-| $\dots$ | $\dots$ | $\dots$ | $\dots$ | $\dots$ | $\dots$ | $\dots$ | $\dots$ |
-
-要求：
-
-- $\sum_g N_g = N$（每个 record 恰被分到一组）。
-- 切片不允许"只展示 top-K db_id"；要么列全，要么把剩余打包为 `others` 单独一行并显式 $N$。
-- 切片以 db_id 为最细粒度；不允许进一步按某个 record 内部的 audit 字段做主切片（那属于 [§5.3](#04-5-3) 的辅助切片）。
-
-### 5.3 可选辅助切片 <a id="04-5-3"></a>
-
-允许提供以下辅助切片，**仅作诊断用**，不进入 headline 主张：
-
-1. **按 ref_sql 复杂度切片**：以 `ref_sql` 中 `JOIN` 数、`GROUP BY` 是否出现、是否含子查询等可机器抽取的特征分组。
-2. **按 MQL pipeline 长度切片**：以 gold MQL 的 stage 数（aggregation pipeline 长度，find 视为 1）分桶。
-3. **按 schema_complexity_profile 切片**：以 [02](./02_dataset_design.md) 的 audit 字段（如嵌套深度、collection 数量等）分桶。
+1. 按 MQL pipeline 长度切片（aggregation pipeline 长度，`find` 视为 1）。
+2. 按 `schema_complexity_profile` 切片（如嵌套深度、collection 数量等）。
+3. **按 `empirical_difficulty` 切片**：四档 `{easy, medium, hard, expert}`（来自 [04 §9](./04_dataset_construction.md#04-9) RP_diff 实测分桶；本切片揭示模型在不同经验难度档上的表现）。
+4. **按 SI pattern 切片**：23 个 pattern（来自 [04 §3.2](./04_dataset_construction.md#04-3)）；本切片揭示模型在不同意图模式上的能力分布。
+5. 按 `coverage_neighbors` 子集切片：选取嵌入空间稀疏区域的 record 子集（来自 [04 §10.5](./04_dataset_construction.md#04-10)）。
+6. **按 `nosql_nativeness_level` 切片**：五档 `{L0, L1, L2, L3, L4}`（来自 [04 §3.1](./04_dataset_construction.md#04-3) SI.nosql_nativeness.level）；本切片揭示模型在不同 NoSQL 原生度档上的 EX 与 QIM 表现；NL2SQL-bridge 类方法倾向在 L0-L1 接近 SOTA，而在 L2-L4 上 EX 与 QIM 同时显著下降。
+7. **按 `canonical_form_compliance` 切片**：将 test set 按 (EX, QIM) 联合二元分类为四桶—$(1,1)$ idiomatic 且正确、$(1,0)$ SQL-bridge 退化、$(0,1)$ 结构合规但执行错、$(0,0)$ 全错；本切片揭示模型在"idiomaticness gap"上的具体分布；退化桶 $(1,0)$ 的占比即 D-16 的核心数字。
 
 要求：
 
-- 任何辅助切片都必须在 [§6](#04-6) 强制披露清单中显式声明使用了 audit 字段，并附 audit 字段名称。
-- 辅助切片的 6 指标值 **不**可写在主表里冒充全集 headline。
+- 任何辅助切片必须在 [§6](#05-6) 强制披露清单中显式声明使用了 audit 字段。
+- 辅助切片的 7 指标值不可写在主表里冒充全集 headline。
 - 辅助切片不引入新指标。
 
-### 5.4 不允许的报告形式 <a id="04-5-4"></a>
-
-为防止把 6 指标"装饰化"为更多变体，以下报告形式禁止：
+<a id="05-5-4"></a>
+### §5.4 不允许的报告形式
 
 - 把同一 test set 拆为"主集 / 扩展集"双列上报。
-- 引入 5 档难度（如 L1–L5）或 17 档算子特征作为主表的列轴。
-- 报告 family-level / 模板-level 的指标（即把多个表面写法不同但语义相同的预测合并后再算指标）。
-- 以"sidecar 报告"形式上报第二组指标（如某种"鲁棒性版 EX"）：本文档只承认 6 指标。
+- 引入 5 档难度（如 L1-L5）或 17 档算子特征作为主表的列轴。
+- 报告 family-level 或模板-level 的指标（family 与模板属于构造层概念，不进入评测层 headline）。
+- 以 sidecar 报告形式上报第二组指标。
+- 不得单独报告 QIM 作为 headline 指标；QIM 必须出现在主表的诊断列中，而不得作为对外的主 claim。
 
----
+<a id="05-6"></a>
+## §6 强制披露清单
 
-## §6 强制披露清单 <a id="04-6"></a>
-
-每次对外发布 TEND 评测结果，至少披露以下条目；缺一不可。披露顺序建议与下表一致，便于横向对照：
+每次对外发布 TEND 评测结果，至少披露下列条目；缺一不可：
 
 | 编号 | 条目 | 形式 |
 |---|---|---|
-| D-1 | test set 总样本数 $N$ | 整数 |
-| D-2 | 每个指标的分母 | 6 个整数；正常情况应等于 $N$ |
-| D-3 | 每个指标的解析失败计数（`parse_error`） | 整数 |
-| D-4 | 每个指标的执行失败计数（按 `exec_error_validation` / `exec_error_runtime` / `exec_error_other` 分类） | 三个整数 |
-| D-5 | 每个指标的超时计数（`timeout`） | 整数 |
-| D-6 | `gold_invalid` 列表（不应非空；若非空必须列出 `record_id`） | record_id 数组 |
-| D-7 | 6 指标的总分 $\overline{M}(T)$ | 6 个百分数 |
-| D-8 | cross-domain 切片表 | [§5.2](#04-5-2) 形态 |
-| D-9 | 复现性 manifest 摘要 | [§3.3](#04-3-3) 的 manifest JSON 内容 |
+| D-1 | test set 总样本数 N | 整数 |
+| D-2 | 每个指标的分母 | 7 个整数；正常情况应等于 N |
+| D-3 | 每个指标的解析失败计数（`parse_error`） | 7 个整数（EM 恒为 0；QSM / QFC / EX / EFM / EVM / QIM 相等于 `parse_error` 总数） |
+| D-4 | 执行失败计数（按 `exec_error_validation` / `exec_error_runtime` / `exec_error_other` 分类） | 三个整数 |
+| D-5 | 超时计数（`timeout`） | 整数 |
+| D-6 | `gold_invalid` 列表（不应非空；若非空必须列出 record_id） | record_id 数组 |
+| D-7 | 7 指标的总分 $\overline{M}(T)$ | 7 个百分数 |
+| D-8 | cross-domain 切片表 | [§5.2](#05-5-2) 形态 |
+| D-9 | 复现性 manifest 摘要 | [§3.3](#05-3-3) 的 manifest JSON 内容（含 `diff_panel_manifest_sha256`、`canonical_form_extractor_sha256`、`sql_bridge_manifest_sha256`） |
 | D-10 | 是否使用了 audit 字段做辅助切片 | 布尔；若 true，列出使用的 audit 字段名 |
+| **D-12** | **`empirical_difficulty` 在 test 上的分布 + RP_diff manifest digest + 三方 disjointness 验证结果** | 4 个百分数（`easy` / `medium` / `hard` / `expert`，按 [04 §9.4](./04_dataset_construction.md#04-9) 的分桶）+ `audit/reference_panel/diff_panel_manifest.json` 的 SHA-256；同时披露 SMART 求解侧的 LLM ID 集合，以及与 RP_diff models id、V3' / V5' LLM id、**V7' SQL-bridge panel model id** 的三方 disjointness 验证结果 |
+| **D-13** | **5% 人审 anchor pass rate** | 浮点数 $\in [0, 1]$；来自 `audit/human_anchor/spot_audit.json`；伴随披露样本规模、审计员数量与意见分歧率 |
+| **D-15** | **复杂度向量 $\vec{C}$ 在 test 上的分布** | 6 分量直方图（`C_schema` / `C_data` / `C_intent` / `C_query` / `C_nosql` / `C_cross`）；每分量 3 档（low / mid / high）占比，聚合自 `audit/<db_id>/<record_id>/complexity_vector.json`；复杂度向量语义由 [03 §3](./03_database_synthesis.md#03-3) 定义 |
+| **D-16** | **QIM 分布 + `EX=1 ∧ QIM=0` 占比（SQL-bridge 退化率）** | 百分数（$\overline{\mathrm{QIM}}$） + 退化占比 $\lvert \{x: \mathrm{EX}(x)=1 \wedge \mathrm{QIM}(x)=0\} \rvert / N$ + record_id 抽样清单（最多 20 条，附 `ast_check_violation` 字段）；该占比是 TEND 对 NL2SQL-bridge 方法的关键判别信号 |
+| **D-17** | **`nosql_nativeness` L0-L4 分布 + 各级 EX / QIM** | 5 档 record 计数（`L0` / `L1` / `L2` / `L3` / `L4`）+ 各档在主表 7 指标上的 sample-mean；来自 [04 §3.1](./04_dataset_construction.md#04-3) 的 SI.nosql_nativeness.level |
+| **D-18** | **`sql_bridge_manifest` digest + 求解侧 LLM 与该 panel 的 disjointness 声明** | `audit/reference_panel/sql_bridge_manifest.json` 的 SHA-256（在 `runtime_lock` 中）+ 求解侧 LLM ID 集合（便于外部验证 [06 §7.3](./06_solution_design.md#06-7) 三方 disjointness：SMART LLM ∩ V3' / V5' LLM ∩ RP_diff ∩ SQL-bridge panel 两两空） |
+| **D-19** | **噪声 6 层分布（`T_noise_mix` 轴）** | 6 个百分数（`Literal` / `Structural` / `Semantic` / `Historical` / `Pollution` / `Type-Polymorphism`）；各层在 train 与 test 上的覆盖比例，来自 `audit/coverage/coverage_report.json` 的 `taxonomy_axes.T_noise_mix` 子块；噪声层语义由 [03 §5](./03_database_synthesis.md#03-5) 与 [03 §A](./03_database_synthesis.md#03-A) 定义 |
+| **D-20** | **`T_topology_features` 分布** | 7 个百分数（`flat` / `nested_N_deep` / `polymorphic_collection` / `dynamic_key_document` / `sparse_embedded` / `mixed_embed_ref` / `intentional_denormalization`）；每特性在 train 与 test 上的 record 级覆盖比例；来自 `audit/coverage/coverage_report.json` 的 `taxonomy_axes.T_topology_features` 子块；F_topology 语义由 [03 §4.1](./03_database_synthesis.md#03-4) 定义 |
 
-> D-2 至 D-6 是常被忽略但极易导致误读的条目：例如 `EX = 65.08%` 若不附 `parse_error` 与 `timeout` 计数，读者无法判断"模型究竟错在生成质量还是错在工程稳定性"。
+D-2 至 D-6 是常被忽略但极易导致误读的条目（高总分有可能伴随大量 `parse_error` 静默失败）。D-12 至 D-20 是 TEND benchmark 区别于既有 benchmark 的关键质量证据：D-12 锁定经验难度面板的可复现性、求解侧 LLM ID 集合及三方 disjointness 验证；D-13 提供独立的人工抽样验证；D-15 揭示 6 维复杂度向量在测试集上的分布；D-16 揭示 QIM 在整体与 (EX=1, QIM=0) 退化桶上的占比，是判别 SQL-bridge 类方法的核心信号；D-17 揭示模型在 NoSQL 原生度五档上的表现梯度；D-18 锁定 V7' SQL-bridge panel manifest 并声明求解侧 LLM 与该 panel 的 disjointness；D-19 揭示 6 层噪声在数据集上的覆盖分布；D-20 揭示 F_topology 7 特性在数据集上的覆盖分布。
 
----
+<a id="05-7"></a>
+## §7 canonical 示例
 
-## §7 canonical 示例 <a id="04-7"></a>
+用 [01 §7](./01_task_definition.md#01-7) 约定的 canonical 示例演示四种典型预测下 7 指标的取值过程。该 db 的 4 层 schema 为 `conductor → orchestra[] → performance[] → show[]`。
 
-本节用 [01 §7](./01_task_definition.md) 约定的 canonical 示例（`db_id = orchestra`，canonical NLQ = *"List the top 3 conductors with the most performances."*）演示三种典型预测下 6 指标的取值过程。
+- db_id：`orchestra`
+- record_id：`99001`
+- 定位：本 canonical 实例 SI.nosql_nativeness.level = L4（详见 [04 §3.6](./04_dataset_construction.md#04-3)）——即最高 NoSQL 原生度档，关系型等价改写会结构退化。
 
-### 7.1 NLQ 与 gold MQL <a id="04-7-1"></a>
+<a id="05-7-1"></a>
+### §7.1 NLQ 与 gold MQL
 
-- `db_id`：`orchestra`
-- NLQ：`"List the top 3 conductors with the most performances."`
-- gold MQL（来自 [02](./02_dataset_design.md) record `record_id = 99001` 的 `MQL` 字段）：
+- NLQ："For each conductor, attach a `total_performances` field counting all performances across their orchestras, while preserving the original conductor document structure."
+- gold MQL（来自 [02](./02_dataset_design.md) record `record_id = 99001`；单一 `$addFields` 根层 stage，内部用 `$map + $size` 做 shape-preserving aggregation）：
 
 ```javascript
 db.conductor.aggregate([
-  { $unwind: "$orchestra" },
-  { $unwind: "$orchestra.performance" },
-  { $group: {
-      _id: "$_id",
-      Name: { $first: "$Name" },
-      count: { $sum: 1 }
-  }},
-  { $sort: { count: -1 } },
-  { $limit: 3 },
-  { $project: { _id: 0, Name: 1, count: 1 } }
+  { $addFields: {
+      total_performances: {
+        $sum: {
+          $map: {
+            input: { $ifNull: ["$orchestra", []] },
+            as: "orch",
+            in: { $size: { $ifNull: ["$$orch.performance", []] } }
+          }
+        }
+      }
+  } }
 ]);
 ```
 
-记 gold 在 $D$ 上的执行结果（已归一化）为：
+gold 在 $D$ 上的执行结果（已归一化）形如（保留原 conductor 文档结构，根层新增 `total_performances` 字段）：
 
-```
+```json
 [
-  { "Name": "Antal Doráti", "count": 7 },
-  { "Name": "Igor Stravinsky", "count": 5 },
-  { "Name": "Colin Davis", "count": 4 }
+  {
+    "Conductor_ID": 1, "Name": "Antal Doráti", "Age": 62, "Nationality": "Hungarian",
+    "orchestra": [
+      { "Orchestra_ID": 11, "Orchestra_Name": "London Symphony Orchestra", "Year_of_Founded": 1904,
+        "performance": [ {"Performance_ID": 101, "...": "..."}, {"Performance_ID": 102, "...": "..."} ] }
+    ],
+    "total_performances": 2
+  },
+  {
+    "Conductor_ID": 2, "Name": "Igor Stravinsky", "...": "...",
+    "total_performances": 5
+  }
 ]
 ```
 
-> 上述具体 `Name` 与 `count` 的字面值仅用于本节演示的语义直觉；它们由 [02](./02_dataset_design.md) 的实际 `TEND/mongodb_data/orchestra.json` 决定，本节不规范化具体数值。
+对应的 canonical_form_set（来自 [04 §5.7](./04_dataset_construction.md#04-5) 机械派生，落盘 `audit/orchestra/99001/derived/canonical_form_set.json`）：
 
-### 7.2 示例 A：完全正确 <a id="04-7-2"></a>
-
-预测 $q_p^{(A)}$ 与 gold 完全相同（甚至连空白也一致）：
-
-```javascript
-db.conductor.aggregate([
-  { $unwind: "$orchestra" },
-  { $unwind: "$orchestra.performance" },
-  { $group: {
-      _id: "$_id",
-      Name: { $first: "$Name" },
-      count: { $sum: 1 }
-  }},
-  { $sort: { count: -1 } },
-  { $limit: 3 },
-  { $project: { _id: 0, Name: 1, count: 1 } }
-]);
+```json
+{
+  "must_contain": ["$addFields", "$map"],
+  "must_not_contain": [],
+  "must_contain_at_root": ["$addFields"],
+  "must_not_contain_at_root": ["$unwind", "$group"]
+}
 ```
+
+即：AST 中必须出现 `$addFields` 与 `$map`（可在任意嵌套层）；根层 pipeline stage 必须含 `$addFields` 且不得含 `$unwind` 与 `$group`。
+
+<a id="05-7-2"></a>
+### §7.2 示例 A：完全正确
+
+预测 $q_p^{(A)}$ 与 gold 完全相同。逐指标推算：
+
+| 指标 | 取值 | 推算 |
+|---|---|---|
+| EM | 1 | `norm_str(q_p) = norm_str(q_g)` |
+| QSM | 1 | `stages = [$addFields]`，两侧相同 |
+| QFC | 1 | `fields = {orchestra, orchestra.performance, total_performances}`，两侧相同 |
+| EX | 1 | $\operatorname{NormExec}(q_p, D) \equiv_{rec} \operatorname{NormExec}(q_g, D)$ |
+| EFM | 1 | `keys` 包含原 conductor 字段 + `total_performances`，两侧相同 |
+| EVM | 1 | `drop_keys` 后值序列两侧相同 |
+| QIM | 1 | AST 含 `$addFields` 与 `$map`；根层含 `$addFields`，不含 `$unwind` 与 `$group`；`AST_check` = pass |
+
+7 比特指纹（顺序 EM, QSM, QFC, EX, EFM, EVM, QIM）：`(1, 1, 1, 1, 1, 1, 1)`。诊断意义：完全正确。
+
+<a id="05-7-3"></a>
+### §7.3 示例 B：`$sum` 误写为 `$avg`
+
+预测保留 shape-preserving 单 `$addFields` 结构，但把外层 `$sum` 改写为 `$avg`；其它完全相同。执行后 `total_performances` 对每个 conductor 都退化为 "每个 orchestra 的 performance 数" 的平均值，与 gold 的"总和"不同。
 
 逐指标推算：
 
-| 指标 | 计算 | 取值 |
+| 指标 | 取值 | 推算 |
 |---|---|---|
-| EM | $\mathrm{norm\_str}(q_p^{(A)}) = \mathrm{norm\_str}(q_g)$ | 1 |
-| QSM | $\mathrm{stages} = [\$unwind, \$unwind, \$group, \$sort, \$limit, \$project]$ 与 gold 相同 | 1 |
-| QFC | $\mathrm{fields} = \{\text{orchestra}, \text{orchestra.performance}, \text{Name}, \_id, \text{count}\}$ 与 gold 相同 | 1 |
-| EX | $\mathrm{NormExec}(q_p^{(A)}, D) \equiv_{rec} \mathrm{NormExec}(q_g, D)$ | 1 |
-| EFM | $\mathrm{keys} = \{\text{Name}, \text{count}\}$ 双方相同 | 1 |
-| EVM | $\mathrm{drop\_keys}$ 后值序列双方相同 | 1 |
+| EM | 0 | 串面 `$sum` 与 `$avg` 不同 |
+| QSM | 1 | stage 仍为 `[$addFields]` |
+| QFC | 1 | 字段集合不变 |
+| EX | 0 | `total_performances` 的值错（平均值 ≠ 总和） |
+| EFM | 1 | 输出字段仍含 `total_performances` |
+| EVM | 0 | 值序列与 gold 不同 |
+| QIM | 1 | AST 仍含 `$addFields` 与 `$map`；根层仅 `$addFields`，无 `$unwind` / `$group`；`AST_check` = pass |
 
-整体：6 指标均为 1；该 record 落在 [§1.5](#04-1-5) 表的"完全正确"行。
+7 比特指纹：`(0, 1, 1, 0, 1, 0, 1)`。诊断意义：骨架与 canonical form 合规，错在外层聚合算子（值面错）。
 
-### 7.3 示例 B：`$sum` 误写为 `$avg` <a id="04-7-3"></a>
+<a id="05-7-4"></a>
+### §7.4 示例 C：漏 `$ifNull` 兜底
 
-预测 $q_p^{(B)}$ 把 `count: { $sum: 1 }` 改成 `count: { $avg: 1 }`，其余完全相同：
-
-```javascript
-db.conductor.aggregate([
-  { $unwind: "$orchestra" },
-  { $unwind: "$orchestra.performance" },
-  { $group: {
-      _id: "$_id",
-      Name: { $first: "$Name" },
-      count: { $avg: 1 }
-  }},
-  { $sort: { count: -1 } },
-  { $limit: 3 },
-  { $project: { _id: 0, Name: 1, count: 1 } }
-]);
-```
-
-执行后 `count` 全部退化为常数 `1`（每个 conductor 的平均值都是 1）。归一化结果形如：
-
-```
-[
-  { "Name": "<某个 conductor>", "count": 1 },
-  { "Name": "<某个 conductor>", "count": 1 },
-  { "Name": "<某个 conductor>", "count": 1 }
-]
-```
-
-> 此时 `$sort: { count: -1 }` 在常数键上排序，按 mongosh 实际行为顺序由 `_id` 决定，输出的 conductor 顺序很可能与 gold 不同；即便顺序碰巧相同，`count` 的数值（1 vs 真实计数）也已不同。
+预测把 `{ $size: { $ifNull: ["$$orch.performance", []] } }` 写成 `{ $size: "$$orch.performance" }`，漏掉 null 兜底；其它与 gold 相同。对 sparse orchestra（`performance` 字段缺失）调用 `$size` 于 null 会在 `mongosh` 层抛运行时错，进入 `exec_error_runtime`。
 
 逐指标推算：
 
-| 指标 | 计算 | 取值 |
+| 指标 | 取值 | 推算 |
 |---|---|---|
-| EM | 串面比较：`$sum` ≠ `$avg` | 0 |
-| QSM | $\mathrm{stages}$ 仍为 $[\$unwind, \$unwind, \$group, \$sort, \$limit, \$project]$ | 1 |
-| QFC | $\mathrm{fields}$ 仍为 $\{\text{orchestra}, \text{orchestra.performance}, \text{Name}, \_id, \text{count}\}$ | 1 |
-| EX | $\mathrm{NormExec}(q_p^{(B)}, D) \not\equiv_{rec} \mathrm{NormExec}(q_g, D)$（值不同，可能顺序也不同） | 0 |
-| EFM | $\mathrm{keys}(\mathrm{NormExec}(q_p^{(B)}, D)) = \{\text{Name}, \text{count}\}$ 与 gold 相同 | 1 |
-| EVM | $\mathrm{drop\_keys}$ 后 $q_p^{(B)}$ 的值序列形如 `[(<name>, 1), (<name>, 1), (<name>, 1)]`，gold 形如 `[(<name>, 7), (<name>, 5), (<name>, 4)]`，按位置（或排序后）比较均不等 | 0 |
+| EM | 0 | 串面缺 `$ifNull` |
+| QSM | 1 | 仍单 `$addFields` stage |
+| QFC | 1 | 字段集合不变（`$ifNull` 本身不引入新字段路径） |
+| EX | 0 | sparse orchestra 触发 `$size` 于 null 抛错，记 `exec_error_runtime` |
+| EFM | 0 | $\operatorname{NormExec}(q_p) = \bot$ |
+| EVM | 0 | 同上 |
+| QIM | 1 | AST 仍含 `$addFields` 与 `$map`；根层仅 `$addFields`，无 `$unwind` / `$group`；`AST_check` = pass（AST_check 不依赖 Exec） |
 
-整体：`(EM, QSM, QFC, EX, EFM, EVM) = (0, 1, 1, 0, 1, 0)`。诊断意义：骨架与字段全对，错在算子（值面错）。
+7 比特指纹：`(0, 1, 1, 0, 0, 0, 1)`。诊断意义：骨架与 canonical form 合规但运行时错（AST 合规但漏掉 null 兜底的噪声耦合，触发 [03 §5](./03_database_synthesis.md#03-5) Structural 层的 sparse 噪声）。
 
-### 7.4 示例 C：漏 `$limit 3` <a id="04-7-4"></a>
+<a id="05-7-5"></a>
+### §7.5 示例 D：SQL-bridge 退化
 
-预测 $q_p^{(C)}$ 完全照抄 gold，但删去最后那个 `$limit: 3` 之外的什么都不动——为对照清晰，假设它把整个 `{ $limit: 3 }` 这一阶段移除：
+预测 $q_p^{(D)}$ 由 NL2SQL ∘ sqltomongo 翻译链产出——SQL 侧用 JOIN + GROUP BY 实现"每个 conductor 的 performance 总数"，翻译到 MongoDB 时变成 `$unwind + $group + $project` 的扁平化重组：
 
 ```javascript
 db.conductor.aggregate([
-  { $unwind: "$orchestra" },
-  { $unwind: "$orchestra.performance" },
+  { $unwind: { path: "$orchestra", preserveNullAndEmptyArrays: true } },
+  { $unwind: { path: "$orchestra.performance", preserveNullAndEmptyArrays: true } },
   { $group: {
       _id: "$_id",
+      Conductor_ID: { $first: "$Conductor_ID" },
       Name: { $first: "$Name" },
-      count: { $sum: 1 }
-  }},
-  { $sort: { count: -1 } },
-  { $project: { _id: 0, Name: 1, count: 1 } }
+      Age: { $first: "$Age" },
+      Nationality: { $first: "$Nationality" },
+      orchestra_reconstructed: { $push: "$orchestra" },
+      total_performances: {
+        $sum: { $cond: [ { $ifNull: ["$orchestra.performance", false] }, 1, 0 ] }
+      }
+  } },
+  { $project: {
+      _id: 0,
+      Conductor_ID: 1, Name: 1, Age: 1, Nationality: 1,
+      orchestra: "$orchestra_reconstructed",
+      total_performances: 1
+  } }
 ]);
 ```
 
-执行后归一化结果包含**全部** conductor（按 count 降序），形如：
-
-```
-[
-  { "Name": "Antal Doráti", "count": 7 },
-  { "Name": "Igor Stravinsky", "count": 5 },
-  { "Name": "Colin Davis", "count": 4 },
-  { "Name": "Charles Mackerras", "count": 3 },
-  ...
-]
-```
+该写法的执行结果在 `total_performances` 标量与 conductor 计数上与 gold 一致；`orchestra` 数组的"平坦化后重新 `$push`"恰好在当前数据分布下与原嵌套结构满足 $\equiv_{rec}$（[01 §5](./01_task_definition.md#01-5)）—— EX 通过。然而 AST 根层出现了 `$unwind` 与 `$group`，这正是 canonical_form_set.`must_not_contain_at_root` 禁止的两个 token。
 
 逐指标推算：
 
-| 指标 | 计算 | 取值 |
+| 指标 | 取值 | 推算 |
 |---|---|---|
-| EM | 串面比较：少了 `{ $limit: 3 }` 子串 | 0 |
-| QSM | $\mathrm{stages}(q_p^{(C)}) = [\$unwind, \$unwind, \$group, \$sort, \$project]$ 比 gold 少一项 $\$limit$ | 0 |
-| QFC | $\mathrm{fields}$ 与 gold 一致（`$limit` 不引入字段） | 1 |
-| EX | $\mathrm{NormExec}(q_p^{(C)}, D)$ 长度 = $\#\text{conductors}$，gold 长度 = 3 | 0 |
-| EFM | 字段名集合仍为 $\{\text{Name}, \text{count}\}$ | 1 |
-| EVM | 顶层列表长度不同 ⟹ 按 [01 §5.3](./01_task_definition.md) 长度判等先于元素判等，直接判 0；唯一的退化情形是 $D$ 中 conductor 数恰为 3，此时长度相同且值序列相同 → EVM=1（但由 [01 §6.1](./01_task_definition.md) 的 P4，TEND 上 conductor 数严格大于 3，因此该退化不发生） | 0 |
+| EM | 0 | 串面完全不同 |
+| QSM | 0 | stage 序列从 `[$addFields]` 变为 `[$unwind, $unwind, $group, $project]` |
+| QFC | 0 | `$group` 引入中间字段 `orchestra_reconstructed`，fields 集合与 gold 不同 |
+| EX | 1 | 执行结果 $\equiv_{rec}$ gold（平坦化重组在该数据分布下还原了原嵌套结构） |
+| EFM | 1 | 最终 `$project` 后输出字段与 gold 一致 |
+| EVM | 1 | 值序列 $\equiv_{rec}$ 一致 |
+| QIM | 0 | AST 根层含 `$unwind` 与 `$group`，违反 `must_not_contain_at_root = ["$unwind", "$group"]`；`ast_check_violation = forbidden_root` |
 
-整体：`(EM, QSM, QFC, EX, EFM, EVM) = (0, 0, 1, 0, 1, 0)`。诊断意义：错在骨架（漏 stage）；字段层与字段名层都没问题。
+7 比特指纹：`(0, 0, 0, 1, 1, 1, 0)`。诊断意义：**SQL-bridge 退化**——执行正确但写法不符合 shape-preserving idiomatic 约束；这正是 TEND benchmark 引入 QIM 的核心防御目标。
 
-### 7.5 示例小结 <a id="04-7-5"></a>
+<a id="05-7-6"></a>
+### §7.6 示例小结
 
-三个示例共同说明：
+- EX 是单一的"成功 / 失败"标尺；本节 4 个示例中示例 A 与示例 D 均取 EX = 1，但两者的写法形态截然不同。
+- 7 指标的组合相当于"错误与写法层级的 7 比特指纹"：示例 B 与 C 同样 EX = 0，但通过 QSM / QFC / EFM / EVM 的不同取值能区分"算子错"与"漏噪声耦合"。
+- 示例 D 是 EX 单独不足以判定"写法是否 idiomatic"的反证：仅用 EX 无法把 A 与 D 区分开来；QIM 作为独立的语法层代理恰好填补了这一诊断能力缺口——$(EX=1, QIM=0)$ 桶的占比（D-16）即对 NL2SQL-bridge 类方法的关键判别信号。
+- 任一种失败都不要在评测层"修复"；评测层只如实反映预测产物，"修复"属于求解层职责（[06](./06_solution_design.md)）。
 
-- EX 是单一的"成功 / 失败"标尺：示例 B、C 都判 0，但 6 指标的指纹不同——B 是值面错（`(0,1,1,0,1,0)`），C 是骨架错（`(0,0,1,0,1,0)`）。
-- 6 指标的组合相当于一个"错误层级 6 比特指纹"，它能唯一区分串面错 / 结构错 / 字段错 / 算子值错的多数典型情形——这正是把它们一起报告（而不是只报 EX）的诊断价值。
-- 任一种失败都不要在评测层"修复"——示例 B 的 `$avg` 是合法 mongosh 算子，因此 EX=0 与 EFM=1 的指纹应原样落盘，不允许评测器"看到 `$avg` 觉得不合理就改写成 `$sum`"。
+<a id="05-8"></a>
+## §8 与方法文档的接口
 
----
+[06 方法设计](./06_solution_design.md) 在其评测相关章节只能消费本文档定义的：
 
-## §8 与方法文档的接口 <a id="04-8"></a>
+1. 7 指标公式（[§1](#05-1)）。
+2. 评测协议（[§2](#05-2)）。
+3. 复现性契约（[§3](#05-3)）。
+4. 报告结构（[§5](#05-5)）。
 
-[05 方法设计](./05_solution_design.md) 在其评测相关章节只能消费本文档定义的：
+明确禁止 [06](./06_solution_design.md) 做的事：
 
-1. 6 指标公式（[§1](#04-1)）；
-2. 评测协议（[§2](#04-2)）；
-3. 复现性契约（[§3](#04-3)）；
-4. 报告结构（[§5](#04-5)）。
+- 不得引入第 8、第 9 个指标作为主指标。
+- 不得修改 [§2.3](#05-2-3) 失败处理规则（如把 `parse_error` 在求解侧静默重试若干次后再上报，会破坏单次执行不变式；将 QIM 的 `AST_check` 在求解侧改写也属于此禁区）。
+- 不得改写 [§3](#05-3) manifest 字段（含 `collation` / `timezone` / `diff_panel_manifest_sha256` / `canonical_form_extractor_sha256` / `sql_bridge_manifest_sha256`）。
+- 不得用 [§5.3](#05-5-3) 辅助切片代替 [§5.1](#05-5-1) 主表 headline（如只报告 easy 档分数，或只报告 (EX=1, QIM=1) 桶内的分数）。
+- 不得把 QIM 作为 headline 上报；QIM 只能作为主表诊断列与 D-16 披露数字呈现。
 
-明确禁止 [05](./05_solution_design.md) 做的事：
+[06](./06_solution_design.md) 可以引用 7 指标的诊断意义（[§1.5](#05-1-5) 诊断模板表 + [§1.8](#05-1-8) QIM 性质），用以解释方法的失败模式与改进路径，但必须注明引用 [§1.5](#05-1-5) 或 [§1.8](#05-1-8)。
 
-- 不得引入第 7、第 8 个指标作为主指标；
-- 不得修改 [§2.3](#04-2-3) 的失败处理规则（如"timeout 重试一次后再算"）；
-- 不得改写 [§3](#04-3) 的 manifest 字段（如省略 `collation` / `timezone`）；
-- 不得用 [§5.3](#04-5-3) 的辅助切片代替 [§5.1](#04-5-1) 的主表 headline。
+评测层不引用 [06](./06_solution_design.md)：评测层只承诺"给定 $(q_p, q_g, D, \operatorname{canonical\_form\_set}(q_g))$，返回 7 指标 + 失败标签"。求解侧具体如何产出 $q_p$ 与评测层无关。
 
-[05](./05_solution_design.md) 可以——也鼓励——在方法叙述中引用 6 指标的诊断意义（[§1.5](#04-1-5) 的诊断模板表），用以解释方法的失败模式与改进路径，但必须注明引用 [§1.5](#04-1-5)。
+<a id="05-9"></a>
+## §9 全文符号表
 
-> 评测层不引用 [05](./05_solution_design.md)：一次评测对哪种方法运行的细节属于方法层；评测层只承诺"给定 $(q_p, q_g, D)$，返回 6 指标 + 失败标签"。
+完整列出本文档用到的所有符号：
 
----
-
-## §9 全文符号表 <a id="04-9"></a>
-
-| 符号 | 含义 | 首次出现 |
+| 符号 | 含义 | 出处 |
 |---|---|---|
-| $T = \{x_1, \dots, x_N\}$ | test set 全集 | [§1.8](#04-1-8) |
-| $N$ | test set 总样本数（与 [02](./02_dataset_design.md) 的 cross-domain 切分一致） | [§1.8](#04-1-8) |
-| $q_p(x), q_g(x)$ | record $x$ 的预测 MQL 与 gold MQL | [§1.1](#04-1-1) |
-| $D(x)$ | record $x$ 的只读数据快照 | [§1.1](#04-1-1) |
-| $\mathrm{Parse}, \mathrm{Exec}, \mathrm{Norm}, \mathrm{NormExec}$ | 解析 / 执行 / 归一化 / 复合算子（[01 §1.4](./01_task_definition.md)） | [§1.1](#04-1-1) |
-| $\equiv_{rec}$ | 规范树上的递归相等关系（[01 §5](./01_task_definition.md)） | [§1.1](#04-1-1) |
-| $\bot$ | 解析失败 / 执行失败 / 超时 / 运行期错误的统一占位符 | [§1.1](#04-1-1) |
-| $\mathrm{norm\_str}(q)$ | 串面归一化（去除两端空白、合并连续空白） | [§1.1](#04-1-1) |
-| $\mathrm{stages}(\cdot)$ | aggregation pipeline stage 算子序列 | [§1.1](#04-1-1) |
-| $\mathrm{fields}(\cdot)$ | 查询触及的字段路径集合 | [§1.1](#04-1-1) |
-| $\mathrm{keys}(r)$ | 规范结果树中所有出现过的字段名集合 | [§1.1](#04-1-1) |
-| $\mathrm{drop\_keys}(r)$ | 规范结果树剥离字段名后的值结构 | [§1.1](#04-1-1) |
-| $\mathrm{EM}, \mathrm{QSM}, \mathrm{QFC}, \mathrm{EX}, \mathrm{EFM}, \mathrm{EVM}$ | 6 个标量指标 | [§1.2](#04-1-2)–[§1.7](#04-1-7) |
-| $\overline{M}(T)$ | 指标 $M$ 在 $T$ 上的 sample-mean | [§1.8](#04-1-8) |
-| `parse_error`, `exec_error_validation`, `exec_error_runtime`, `exec_error_other`, `timeout`, `gold_invalid` | 失败类型枚举 | [§2.3](#04-2-3) |
-| `input_lock`, `runtime_lock` | 复现性 manifest 的两半 | [§3.1](#04-3-1)–[§3.2](#04-3-2) |
-| D-1 … D-10 | 强制披露清单条目 | [§6](#04-6) |
+| $T = \{x_1, \ldots, x_N\}$ | test set 全集 | [§1.9](#05-1-9) |
+| $N$ | test set 样本数（$N = 2{,}775$） | [§1.9](#05-1-9) |
+| $q_p$ | 模型预测的 MQL | [§1.1](#05-1-1) |
+| $q_g$ | record 自带的 gold MQL | [§1.1](#05-1-1) |
+| $D$ | record 对应的只读数据快照 | [§1.1](#05-1-1) |
+| $\operatorname{Parse}$ | MQL 串到 AST 的解析算子 | [§1.1](#05-1-1) |
+| $\operatorname{Exec}$ | AST 在数据快照上的执行算子 | [§1.1](#05-1-1) |
+| $\operatorname{Norm}$ | 结果归一化算子（[01 §4](./01_task_definition.md#01-4)） | [§1.1](#05-1-1) |
+| $\operatorname{NormExec}$ | $\operatorname{Norm} \circ \operatorname{Exec} \circ \operatorname{Parse}$ | [§1.1](#05-1-1) |
+| $\equiv_{rec}$ | 递归相等关系（[01 §5](./01_task_definition.md#01-5)） | [§1.1](#05-1-1) |
+| $\bot$ | 解析 / 执行 / 超时 / 运行期错误的统一占位符 | [§1.1](#05-1-1) |
+| `norm_str` | 串面归一化（空白折叠） | [§1.1](#05-1-1) |
+| `stages` | aggregation pipeline 的 stage 算子序列 | [§1.1](#05-1-1) |
+| `fields` | 查询体中触及的字段路径集合 | [§1.1](#05-1-1) |
+| `keys` | 结果对象中所有出现过的字段名集合 | [§1.1](#05-1-1) |
+| `drop_keys` | 按结构剥离字段名后的值形态 | [§1.1](#05-1-1) |
+| `canonical_form_set(q_g)` | gold 查询的结构约束四元组 | [§1.1](#05-1-1) |
+| `AST_check(AST, C)` | AST 与 canonical_form_set $C$ 的结构断言算子 | [§1.1](#05-1-1) |
+| EM | Exact Match | [§1.2](#05-1-2) |
+| QSM | Query Stage Match | [§1.3](#05-1-3) |
+| QFC | Query Field Coverage | [§1.4](#05-1-4) |
+| EX | Execution Match（headline） | [§1.5](#05-1-5) |
+| EFM | Execution Field Match | [§1.6](#05-1-6) |
+| EVM | Execution Value Match | [§1.7](#05-1-7) |
+| QIM | Query Idiomatic Match（headline 辅助诊断） | [§1.8](#05-1-8) |
+| $\overline{M}$ | 指标 $M$ 在 $T$ 上的 sample-mean | [§1.9](#05-1-9) |
+| `parse_error` | $\operatorname{Parse}(q_p) = \bot$ | [§2.3](#05-2-3) |
+| `exec_error_validation` | `mongosh` 拒绝执行 | [§2.3](#05-2-3) |
+| `exec_error_runtime` | `mongosh` 接受查询但运行时抛错 | [§2.3](#05-2-3) |
+| `exec_error_other` | 其它非分类执行错误 | [§2.3](#05-2-3) |
+| `timeout` | 单 record 执行超过 30 秒上限 | [§2.3](#05-2-3) |
+| `gold_invalid` | $q_g$ 或 canonical_form_set 自身无效 | [§2.3](#05-2-3) |
+| `ast_check_violation` | `AST_check` = fail 时的不匹配原因字段 | [§2.2](#05-2-2) |
+| `input_lock` | 复现性 manifest 中的输入锁块 | [§3.1](#05-3-1) |
+| `runtime_lock` | 复现性 manifest 中的运行时锁块 | [§3.2](#05-3-2) |
+| `canonical_form_extractor_sha256` | runtime lock 中 `AST_check` 算子实现的指纹 | [§3.2](#05-3-2) |
+| `sql_bridge_manifest_sha256` | V7' SQL-bridge panel manifest 指纹 | [§3.2](#05-3-2) |
+| D-1 | test set 总样本数 N | [§6](#05-6) |
+| D-2 | 每个指标的分母 | [§6](#05-6) |
+| D-3 | 每个指标的解析失败计数 | [§6](#05-6) |
+| D-4 | 执行失败计数（三类） | [§6](#05-6) |
+| D-5 | 超时计数 | [§6](#05-6) |
+| D-6 | `gold_invalid` 列表 | [§6](#05-6) |
+| D-7 | 7 指标的总分 | [§6](#05-6) |
+| D-8 | cross-domain 切片表 | [§6](#05-6) |
+| D-9 | 复现性 manifest 摘要 | [§6](#05-6) |
+| D-10 | audit 字段使用声明 | [§6](#05-6) |
+| D-12 | `empirical_difficulty` 分布 + RP_diff manifest digest + 三方 disjointness 验证 | [§6](#05-6) |
+| D-13 | 5% 人审 anchor pass rate | [§6](#05-6) |
+| D-15 | 复杂度向量 $\vec{C}$ 在 test 上的分布（6 分量直方图） | [§6](#05-6) |
+| D-16 | QIM 分布 + SQL-bridge 退化占比 | [§6](#05-6) |
+| D-17 | `nosql_nativeness` L0-L4 分布 + 各级 EX / QIM | [§6](#05-6) |
+| D-18 | `sql_bridge_manifest` digest + 求解侧 LLM disjointness 声明 | [§6](#05-6) |
+| D-19 | 噪声 6 层分布（`T_noise_mix` 轴） | [§6](#05-6) |
+| D-20 | `T_topology_features` 分布 | [§6](#05-6) |
 
 ---
 
-> 下游文档定位：record 字段、训练 / 测试切分与 audit 字段定义在 [02 数据集设计](./02_dataset_design.md)；gold 来源、构造侧执行环境与 mongosh 镜像约定在 [03 数据集构造](./03_dataset_construction.md)；任务签名、归一化契约、$\equiv_{rec}$ 在 [01 任务定义](./01_task_definition.md)；面向 6 指标进行优化的方法架构在 [05 方法设计](./05_solution_design.md)。
+下游指针：record 字段、训练 / 测试切分与 audit 资产定义在 [02 数据集设计](./02_dataset_design.md)；Agentic 数据库合成方法（Agent 架构、三控制线、Taxonomy Board、F_topology 7 特性、6 层 Noise Taxonomy、复杂度 6 分量）在 [03 数据库合成](./03_database_synthesis.md)；gold 来源与 V1'-V7' 验证证书、canonical_form_set 机械派生（[04 §5.7](./04_dataset_construction.md#04-5)）、RP_diff 经验难度与 V7' SQL-bridge panel 在 [04 §9](./04_dataset_construction.md#04-9)；任务签名、归一化契约、$\equiv_{rec}$ 与代理指标范围在 [01 任务定义](./01_task_definition.md)；面向 7 指标进行优化的 SMART 方法架构、6 SSoT 边界与 V1'-V7' 责任分配在 [06 方法设计](./06_solution_design.md)。

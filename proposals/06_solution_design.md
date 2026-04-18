@@ -1,499 +1,591 @@
-# 05 · 方法设计（SMART）
+# 06 · SMART 求解方法层设计 SSoT
 
-> 本文件是 Text-to-NoSQL benchmark TEND 上**求解方法层**的根定义（SSoT）。它只回答"给定一条 NLQ + schema + db_id，我们如何把它解到一条可执行的 MongoDB 查询"。它不重定义任务输入输出（[01](./01_task_definition.md) 的事）、不重定义 record 字段（[02](./02_dataset_design.md) 的事）、不重定义构造流程（[03](./03_dataset_construction.md) 的事），也不重定义评测指标（[04](./04_evaluation_methodology.md) 的事）。
+<a id="06-0"></a>
+## §0 摘要
 
----
+SMART 是一个面向 Text-to-NoSQL 的 4 阶段推理流水线：
 
-## §0 摘要 <a id="05-0"></a>
+1. **SLM-based Schema Prediction**（[§2](#06-2)）—— 微调 Llama-3.2-1B，对每条 NLQ 预测 4 路 schema 标签：collection / db_fields / alias_fields / target_fields
+2. **SLM-based Query Generation**（[§3](#06-3)）—— 微调 Llama-3.2-1B，把 NLQ + 上一阶段预测出的结构化 schema 喂给生成器，输出草稿 MQL（draft_mql）
+3. **Memory-driven Refinement**（[§4](#06-4)）—— LLM Agent 用多视角向量库（V_nlq / V_fields / V_collections / V_draft）对训练侧记忆做加权 cosine 检索，召回 Top-K 示例，重写草稿 → refined_mql
+4. **Execution-grounded Optimization**（[§5](#06-5)）—— Debug Agent 把当前 MQL 提交本地 mongosh 执行，根据执行反馈迭代修正 → final_mql
 
-**SMART** 是一个面向 Text-to-NoSQL 的**4 阶段推理流水线**：
+整条流水线在 [01 §1](./01_task_definition.md#01-1) 定义的任务签名下闭合：输入 (NLQ, schema, db_id)，输出 q^MQL，由 [05 §1](./05_evaluation_methodology.md#05-1) 的 7 指标体系（EM / QSM / QFC / EX / EFM / EVM / QIM）统一判定，其中 EX 作为 headline 指标衡量端到端解对率，QIM 作为诊断代理度量最终 MQL 的 idiomatic 程度。论文报告 SMART（deepseek-v3 作为 Refiner / Debugger 的对话主干）在 TEND 测试集上 EX = 65.08%；在 TEND 的 NoSQL-exclusive 数据分布下，SMART 相对 NL2SQL-bridge baseline 的相对优势期望在 L2+ 样本切片上显著放大（见 [§9](#06-9)）。
 
-1. **SLM-based Schema Prediction**（[§2](#05-2)）—— 微调 Llama-3.2-1B，对每条 NLQ 预测 4 路 schema 标签：`collection` / `db_fields` / `alias_fields` / `target_fields`。
-2. **SLM-based Query Generation**（[§3](#05-3)）—— 微调 Llama-3.2-1B，把 NLQ + 上一阶段预测出的结构化 schema 喂给生成器，输出**草稿 MQL**（draft_mql）。
-3. **Memory-driven Refinement**（[§4](#05-4)）—— LLM Agent 用**多视角向量库**（V_nlq / V_fields / V_collections / V_draft）对训练侧记忆做**加权 cosine** 检索，召回 Top-K 示例，重写草稿 → refined_mql。
-4. **Execution-grounded Optimization**（[§5](#05-5)）—— Debug Agent 把当前 MQL 提交本地 mongosh 执行，根据执行反馈（错误信息、空结果、字段绑定异常等）迭代修正 → final_mql。
+对 NoSQL-native 意图（nosql_nativeness L2-L4，其 5 级语义见 [04 §3.1](./04_dataset_construction.md#04-3)）的设计预期：Stage 1 Schema Predictor 在 4 路标签中保留 shape-preserving / polymorphic / dynamic-key 等语义信号（见 [§2.2](#06-2)）；Stage 3 Refiner 的检索记忆在训练侧预存 shape_preserving_augment / polymorphic_branch / dynamic_key_expansion / nested_in_place_aggregate 等 pattern 的示例；Stage 4 Debug Agent 对"shape 退化"做显式 patch 修正（见 [§5.2](#06-5)）；这使 SMART 在 L2-L4 样本上同时具备 EX 与 QIM 的竞争力。
 
-整条流水线在 [01 §1](./01_task_definition.md#01-1) 定义的任务签名下闭合：输入 `(NLQ, schema, db_id)`，输出 `q^MQL`，由 [04](./04_evaluation_methodology.md) 的 6 指标体系统一判定。论文报告 SMART (deepseek-v3 作为 Refiner / Debugger 的对话主干) 在 TEND 测试集上 EX = 65.08%。
+TEND 数据底盘锁定为 17,020 records，14,245 train / 2,775 test；SMART 训练侧只取 train.json 的 14,245 条，test.json 的 2,775 条仅在 [05](./05_evaluation_methodology.md) 评测期消费。库级合成由 [03](./03_database_synthesis.md) 定义；本文档求解侧零加载其产物中的 audit 资产。
 
-本文档共 10 节：总体架构（[§1](#05-1)）、4 个阶段（[§2](#05-2)/[§3](#05-3)/[§4](#05-4)/[§5](#05-5)）、训练与推理接口（[§6](#05-6)）、方法侧硬边界（[§7](#05-7)）、部署与监控（[§8](#05-8)）、与 baseline 的比较假设（[§9](#05-9)）、canonical 示例的 4 阶段 trace（[§10](#05-10)）。
+本文档共 11 节：总体架构（[§1](#06-1)）、4 个阶段（[§2](#06-2) / [§3](#06-3) / [§4](#06-4) / [§5](#06-5)）、训练与推理接口（[§6](#06-6)）、方法侧硬边界（[§7](#06-7)）、部署与监控（[§8](#06-8)）、与 baseline 的比较假设（[§9](#06-9)）、canonical 示例的 4 阶段 trace（[§10](#06-10)）。
 
----
+<a id="06-1"></a>
+## §1 总体架构
 
-## §1 总体架构 <a id="05-1"></a>
+### §1.1 推理流程的形式化签名
 
-### 1.1 推理流程的形式化签名
+按 [01 §1](./01_task_definition.md#01-1)，TEND 任务是函数 $f:(\mathrm{NLQ}, S, \mathit{db\_id}) \to q^{\mathrm{MQL}}$。SMART 给出该函数的具体实现 $f_{\text{SMART}}$，由 4 个内部子算子复合：
 
-按 [01 §1](./01_task_definition.md#01-1)，TEND 任务是函数 $f:(\mathrm{NLQ}, S, \mathit{db\_id}) \to q^{\mathrm{MQL}}$。SMART 给出该函数的一个具体实现 $f_{\text{SMART}}$，它由 4 个内部子算子复合而成：
+$$f_{\text{SMART}} \triangleq \mathrm{Optimize} \circ \mathrm{Refine} \circ \mathrm{Generate} \circ \mathrm{Predict}$$
 
-$$
-f_{\text{SMART}}\ \triangleq\ \mathrm{Optimize} \circ \mathrm{Refine} \circ \mathrm{Generate} \circ \mathrm{Predict}
-$$
-
-其中：
+子算子表：
 
 | 子算子 | 输入 | 输出 | 角色 |
 |---|---|---|---|
-| $\mathrm{Predict}$ | $(\mathrm{NLQ}, S, \mathit{db\_id})$ | `grounding_state`（4 路 schema 标签） | Stage 1：SLM 4 路 schema 预测 |
-| $\mathrm{Generate}$ | $(\mathrm{NLQ}, S, \mathit{db\_id}, \text{grounding\_state})$ | `draft_mql` | Stage 2：SLM 草稿 MQL 生成 |
-| $\mathrm{Refine}$ | $(\mathrm{NLQ}, S, \mathit{db\_id}, \text{grounding\_state}, \text{draft\_mql})$ | `refined_mql` | Stage 3：检索 Top-K 训练记忆并重写 |
-| $\mathrm{Optimize}$ | $(\mathrm{NLQ}, S, \mathit{db\_id}, \text{refined\_mql})$ | `final_mql` | Stage 4：mongosh 执行兜底 |
+| Predict | (NLQ, schema_markdown, db_id) | grounding_state（4 路标签字典） | 把 NLQ 映射到 4 路结构化 schema 元素 |
+| Generate | (NLQ, schema_markdown, db_id, grounding_state) | draft_mql（字符串） | 在 grounding 之上生成草稿 MQL |
+| Refine | (NLQ, schema_markdown, grounding_state, draft_mql) | refined_mql（字符串） | 用训练侧多视角检索召回 Top-K 示例改写草稿 |
+| Optimize | (refined_mql, mongosh_handle) | (final_mql, debug_trace) | 用 mongosh 执行反馈迭代修正 |
 
-最终 `final_mql` 即任务签名要求的 $q^{\mathrm{MQL}}$。
+grounding_state 是 4 路标签字典，作为 Stage 2 / Stage 3 / Stage 4 的共同 grounding 信号。
 
-### 1.2 4 阶段流水线全景图
+### §1.2 4 阶段流水线全景图
 
 ```mermaid
 flowchart LR
-    Input["NLQ + schema + db_id"]
-    S1["Stage 1<br/>SLM-based Schema Prediction"]
-    S2["Stage 2<br/>SLM-based Query Generation"]
-    S3["Stage 3<br/>Memory-driven Refinement"]
-    S4["Stage 4<br/>Execution-grounded Optimization"]
-    Output["final_mql"]
-
-    TrainMem[("Train-side<br/>Vector Memory")]
-    Mongosh[("Local mongosh<br/>+ data snapshot D")]
+    Input["输入 NLQ + schema_markdown + db_id + mongosh_handle"]
+    S1["S1 Schema Predictor (Llama-3.2-1B)"]
+    S2["S2 Query Drafter (Llama-3.2-1B)"]
+    S3["S3 Refiner Agent (LLM)"]
+    S4["S4 Debug Agent (LLM + mongosh)"]
+    Output["输出 final_mql 即 q^MQL"]
+    TrainMem["TrainMem 多视角向量库 V_nlq / V_fields / V_collections / V_draft"]
+    Mongosh["Mongosh 只读快照 D"]
 
     Input --> S1
-    S1 -- "grounding_state" --> S2
-    S2 -- "draft_mql" --> S3
-    S3 -- "refined_mql" --> S4
-    S4 --> Output
-
-    TrainMem -. "Top-K weighted cosine" .-> S3
-    Mongosh -. "exec feedback" .-> S4
+    S1 -->|"grounding_state"| S2
+    S2 -->|"draft_mql"| S3
+    S3 -->|"refined_mql"| S4
+    S4 -->|"final_mql"| Output
+    TrainMem -.->|"Top-K 检索"| S3
+    Mongosh -.->|"执行反馈"| S4
 ```
 
-- **训练侧记忆**（`TrainMem`）只在 Stage 3 检索时被读取，且只装载 [02](./02_dataset_design.md) 定义的 `train.json` 派生的多视角嵌入。
-- **mongosh + 数据快照 D**（`Mongosh`）只在 Stage 4 执行时被调用，遵守 [04](./04_evaluation_methodology.md) 给出的复现性契约（同一 mongosh 镜像、同一 collation / locale / timezone、同一超时上限）。
+TrainMem 只在 S3 检索时被读取，且只装载 [02](./02_dataset_design.md) 定义的 train.json 派生的多视角嵌入；Mongosh 只在 S4 执行时被调用，且遵守 [05 §3](./05_evaluation_methodology.md#05-3) 复现性 manifest 契约。
 
-### 1.3 阶段产物的内部状态
+### §1.3 阶段产物的内部状态
 
-| 状态名 | 产生阶段 | 形态 | 是否对外暴露 |
+| 状态 | 产生阶段 | 类型 | 是否对外暴露 |
 |---|---|---|---|
-| `grounding_state` | Stage 1 | 4 路标签字典：`{collection, db_fields, alias_fields, target_fields}` | 否，仅在系统内部流转 |
-| `draft_mql` | Stage 2 | 字符串形式的 MQL（`find` 或 aggregation pipeline） | 否 |
-| `refined_mql` | Stage 3 | 字符串形式的 MQL | 否 |
-| `final_mql` | Stage 4 | 字符串形式的 MQL，对应任务签名的 $q^{\mathrm{MQL}}$ | **是**，作为任务输出 |
-| `debug_trace` | Stage 4 | 每轮 mongosh 反馈与 patch 动作的列表 | 仅作为可观测产物（[§8.3](#05-8)） |
+| grounding_state | S1 | 4 路标签字典（collection / db_fields / alias_fields / target_fields） | 仅在 SmartResponse.intermediate_traces 中可观测 |
+| draft_mql | S2 | 字符串 | 仅在 SmartResponse.intermediate_traces 中可观测 |
+| refined_mql | S3 | 字符串 | 仅在 SmartResponse.intermediate_traces 中可观测 |
+| final_mql | S4 | 字符串，对应任务签名 q^MQL 的实例化，进入 [05 §1](./05_evaluation_methodology.md#05-1) 7 指标计算 | 对外暴露 |
+| debug_trace | S4 | patch 动作列表 | 仅可观测 |
 
----
+<a id="06-2"></a>
+## §2 Stage 1 · SLM-based Schema Prediction
 
-## §2 Stage 1 · SLM-based Schema Prediction <a id="05-2"></a>
+### §2.1 任务定义
 
-### 2.1 任务定义
+给定 (NLQ, schema_markdown, db_id)，预测 NLQ 在该数据库上对应 MQL 所会用到的结构化 schema 元素。Stage 1 的输出 grounding_state 是一个 4 字段字典，作为后续 3 阶段的共同 grounding。
 
-给定 `(NLQ, schema_markdown, db_id)`，预测 NLQ 在该数据库上对应 MQL 所**会用到的**结构化 schema 元素。这一步把"自然语言意图"先压缩到"结构化 grounding"上，是后续 Stage 2 生成 MQL 的硬约束。
+### §2.2 4 个子任务与 shape-preserving 语义对齐
 
-### 2.2 4 个子任务
+基础 4 子任务：
 
-| 子任务 | 含义 | 输出形态 |
-|---|---|---|
-| `collection` | 该 NLQ 对应 MQL 主入口涉及的 collection 名集合（包含会被 `$lookup` 引入的从表） | 字符串集合 |
-| `db_fields` | 涉及的 schema 字段路径集合（`Name`、`orchestra.performance.Show_ID` 等） | 字符串集合 |
-| `alias_fields` | 在 `$project` / `$group` 中需要起别名的字段（如 `count`、`avg_Salary`） | 字符串集合 |
-| `target_fields` | 最终输出文档保留的字段集合（也就是结果 BSON 顶层键） | 字符串集合 |
+| 子任务 | 含义 |
+|---|---|
+| collection | NLQ 对应 MQL 主入口涉及的 collection 名集合，含会被 $lookup 引入的从表 |
+| db_fields | 涉及的 schema 字段路径集合，如 Name / orchestra.performance.Show_ID |
+| alias_fields | 在 $project / $group 中需要起别名的字段，如 performance_count |
+| target_fields | 最终输出文档保留的字段集合 |
 
-> 4 路标签对应 [01 §4](./01_task_definition.md#01-4) 归一化结果的"结构骨架"：`target_fields` 决定结果文档键集，`db_fields` + `alias_fields` 决定从 schema 字段到结果键的映射，`collection` 决定查询入口与 join 形态。
+**shape-preserving 意图下的语义对齐**
 
-### 2.3 模型与训练
+当 NLQ 意图属于 shape-preserving（其 gold MQL 的 output.shape ∈ `{shape_preserved_augmented, nested_with_projected_subtree, polymorphic_output}`，见 [04 §3.1](./04_dataset_construction.md#04-3)）时，4 路标签按如下方式对齐：
 
-- **基座**：Llama-3.2-1B。
-- **微调形态**：4 个子任务可以走以下两种之一（实现选择，论文采用 4 头独立微调以避免任务间干扰）：
-  - 4 个独立的 LoRA / full-fine-tune checkpoint，每个针对一个子任务；
-  - 1 个共享主干 + 4 个 prompt 模板切换的多任务微调。
-- **训练样本来源**：[02](./02_dataset_design.md) 定义的 `TEND/train.json`。每条 record 提供 5 条 NLQ + 1 条 gold MQL + db_id；4 路标签从 gold MQL 中按解析规则抽取（如 `db.X.aggregate(...)` 中的 collection 名、`$project` 中的字段、别名等）。
-- **数据增广**：record 自带 5 条 NLQ，逐条作为独立训练样本（gold MQL 与 4 路标签共享）。这相当于把"句法表面变体不变意图"的鲁棒性直接嵌进微调监督。
-- **训练 / 推理边界**：训练记忆**只用** `train.json`；`test.json` 不进入任何 SLM 训练或检索语料；任何 [02](./02_dataset_design.md) 定义的 audit 字段都不进入 SLM 输入或监督信号（详见 [§7](#05-7)）。
+- `collection` 语义不变（入口集合；$lookup 引入的从表一并登记）
+- `db_fields` 含参与计算的字段路径（例如 shape_preserving_augment 下的 `orchestra.performance`，作为 `$map` 遍历对象；而非 `$unwind` 目标）
+- `alias_fields` 含根层追加的计算字段名（例如 `total_performances`）
+- **`target_fields` 在此类意图下的语义**：不再仅指"输出文档保留的字段子集"，而是指"输出文档最终应包含的字段集合" = `set(collection 所有原始字段) ∪ alias_fields`——该语义隐含"原文档所有字段都保留、只在根层追加 alias_fields"的 shape-preserving 约束
+- 训练期对 shape_preserving 样本按该语义生成 target_fields 监督信号；推理期 Stage 4 Debug Agent 用该语义做 shape 对齐检查（见 [§5.2](#06-5) "shape 退化"反馈类别）
 
-### 2.4 输出格式
+当意图属于 flat output.shape 类（即非 shape-preserving）时，target_fields 仍按基础语义工作，即输出文档保留的字段集合。
 
-Stage 1 的产物是一个固定 4 字段的 `grounding_state` 对象：
+### §2.3 模型与训练
+
+- 基座：Llama-3.2-1B
+- 微调形态：4 头独立 LoRA / full-fine-tune（论文采用）或 1 个共享主干 + 4 prompt 模板
+- 训练样本：[02](./02_dataset_design.md) 定义的 TEND/train.json 的 14,245 条 record；每条 record 提供 5 条 NLQ + 1 条 gold MQL + db_id；4 路标签从 gold MQL 中按解析规则抽取（$lookup / from 字段抽 collection、字段引用路径抽 db_fields、$project / $group 别名抽 alias_fields、最终输出字段集合抽 target_fields，对 shape-preserving 样本按 §2.2 扩展语义抽）
+- 数据增广：record 自带 5 条 NLQ 覆盖 5 个 specificity 层级（详见 [§6.1](#06-6) 与 [02 §2.2](./02_dataset_design.md#02-2)），逐条作为独立训练样本（gold MQL 与 4 路标签共享）
+- 训练 / 推理边界：训练记忆只用 train.json；test.json 不进入任何 SLM 训练或检索语料；任何 [02 §2.2](./02_dataset_design.md#02-2) audit 字段都不进入 SLM 输入或监督信号（详见 [§7](#06-7)）
+
+### §2.4 输出格式
+
+grounding_state 以 JSON 形式向下游传递，4 个字段示例（flat output.shape）：
 
 ```json
 {
-  "collection":     ["conductor"],
-  "db_fields":      ["Name", "orchestra.performance"],
-  "alias_fields":   ["count"],
-  "target_fields":  ["Name", "count"]
+  "collection": ["conductor"],
+  "db_fields": ["Conductor_ID", "Name", "orchestra.performance"],
+  "alias_fields": ["performance_count"],
+  "target_fields": ["Name", "performance_count"]
 }
 ```
 
-字段顺序与字符串形态约定按字典序归一化，方便 Stage 2 prompt 与 Stage 3 嵌入构造在同一份字符串上对齐。
+shape-preserving output.shape 示例（canonical record `orchestra/99001`，pattern = `shape_preserving_augment`）：
 
----
-
-## §3 Stage 2 · SLM-based Query Generation <a id="05-3"></a>
-
-### 3.1 任务定义
-
-给定 `(NLQ, schema_markdown, db_id, grounding_state)`，生成一条**草稿 MQL**（`draft_mql`）。这一步把 Stage 1 抽出的 grounding 物化为具体的 MongoDB 算子序列。草稿允许不完美 —— 后两阶段就是用来兜底的。
-
-### 3.2 输入构造
-
-Stage 2 prompt 的硬槽位包括：
-
-- 当前样本的 NLQ；
-- `db_id` 对应的 schema markdown（由 schema → markdown 转换器渲染，与 [02 §3](./02_dataset_design.md#02-3) 的库级资产保持一致）；
-- Stage 1 输出的 4 路 grounding 标签（按 [§2.4](#05-2) 的格式）。
-
-### 3.3 模型与训练
-
-- **基座**：Llama-3.2-1B（与 Stage 1 同基座，但参数独立；训练任务与 Stage 1 解耦）。
-- **训练样本来源**：仍来自 [02](./02_dataset_design.md) 的 `train.json`。每条样本：
-  - **输入**：NLQ + schema markdown + 4 路 grounding 标签。训练时 4 路标签可使用**同来源**的 `train.json` gold 标签（teacher forcing），也可使用 Stage 1 模型在 train 切片上的预测（match 推理时分布）。论文采用混合策略以兼顾训练稳定性与推理一致性。
-  - **输出**：gold MQL 字符串。
-- **数据增广**：同 Stage 1，5 条 NLQ 共用 1 条 gold MQL，提供句法变体鲁棒性。
-
-### 3.4 输出格式
-
-Stage 2 输出 `draft_mql`，是一个完整的 MQL 字符串，例如：
-
-```javascript
-db.conductor.aggregate([ /* ... */ ]);
+```json
+{
+  "collection": ["conductor"],
+  "db_fields": ["orchestra.performance"],
+  "alias_fields": ["total_performances"],
+  "target_fields": ["Conductor_ID", "Name", "Age", "Nationality", "orchestra", "total_performances"]
+}
 ```
 
-不要求 `draft_mql` 在 mongosh 上一次执行通过 —— 它只是 Stage 3 检索 / Stage 4 执行兜底的起点。
+此 target_fields = `set(conductor 原 4 字段) ∪ {total_performances}` = 5 个字段；`orchestra` 字段整体保留即隐含 4 层嵌套结构（conductor → orchestra[] → orchestra.performance[] → orchestra.performance.show[]）不被压平。Stage 4 Debug Agent 以此 target_fields 集合做 shape 对齐检查。
 
----
+<a id="06-3"></a>
+## §3 Stage 2 · SLM-based Query Generation
 
-## §4 Stage 3 · Memory-driven Refinement <a id="05-4"></a>
+### §3.1 任务定义
 
-### 4.1 多视角向量库
+给定 (NLQ, schema_markdown, db_id, grounding_state)，生成草稿 MQL（draft_mql）。Stage 2 不要求 draft_mql 一次执行通过，只要求结构上覆盖 grounding_state 给出的 collection / db_fields / target_fields 信号即可，剩余结构错误交由 Stage 3 / Stage 4 兜底。
 
-把 [02](./02_dataset_design.md) 的 `train.json` 每条 record 离线编码成 4 个视角的稠密向量，存入训练记忆库 $\mathcal{M}_{\text{train}}$：
+特别地，对 shape-preserving 意图，Stage 2 草稿期可能错写为 `$unwind + $group + $first` / `$unwind + $group + $push` 形态（SQL-flatten 先验偶发），这是 Stage 3 Refiner 检索改写与 Stage 4 Debug Agent shape 退化 patch 的共同设计前提。
 
-| 视角 | 编码内容 | 角色 |
-|---|---|---|
-| $V_{\text{nlq}}$ | NLQ 字符串 | 自然语言意图相似度 |
-| $V_{\text{fields}}$ | `db_fields` ∪ `alias_fields` ∪ `target_fields` 的字典序拼接字符串 | 字段级 schema 相似度 |
-| $V_{\text{collections}}$ | `collection` 的字典序拼接字符串 | collection 拓扑相似度 |
-| $V_{\text{draft}}$ | gold MQL 字符串本体（offline 时 = gold；online 时被 query 侧的 `draft_mql` 嵌入对齐） | MQL 表面结构相似度 |
+### §3.2 输入构造
 
-> 实现侧"fields"视角可进一步拆成 `db_fields` / `alias_fields` / `target_fields` 三个子视角分别编码，再在打分时合并。本文沿用 4 视角抽象，便于陈述加权公式（[§4.2](#05-4)）。具体子拆分由实现决定，不改变方法语义。
+输入 = 当前样本 NLQ + db_id 对应的 schema markdown + Stage 1 输出的 4 路 grounding 标签。3 部分按固定模板拼接：先 schema markdown（提供 collection 列表与字段类型）、再 4 路 grounding 标签（圈定本条 NLQ 的目标 schema 元素）、最后 NLQ 本体（提供自然语言意图）。
+
+### §3.3 模型与训练
+
+- 基座：Llama-3.2-1B（与 Stage 1 同基座，参数独立）
+- 训练样本来自 train.json；输入 = NLQ + schema markdown + 4 路标签（gold 或 Stage 1 预测，论文采用混合策略以缓解推理期的 grounding 噪声）；输出 = gold MQL 字符串
+- 数据增广同 Stage 1：5 条 specificity-level NLQ 共用 1 条 gold MQL，逐条作为独立训练样本
+
+### §3.4 输出格式
+
+draft_mql 以纯字符串向下游传递；不要求一次执行通过，也不要求语法上完全合法。Stage 3 / Stage 4 会在此基础上做结构改写与执行修正。
+
+<a id="06-4"></a>
+## §4 Stage 3 · Memory-driven Refinement
+
+### §4.1 多视角向量库
+
+把 [02](./02_dataset_design.md) 的 train.json 每条 record 离线编码成 4 个视角的稠密向量，存入训练侧记忆库 $\mathcal{M}_{\text{train}}$：
+
+| 视角 | 编码对象 |
+|---|---|
+| $V_{\text{nlq}}$ | NLQ 字符串（5 条 specificity 层级各登记一份候选嵌入，详见 [§6.1](#06-6)） |
+| $V_{\text{fields}}$ | db_fields ∪ alias_fields ∪ target_fields 的字典序拼接字符串 |
+| $V_{\text{collections}}$ | collection 字典序拼接字符串 |
+| $V_{\text{draft}}$ | gold MQL 字符串本体（offline 时取 gold；online 时被 query 侧 draft_mql 嵌入对齐） |
 
 每条训练样本最终在 $\mathcal{M}_{\text{train}}$ 中表示为：
 
-$$
-e\ =\ \bigl(V^e_{\text{nlq}},\ V^e_{\text{fields}},\ V^e_{\text{collections}},\ V^e_{\text{draft}},\ \text{NLQ}^e,\ \text{schema}^e,\ \text{gold\_mql}^e\bigr)
-$$
+$$e = (V^e_{\text{nlq}}, V^e_{\text{fields}}, V^e_{\text{collections}}, V^e_{\text{draft}}, \mathrm{NLQ}^e, \mathrm{schema}^e, \mathrm{gold\_mql}^e)$$
 
-### 4.2 加权 cosine 检索
+### §4.2 加权 cosine 检索
 
-在线推理时，对当前样本 $q$ 计算 4 个视角的查询向量：
+把推理侧的 (NLQ, grounding_state, draft_mql) 编码成同 4 视角的查询向量 $V^q_v$，在 $\mathcal{M}_{\text{train}}$ 上做加权 cosine 打分：
 
-| 查询向量 | 来源 |
-|---|---|
-| $V^q_{\text{nlq}}$ | 当前 NLQ 的嵌入 |
-| $V^q_{\text{fields}}$ | Stage 1 输出的字段集合（按字典序）拼接后嵌入 |
-| $V^q_{\text{collections}}$ | Stage 1 输出的 collection 集合（按字典序）拼接后嵌入 |
-| $V^q_{\text{draft}}$ | Stage 2 输出的 `draft_mql` 嵌入 |
+$$\operatorname{score}(q, e) = \sum_{v \in \{\text{nlq}, \text{fields}, \text{collections}, \text{draft}\}} w_v \cdot \cos(V^q_v, V^e_v)$$
 
-候选示例 $e \in \mathcal{M}_{\text{train}}$ 的相关度按加权 cosine 计算：
+权重结构：意图视角 ≥ schema 视角 > 表面结构视角，且没有视角的权重为零，即
 
-$$
-\operatorname{score}(q, e)\ =\ \sum_{v \in \{\text{nlq},\ \text{fields},\ \text{collections},\ \text{draft}\}}\ w_v \cdot \cos\bigl(V^q_v,\ V^e_v\bigr)
-$$
+$$w_{\text{nlq}} \ge w_{\text{fields}} \ge w_{\text{collections}},\quad w_{\text{draft}} > 0,\quad \sum_v w_v = 1$$
 
-权重 $w_v$ 体现各视角对最终 MQL 重写质量的相对贡献。论文经验权重大致结构是：
+NLQ 视角的多 specificity 候选嵌入处理：当某条训练 record 在 $V_{\text{nlq}}$ 上登记 5 个候选嵌入时，打分时取该 record 在 5 个 specificity 表面上的最大 cosine：
 
-| 视角 | 权重直觉 |
-|---|---|
-| nlq | 最高，负责锁定语义意图 |
-| fields | 次高，负责锁定 schema 绑定 |
-| collections | 与 fields 同量级，约束 join 拓扑 |
-| draft | 较低，避免被表面 MQL 字符串噪声主导，但不为零（保留"结构相似的算子序列"先验） |
+$$\max_i \cos(V^q_{\text{nlq}}, V^{e,i}_{\text{nlq}})$$
 
-具体数值上下界由实现方按训练侧 ablation 决定；本文不固定一组数值，只声明**权重结构**：意图视角 ≥ schema 视角 > 表面结构视角，且没有视角的权重为零。
+作为该 record 在 NLQ 视角的最终相似度分量。
 
-### 4.3 Top-K 检索与上下文打包
+### §4.3 Top-K 检索与上下文打包
 
-按 $\operatorname{score}$ 降序取前 $K$ 个示例，建议 $K \in [5, 20]$。$K$ 越大，prompt 中提供的"近邻 NLQ–MQL pair"越多，但也越接近 prompt 上限并稀释最相似那条的信号。论文默认 $K = 20$ 并依靠 LLM 自身做加权理解；实践中 $K = 10$ 通常已经足够稳定。
+按 score 降序取 Top-K 训练 record；K ∈ [5, 20]；论文默认 K = 20。每条示例打包为 (NLQ, db_id, 4 路 schema 标签, gold MQL) 四字段元组，按 score 降序拼成 prompt。
 
-打包到 Refiner prompt 的字段（每条示例）：
+### §4.4 Refiner Agent
 
-- 该示例的 NLQ；
-- 该示例的 db_id；
-- 该示例的 4 路 schema 标签（与当前 `grounding_state` 对齐展示）；
-- 该示例的 gold MQL。
+LLM 对话 Agent（论文使用 deepseek-v3 / gpt-4o-mini）；system prompt 把它定位为"MongoDB 查询调整组件"；task prompt 装入 (NLQ, schema_markdown, grounding_state, draft_mql) + Top-K 示例 + 一组 generic 改写指令；输出 javascript 代码块即 refined_mql。
 
-### 4.4 Refiner Agent
+**输出空间约束**：refined_mql 必须遵守 [01 §2](./01_task_definition.md#01-2) 的输出空间约束（read-only / deterministic / mongosh-executable，禁用六件算子 `$out / $merge / $function / $sample / $rand / $$NOW`）；对 shape_preserving 意图还需满足 gold MQL 的 canonical_form_set 暗示的 idiomatic 结构（Stage 4 会 verify）——该 canonical_form_set 由 [04 §5.7](./04_dataset_construction.md#04-5) 从 SI 自动派生并归属 audit/derived（求解侧零加载），Refiner 通过训练侧记忆中"同构 pattern 邻居"间接习得，而非读取该 audit 资产。违反输出空间约束或根层结构退化则进入 Stage 4 时由 Debug Agent 回退到 draft_mql 重做。
 
-Refiner 是一个 LLM 对话 Agent（论文使用 deepseek-v3 / gpt-4o-mini 作为主干），其 system prompt 把它定位为"MongoDB 查询调整组件"，task prompt 装入：
+<a id="06-5"></a>
+## §5 Stage 4 · Execution-grounded Optimization
 
-- 当前 `(NLQ, schema_markdown, grounding_state, draft_mql)`；
-- Top-K 示例（按 [§4.3](#05-4) 的形态）；
-- 一组 generic 改写指令（保持只读、保持 deterministic、参照示例的算子序列与命名约定等）。
-
-Agent 输出一段 `javascript` 代码块，提取后即 `refined_mql`。
-
-> Refiner 只重写 MQL，不写库、不写文件、不调外部工具。重写遵守 [01 §2.1](./01_task_definition.md#01-2) 的输出空间约束（read-only / deterministic / mongosh-executable）。
-
----
-
-## §5 Stage 4 · Execution-grounded Optimization <a id="05-5"></a>
-
-### 5.1 Debug Agent 协议
-
-Debug Agent 的输入是 `(NLQ, schema_markdown, db_id, refined_mql)`。它在一个**有界循环**里与本地 mongosh 交互：
+### §5.1 Debug Agent 协议
 
 ```mermaid
-flowchart TB
-    InMQL["current_mql<br/>(initial = refined_mql)"]
-    Exec["mongosh.execute(current_mql, db_id)"]
-    Obs["observation<br/>(rows | error | empty | timeout)"]
-    Stop{"stop?"}
-    Patch["LLM agent<br/>diagnose + patch"]
-    Out["final_mql"]
+flowchart TD
+    start_node["输入 refined_mql"]
+    init["current_mql 初始化为 refined_mql"]
+    exec["mongosh execute current_mql"]
+    obs["分类 observation"]
+    stop_check{"是否满足终止条件"}
+    patch["按 patch 策略改写 current_mql"]
+    final["输出 final_mql 与 debug_trace"]
 
-    InMQL --> Exec --> Obs --> Stop
-    Stop -- "yes" --> Out
-    Stop -- "no" --> Patch --> InMQL
+    start_node --> init
+    init --> exec
+    exec --> obs
+    obs --> stop_check
+    stop_check -->|"是"| final
+    stop_check -->|"否, 重试次数小于 N"| patch
+    patch --> exec
+    stop_check -->|"否, 已达最大重试次数 N"| final
 ```
 
-### 5.2 执行反馈分类与 patch 策略
+### §5.2 执行反馈分类与 patch 策略
 
-每轮 mongosh 调用返回的观察被 Agent 归为下表中的一类，并按对应策略生成 patch：
-
-| 观察类型 | 典型现象 | Agent 的 patch 策略 |
+| 反馈类别 | 触发条件 | patch 策略 |
 |---|---|---|
-| **解析错误** | mongosh 抛出语法异常 | 修正括号 / 拼写 / `$`-prefix 算子名 |
-| **字段绑定错误** | `Path collision`、`field path not found` | 对照 schema markdown 与 grounding_state 修正字段路径 |
-| **算子误用** | `$lookup` 缺 `from` / `$group` 缺 `_id` / `$unwind` 用在非数组字段 | 替换或补全算子，必要时插入 `$unwind` 展开嵌套数组 |
-| **空结果但 NLQ 应非空** | 查询返回 `[]` 但 NLQ 隐含非平凡输出 | 检查过滤条件是否过严、是否漏 join、是否大小写敏感 |
-| **缺阶段** | 输出文档少了 `target_fields` 中的字段 | 补 `$project` 或修正 `$group` 的输出键 |
-| **超时** | 超过预设超时上限 | 简化或保守化（裁剪 `$lookup`、加 `$limit`、合并冗余阶段） |
-| **正常返回** | 返回非空、字段集合与 `target_fields` 对齐 | 终止循环 |
+| 解析错误 | mongosh 报 SyntaxError / Unexpected token | 按错误位置最近的代码块重写；若 3 次仍解析失败回退到 draft_mql |
+| 字段绑定错误 | mongosh 报 field undefined / path resolution failed | 与 grounding_state.db_fields 比对，按 schema_markdown 正确字段路径替换 |
+| 算子误用 | $unwind 作用在非数组、$group 缺 _id、$size 作用在嵌套数组等 | 按算子签名重写：补 _id、把 $size 拆为 $unwind + $group 计数模式（仅用于 flat 意图） |
+| 空结果但 NLQ 应非空 | 返回 [] 且 NLQ 含 top-K / count 等显式存在性信号 | 检查是否漏 $unwind 嵌套层、是否过滤条件过严，逐步放宽 |
+| 缺阶段 | 输出文档字段集与 target_fields 不对齐（flat 意图） | 在 pipeline 末尾追加 $project 把字段补齐 |
+| 超时 | mongosh 执行超过 [05 §3](./05_evaluation_methodology.md#05-3) 复现性 manifest 设定的超时上限 | 添加 $limit 早截、把 $unwind 顺序前移以减少中间结果膨胀 |
+| **shape 退化** | mongosh 返回的文档数不等于预期输入文档数、或输出文档缺少 target_fields 声明的原嵌套子树、或 pipeline 根层含 `$unwind` 或 `$group` 而 grounding_state 对应意图属 shape-preserving | 改写策略：把 `$unwind + $group + $first/$push` 根层模式替换为 `$addFields + $map / $reduce`；若 pipeline 根层已有 `$addFields`，检查其子表达式是否对嵌套数组做了 in-place 计算；必要时按 noise_policies 对应层插入 `$ifNull` 兜底（避免 null vs missing 歧义） |
+| 正常返回 | 无 error、结果非空（或合理为空）、字段对齐 target_fields、shape 对齐（shape-preserving 意图下根层无 `$unwind` / `$group`） | 终止，进入 §5.3 |
 
-### 5.3 终止条件与产物
+### §5.3 终止条件与产物
 
-循环以下面任一条件终止，并把当时的 `current_mql` 作为 `final_mql`：
+满足以下任一条件即终止：
 
-- mongosh 返回**正常非空结果**且字段集合与 Stage 1 的 `target_fields` 对齐；
-- mongosh 返回**正常空结果**而 NLQ 在该 `(NLQ, schema)` 上确实可能为空（Agent 的判断阈值由 prompt 给出）；
-- 达到最大重试次数 $N$（建议 $N = 5$）—— 此时输出最后一次未引入新错误的 `current_mql`，避免一直发散。
+- mongosh 返回正常非空结果且字段集合与 Stage 1 target_fields 对齐
+- mongosh 返回正常空结果而 NLQ 在该 (NLQ, schema) 上确实可能为空
+- 输出文档集合与 grounding_state.target_fields 对齐，且根层未引入 `$unwind` / `$group`（当意图属 shape-preserving 时必须满足该条件）
+- 达到最大重试次数 N（建议 N = 5）
 
-执行环境必须与 [04 复现性契约](./04_evaluation_methodology.md) 一致：同一 mongosh 镜像版本、同一 collation 与 locale、同一 timezone（UTC）、同一执行超时上限。否则 Stage 4 的"执行兜底"与 [04](./04_evaluation_methodology.md) 的执行级评测之间会出现不可见的分布漂移。
+执行环境必须与 [05 §3](./05_evaluation_methodology.md#05-3) 复现性 manifest 一致（同一 mongosh 镜像、同一 collation、同一 timezone UTC、同一执行超时上限）。
 
-> Debug Agent 只在**测试**期使用 `db_id` 对应的数据快照 $D$ 作为 grounding 信号；它**不**修改 $D$、**不**写新 collection（[01 §2.2](./01_task_definition.md#01-2) 禁止 `$out` / `$merge` 进入输出空间，本阶段也禁止它们出现在中间 patch 里）。
+Debug Agent 只在测试期使用 db_id 对应的数据快照 D 作为 grounding 信号；它不修改 D、不写新 collection；[01 §2](./01_task_definition.md#01-2) 禁用的六件算子 `$out / $merge / $function / $sample / $rand / $$NOW` 也不得出现在中间 patch 里。
 
----
+终止后 final_mql 与 debug_trace 一并写回 SmartResponse；final_mql 进入下游评测。
 
-## §6 训练与推理接口 <a id="05-6"></a>
+<a id="06-6"></a>
+## §6 训练与推理接口
 
-### 6.1 训练接口
+### §6.1 训练接口
 
 | 阶段 | 训练样本来源 | 输入字段 | 监督信号 |
 |---|---|---|---|
-| Stage 1（4 路 SLM） | [02](./02_dataset_design.md) `TEND/train.json` | `nl_queries[i]` + 库级 schema markdown（来自 [02 §3](./02_dataset_design.md#02-3) 的库级资产） | 从 gold MQL 抽取的 `collection` / `db_fields` / `alias_fields` / `target_fields` |
-| Stage 2（SLM 草稿生成） | 同上 | NLQ + schema markdown + 4 路标签（gold 或 Stage 1 预测） | gold MQL 字符串 |
-| Stage 3（向量库构建） | 同上 | NLQ / 4 路标签字符串 / gold MQL 字符串 | 离线编码为 4 视角嵌入，无显式损失 |
-| Stage 4（Debug Agent） | 不需要训练样本 | 在线 mongosh 反馈即监督信号 | — |
+| Stage 1 Predictor | train.json，5 NLQ × 1 record 展开 | NLQ + schema_markdown + db_id | 4 路标签（从 gold MQL 解析；shape-preserving 样本按 [§2.2](#06-2) 扩展语义抽取 target_fields） |
+| Stage 2 Drafter | train.json，5 NLQ × 1 record 展开 | NLQ + schema_markdown + db_id + 4 路标签 | gold MQL 字符串 |
+| Stage 3 Refiner | train.json，离线编码 4 视角 | record 主体 4 字段（NLQ / db_fields ∪ alias_fields ∪ target_fields / collection / gold_mql） | 在线检索打分（无离线监督训练） |
+| Stage 4 Debugger | 不需离线训练 | mongosh 执行反馈 | 由 LLM 主干现学现用 |
 
-> Stage 1 / Stage 2 训练不消耗 `test.json` 任何 record；Stage 3 的检索记忆库 $\mathcal{M}_{\text{train}}$ 也只装载 `train.json` 派生的嵌入。这保证 SMART 整条流水线在 cross-domain 设定下的评测有效性（参见 [§7](#05-7) 与 [04](./04_evaluation_methodology.md) 关于训练 / 评测分离的契约）。
+5 NLQ specificity 层级的处理：
 
-#### 5 NLQ 的处理
+- nl_queries[0] 永远是 L1 schema_naive（canonical 槽位）
+- 其余 4 槽位覆盖 L0 underspecified（隐含默认 K、排序方向、依据 metric）/ L2 schema_aware / L3 nosql_jargon / L4 multilingual / colloquial
+- SMART 训练侧把 5 条 NLQ 当作 5 个独立训练样本，共享同一条 gold MQL 与同一份 4 路 grounding 标签
+- Stage 1：5 条 NLQ × 1 个 4 路标签集合 → 5 个独立 (NLQ, schema, label) 训练对；L0 underspecified 是关键训练信号——NLQ 不显式给出 K / 排序方向 / ranking metric / shape 约束，Stage 1 必须显式补出默认值；其余层级 L1-L4 在显式信号上递增，让 Predictor 学到"按 NLQ 显式信号覆盖默认值"
+- Stage 2：5 条 NLQ × 1 个 gold MQL → 5 个独立训练对；同一 gold MQL 在 5 个 specificity 表面下被反复监督
+- Stage 3 向量库：每条训练 record 在 NLQ 视角 $V_{\text{nlq}}$ 上登记 5 个候选嵌入；在线检索打分时按 [§4.2](#06-4) 末尾的 max 规则
+- 注意：nlq_specificity_levels 字段本身只在训练管线内部用于 5 条 NLQ 的层级标注，不进入 Stage 1 / Stage 2 的 prompt，也不进入 Stage 3 的向量库（它是 audit 字段，按 [§7](#06-7) 屏蔽）
 
-[02](./02_dataset_design.md) 每条 record 自带 5 条 `nl_queries`。SMART 训练侧把它们作为 **5 个独立训练样本**（同一 gold MQL、同一 4 路标签）：
+**NoSQL-native 先验的训练信号分布**：对属于 nosql_nativeness level L2+ 的样本，Stage 2 Drafter 训练时 gold MQL 监督信号天然覆盖 shape-preserving / polymorphic / dynamic-key / graph-recursive / nested-in-place-aggregate 等 NoSQL-native 结构；由于这些结构在训练集中的占比（L2+ ≥ 40%、L4 ≥ 15%，配额详见 [04 §3.1](./04_dataset_construction.md#04-3)）不再是长尾，SLM 基座学到的先验是 NoSQL-idiomatic 的，而非 SQL-flatten 的；这从根源减少 Stage 2 草稿落入 `$unwind + $group` 退化形态的频率，并为 Stage 3 Refiner 的检索记忆提供充分的 shape-preserving / polymorphic / dynamic-key 样例基础。
 
-- Stage 1：5 条 NLQ × 1 个 gold 标签集合 → 5 个独立 `(NLQ, schema, label)` 训练对；
-- Stage 2：5 条 NLQ × 1 个 gold MQL → 5 个独立 `(NLQ, schema, labels, gold_mql)` 训练对；
-- Stage 3 向量库：5 条 NLQ 通常合并为同一条记忆（`gold_mql` 共享），但 NLQ 视角 $V_{\text{nlq}}$ 上可登记为 5 个候选嵌入，在线检索时取最近匹配。
+### §6.2 推理接口
 
-这一约定不重新定义 [02](./02_dataset_design.md) 的 record 形态，只是说明 SMART 如何"消费"已有 record。
+SmartRequest 与 SmartResponse 两个 dataclass-like 结构：
 
-### 6.2 推理接口
+```python
+class SmartRequest:
+    nlq: str
+    schema_markdown: str
+    db_id: str
+    mongosh_handle: MongoshHandle
 
-```
-SmartRequest {
-    nlq: str,                # 当前 NLQ
-    schema_markdown: str,    # 当前 db_id 的 schema markdown
-    db_id: str,
-    mongosh_handle: object   # 仅 Stage 4 使用，连接到与 db_id 绑定的本地数据快照
-}
-
-SmartResponse {
-    final_mql: str,                      # 任务输出 q^MQL
-    intermediate_traces: object {        # 仅监控用，不进入评测
-        grounding_state: dict,
-        draft_mql: str,
-        refined_mql: str,
-        debug_trace: list
-    }
-}
+class SmartResponse:
+    final_mql: str
+    intermediate_traces: dict
 ```
 
-- `intermediate_traces` 只用于 [§8.3](#05-8) 的离线监控与错误分析，不参与 [04](./04_evaluation_methodology.md) 的指标计算。
-- `mongosh_handle` 必须连接到 [01 §1.3](./01_task_definition.md#01-1) 定义的、由 `db_id` 唯一绑定的只读快照 $D$。
+接口契约：
 
----
+- intermediate_traces 含 grounding_state / draft_mql / refined_mql / debug_trace，仅供监控与离线复盘，不参与 [05 §1](./05_evaluation_methodology.md#05-1) 指标计算
+- mongosh_handle 必须连接到 [01 §1](./01_task_definition.md#01-1) 定义的、由 db_id 唯一绑定的只读快照 D
+- final_mql 是任务签名 q^MQL 的实例化，作为 [05](./05_evaluation_methodology.md) 评测器的唯一输入
 
-## §7 方法侧硬边界（contract-safe） <a id="05-7"></a>
+<a id="06-7"></a>
+## §7 方法侧硬边界（contract-safe）
 
-SMART 在推理期对以下对象执行**严格屏蔽**，它们不进入任何模型输入、不进入任何检索向量、不进入任何 prompt 上下文：
+SMART 在训练与推理期对以下对象执行严格屏蔽：它们不进入任何模型输入、不进入任何检索向量、不进入任何 prompt 上下文，也不参与任何阶段的监督信号计算。
+
+### §7.1 屏蔽对象清单
+
+**评测语料**
 
 | 对象 | 来源 | 屏蔽原因 |
 |---|---|---|
-| `test.json` 的 record | [02](./02_dataset_design.md) | 评测语料，进入即数据泄漏 |
-| 任何 [03](./03_dataset_construction.md) 输出的 audit 资产 | [03](./03_dataset_construction.md) 的构造产出 | 仅审计用，不构成 NLQ 解题信号 |
-| 库级 `world_signature` | [02 §3](./02_dataset_design.md#02-3) | 数据快照指纹，仅用于 reproducibility 而非解题 |
-| `schema_complexity_profile` | [02](./02_dataset_design.md) 的 audit 字段 | 描述性元信息，进入会引入 leakage |
-| 任何 record 级的 audit 字段 | [02](./02_dataset_design.md) | 同上 |
+| test.json 的 record（2,775 条） | [02](./02_dataset_design.md) | 评测语料，进入即数据泄漏 |
 
-训练侧记忆**只**装载 [02](./02_dataset_design.md) `train.json` 的 `(NLQ, db_id, schema_markdown, gold_mql)` 与从其中抽出的 4 路标签。任何 audit 字段都不参与嵌入计算或被检索器返回。
+**库级 audit 资产路径**（[03](./03_database_synthesis.md) 合成期与 [04](./04_dataset_construction.md) 构造期产出，发布层不进入 record 主体；求解侧不读取）
 
-> 该硬边界与 [03](./03_dataset_construction.md) 的契约对偶：[03](./03_dataset_construction.md) 负责**构造侧**保证 audit 信息不混进 record 主体；[05](#05-7) 负责**求解侧**保证即便 record 主体之外的 audit 资产被并行存放，求解流水线也不读取它们。
-
----
-
-## §8 部署与监控 <a id="05-8"></a>
-
-### 8.1 服务分层
-
-| 服务 | 对应阶段 | 资源画像 |
+| 对象 | 来源 | 屏蔽原因 |
 |---|---|---|
-| **Schema Predictor** | Stage 1 | Llama-3.2-1B × 4 路（或共享主干 + 4 prompt），GPU 推理，batch friendly |
-| **Query Drafter** | Stage 2 | Llama-3.2-1B × 1，GPU 推理 |
-| **Refiner with Vector Memory** | Stage 3 | 嵌入服务（OpenAI-style API 或本地 encoder）+ 向量索引 + LLM 主干（deepseek-v3 / gpt-4o-mini） |
-| **Executor + Debugger** | Stage 4 | 本地 mongosh + 数据快照集群 + LLM 主干 |
+| audit/taxonomy_board/board_snapshot_*.json | [03 §8](./03_database_synthesis.md#03-8) Taxonomy Board | 暴露合成期多样性 cell 分布与调度先验，等价 Stage 1 / Stage 3 部分答案 |
+| audit/taxonomy_board/budget_matrix.json | [03 §8](./03_database_synthesis.md#03-8) Stratified Budget Matrix | 暴露复杂度-多样性-噪声联合预算，等价难度与噪声先验泄漏 |
+| audit/coverage/coverage_report.json | [04 §10](./04_dataset_construction.md#04-10) 嵌入覆盖审计报告 | 暴露嵌入空间多样性结构与 under-coverage 区域 |
+| audit/reference_panel/diff_panel_manifest.json | [04 §9](./04_dataset_construction.md#04-9) RP_diff 经验难度参考面板 | 暴露经验难度校准的具体模型清单与版本，引入分布漂移与对抗过拟合风险（同时见 [§7.3](#06-7) disjointness 硬约束） |
+| audit/reference_panel/sql_bridge_manifest.json | [04 §8.6](./04_dataset_construction.md#04-8) V7' SQL-bridge defeat panel | 暴露 V7' 对抗 panel 的 NL2SQL 模型与 sqltomongo translator，使求解侧能针对性规避 V7' 的对抗先验（同时见 [§7.3](#06-7) disjointness 硬约束） |
+| audit/human_anchor/spot_audit.json | [04 §8](./04_dataset_construction.md#04-8) 5% 人审 anchor | 暴露 anchor 样本失败 pattern，引入选择性偏置 |
 
-四个服务在拓扑上松耦合：Stage 1/2 输出可被 cache，Stage 3 的检索结果与 Stage 4 的执行结果都可单独缓存。
+**Record 级 audit 资产路径**
 
-### 8.2 缓存
+| 对象 | 来源 | 屏蔽原因 |
+|---|---|---|
+| audit/<db_id>/<record_id>/noise_trace.json | [03 §5](./03_database_synthesis.md#03-5) Noise Control Line | 暴露本条 record 的噪声 6 层组合、coupling operators 与 si policy keys，等价向求解侧泄漏"应对噪声的解题路径" |
+| audit/<db_id>/<record_id>/complexity_vector.json | [03 §3](./03_database_synthesis.md#03-3) Complexity Control Line | 暴露 6 维复杂度向量 $\vec{C}$，引入难度先验 leakage |
+| audit/<db_id>/<record_id>/business_narrative.json | [03 §6](./03_database_synthesis.md#03-6) Business Simulator | 暴露业务叙事与事件流，是 Stage 2 Query Generation 的隐式答案模板 |
+| audit/<db_id>/<record_id>/structured_intent.yaml | [04 §3](./04_dataset_construction.md#04-3) Structured Intent | canonical SI 即解题 oracle，等价答案泄漏 |
+| audit/<db_id>/<record_id>/derived/oracle.py | [04 §5](./04_dataset_construction.md#04-5) SI 自动派生 oracle | 独立 ground-truth oracle，等价于答案泄漏 |
+| audit/<db_id>/<record_id>/derived/checker.py | 同上 | 可执行 spec checker，等价于直接给 grader |
+| audit/<db_id>/<record_id>/derived/mutations.json | 同上 | 暴露 near-miss 家族结构，引导模型规避机械变异 |
+| audit/<db_id>/<record_id>/derived/canonical_form_set.json | [04 §5.7](./04_dataset_construction.md#04-5) 派生 | 暴露 QIM 的 AST 约束（must_contain / must_not_contain / must_contain_at_root / must_not_contain_at_root），等价于直接把评测层 QIM 的判据喂给 Stage 3 Refiner；SMART 生成 final_mql 时只凭 NLQ + schema + 训练记忆，不读该资产 |
+| audit/<db_id>/<record_id>/world_variants/<world_id>.json | [04 §4](./04_dataset_construction.md#04-4) 多世界物化 | 构造期 K-1 个备选世界 |
+| audit/<db_id>/<record_id>/world_robustness.json | [04 §4](./04_dataset_construction.md#04-4) | 暴露 K 个世界上的 gold 行为与 robustness 证据链 |
+| audit/<db_id>/<record_id>/certificate.json | [04 §8](./04_dataset_construction.md#04-8) V1'-V7' 证书 | 暴露 spec / world / NLQ / SQL-bridge 验证轨迹 |
+| audit/<db_id>/<record_id>/empirical_difficulty.json | [04 §9](./04_dataset_construction.md#04-9) RP_diff 实测 | 暴露 RP_diff per-record EX 结果，可被反推为难度先验 |
+| audit/<db_id>/<record_id>/sql_bridge_defeat.json | [04 §8.6](./04_dataset_construction.md#04-8) | 暴露本条 record 的 V7' SQL-bridge 对抗候选 MQL 与 EX/QIM 判定，引入方法侧规避 SQL-bridge 类错误的捷径 |
 
-| 缓存名 | 键 | 值 | 失效条件 |
+**Record 主体 audit ref 字段**（即便 record 携带 ref，求解侧也不解引用、不读取目标内容）
+
+| 字段 | 来源 | 屏蔽原因 |
+|---|---|---|
+| structured_intent_ref | [02 §2.2](./02_dataset_design.md#02-2) | 指向 SI / oracle / checker / mutations，等价答案泄漏 |
+| re_certificate_ref | [02 §2.2](./02_dataset_design.md#02-2) | 指向 V1'-V7' 证书 |
+| world_robustness_certificate_ref | [02 §2.2](./02_dataset_design.md#02-2) | 指向多世界鲁棒性证书 |
+| empirical_difficulty_ref | [02 §2.2](./02_dataset_design.md#02-2) | 指向 RP_diff per-record 结果 |
+| noise_trace_ref | [02 §2.2](./02_dataset_design.md#02-2) | 指向 noise_trace.json，暴露噪声 6 层组合与 coupling operators 即泄漏应对噪声的解题路径 |
+| complexity_vector_ref | [02 §2.2](./02_dataset_design.md#02-2) | 指向 complexity_vector.json，暴露 6 维复杂度向量即引入难度先验 leakage |
+| business_narrative_ref | [02 §2.2](./02_dataset_design.md#02-2) | 指向 business_narrative.json，业务叙事与事件流是 Stage 2 的隐式答案模板 |
+| canonical_form_set_ref | [02 §2.2](./02_dataset_design.md#02-2) | 指向 canonical_form_set.json，暴露 QIM 的 AST 判据（等价把评测层 QIM 的判据直接喂给 Stage 3 Refiner） |
+| sql_bridge_defeat_ref | [02 §2.2](./02_dataset_design.md#02-2) | 指向 sql_bridge_defeat.json，暴露 V7' SQL-bridge 对抗候选与 EX/QIM 判定 |
+
+**Record 主体 audit 描述性字段**（不构成解题信号，进入即引入分布或难度先验 leakage）
+
+| 字段 | 来源 | 屏蔽原因 |
+|---|---|---|
+| target_difficulty | [02 §2.2](./02_dataset_design.md#02-2) | 难度标签先验 leakage |
+| empirical_difficulty | [02 §2.2](./02_dataset_design.md#02-2) | 实测难度先验 leakage |
+| pass_rate | [02 §2.2](./02_dataset_design.md#02-2) | RP_diff 上 EX 通过率，难度先验 leakage |
+| tds_cell | [02 §2.2](./02_dataset_design.md#02-2) | 暴露事后描述符的分布坐标 |
+| operator_family | [02 §2.2](./02_dataset_design.md#02-2) | 主算子族，等价 Stage 1 / Stage 2 部分答案 |
+| idiomatic_score | [02 §2.2](./02_dataset_design.md#02-2) | gold MQL 风格度量，与 gold 强相关 |
+| nlq_specificity_levels | [02 §2.2](./02_dataset_design.md#02-2) | 5 NLQ 的 specificity 层级标签；其语义在 [§6.1](#06-6) 训练管线内部使用，但作为字段值不进入 prompt 或检索向量 |
+| nosql_nativeness_level | [02 §2.2](./02_dataset_design.md#02-2) | 意图的 L0-L4 档位标签；暴露即引入难度先验 leakage，SMART 不消费该字段 |
+| schema_complexity_profile | [02 §2.2](./02_dataset_design.md#02-2) | schema 难度 leakage |
+| world_signature | [02 §2.2](./02_dataset_design.md#02-2) | 数据快照指纹，仅用于 reproducibility 而非解题 |
+| coverage_neighbors | [02 §2.2](./02_dataset_design.md#02-2) | 嵌入空间邻居 record_id，等价于检索"答案邻居"的快捷路径 |
+
+### §7.2 训练记忆的最小输入集
+
+训练侧记忆 $\mathcal{M}_{\text{train}}$ 只装载从 [02 §2.2](./02_dataset_design.md#02-2) train.json 中抽出的最小输入集：
+
+$$\mathcal{M}_{\text{train}} = \bigl\{(\mathrm{NLQ},\ \mathit{db\_id},\ \text{schema\_markdown},\ \text{gold\_mql})\bigr\}$$
+
+加上从 gold_mql 解析得到的 4 路 grounding 标签（collection / db_fields / alias_fields / target_fields）。**没有任何 audit 字段、audit 资产路径或 ref 解引用结果（含 canonical_form_set_ref / sql_bridge_defeat_ref / noise_trace_ref / complexity_vector_ref / business_narrative_ref / structured_intent_ref / re_certificate_ref / world_robustness_certificate_ref / empirical_difficulty_ref，以及 nosql_nativeness_level 等所有描述性字段）参与嵌入计算或被检索器返回。**
+
+[05 §3](./05_evaluation_methodology.md#05-3) 复现性 manifest 中只对 mongosh 镜像与执行环境做约束，不强制 SMART 加载任何 audit 资产；本节明确"零加载"是设计契约。
+
+### §7.3 RP_diff + SQL-bridge panel 三方解耦硬约束
+
+SMART 部署时必须满足下列硬约束（三方 pairwise 不相交）：
+
+1. **Stage 3 Refiner LLM 主干 ID** 必须与 `audit/reference_panel/diff_panel_manifest.json` 中 `models[].id` 集合**完全不相交**
+2. **Stage 4 Debug Agent LLM 主干 ID** 必须与 `diff_panel_manifest.json` 中 `models[].id` 集合**完全不相交**
+3. **Stage 3 Refiner LLM 主干 ID** 必须与 `audit/reference_panel/sql_bridge_manifest.json` 中 `nl2sql_models[].id` 集合**完全不相交**
+4. **Stage 4 Debug Agent LLM 主干 ID** 必须与 `sql_bridge_manifest.json` 中 `nl2sql_models[].id` 集合**完全不相交**
+5. **任意 SMART LLM 主干 ID** 必须与 [04 §8.3](./04_dataset_construction.md#04-8) V3' / V5' LLM id 集合**完全不相交**（已有隐含约束显式化）
+
+**部署启动期检查**：SmartRequest handler 在初始化时分别读取 `diff_panel_manifest.json`（仅 `models[].id` 字段）与 `sql_bridge_manifest.json`（仅 `nl2sql_models[].id` 字段）；与本地配置的 Refiner / Debugger 模型 ID 比对；任一相交则拒绝启动并写入错误日志。两份 manifest 仅在启动期被 handler 读取其 id 白名单字段，不进入 prompt、检索向量或其它推理路径。
+
+**评测期检查**：[05 §3](./05_evaluation_methodology.md#05-3) 的 manifest 摘要不一致中止规则覆盖 `diff_panel_manifest_sha256` 与 `sql_bridge_manifest_sha256`；评测器在启动时读取两者（在 runtime_lock 中）并验证与 SMART 配置的 LLM ID 在两个 panel 上同时不相交；任一相交则评测流程中止。
+
+**设计动机**：RP_diff 用于 empirical_difficulty 校准；SQL-bridge panel 用于 V7' 对抗。如果 SMART 的 Refiner / Debugger LLM 主干与任一 panel 相交：
+
+- 与 RP_diff 相交：同一模型在 RP_diff 测得的 pass_rate 会人为偏高（因为该模型在 SMART 中享受了 4 阶段流水线增益），导致 empirical_difficulty 分桶失真，进而污染 [02 §2.2](./02_dataset_design.md#02-2) 的 empirical_difficulty / pass_rate 字段
+- 与 SQL-bridge panel 相交：V7' 对抗失效（SQL-bridge 生成的候选就是 SMART 将来产生的输出，自我对抗退化为自我验证），导致 [04 §8.6](./04_dataset_construction.md#04-8) 的 sql_bridge_defeat 检出率被系统低估
+
+三方 disjointness 消除这两条循环路径。
+
+### §7.4 与 [03](./03_database_synthesis.md) / [04](./04_dataset_construction.md) 的契约对偶
+
+| 责任方 | 保证 |
+|---|---|
+| [03](./03_database_synthesis.md) Agentic 合成侧 | 保证 Taxonomy Board 快照、Budget Matrix、noise_trace / complexity_vector / business_narrative 全部生成于合成期、归属 audit 区；不与 record 主体字段共通道；不与求解侧 LLM 主干相交 |
+| [04](./04_dataset_construction.md) 构造流水线侧 | 保证 SI DSL 的 `noise_policies` 字段与 [03](./03_database_synthesis.md) 的 NoisePlan 字面对齐；V1'-V7' 证书、empirical_difficulty.json 仅作 gold 可信度与难度参考留痕 |
+| [04](./04_dataset_construction.md) V7' SQL-bridge defeat（[§8.6](./04_dataset_construction.md#04-8)） | 保证 SQL-bridge panel manifest（`audit/reference_panel/sql_bridge_manifest.json`）归属 audit 区；panel 的 NL2SQL models 与 sqltomongo translator 不与 V3' / V5' / RP_diff / 求解侧 LLM 相交；V7' 的 candidate MQL、sql_bridge_defeat 结果归 audit；canonical_form_set 归 audit/derived；SMART 零加载这三类资产 |
+| [06](#06-7) 求解侧 | 即便 audit 资产与发布层 record 在文件系统中并行存放、即便 record 主体本身列出 ref 字段（含 canonical_form_set_ref / sql_bridge_defeat_ref 等），SMART 流水线不解引用任何 ref、不读取上述任何 audit 资产路径；不与 RP_diff / SQL-bridge panel / V3' / V5' 模型 ID 相交；Agentic 合成阶段的所有中间态（Agent 轨迹、Taxonomy Board 快照、Noise Plan、业务叙事）全部隶属构造时，不得进入方法侧推理路径 |
+
+这一对偶约束保证：构造侧信息不会通过任何隐式管道（文件路径同目录、ref 字段、co-located audit 子树、共享 LLM）流入求解侧，从而 [05 §1](./05_evaluation_methodology.md#05-1) 的 7 指标在 cross-domain 测试集上的报告值忠实反映 SMART 在"无 audit 先验"条件下的真实表现；[04 §8](./04_dataset_construction.md#04-8) V1'-V7' 与 [04 §9](./04_dataset_construction.md#04-9) RP_diff 仅作为 gold 可信度、难度参考、SQL-bridge 对抗的来源，而非求解信号。agentic_synth 合成期中间态（Agent 轨迹、Taxonomy Board 快照、Noise Plan、业务叙事）均遵守同一契约，不通过任何隐式管道进入求解侧。
+
+<a id="06-8"></a>
+## §8 部署与监控
+
+### §8.1 服务分层
+
+| 服务 | 阶段 | 资源画像 | 对接的 manifest |
 |---|---|---|---|
-| `schema_md_cache` | `db_id` | schema markdown 字符串 | schema 文件变更 |
-| `nlq_emb_cache` | `hash(nlq)` | NLQ 嵌入向量 | encoder 版本 / 模型变更 |
-| `train_mem_cache` | `hash(train.json) + encoder_id` | 整个 $\mathcal{M}_{\text{train}}$ 索引 | train.json 变更或 encoder 升级 |
-| `mongosh_exec_cache` | `(db_id, normalized_mql)` | mongosh 执行结果（含错误信号） | 数据快照 $D$ 变更 |
+| Schema Predictor | Stage 1 | Llama-3.2-1B 微调权重；GPU 推理；批处理友好 | — |
+| Query Drafter | Stage 2 | Llama-3.2-1B 微调权重（与 Stage 1 参数独立）；GPU 推理；批处理友好 | — |
+| Refiner with Vector Memory | Stage 3 | LLM API（deepseek-v3 / gpt-4o-mini）+ 4 路向量索引（FAISS 或等价）；CPU + 远端 LLM；按 K = 20 拼 prompt | `diff_panel_manifest.json`, `sql_bridge_manifest.json`（仅 read disjointness 检查，见 [§7.3](#06-7)） |
+| Executor + Debugger | Stage 4 | LLM API + 本地 mongosh 进程池；mongosh 镜像与 [05 §3](./05_evaluation_methodology.md#05-3) 复现性 manifest 一致；最多 N = 5 轮重试 | `diff_panel_manifest.json`, `sql_bridge_manifest.json`（仅 read disjointness 检查，见 [§7.3](#06-7)） |
 
-`mongosh_exec_cache` 在 Stage 4 的迭代循环里作用最大：同一个 patch 反复被试探时无须真打 mongosh。
+两份 manifest 仅被 Refiner / Debugger 服务在启动期读取其 id 白名单字段用于 disjointness 检查，不被任何阶段的推理路径消费。
 
-### 8.3 监控指标
+### §8.2 缓存
 
-下列监控量来自 SMART 自身的内部 trace，与 [04](./04_evaluation_methodology.md) 的 6 评测指标解耦，仅用于服务侧诊断：
+| 缓存 | 键 | 值 | 失效条件 |
+|---|---|---|---|
+| schema_md_cache | db_id | schema_markdown 字符串 | db_id 对应数据快照 D 的 world_signature 变化 |
+| nlq_emb_cache | sha256(NLQ) | 4 视角中 $V_{\text{nlq}}$ 的查询嵌入 | 嵌入模型升级 |
+| train_mem_cache | manifest_sha256(train.json) | $\mathcal{M}_{\text{train}}$ 的 4 路索引 | train.json 内容变化或嵌入模型升级 |
+| mongosh_exec_cache | sha256(current_mql + db_id + manifest_sha256) | mongosh 执行结果文档列表 | manifest_sha256 变化 |
 
-| 指标 | 阶段 | 含义 |
+### §8.3 监控指标
+
+| 指标 | 计算方式 | 触发动作 |
 |---|---|---|
-| 4 路预测准确率 | Stage 1 | `collection` / `db_fields` / `alias_fields` / `target_fields` 各自的集合层 F1（与 train 侧 gold 对比） |
-| Draft 合法率 | Stage 2 | `draft_mql` 被 mongosh 解析通过的比例 |
-| 检索命中分布 | Stage 3 | Top-K 的 score 分布、Top-1 与 Top-K 的 score 差、检索是否落在与当前 db_id 同 domain 的样本上 |
-| Patch 次数分布 | Stage 4 | Debug Agent 平均 patch 轮数、达到 $N$ 终止的样本占比 |
-| 终止状态分布 | Stage 4 | 正常返回 / 接受空结果 / 强制终止 三种终止类别的占比 |
-| EX / EFM / EVM 离线漂移 | 全流程 | 在 cross-domain 切片上对比上线前后的 [04 §3](./04_evaluation_methodology.md) 指标，监测分布漂移 |
+| 4 路预测准确率 | Stage 1 输出与 gold 4 路标签的集合 IoU | 准确率明显下行 → 复审 SLM 训练数据 |
+| Draft 合法率 | Stage 2 输出能被 mongosh 解析的比例 | 合法率下行 → 检查 grounding 模板拼接 |
+| 检索命中分布 | Stage 3 Top-K 中 score 头部 K' 的命中分布 | 头部过窄 → 调权重；头部过散 → 加视角 |
+| Patch 次数分布 | Stage 4 重试次数直方图 | 长尾偏大 → 检查反馈分类规则 |
+| 终止状态分布 | Stage 4 终止时各类原因占比 | "达到 N 仍未成功"占比上行 → 审计 patch 策略 |
+| EX / EFM / EVM 离线漂移 | 同一 manifest 下离线复测与历史值差 | 漂移超过阈值 → 检查 LLM 主干漂移与 mongosh 镜像漂移 |
+| **QIM 分布** | Stage 4 输出 final_mql 的 AST_check 通过率（按 nosql_nativeness_level 分桶 L0 / L1 / L2 / L3 / L4） | 某一档 QIM 通过率明显下行 → 检查训练集中该档 shape-preserving / polymorphic / dynamic-key 示例的覆盖，可能需补强 Stage 2 训练数据 |
+| **SQL-bridge 退化率** | (EX=1, QIM=0) 占比（按 L2+ 子集） | 上行 → Refiner Top-K 检索命中过于偏向 `$unwind + $group` 样本，调权重或过滤 canonical_form_compliance |
 
-> 监控量永远不直接进入 prompt 或参与决策，只供运维与方法迭代分析使用。
+监控量永远不直接进入 prompt 或参与决策；nosql_nativeness_level 作为监控分桶维度在运维指标管道内部使用，不进入求解侧任何阶段的 prompt 或检索向量（与 [§7.1](#06-7) 的屏蔽契约一致）。
 
----
+<a id="06-9"></a>
+## §9 与 baseline 的比较假设
 
-## §9 与 baseline 的比较假设 <a id="05-9"></a>
-
-下列陈述都是**方法侧的设计期望**，不是数据结论。最终对 SMART 与各 baseline 的优劣判断仍由 [04](./04_evaluation_methodology.md) 的 6 指标体系（EM / QSM / QFC / EX / EFM / EVM）在 TEND 测试集上的实验结果决定。
+下列陈述都是方法侧的设计期望，不是数据结论。最终对 SMART 与各 baseline 的优劣判断仍由 [05 §1](./05_evaluation_methodology.md#05-1) 的 7 指标体系（EM / QSM / QFC / EX / EFM / EVM / QIM）在 TEND 测试集上的实验结果决定。
 
 | 对比对象 | SMART 的设计期望 | 期望生效的样本面 |
 |---|---|---|
-| **Direct Prompting**（zero-shot LLM） | 在 schema linking 歧义大的样本上更稳：Stage 1 显式做 schema 预测，避免生成器把字段名瞎猜 | 多 collection 数据库、字段名同义近邻多的库 |
-| **Single-pass Fine-tuned 生成**（一步生成，无 RAG，无执行兜底） | 在多阶段聚合查询上更稳：Stage 3 用近邻示例补结构、Stage 4 用 mongosh 兜执行 | aggregation pipeline 长、跨 collection、含嵌套展开的查询 |
-| **纯语义 RAG** | 在结构合法性上更稳：Stage 4 mongosh 执行能捕捉到 RAG 漏检的字段绑定与算子误用 | 纯检索能召回意图相近示例但 schema 不一致的样本 |
-| **SQL → NoSQL 中转级联** | 直接面向 MongoDB 文档结构，无需先解 SQL；对嵌套数组类查询不会被 SQL flat-join 中转扭曲 | 嵌套子文档 / 数组路径多层的查询（如 canonical 示例） |
+| Direct Prompting（zero-shot LLM） | schema linking 歧义大的样本上更稳：Stage 1 显式 schema 预测 | 多 collection 数据库、字段名同义近邻多的库 |
+| Single-pass Fine-tuned 生成 | 多阶段聚合查询上更稳：Stage 3 用近邻示例补结构、Stage 4 用 mongosh 兜执行 | aggregation pipeline 长、跨 collection、含嵌套展开的查询 |
+| 纯语义 RAG | 结构合法性上更稳：Stage 4 mongosh 执行能捕捉到 RAG 漏检的字段绑定与算子误用 | 纯检索能召回意图相近示例但 schema 不一致的样本 |
+| SQL → NoSQL 中转级联 | 直接面向 MongoDB 文档结构，无需先解 SQL；对嵌套数组类查询不会被 SQL flat-join 中转扭曲 | 嵌套子文档 / 数组路径多层的查询 |
+| **NL2SQL-bridge（NL2SQL model ∘ sqltomongo translator）** | 在 L2+（nosql_nativeness ≥ L2）样本上显著压制：SMART 的 Stage 3 Refiner 记忆库覆盖 shape-preserving / polymorphic / dynamic-key 等 NoSQL-native 模式示例；Stage 4 Debug Agent 对"shape 退化"做显式 patch；这使 SMART 同时具备 EX 与 QIM 的竞争力，而 NL2SQL-bridge 在 L2+ 上 QIM → 0（`$unwind + $group` 风格天然不符合 canonical_form_set.must_not_contain_at_root），EX 因 V7' SQL-bridge defeat test 已过滤无损解出的平凡样本（见 [04 §8.6](./04_dataset_construction.md#04-8)）而显著下降 | L2 / L3 / L4 样本切片（含 shape_preserving_augment / polymorphic_branch / type_introspection / dynamic_key_expansion / dynamic_key_aggregate / array_positional_select / nested_in_place_aggregate / graph_recursive_deep / null_vs_missing_disambig 等 pattern） |
 
-期望仅在"假设 baseline 与 SMART 共用 [04](./04_evaluation_methodology.md) 的执行环境与 6 指标"前提下成立。实际差异、显著性以及在哪些 cross-domain 切片上差距最大，由实验侧给出。
+期望仅在"baseline 与 SMART 共用 [05 §3](./05_evaluation_methodology.md#05-3) 的复现性 manifest 与 [05 §1](./05_evaluation_methodology.md#05-1) 的 7 指标"前提下成立；baseline 与 SMART 的最终优劣由 TEND 测试集上的实验结果决定。
 
----
+<a id="06-10"></a>
+## §10 canonical 示例的 4 阶段 trace
 
-## §10 canonical 示例的 4 阶段 trace <a id="05-10"></a>
-
-为让读者把 [§1](#05-1)–[§5](#05-5) 抽象描述与具体推理对齐，这里走一遍 [01 §7](./01_task_definition.md#01-7) 的 canonical 三元组：
+为让读者把 [§1](#06-1)-[§5](#06-5) 抽象描述与具体推理对齐，走一遍 [01 §7](./01_task_definition.md#01-7) 的 canonical 三元组（shape-preserving L4 形态）：
 
 | 项 | 值 |
 |---|---|
-| `db_id` | `orchestra` |
-| `record_id` | `99001` |
-| NLQ | *"List the top 3 conductors with the most performances."* |
+| db_id | orchestra |
+| record_id | 99001 |
+| NLQ（L1 canonical 槽位） | `"For each conductor, attach a total_performances field counting all performances across their orchestras, while preserving the original conductor document structure."` |
 
-schema 的语义形态（嵌套 4 层）已由 [01 §7.2](./01_task_definition.md#01-7) 给出：`conductor → orchestra[] → performance[] → show[]`。
+schema 嵌套 4 层：conductor → orchestra[] → orchestra.performance[] → orchestra.performance.show[]。
 
-### 10.1 Stage 1 — Schema Prediction
+5 条 NLQ 对应 5 个 specificity 层级（`nlq_specificity_levels = ["L1", "L0", "L2", "L3", "L4"]`）：
 
-Stage 1 的 `Schema Predictor` 接收 NLQ + 库级 schema markdown，输出 4 路标签：
+| 层级 | NLQ |
+|---|---|
+| L1 schema_naive（canonical） | `"For each conductor, attach a total_performances field counting all performances across their orchestras, while preserving the original conductor document structure."` |
+| L0 underspecified | `"Add performance totals to conductors."` |
+| L2 schema_aware | `"For each conductor document in the conductor collection, add a field total_performances equal to the total count of entries in the embedded orchestra.performance arrays, without flattening the document."` |
+| L3 nosql_jargon | `"For each conductor document, augment with a top-level total_performances field aggregating the sizes of nested performance arrays; preserve the embedded orchestra-performance-show array structure."` |
+| L4 multilingual / colloquial | `"在每位指挥家的文档上附加 total_performances 字段，记录其旗下所有乐团的演出总数，并保持原文档的嵌套结构不变。"` |
+
+SI 元数据（归 audit，求解侧零加载）：pattern = `shape_preserving_augment`，nosql_nativeness level = L4，output.shape = `shape_preserved_augmented`，operator_family = `shape_preserving_augment`；canonical_form_set.must_contain = `["$addFields","$map"]`、must_not_contain_at_root = `["$unwind","$group"]`；noise_policies = Structural.sparse_optional_name + `$ifNull` 兜底；idiomatic_score = 0.92；target_difficulty / empirical_difficulty = medium；pass_rate = 0.6。
+
+### §10.1 Stage 1 — Schema Prediction（L4 shape-preserving）
+
+grounding_state JSON：
 
 ```json
 {
-  "collection":     ["conductor"],
-  "db_fields":      ["Name", "orchestra.performance"],
-  "alias_fields":   ["count"],
-  "target_fields":  ["Name", "count"]
+  "collection": ["conductor"],
+  "db_fields": ["orchestra.performance"],
+  "alias_fields": ["total_performances"],
+  "target_fields": ["Conductor_ID", "Name", "Age", "Nationality", "orchestra", "total_performances"]
 }
 ```
 
-关键判断：
+关键判断逐条：
 
-- `collection` 锁定主入口为 `conductor`，不需要 `$lookup`（performance 嵌在 conductor 文档内）；
-- `db_fields` 包含 `orchestra.performance` 这条**穿过两层数组**的路径，提示 Stage 2 必须穿透到该路径才能数 performance；
-- `target_fields` = `{Name, count}`，提示结果文档只保留这两个键。
+- `collection` 只含 `conductor`（入口集合；从表通过嵌套子文档到达，不需要 `$lookup`）
+- `db_fields` 含 `orchestra.performance`（嵌套数组路径，用作 `$map` 作用对象；非 `$unwind` 目标）
+- `alias_fields` 含 `total_performances`（根层追加的计算字段）
+- `target_fields` 按 [§2.2](#06-2) shape-preserving 语义：`set(conductor 原 4 字段) ∪ {total_performances}` = 5 个字段；`orchestra` 字段整体保留即隐含 4 层嵌套结构不被压平
 
-### 10.2 Stage 2 — Query Generation
+若该样本走 L0 underspecified 槽位（`"Add performance totals to conductors."`），Stage 1 的 4 路标签完全相同：必须补默认值——默认聚合 op 为 count（计数 performance 条目数）、默认增强字段名 `total_performances`、默认保持嵌套结构。这正是 [§6.1](#06-6) 中"L0 是关键训练信号"的体现。
 
-Stage 2 的 `Query Drafter` 拿到 NLQ + schema markdown + Stage 1 的 4 路标签，可能输出一个**结构上接近但缺穿透**的草稿，例如：
+### §10.2 Stage 2 — Query Generation
 
-```javascript
-db.conductor.aggregate([
-  { $project: { Name: 1, count: { $size: "$orchestra.performance" } } },
-  { $sort: { count: -1 } },
-  { $limit: 3 }
-]);
-```
-
-这个草稿的问题在于：`$size` 不会自动穿透两层数组。`$orchestra.performance` 在嵌套结构下解析得到的是"数组的数组"，`$size` 直接作用其上会得到错误计数（数到的是 orchestra 数量而不是 performance 总数），违反 [01 §7.4](./01_task_definition.md#01-7) 的"必须跨两层数组进行计数"硬约束。
-
-但 Stage 2 不必把它解到完美 —— 后两阶段会兜底。
-
-### 10.3 Stage 3 — Memory-driven Refinement
-
-Refiner 在 $\mathcal{M}_{\text{train}}$ 上做 4 视角加权 cosine 检索：
-
-- $V_{\text{nlq}}$ 命中训练侧若干 *"top-K by count"* 模式的 NLQ；
-- $V_{\text{collections}}$ + $V_{\text{fields}}$ 命中训练侧带嵌套数组展开（`$unwind` 两层）的 aggregation；
-- $V_{\text{draft}}$ 命中带 `$group → $sort → $limit → $project` 算子序列的草稿。
-
-Top-K 中至少有一条示例是"对嵌套数组分组计数"的 gold 形态。Refiner 据此把 `$size` 替换为两层 `$unwind` + `$group` 的计数模式，输出：
+Stage 2 可能输出一个退化草稿（SQL-bridge 式 `$unwind + $group`），即便 grounding_state 已暗示 shape-preserving，SLM 基座在罕见情形下仍可能召回 SQL-flatten 先验：
 
 ```javascript
 db.conductor.aggregate([
-  { $unwind: "$orchestra" },
-  { $unwind: "$orchestra.performance" },
-  { $group: { _id: "$Name", count: { $sum: 1 } } },
-  { $sort: { count: -1 } },
-  { $limit: 3 },
-  { $project: { _id: 0, Name: "$_id", count: 1 } }
+  { $unwind: { path: "$orchestra", preserveNullAndEmptyArrays: true } },
+  { $unwind: { path: "$orchestra.performance", preserveNullAndEmptyArrays: true } },
+  { $group: {
+      _id: "$_id",
+      Conductor_ID: { $first: "$Conductor_ID" },
+      Name: { $first: "$Name" },
+      Age: { $first: "$Age" },
+      Nationality: { $first: "$Nationality" },
+      orchestra: { $first: "$orchestra" },
+      total_performances: { $sum: { $cond: [ { $ifNull: ["$orchestra.performance", false] }, 1, 0 ] } }
+  } }
 ]);
 ```
 
-### 10.4 Stage 4 — Execution-grounded Optimization
+该草稿执行可能产出 `total_performances` 数值正确，但 shape 上压平了 `orchestra` 数组（`$first` 只保留分组边界上观察到的第一个 orchestra 元素），完整 4 层嵌套结构破损；这正是 Stage 3 / Stage 4 兜底的设计前提。
 
-Debug Agent 把 `refined_mql` 提交本地 mongosh：
+### §10.3 Stage 3 — Memory-driven Refinement
 
-| 轮次 | 观察 | Patch |
-|---|---|---|
-| 1 | 返回 3 行 `{Name, count}`，按 count 降序 | 满足"正常返回 + 字段集合与 `target_fields` 对齐"，**终止** |
+Refiner 在 train 记忆库上做 4 视角加权 cosine 检索；命中训练侧 `shape_preserving_augment` 模式的若干示例（含 `$addFields + $map + $ifNull` 在嵌套数组上的 in-place 计算 pattern）；据此把根层 `$unwind + $group` 改写为 `$addFields + $map`，输出与 canonical gold MQL 一致的单 stage 管道：
 
-`final_mql` = `refined_mql`，循环未触发任何 patch。
+```javascript
+db.conductor.aggregate([
+  { $addFields: {
+      total_performances: {
+        $sum: {
+          $map: {
+            input: { $ifNull: ["$orchestra", []] },
+            as: "orch",
+            in: { $size: { $ifNull: ["$$orch.performance", []] } }
+          }
+        }
+      }
+  } }
+]);
+```
 
-#### 10.4.1 一个失败–恢复支线
+该 refined_mql 遵守 [01 §2](./01_task_definition.md#01-2) 输出空间约束（read-only / deterministic / mongosh-executable、未触发六件禁用算子），且满足 canonical_form_set 暗示的 idiomatic 结构（根层 `$addFields + $map`、无 `$unwind` / `$group`）。
 
-如果 Stage 3 重写时漏掉了第二层 `$unwind`，Stage 4 第一次执行可能返回的 count 偏低（数到的是 orchestra 而非 performance），Debug Agent 会观察到"结果数量与 NLQ 隐含的'最多 performance'不匹配，且 schema 中 performance 嵌于 orchestra 之下"，下一轮 patch 会插入 `{ $unwind: "$orchestra.performance" }`，然后再执行验证。这条支线展示了 Stage 4 不是只接 syntax-level 错误，也接 semantic-level 的"结构未穿透"错误。
+### §10.4 Stage 4 — Execution-grounded Optimization
 
-### 10.5 输出与评测对接
+Debug Agent 把 refined_mql 提交本地 mongosh；返回与 `conductor` 数量相同的文档列表；每条文档结构与输入 conductor 文档同构（保留 4 层嵌套 `conductor → orchestra[] → orchestra.performance[] → orchestra.performance.show[]`）+ 根层多出 `total_performances` 整型字段；target_fields 校验通过；根层无 `$unwind` / `$group` → 满足 shape-preserving 验证 → 终止，final_mql = refined_mql。
 
-Stage 4 输出的 `final_mql` 被作为 $q^{\mathrm{MQL}}$ 喂给 [04](./04_evaluation_methodology.md) 的评测器：
+#### §10.4.1 失败-恢复支线
 
-- **EX**：在 `orchestra` 数据快照 $D$ 上执行 `final_mql` 与 gold MQL，按 [01 §3](./01_task_definition.md#01-3) 的递归相等关系判定；
-- **EFM / EVM**：进一步比较结果文档的字段集合与值；
-- **EM / QSM / QFC**：query 串层面的近似比较（不依赖执行结果，但与 [01 §3](./01_task_definition.md#01-3) 的执行锚一致性挂钩）。
+如 Stage 3 产出仍含 `$unwind` 在根层（Refiner 偶尔召回了非 shape-preserving 示例），Stage 4 检测到"shape 退化"反馈（见 [§5.2](#06-5)）：
 
-整个 trace 走完后，SMART 在该 record 上"是否解对"由 EX 判定；它在 [04](./04_evaluation_methodology.md) 的 cross-domain 切片下的总体表现就是论文报告的 SMART (deepseek-v3) EX = 65.08%。
+- 触发条件命中：pipeline 根层含 `$unwind` / `$group` 且 grounding_state 对应意图 target_fields 包含 `orchestra` 原嵌套子树（shape-preserving）；或 mongosh 返回文档数不等于 conductor 输入文档数
+- patch 策略：把根层 `$unwind + $group + $first` 替换为 `$addFields + $map`；检查表达式是否对嵌套数组做了 in-place 计算；必要时按 noise_policies 对应层（Structural.sparse_optional_name）插入 `$ifNull` 兜底（避免 null vs missing 歧义）
+
+第二轮执行通过 → 终止；debug_trace 记录这步 patch 动作供监控复盘。
+
+### §10.5 输出与评测对接
+
+Stage 4 输出的 final_mql 作为 q^MQL 喂给 [05 §1](./05_evaluation_methodology.md#05-1) 评测器：
+
+- **EX** 按 [01 §3](./01_task_definition.md#01-3) 判定：$\mathrm{NormExec}(\text{final\_mql}, D) \equiv_{\text{rec}} \mathrm{NormExec}(\text{gold\_mql}, D)$
+- **QIM** 按 [05 §1.8](./05_evaluation_methodology.md#05-1-8) 判定：$\mathrm{AST\_check}(\mathrm{Parse}(\text{final\_mql}), \mathrm{canonical\_form\_set}(\text{gold\_mql})) = \text{pass}$；对本 record，canonical_form_set.must_contain = `["$addFields","$map"]`、must_not_contain_at_root = `["$unwind","$group"]` 全部满足 → QIM = 1
+- gold MQL 可信度由 [04 §8](./04_dataset_construction.md#04-8) V1'-V7' 证书保证（V1' spec correctness、V2' perturbation robustness、V7' SQL-bridge defeat 等）
+- [04 §9](./04_dataset_construction.md#04-9) RP_diff 给出 empirical_difficulty 标签；本 record = medium
+- SMART 求解侧不读取证书、不读取 diff_panel / sql_bridge panel manifest（见 [§7](#06-7)）；只消费 gold MQL + canonical world 的数据快照 D
+- **EFM / EVM** 比较结果文档的字段集合与值；**EM / QSM / QFC** 在 query 串层面近似比较
+
+整个 trace 走完后，SMART 在该 record 上"是否解对"由 EX 判定；"是否写得 idiomatic"由 QIM 判定；在 [05 §5](./05_evaluation_methodology.md#05-5) cross-domain 切片下的 EX / QIM 双指标表现是 SMART 与 NL2SQL-bridge baseline 的关键差异证据。
 
 ---
 
-> 文档定位：任务输入输出 → [01 任务定义](./01_task_definition.md)；record 字段与库级资产 → [02 数据集设计](./02_dataset_design.md)；构造流水线与训练 / audit 边界 → [03 数据集构造](./03_dataset_construction.md)；6 指标公式与复现性契约 → [04 评测方法](./04_evaluation_methodology.md)；本文档 → SMART 4 阶段求解方法的根定义。
+下游指针：任务 IO / 正确性锚 / 归一化 → [01 §1](./01_task_definition.md#01-1) + [01 §2](./01_task_definition.md#01-2)；record 字段与库级资产 → [02 §2](./02_dataset_design.md#02-2) + [02 §3](./02_dataset_design.md#02-3)；Agentic 合成方法（6-Agent、三控制线、8 轴 Taxonomy、6 层 Noise Taxonomy）→ [03 §1](./03_database_synthesis.md#03-1) ~ [03 §12](./03_database_synthesis.md#03-12)；构造流水线、V1'-V7'、V7' SQL-bridge defeat、V6' RP_diff、9 覆盖轴 → [04 §1](./04_dataset_construction.md#04-1) + [04 §2](./04_dataset_construction.md#04-2) + [04 §8](./04_dataset_construction.md#04-8) + [04 §9](./04_dataset_construction.md#04-9) + [04 §10](./04_dataset_construction.md#04-10)；7 指标（含 QIM）与复现性 manifest → [05 §1](./05_evaluation_methodology.md#05-1) + [05 §3](./05_evaluation_methodology.md#05-3)；本文档 → SMART 4 阶段求解方法的根定义。
