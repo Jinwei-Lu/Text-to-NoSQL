@@ -1,470 +1,1084 @@
-# TEND Benchmark · 02 数据资产设计 (Dataset Design)
+# TEND §02 · Dataset Design
+
+> 本文件是 TEND 基准**发布物 (released artifacts)** 的单一真源 (Single Source of Truth)。
+> 它定义：哪些文件存在、每条 record 的字段契约、库级资产 (schema / data / phenomena_registry / persona_bank / intent_template_lattice / domain_catalog) 的 JSON 格式、train/test 切分规则、9 + 1 轴的 min/max 双配额协议。
+> 它**不定义**：任务签名 ([01](./01_task_definition.md#01-0))、资产如何被合成 ([03](./03_dataworld_synthesis.md#03-0) / [04](./04_intent_to_query_construction.md#04-0))、评测协议 ([05](./05_evaluation_methodology.md#05-0))、解法侧 ([06](./06_solution_design.md#06-0))。
+
+---
 
 <a id="02-0"></a>
-## §0 摘要
+## 02-0 摘要
 
-本文档定义 TEND benchmark 的数据资产层（dataset assets），作为数据资产的单一可信源（SSoT）。涵盖五项主题：发布物文件构成与目录布局、单条 record 的字段集与字段语义、库级 schema 与 data 的格式约束与一致性、train/test 切分规则、覆盖目标与配额机制。
+本文件规范 TEND 发布物的 **FORM (形式)**，覆盖五个主题：
 
-边界声明：TEND 的设计文档由 6 份 SSoT 编排——[01](./01_task_definition.md) 任务定义、[02](./02_dataset_design.md) 数据资产设计（本文）、[03](./03_database_synthesis.md) 数据库合成、[04](./04_dataset_construction.md) 数据集构造、[05](./05_evaluation_methodology.md) 评测方法、[06](./06_solution_design.md) 方法设计。任务 IO 形式化、正确性锚、结果归一化契约与递归相等 ≡_rec、Instance 正确性根原则 P1-P4 由 [01](./01_task_definition.md) 给出；库级 Agentic 数据库合成（Agent 架构、三控制线、Taxonomy Board、6 层 Noise Taxonomy、Business Simulator、业务叙事、Schema Evolution Simulator、F_topology 特性集合）由 [03](./03_database_synthesis.md) 给出；Agentic 合成产物汇入、Structured Intent DSL（含 `nosql_nativeness` 与 `canonical_form_set` 顶层字段）、规整化与汇入、SI 自动派生、Gold MQL 生成、NLQ × 5 写作、23 个 intent pattern 族、V1'-V7' spec-grounded / SQL-bridge defeat 验证、RP_diff 经验难度校准、嵌入覆盖审计与路由由 [04](./04_dataset_construction.md) 给出；7 评测指标（EM / QSM / QFC / EX / EFM / EVM / QIM）公式与协议、7 比特指纹、强制披露清单由 [05](./05_evaluation_methodology.md) 给出；SMART 4 阶段方法架构与求解侧硬边界屏蔽清单由 [06](./06_solution_design.md) 给出。本文档只注册字段名、文件路径、切分契约与覆盖配额机制，不重复上述语义。
+1. **资产清单与目录布局** —— 发布物由哪些文件构成 ([§02-1](#02-1))
+2. **Record 字段契约** —— 每条样本必须有哪些字段、类型、强约束 ([§02-2](#02-2))
+3. **库级资产格式** —— 6 类库级 JSON 的 schema 规范 ([§02-3](#02-3))
+4. **切分规则** —— train / test 如何划分 ([§02-4](#02-4))
+5. **覆盖目标与配额** —— 9 + 1 轴的 min/max 双配额协议 ([§02-5](#02-5))
 
-全局不变量：本 benchmark 所有 record 的库级资产（`mongodb_schema/<db_id>.json` 与 `mongodb_data/<db_id>.json`）均由 [03](./03_database_synthesis.md) Agentic 合成管线唯一产出；不存在其他来源。
+### 规模概览
 
-读者路线图：
+| 维度 | 数量 |
+|---|---:|
+| Database (`db_id` 粒度) | 154 |
+| Domain (`domain_id` 粒度) | 105 |
+| Collection (累计) | 347 |
+| Record (样本) | 17,020 |
+| NLQ per record (严格) | 5 |
+| NLQ 累计 | 85,100 |
+| Train records | 14,245 |
+| Test records | 2,775 |
+| Train/Test 比例 | ≈ 83.7 / 16.3 |
+| 库级全局文件 | 3 (persona_bank + intent_template_lattice + domain_catalog) |
+| 库级 per-db 文件 | 462 = 154 × 3 (schema + data + phenomena_registry) |
 
-| 角色 | 推荐阅读顺序 |
+### 单一来源不变式 (single-source invariant)
+
+**所有 17,020 条 record 均由 [03](./03_dataworld_synthesis.md#03-0) + [04](./04_intent_to_query_construction.md#04-0) 定义的四阶段流水线 (Phase A DataWorld Synthesis → Phase B Intent Seeding → Phase C Query Materialization → Phase D Adversarial Validation) 机制化产出。** 主集中不存在人工撰写的 record；人类仅出现在 `audit/human_anchor/` 的零样本锚定评估子集 (solver-side only，不混入主集)。
+
+### 边界声明 (本文件**不**涵盖)
+
+| 主题 | 归属 |
 |---|---|
-| 模型作者（model authors） | §0 → §2.1 必填字段 → §3 → §6 |
-| 评测者（evaluator） | §0 → §1 → §2 → §4 → §5 |
-| 数据构造者（data builder） | §0 → §1 → §2 → §3 → §5 → §6 → §7 |
+| 任务签名、NormExec、≡_rec、6 禁用算子、P1–P4 | [01 §1](./01_task_definition.md#01-1) – [01 §6](./01_task_definition.md#01-6) |
+| gold-as-class 等价类的形式定义 | [01 §3](./01_task_definition.md#01-3) |
+| Domain Template Bank、Schema Composer、Witness Data Generator | [03 §2](./03_dataworld_synthesis.md#03-2) – [03 §4](./03_dataworld_synthesis.md#03-4) |
+| F_topology 7 特性、schema_complexity_profile | [03 §3](./03_dataworld_synthesis.md#03-3) |
+| 6 噪声层 + 36-item taxonomy | [03 §4](./03_dataworld_synthesis.md#03-4) |
+| Phenomena taxonomy、detectors、world_signature | [03 §5](./03_dataworld_synthesis.md#03-5) |
+| Persona Bank 内部内容 | [04 §2](./04_intent_to_query_construction.md#04-2) |
+| SI DSL、SI→MQL Compiler、Symbolic Lift→QIR | [04 §4](./04_intent_to_query_construction.md#04-4) – [04 §7](./04_intent_to_query_construction.md#04-7) |
+| canonical_form_set 四元组的派生算法 | [04 §9](./04_intent_to_query_construction.md#04-9) |
+| V_correct / V_discrim / V_diverse / 4-panel 难度 | [04 §10](./04_intent_to_query_construction.md#04-10) – [04 §11](./04_intent_to_query_construction.md#04-11) |
+| 7 评测指标、EX 判定、4-panel 报告 | [05 §1](./05_evaluation_methodology.md#05-1) – [05 §4](./05_evaluation_methodology.md#05-4) |
+| SMART 4-stage 解法流水线、解法侧边界 | [06 §1](./06_solution_design.md#06-1) |
 
-整体规模锁定：154 db、105 domain、347 collection、17,020 (NLQ, NoSQL) record pair；切分锁定 14,245 train / 2,775 test，cross-domain 8:2 比例；NLQ 文本总条数 $= 17{,}020 \times 5 = 85{,}100$。
+---
 
 <a id="02-1"></a>
-## §1 资产清单与目录布局
+## 02-1 资产清单与目录布局
 
-### §1.1 资产清单
+TEND 的发布物分为两层：
 
-| 资产类 | 路径 | 粒度 | 主要用途 |
-|---|---|---|---|
-| 主集训练桶 | `TEND/train.json` | 整集 | 模型训练唯一允许暴露的 record 集合 |
-| 主集测试桶 | `TEND/test.json` | 整集 | headline 评测唯一调用的 record 集合 |
-| 完整集合（可选） | `TEND/TEND.json` | 整集 | train ∪ test 全集快照，便于一致性核查 |
-| 库级 schema | `TEND/mongodb_schema/<db_id>.json` | 库级 | 描述该库下每个 collection 的字段结构与类型 |
-| 库级 canonical data | `TEND/mongodb_data/<db_id>.json` | 库级 | 单世界发布的实际文档数据，MQL 在其上执行 |
-| Taxonomy Board 快照 | `audit/taxonomy_board/board_snapshot_*.json` | 全局 | Taxonomy Board 快照（来自 03 合成管线） |
-| Stratified Budget Matrix | `audit/taxonomy_board/budget_matrix.json` | 全局 | Stratified Budget Matrix 留痕 |
-| 嵌入覆盖审计 | `audit/coverage/coverage_report.json` | 全局 | facility-location 覆盖度量、cell 实际填充率、9 语义轴直方图 |
-| RP_diff 参考面板 manifest | `audit/reference_panel/diff_panel_manifest.json` | 全局 | V6' 经验难度校准用的 5 frozen 模型与运行配置 |
-| SQL-bridge 参考面板 manifest | `audit/reference_panel/sql_bridge_manifest.json` | 全局 | V7' SQL-bridge defeat 面板，记录 NL2SQL panel 与 sqltomongo translator 的模型与运行配置，锁定与 V3'/V5'/V6' 的三方 disjoint 约束 |
-| 5% 人审 anchor 报告 | `audit/human_anchor/spot_audit.json` | 全局 | 抽样人审与机审一致性留痕 |
-| Structured Intent | `audit/<db_id>/<record_id>/structured_intent.yaml` | record 级 | 构造期 SI DSL 实例 |
-| 自动派生 oracle | `audit/<db_id>/<record_id>/derived/oracle.py` | record 级 | 由 SI 自动派生的参考实现 |
-| 自动派生 checker | `audit/<db_id>/<record_id>/derived/checker.py` | record 级 | 结果归一化后的相等性判定器 |
-| 自动派生 mutations | `audit/<db_id>/<record_id>/derived/mutations.json` | record 级 | 故意构造的负样本扰动集合 |
-| 自动派生 canonical_form_set | `audit/<db_id>/<record_id>/derived/canonical_form_set.json` | record 级 | 由 SI 派生的 canonical_form_set 四元组（`must_contain` / `must_not_contain` / `must_contain_at_root` / `must_not_contain_at_root`），为评测层 QIM 提供结构约束源 |
-| 多世界备选 | `audit/<db_id>/<record_id>/world_variants/<world_id>.json` | record 级 | K=2 候选世界中未被选为 canonical 的备选数据，仅 audit 可见 |
-| 多世界鲁棒性证书 | `audit/<db_id>/<record_id>/world_robustness.json` | record 级 | gold MQL 在 K 个候选世界上的通过情况 |
-| V1'-V7' 证书 | `audit/<db_id>/<record_id>/certificate.json` | record 级 | spec-grounded 与 SQL-bridge defeat 验证的七项语义留痕 |
-| V6' 经验难度结果 | `audit/<db_id>/<record_id>/empirical_difficulty.json` | record 级 | RP_diff 5 frozen 模型 per-model EX 结果 |
-| V7' SQL-bridge defeat 结果 | `audit/<db_id>/<record_id>/sql_bridge_defeat.json` | record 级 | V7' 在该 record 上的 SQL-bridge 候选 MQL、EX 与 QIM 判定、分类标签（`accepted` / `sql_trivial` / `sql_bridge_defeat_partial`） |
-| 噪声注入追溯 | `audit/<db_id>/<record_id>/noise_trace.json` | record 级 | 本条 record 注入的噪声追溯（层 / type_id / target field / coupling operator / si policy key） |
-| 复杂度向量实测 | `audit/<db_id>/<record_id>/complexity_vector.json` | record 级 | 6 维复杂度向量 $\vec{C}$ 实测值 |
-| 业务叙事 | `audit/<db_id>/<record_id>/business_narrative.json` | record 级 | Agentic 合成时 Domain Architect 写下的业务画像与事件流概要 |
-| Audit 拒绝 | `audit/rejected/<db_id>/<record_id>.json` | record 级 | 未通过 V1'-V7' 的候选拒绝原因留痕 |
+- **Tier-1 · 主集 (main set)** —— 评测闭包的最小充分集，任何合规 solver 读入即可运行
+- **Tier-2 · Audit 子树** —— 供研究者复现 / 调试 / 诊断的可选工件，评测时**不**被读取
 
-### §1.2 目录树
+两层通过固定目录位置严格分隔，见 [§02-1-5](#02-1-5)。
+
+<a id="02-1-1"></a>
+### 02-1-1 主集 (train.json / test.json / TEND.json)
+
+| 文件 | 内容 | Record 数 | 用途 |
+|---|---|---:|---|
+| `train.json` | 训练集 records 数组 | 14,245 | 模型训练、few-shot 例库 |
+| `test.json` | 测试集 records 数组 | 2,775 | 固定评测集，提交对此集评分 |
+| `TEND.json` | train + test 的等价并集 | 17,020 | 第三方研究、全量覆盖分析 |
+
+三者满足: `TEND.json == concat(train.json, test.json)` 在 `record_id` 排序后逐字节相等。
+
+Record 字段契约见 [§02-2](#02-2)。
+
+<a id="02-1-2"></a>
+### 02-1-2 库级资产 (library-level assets)
+
+库级资产分 **per-db 组** (每个 `db_id` 一份，154 份) 与 **global 组** (全数据集共享一份) 两类：
+
+| 类别 | 文件 | 份数 | 角色 |
+|---|---|---:|---|
+| per-db | `mongodb_schema/<db_id>.json` | 154 | 数据库结构声明 (collections × fields × types) |
+| per-db | `mongodb_data/<db_id>.json` | 154 | 执行所需的 witness 数据实例 |
+| per-db | `phenomena_registry/<db_id>.json` | 154 | 该库被植入的 Phenomena 清单与 witness 指针 |
+| global | `persona_bank.json` | 1 | 全部 5+ personas 的属性表 |
+| global | `intent_template_lattice.json` | 1 | (phenomenon_class × persona) → SI_pattern_family 映射 |
+| global | `domain_catalog.json` | 1 | 105 domains 的模板结构注册表 |
+
+三份 global 文件的语义定义见 [04 §2](./04_intent_to_query_construction.md#04-2)；phenomena_registry 的物理格式由 [§02-3-3](#02-3-3) 规定，其生成规则由 [03 §5](./03_dataworld_synthesis.md#03-5) 定义。
+
+<a id="02-1-3"></a>
+### 02-1-3 Audit 子树
+
+Audit 按粒度分为两层：
+
+**Per-record audit** (路径 `audit/<db_id>/<record_id>/`)：
+
+| 工件 | 文件 | 说明 |
+|---|---|---|
+| Structured Intent 原件 | `structured_intent.yaml` | SI DSL 序列化，生成 MQL 的上游 ([04 §4](./04_intent_to_query_construction.md#04-4)) |
+| Symbolic Lift 产物 | `qir.yaml` | MQL→QIR 反向提升的中间表示 ([04 §7](./04_intent_to_query_construction.md#04-7)) |
+| Checker 衍生件 | `derived/oracle.json` | 语义等价判定器 |
+| Checker 衍生件 | `derived/checker.json` | AST 检查器快照 |
+| Checker 衍生件 | `derived/mutations.json` | 同义与等价改写枚举 |
+| Checker 衍生件 | `derived/canonical_form_set.json` | 详细形式的 canonical_form_set (见 [§02-2-2](#02-2-2)) |
+| World Robustness | `world_variants/` | 同语义但不同 witness 数据的 K 个副本 |
+| World Robustness | `world_robustness.json` | K 个副本上的等价性证书 |
+| Difficulty | `empirical_difficulty.json` | 4-panel 失败概率 + 难度标签 |
+| Noise | `noise_trace.json` | 6 噪声层每层被命中的 36-item 列表 |
+| Complexity | `complexity_vector.json` | 结构复杂度向量 + schema_complexity_profile |
+| Lift | `lift_trace.json` | 符号提升每步变换记录 |
+| Bridge Defeat | `sql_bridge_defeat.json` | SQL→MQL 直译为何失败的证据 |
+| Bridge Defeat | `template_bridge_defeat.json` | 模板化查询为何失败的证据 |
+| Seed | `phenomena_seed.json` | 该 record 种子化的 (phenomenon_id, persona_id) |
+| Seed | `intent_template.json` | 命中的 lattice 单元与 SI_pattern_family |
+| Seed | `witness_augmentation_trace.json` | Phase C 增量 witness 补齐记录 |
+| Certificate | `certificate.json` | V_correct / V_discrim / V_diverse 三元通过证书 |
+| Panel Verdict | `frontier_panel_verdict.json` | small / medium / large / frontier 各 panel 裁决 |
+
+**Global audit** (路径 `audit/_global/`)：
+
+| 工件 | 文件 | 说明 |
+|---|---|---|
+| 分类板 | `taxonomy_board.json` | 9 + 1 轴的全集分布与配额快照 |
+| 参考面板 | `reference_panel/diff_panel_small.json` | small solver 集与裁决矩阵 |
+| 参考面板 | `reference_panel/diff_panel_medium.json` | medium solver 集 |
+| 参考面板 | `reference_panel/diff_panel_large.json` | large solver 集 |
+| 参考面板 | `reference_panel/diff_panel_frontier.json` | frontier solver 集 |
+| 参考面板 | `reference_panel/sql_bridge.json` | SQL 直译基线 |
+| 参考面板 | `reference_panel/template_bridge.json` | 模板基线 |
+| 覆盖 | `coverage/coverage_report.json` | 9 + 1 轴的最终覆盖审计 (见 [§02-5-6](#02-5-6)) |
+| 人类锚 | `human_anchor/` | 零样本人类解的锚定子集 (solver-side only) |
+| 语法 | `grammar/mql_grammar.ebnf` | MQL 子集的 EBNF 定义 |
+| 拒绝池 | `rejected/` | 未通过 V_correct / V_discrim / V_diverse 的候选与拒绝原因 |
+
+<a id="02-1-4"></a>
+### 02-1-4 目录树
 
 ```
 TEND/
-├── train.json
-├── test.json
-├── TEND.json
-├── mongodb_schema/
+├── train.json                              # 14,245 records
+├── test.json                               #  2,775 records
+├── TEND.json                               # 17,020 records (并集, 便利文件)
+│
+├── mongodb_schema/                         # 154 个 per-db schema
 │   ├── orchestra.json
-│   ├── ...
-│   └── <db_id>.json
-└── mongodb_data/
-    ├── orchestra.json
-    ├── ...
-    └── <db_id>.json
-
-audit/
-├── taxonomy_board/
-│   ├── board_snapshot_*.json
-│   └── budget_matrix.json
-├── coverage/
-│   └── coverage_report.json
-├── reference_panel/
-│   ├── diff_panel_manifest.json
-│   └── sql_bridge_manifest.json
-├── human_anchor/
-│   └── spot_audit.json
-├── rejected/
-│   └── <db_id>/
-│       └── <record_id>.json
-└── <db_id>/
-    └── <record_id>/
+│   ├── academic_system.json
+│   └── ... (共 154 份)
+│
+├── mongodb_data/                           # 154 个 per-db witness data
+│   ├── orchestra.json
+│   ├── academic_system.json
+│   └── ... (共 154 份)
+│
+├── phenomena_registry/                     # 154 个 per-db phenomena 清单
+│   ├── orchestra.json
+│   ├── academic_system.json
+│   └── ... (共 154 份)
+│
+├── persona_bank.json                       # 全局, 5+ personas
+├── intent_template_lattice.json            # 全局, (phenomenon × persona) → pattern
+├── domain_catalog.json                     # 全局, 105 domains
+│
+└── audit/                                  # Tier-2, 可选工件
+    ├── _global/
+    │   ├── taxonomy_board.json
+    │   ├── reference_panel/
+    │   │   ├── diff_panel_small.json
+    │   │   ├── diff_panel_medium.json
+    │   │   ├── diff_panel_large.json
+    │   │   ├── diff_panel_frontier.json
+    │   │   ├── sql_bridge.json
+    │   │   └── template_bridge.json
+    │   ├── coverage/coverage_report.json
+    │   ├── human_anchor/
+    │   ├── grammar/mql_grammar.ebnf
+    │   └── rejected/
+    │
+    └── <db_id>/<record_id>/                # per-record audit, 可缺省
         ├── structured_intent.yaml
+        ├── qir.yaml
         ├── derived/
-        │   ├── oracle.py
-        │   ├── checker.py
+        │   ├── oracle.json
+        │   ├── checker.json
         │   ├── mutations.json
         │   └── canonical_form_set.json
         ├── world_variants/
-        │   └── <world_id>.json
         ├── world_robustness.json
-        ├── certificate.json
         ├── empirical_difficulty.json
-        ├── sql_bridge_defeat.json
         ├── noise_trace.json
         ├── complexity_vector.json
-        └── business_narrative.json
+        ├── lift_trace.json
+        ├── sql_bridge_defeat.json
+        ├── template_bridge_defeat.json
+        ├── phenomena_seed.json
+        ├── intent_template.json
+        ├── witness_augmentation_trace.json
+        ├── certificate.json
+        └── frontier_panel_verdict.json
 ```
 
-### §1.3 主集与 audit 的边界
+<a id="02-1-5"></a>
+### 02-1-5 主集与 Audit 的硬边界
 
-- `TEND/train.json` 与 `TEND/test.json` 是唯一两类参与 headline 评测的 record 桶。
-- `audit/` 子树不进入 train、不进入 test、不进入 headline 评测，仅作为 spec-grounded 验证、SQL-bridge defeat 留痕、经验难度校准、覆盖审计、噪声追溯、复杂度实测、业务叙事与人审 anchor 的留痕载体。
-- 主集不划分为额外子桶（无 dev / sidecar / horizon 多桶）。
-- 发布层 `TEND/mongodb_data/<db_id>.json` 永远是单世界：每个 `db_id` 在该目录下只有一份 data 文件，对应构造期从 K=2 个候选世界中按既定标准选定的 canonical world；K-1 个备选变体存放于 `audit/<db_id>/<record_id>/world_variants/`，仅 audit 可见。
-- `audit/reference_panel/sql_bridge_manifest.json` 与每条 record 的 `audit/<db_id>/<record_id>/derived/canonical_form_set.json`、`audit/<db_id>/<record_id>/sql_bridge_defeat.json` 同属 audit 留痕，不进入主集评测。
+**规则 B1 (评测闭包性):** 仅读取主集 (`train.json` / `test.json`) 与库级资产 (`mongodb_schema/` + `mongodb_data/` + `phenomena_registry/` + `persona_bank.json` + `intent_template_lattice.json` + `domain_catalog.json`) 已经构成完整的评测闭包 —— 任何合规 solver + 评测器不访问 `audit/` 下任何文件即可完成 [05 §3](./05_evaluation_methodology.md#05-3) 中规定的全部评测流程。
+
+**规则 B2 (Audit 可选性):** `audit/` 下任何子路径的缺失都**不构成** dataset 不完整；使用方可以按需只发布 Tier-1 主集 + 库级资产，压缩发布体积。
+
+**规则 B3 (缺失表达方式):** Record 中的 audit 引用字段 (见 [§02-2-3](#02-2-3)) 若不可用，**通过省略该字段表达**，禁止写入 `null` 或空字符串。这与 [01 §5](./01_task_definition.md#01-5) 中的 **省略语义 = 删除键** 约束相一致。
+
+**规则 B4 (单向引用):** 主集 record 可以**引用** audit 路径 (通过 `_ref` 字段)，但 audit 文件**不得**被主集语义所依赖。换言之，删除 `audit/` 之后，主集仍自洽。
+
+---
 
 <a id="02-2"></a>
-## §2 record schema 字段定义
+## 02-2 Record 字段契约
 
-### §2.1 必填字段
+<a id="02-2-1"></a>
+### 02-2-1 必填字段 (5 项)
 
-| 字段 | 类型 | 语义 |
-|---|---|---|
-| `record_id` | int | 全局唯一记录标识，TEND.json 内部不重复 |
-| `db_id` | string | 与 `TEND/mongodb_schema/<db_id>.json` 和 `TEND/mongodb_data/<db_id>.json` 的文件名严格一致 |
-| `nl_queries` | list[string] | 长度严格为 5；`nl_queries[0]` 永远是 L1 canonical 表达——schema_naive、业务用户口吻、不暴露 schema 细节；其它槽位的层级映射记录在 audit 字段 `nlq_specificity_levels` |
-| `MQL` | string | gold MongoDB 查询；`mongosh` 可直接执行的 `find(...)` 或 `aggregate([...])` |
+每条 record 必须、且仅必须包含以下 5 个顶层字段：
 
-### §2.2 audit 字段（全部可选）
+| 字段 | 类型 | 约束 | 语义 |
+|---|---|---|---|
+| `record_id` | int | 全局唯一，正整数 | Record 的全集 ID，跨 train/test 不重用 |
+| `db_id` | string | 与 `mongodb_schema/<db_id>.json` / `mongodb_data/<db_id>.json` / `phenomena_registry/<db_id>.json` 文件名严格一致 | 指向该 record 所用的数据库 |
+| `nl_queries` | list[string] | 长度严格等于 5，`nl_queries[0]` 为 L1 canonical | 5 条等语义 NLQ，覆盖 specificity 光谱 |
+| `MQL` | string | 可被 MongoDB shell 在 `mongodb_data/<db_id>.json` 上执行；与 `canonical_form_set` AST_check = pass | 一条**代表性** gold MQL 实例 |
+| `canonical_form_set` | object | 四元组，详见 [§02-2-2](#02-2-2) | **主 gold**，等价类成员的 AST 特征 |
 
-| 字段 | 类型 | 语义 |
-|---|---|---|
-| `structured_intent_ref` | string | 指向 `audit/<db_id>/<record_id>/structured_intent.yaml`；该 yaml 内含构造期的 canonical Structured Intent，DSL 形态（含顶层 `nosql_nativeness` 与 `canonical_form_set` 字段）由 [04 §3](./04_dataset_construction.md#04-3) 定义 |
-| `re_certificate_ref` | string | 指向 `audit/<db_id>/<record_id>/certificate.json`；V1'-V7' spec-grounded / SQL-bridge defeat 验证证书的留痕，七项语义见 [04 §8](./04_dataset_construction.md#04-8) |
-| `world_robustness_certificate_ref` | string | 指向 `audit/<db_id>/<record_id>/world_robustness.json`；记录 gold 在 K 个候选世界上的通过情况 |
-| `empirical_difficulty_ref` | string | 指向 `audit/<db_id>/<record_id>/empirical_difficulty.json`；V6' RP_diff 5 frozen 模型的 per-model EX 结果 |
-| `noise_trace_ref` | string | 指向 `audit/<db_id>/<record_id>/noise_trace.json`；6 层噪声分布与 gold MQL coupling 算子留痕，语义由 [03 §5](./03_database_synthesis.md#03-5) 定义 |
-| `complexity_vector_ref` | string | 指向 `audit/<db_id>/<record_id>/complexity_vector.json`；6 维复杂度向量 $\vec{C}$，语义由 [03 §3](./03_database_synthesis.md#03-3) 定义 |
-| `business_narrative_ref` | string | 指向 `audit/<db_id>/<record_id>/business_narrative.json`；Agentic 合成时的业务画像与驱动事件流概要，语义由 [03 §6](./03_database_synthesis.md#03-6) 定义 |
-| `canonical_form_set_ref` | string | 指向 `audit/<db_id>/<record_id>/derived/canonical_form_set.json`；由 SI 派生的 canonical_form_set 四元组（`must_contain` / `must_not_contain` / `must_contain_at_root` / `must_not_contain_at_root`），评测层 [05 §1.8](./05_evaluation_methodology.md#05-1-8) 的 QIM 指标消费该资产 |
-| `sql_bridge_defeat_ref` | string | 指向 `audit/<db_id>/<record_id>/sql_bridge_defeat.json`；V7' SQL-bridge defeat 的 record 级留痕（SQL-bridge 候选 MQL、EX 与 QIM 判定、分类标签），语义由 [04 §8.6](./04_dataset_construction.md#04-8) 定义 |
-| `target_difficulty` | enum | 取值 ∈ {easy, medium, hard, expert}；构造期声明的目标难度桶 |
-| `empirical_difficulty` | enum | 取值 ∈ {easy, medium, hard, expert}；由 RP_diff `pass_rate` 实测分桶得到，分桶规则由 [04 §9](./04_dataset_construction.md#04-9) 给出 |
-| `pass_rate` | float ∈ [0, 1] | RP_diff 5 frozen 模型在该 record 上 EX = 1 的比例 |
-| `tds_cell` | string | TDS 网格 cell 标识，形如 `"<schema_topology> × <operator_family> × <difficulty> × <nlq_specificity> × <language>"`；`schema_topology` 允许多特性组合（例如 `nested_4_deep+sparse_embedded`），取自 [03 §4.1](./03_database_synthesis.md#03-4) 的 $\mathcal{F}_{topo}$ 特性集合；本字段是事后描述符——构造期由 [04](./04_dataset_construction.md) 的嵌入覆盖路由决定 record 是否准入，cell 标签只在 record 落地后填写以便评测端按 cell 聚合 |
-| `operator_family` | string | gold MQL 的主算子族标签；覆盖 23 个 pattern（含 14 个基础算子族 + 9 个 NoSQL-native 算子族），族表由 [04 §3.2](./04_dataset_construction.md#04-3) 维护 |
-| `nosql_nativeness_level` | enum | 取值 ∈ {L0, L1, L2, L3, L4}；构造期声明的意图 NoSQL 原生度，L0 为 SQL-equivalent、L1 为 structure-aware、L2 为 type-aware、L3 为 schema-dynamic、L4 为 NoSQL-exclusive；语义由 [04 §3.1](./04_dataset_construction.md#04-3) 与 [04 §3.2](./04_dataset_construction.md#04-3) 定义 |
-| `idiomatic_score` | float ∈ [0, 1] | 保留为 audit 描述性度量，刻画 gold MQL 的 NoSQL-idiomatic 程度；公式由 [04](./04_dataset_construction.md) 给出 |
-| `nlq_specificity_levels` | list[string] | 长度严格 5；每位取值 ∈ {L0, L1, L2, L3, L4}；约束见 §2.3 |
-| `schema_complexity_profile` | dict | 库级 schema 复杂度向量；10 个分量（含 `polymorphic_collection_count`、`mixed_embed_ref_count`、`sparse_embedded_rate` 等拓扑特性计数）名与计算规则由 [04 §4.4](./04_dataset_construction.md#04-4) 定义 |
-| `world_signature` | string | 已发布 canonical world——即 `mongodb_data/<db_id>.json`——的稳定哈希；算法由 [04](./04_dataset_construction.md) 给出 |
-| `coverage_neighbors` | list[int] | 该 record 在嵌入空间中的最近邻 record_id 列表，用于多样性事后审计；编码与距离度量由 [04 §10](./04_dataset_construction.md#04-10) 定义 |
-
-### §2.3 强约束
-
-- **省略而非 null**：任何字段不适用时省略 key，不写 `null` 也不写空串。
-- **`nl_queries` 长度严格为 5**：少 1 条或多 1 条都视为非法 record，不允许进入主集。
-- **`nl_queries[0]` 永远是 L1 canonical 表达**：schema_naive、业务用户口吻、不暴露 collection 名或文档结构。
-- **`nlq_specificity_levels` 是 {L0, L1, L2, L3, L4} 的排列**：必须满足 `nlq_specificity_levels[0] == "L1"`，且 5 个层级各出现恰好 1 次。
-- **`db_id` 一致性**：`record.db_id` 必须能在 `TEND/mongodb_schema/` 与 `TEND/mongodb_data/` 同时找到同名 `.json` 文件。
-- **MQL 可执行性**：`record.MQL` 文本必须能被 `mongosh` 在加载了 `mongodb_data/<db_id>.json` 的实例上直接执行；任务签名见 [01 §1](./01_task_definition.md#01-1)，正确性锚见 [01 §3](./01_task_definition.md#01-3)，结果归一化语义见 [01 §4](./01_task_definition.md#01-4) 与 [01 §5](./01_task_definition.md#01-5)。
-- **`nosql_nativeness_level` 与 SI 字面一致**：record 的 `nosql_nativeness_level` 必须与该 record 在 `structured_intent.yaml` 顶层 `nosql_nativeness.level` 字段字面一致，构造期由 [04 §3.1](./04_dataset_construction.md#04-3) 规定的 SI 序列化器强制。
-- **`canonical_form_set` 的 QIM 可消费性**：record 的 `canonical_form_set_ref` 所指 JSON 的结构必须能被 QIM 的 `AST_check` 算子机械消费，四元组键名固定为 `must_contain` / `must_not_contain` / `must_contain_at_root` / `must_not_contain_at_root`，取值为 MQL operator token 列表；定义见 [05 §1.8](./05_evaluation_methodology.md#05-1-8)。
-- **audit 字段全部可选**：未通过 V1'-V7' 验证的候选已在 [04 §8](./04_dataset_construction.md#04-8) 阶段被排除（落入 `audit/rejected/`），不会出现在 `train.json` / `test.json`，因此主集中看不到 "audit 字段标记为 fail" 的情况。
-
-<a id="02-3"></a>
-## §3 库级资产规范
-
-### §3.1 `TEND/mongodb_schema/<db_id>.json`
-
-- 描述该库下每个 collection 的字段结构与类型。
-- 顶层 key 是 collection 名。
-- 字段值是字段类型字符串，或嵌套子文档/数组。
-- 字段类型至少包含：`INT`、`REAL`、`TEXT`、`BOOL`、`OBJECT`、`ARRAY`；`OBJECT` 用 JSON dict 直接表示；`ARRAY` 用 JSON list 包裹一个子结构表示，例如 `[{...}]`；支持任意层级嵌套。
-- 同一 `db_id` 的所有 record 共享同一份 schema 文件。
-- schema 文件不允许夹带任何为评测服务的隐藏 truth 字段。
-- schema 支持 $\mathcal{F}_{topo}$ 特性集合中的各种拓扑（`flat` / `nested_N_deep` / `polymorphic_collection` / `dynamic_key_document` / `sparse_embedded` / `mixed_embed_ref` / `intentional_denormalization`），具体表达形式由 [03 §4.1](./03_database_synthesis.md#03-4) 定义；每个 db 的 schema 特性集在构造期登记于该库 record 的 `schema_complexity_profile` 中。
-
-`orchestra` schema 参考形态（节选）：
+**示例最小骨架** (仅示意，不含真实数据):
 
 ```json
 {
-  "conductor": {
-    "Conductor_ID": "INT",
-    "Name": "TEXT",
-    "Age": "INT",
-    "Nationality": "TEXT",
-    "orchestra": [
-      {
-        "Orchestra_ID": "INT",
-        "Orchestra_Name": "TEXT",
-        "Year_of_Founded": "INT",
-        "performance": [
-          {
-            "Performance_ID": "INT",
-            "Date": "TEXT",
-            "Type": "TEXT",
-            "show": [
-              {
-                "Show_ID": "INT",
-                "Result": "TEXT",
-                "Attendance": "INT"
-              }
-            ]
-          }
-        ]
-      }
-    ]
+  "record_id": 1001,
+  "db_id": "orchestra",
+  "nl_queries": ["...", "...", "...", "...", "..."],
+  "MQL": "db.conductor.aggregate([...])",
+  "canonical_form_set": {
+    "must_contain": ["$setWindowFields", "$facet", "$ifNull"],
+    "must_not_contain": [],
+    "must_contain_at_root": ["$setWindowFields", "$facet"],
+    "must_not_contain_at_root": []
   }
 }
 ```
 
-### §3.2 `TEND/mongodb_data/<db_id>.json`
+<a id="02-2-2"></a>
+### 02-2-2 Gold 字段的解读 (canonical_form_set 为主，MQL 为代表实例)
 
-- 顶层 key 是 collection 名（与 schema 一致）。
-- 每个 collection 是一个 JSON 数组，元素为该 collection 的文档。
-- 文档字段集合与 schema 中声明的字段一致。
-- 公开发布前已脱敏。
-- 数据规模足以让 NLQ 在执行后返回非空、非平凡的结果（最小 doc 数下界由 [04 §4](./04_dataset_construction.md#04-4) 按 difficulty 分层给出）。
+TEND 将 gold 定义为**等价类 (equivalence class)**，而非单一串。主集 record 通过两件工件共同描述这个等价类：
 
-### §3.3 schema 与 data 一致性约束
+1. **`canonical_form_set` (主 gold, 四元组)** —— AST 层面的成员资格谓词
+2. **`MQL` (代表实例)** —— 等价类中一条可执行的具体实例，用于执行结果对比
 
-| 维度 | 约束 |
+**`canonical_form_set` 的四元组结构:**
+
+| 子字段 | 类型 | 语义 |
+|---|---|---|
+| `must_contain` | list[string] | 管线中**至少出现一次** (任意嵌套深度均可) 的 operator token |
+| `must_not_contain` | list[string] | 管线中**不得出现** (任意嵌套深度) 的 operator token |
+| `must_contain_at_root` | list[string] | 顶层 aggregation 阶段**必须**出现的 stage operator (如 `$setWindowFields` / `$facet`) |
+| `must_not_contain_at_root` | list[string] | 顶层 aggregation 阶段**不得**出现的 stage operator |
+
+四元组的派生算法 (从 SI + QIR + mutations 合成) 见 [04 §9](./04_intent_to_query_construction.md#04-9)；此处仅规范其**物理形式**。
+
+**评测接受判定 (eval acceptance):**
+
+对任何 solver 预测 `q_p`，评测器判定 pass 当且仅当：
+
+```
+(a) AST_check(q_p, canonical_form_set) == pass
+    AND
+(b) NormExec(q_p, D) ≡_rec NormExec(MQL, D)
+```
+
+其中 `AST_check` 检查四元组约束，`NormExec` 与 `≡_rec` 见 [01 §3-1](./01_task_definition.md#01-3-1)。这保证：
+
+- **语法等价类成员性** (条件 a) 由 `canonical_form_set` 捕获
+- **语义执行一致性** (条件 b) 由代表实例 `MQL` 锚定
+
+**为何两者都需要:** 仅 (a) 不足以排除算子虽对但执行偏差的情形；仅 (b) 不足以排除 6 禁用算子绕过 ([01 §4](./01_task_definition.md#01-4)) 与模板桥接攻击。合取 (a) ∧ (b) 等价于 gold 等价类成员资格。
+
+<a id="02-2-3"></a>
+### 02-2-3 Audit 可选字段清单
+
+以下字段**可选**；存在时必为字符串，形如 `audit/<db_id>/<record_id>/<path>`；**不存在时必须省略键**，禁止写入 `null` / `""` / 空 object。
+
+| 字段名 | 指向 audit 文件 |
 |---|---|
-| collection 名 | `mongodb_data/<db_id>.json` 顶层 key 集合 ⊆ `mongodb_schema/<db_id>.json` 顶层 key 集合 |
-| 字段名 | data 文档中出现的任何字段必须在 schema 中已声明 |
-| 字段类型 | data 中字段值类型必须与 schema 声明类型一致（INT / REAL / TEXT / BOOL / OBJECT / ARRAY） |
-| 嵌套结构 | 任意层级的嵌套子文档与嵌套数组结构必须与 schema 同构 |
+| `structured_intent_ref` | `structured_intent.yaml` |
+| `qir_ref` | `qir.yaml` |
+| `canonical_form_set_detailed_ref` | `derived/canonical_form_set.json` |
+| `oracle_ref` | `derived/oracle.json` |
+| `mutations_ref` | `derived/mutations.json` |
+| `empirical_difficulty_ref` | `empirical_difficulty.json` |
+| `noise_trace_ref` | `noise_trace.json` |
+| `complexity_vector_ref` | `complexity_vector.json` |
+| `lift_trace_ref` | `lift_trace.json` |
+| `phenomena_seed_ref` | `phenomena_seed.json` |
+| `persona_ref` | `phenomena_seed.json` 中 `persona_id` 字段的解引 |
+| `intent_template_ref` | `intent_template.json` |
+| `witness_augmentation_trace_ref` | `witness_augmentation_trace.json` |
+| `world_robustness_certificate_ref` | `world_robustness.json` |
+| `frontier_panel_verdict_ref` | `frontier_panel_verdict.json` |
+| `sql_bridge_defeat_ref` | `sql_bridge_defeat.json` |
+| `template_bridge_defeat_ref` | `template_bridge_defeat.json` |
 
-补充约束：
+**扁平字段 (非 `_ref`):** 以下扁平字段可选携带，方便统计 / 过滤而无须解引：
 
-- **稀疏文档允许**：单个文档可省略 schema 声明的某些字段（不强制 schema 中所有字段都在每条 doc 上出现）；此种 sparse 分布计入 `schema_complexity_profile.sparse_embedded_rate`。
-- **不允许 schema 未声明字段**：data 文档不得引入 schema 中未声明的字段。
-- **嵌套数组允许 `[]`**：嵌套数组可为空，但若非空，每个元素的结构必须落入 schema 同构。
+| 字段名 | 类型 | 取值域 |
+|---|---|---|
+| `operator_family` | string | 23 SI patterns 之一 ([04 §3](./04_intent_to_query_construction.md#04-3)) |
+| `nosql_nativeness_level` | string | `L0` / `L1` / `L2` / `L3` / `L4` (L0 = SQL 可直译, L4 = translation-lossy, 详见 [04 §4](./04_intent_to_query_construction.md#04-4) SI pattern 表的默认 nativeness) |
+| `shape_policy` | string | `preserve` / `reshape` / `reduce` |
+| `empirical_difficulty` | string | `easy` / `medium` / `hard` / `expert` ([04 §11-2](./04_intent_to_query_construction.md#04-11-2) 主桶由 pr_medium 决定) |
+| `world_signature` | string | `sha256:<hex>` ([03 §5](./03_dataworld_synthesis.md#03-5)) |
+| `tds_cell` | string | `<topology>×<pattern>×<difficulty>×<noise>×<nlq_style>` 6 元拼接 |
 
-### §3.4 单世界发布与多世界 audit 的关系
+<a id="02-2-4"></a>
+### 02-2-4 强约束 C1–C9
 
-发布层 `TEND/mongodb_data/<db_id>.json` 是单世界产物（每个 `db_id` 在该目录下仅一份）。该 canonical world 由 Agentic 合成管线（[03](./03_database_synthesis.md)）统一产出，经 [04](./04_dataset_construction.md) 的汇入与校验后发布；资产层接口契约（schema / data / 噪声种子 / 复杂度向量）由 [03](./03_database_synthesis.md) 与 [04](./04_dataset_construction.md) 共同约束。构造期从 K=2 个候选世界中按既定标准选定其中一份为 canonical 发布；其余 K-1 个备选变体存放于 `audit/<db_id>/<record_id>/world_variants/<world_id>.json`，仅 audit 可见，不进入 headline 评测。gold MQL 在 K 个候选世界上的通过情况由 `audit/<db_id>/<record_id>/world_robustness.json` 留痕。
+| ID | 约束 | 违约动作 |
+|---|---|---|
+| **C1** | **省略语义一致**：所有可选字段的缺失以**省略 key** 表达，禁止 `null` / `""` / `{}` | 发布前校验器拒绝 |
+| **C2** | **NLQ 长度严格 5**：`len(nl_queries) == 5` 无例外 | 发布前校验器拒绝 |
+| **C3** | **L1 锚点**：`nl_queries[0]` 为 L1 canonical 形式 (最显式、去除所有 underspecification)；其余 4 条在 specificity 光谱上递减 | Phase C 生成时保证 |
+| **C4** | **Specificity 排列**：`nl_queries[0]` 固定为 L1 canonical;`nl_queries[1..4]` 是 {L0, L2, L3, L4} 的一个排列(5 层 specificity 定义见 [04 §7-1](./04_intent_to_query_construction.md#04-7-1)) | Phase C NLQ×5 生成时保证 |
+| **C5** | **db_id 一致性**：`db_id` 必须同时为 `mongodb_schema/` + `mongodb_data/` + `phenomena_registry/` 三目录下存在的文件基名 | 发布前 3-way 文件名集合校验 |
+| **C6** | **MQL 可执行且 AST 一致**：`MQL` 在 `mongodb_data/<db_id>.json` 上能用有限资源执行完毕且 `AST_check(MQL, canonical_form_set) == pass` | 发布前执行 + AST 双通 |
+| **C7** | **canonical_form_set 非空**：`must_contain_at_root` 至少含 1 项 (即根阶段至少一个特征 stage) | 发布前校验器拒绝 |
+| **C8** | **Nativeness 一致**：`operator_family` / `canonical_form_set` / `nosql_nativeness_level` 三者相容 (具体对应表见 [04 §9-3](./04_intent_to_query_construction.md#04-9)) | 发布前三元组校验 |
+| **C9** | **Audit 可选性**：任何 `_ref` 字段缺失不构成 record 不合规；但存在时路径必解引成功 | 校验器对存在的 `_ref` 解引；缺失跳过 |
 
-<a id="02-4"></a>
-## §4 切分规则
+---
 
-### §4.1 切分单位
+<a id="02-3"></a>
+## 02-3 库级资产格式
 
-切分单位是 `db_id`：同一 `db_id` 下的所有 record 必须落在同一侧（要么全部进 train、要么全部进 test）。该约束保证测试集对训练集是 cross-domain 的，模型在测试时不会见过该库的任何 schema 或 data。
+<a id="02-3-1"></a>
+### 02-3-1 `mongodb_schema/<db_id>.json`
 
-### §4.2 切分比例
+顶层 keys = collection 名；每个 value 为字段声明表，字段类型取自固定类型集 `{INT, REAL, TEXT, BOOL, OBJECT, ARRAY}`。`OBJECT` 与 `ARRAY` 支持递归嵌套。
 
-- 整体 record 比例为 8:2，对应锁定数字 14,245 train / 2,775 test。
-- 由于切分单位是 `db_id` 而 record 数在不同 `db_id` 之间分布不均匀，实际切分由分配脚本在 `db_id` 粒度上做最小偏差搜索，使 record 数比例最接近 8:2。
+**F_topology 7 特性** (schema 层面的结构特征) 由 [03 §3-1](./03_dataworld_synthesis.md#03-3-1) 枚举，本文件仅规范其**物理编码方式** (通过嵌套 `OBJECT` / `ARRAY` / `polymorphic marker` / `dynamic_key marker`)。
 
-### §4.3 domain 同侧聚合
-
-`db_id` 命名前缀作为 domain 信号；同一 domain 下的多个 `db_id` 尽量同侧聚合，进一步降低 train 与 test 之间的近邻泄漏。具体聚合算法由切分实现脚本承担，本文档只规定结果属性：105 个 domain 在 train/test 之间不出现 domain 跨侧分裂的前提下，再按 §4.2 的比例约束做 db 级分配。
-
-### §4.4 不引入的桶
-
-- 不引入 held-out / horizon 桶。
-- 不引入 sidecar / staging 多桶。
-- 主集不单独切出 dev 子集；模型作者若需要内部验证集，应自行在 `train.json` 的 `db_id` 子集上构建。
-- 不引入多世界发布桶（每个 `db_id` 在 `mongodb_data/` 下只有一份 canonical data）。
-
-<a id="02-5"></a>
-## §5 覆盖目标与配额机制
-
-本文档不写入具体规模数字。规模由构造管线按 [04](./04_dataset_construction.md) 的 Agentic 合成产物汇入 + 嵌入覆盖路由产生，构造完成后由发布脚本写入 `audit/coverage/coverage_report.json`。
-
-### §5.1 单一来源声明
-
-TEND benchmark 全集 100% record 的库级资产（schema 与 data）均由 [03](./03_database_synthesis.md) 定义的 Agentic 合成管线唯一产出；不存在其他来源，不设来源配额。Agentic 合成内部的多样性由 [03 §4](./03_database_synthesis.md#03-4) 的 Diversity Scheduler 在 `T_domain / T_pattern / T_topology / T_operator_family / T_difficulty / T_nosql_feature_mix / T_noise_mix / T_nosql_nativeness / T_topology_features` 共 9 个覆盖轴上按 Stratified Budget Matrix 调度，留痕于 `audit/taxonomy_board/budget_matrix.json`。
-
-### §5.2 嵌入覆盖目标
-
-写入 `audit/coverage/coverage_report.json`：
-
-- 每条 record 的嵌入由 schema embedding + intent embedding + query AST embedding 三段拼接（具体编码管线见 [04 §10](./04_dataset_construction.md#04-10)）。
-- 数据集层覆盖度量：facility-location 覆盖（每条 record 到其在已落地集合中最近邻的距离之和）。
-- 准入目标：每条新 record 必须使数据集 facility-location 覆盖度量提升 $\geq \varepsilon$，或落入 under-coverage 区域。
-- `coverage_neighbors` 字段：每条 record 落地后写入其在嵌入空间中的 8 个最近邻 `record_id`。
-
-### §5.3 衍生约束（任何发布版本都必须满足）
-
-$$
-\text{len}(\text{TEND.json}) = \text{len}(\text{train.json}) + \text{len}(\text{test.json})
-$$
-
-$$
-\{r.\text{db\_id} \mid r \in \text{train.json}\} \cap \{r.\text{db\_id} \mid r \in \text{test.json}\} = \varnothing
-$$
-
-$$
-\text{len}(\text{os.listdir}(\text{TEND/mongodb\_schema})) = \text{len}(\text{os.listdir}(\text{TEND/mongodb\_data}))
-$$
-
-- 上述两个目录下的 `db_id` 文件名集合完全相等。
-- $\{r.\text{db\_id} \mid r \in \text{TEND.json}\} = \{\text{basename}(f) \mid f \in \text{os.listdir}(\text{TEND/mongodb\_schema})\}$。
-- 每条 record 满足 $\text{len}(r.\text{nl\_queries}) = 5$，因此 NLQ 总条数 $= 17{,}020 \times 5 = 85{,}100$。
-- 每条 record 的 `nlq_specificity_levels` 是 {L0, L1, L2, L3, L4} 的排列，且 `nlq_specificity_levels[0] == "L1"`。
-- 每条 record 的 `nosql_nativeness_level` ∈ {L0, L1, L2, L3, L4}；test 集上 L2+（即 L2 ∪ L3 ∪ L4）占比 $\geq 40\%$、L4 占比 $\geq 15\%$，配额来自 [04 §3.1](./04_dataset_construction.md#04-3) 的构造期预算。
-
-### §5.4 覆盖审计
-
-构造完成后，发布脚本对照 §5.1 与 §5.2 的目标计算 cell 实际填充率与嵌入覆盖度量，写入 `audit/coverage/coverage_report.json`。覆盖审计为后续构造迭代提供反馈信号；具体迭代算法（under-coverage cell 的补样优先级、嵌入空间分桶策略）见 [04 §10](./04_dataset_construction.md#04-10)。
-
-### §5.5 T_noise_mix 多样性轴
-
-数据集层语义覆盖审计共 9 个轴；前 7 个列于下表，后 2 个在 §5.6 给出：
-
-| 轴 | 含义 |
-|---|---|
-| `T_domain` | 领域分布（105 个 domain 的实际 record 计数） |
-| `T_pattern` | intent pattern 族分布（23 个 pattern，含 14 个基础 + 9 个 NoSQL-native） |
-| `T_topology` | schema topology 深度标签分布（`flat` / `nested_2_deep` / `nested_3_deep` / `nested_4_deep` / `nested_5_plus_deep`） |
-| `T_operator_family` | MQL 主算子族分布 |
-| `T_difficulty` | `empirical_difficulty` 四桶（easy / medium / hard / expert）分布 |
-| `T_nosql_feature_mix` | 文档 NoSQL-native 特性（嵌套数组 / polymorphic / denormalization / partial index 适用性 / …）的混合分布 |
-| `T_noise_mix` | 6 层噪声在 record 级的分布 |
-
-第 7 轴 `T_noise_mix` 刻画 [03 §5](./03_database_synthesis.md#03-5) 定义的噪声 6 层（Literal / Structural / Semantic / Historical / Pollution / Type-Polymorphism）在数据集上的覆盖度。每条 record 的 `noise_trace_ref` 指向 `audit/<db_id>/<record_id>/noise_trace.json`，其中记录本条 record 的实际噪声注入层、`type_id`、target field、gold MQL 中的 coupling operator 与 SI 策略键。
-
-其中第 6 层 Type-Polymorphism 专门针对 BSON/NoSQL 的类型多态现象，由 [03 §5.1](./03_database_synthesis.md#03-5) 定义；该层对应 6 个 `tp_*` type_id（`tp_union_payment` / `tp_numeric_string_mix` / `tp_array_or_scalar` / `tp_nested_vs_flat` / `tp_typed_vs_untyped` / `tp_decimal_vs_double`，见 [03 §A](./03_database_synthesis.md#03-A)），其 coupling operators 取自 `{$switch on $type, $convert, $type, $isNumber, $getField}`。构造期由 [03](./03_database_synthesis.md) 的 Taxonomy Board 按 Stratified Budget Matrix 调度各层覆盖下界，目标是每一层噪声在 train 与 test 上各出现不低于下界（具体下界由 Taxonomy Board 维护，落入 `audit/taxonomy_board/budget_matrix.json`）。
-
-数据集落地后，审计脚本对全集、train 与 test 三个视图分别做 `T_noise_mix` 直方图统计，归集至 `audit/coverage/coverage_report.json` 的 `taxonomy_axes.T_noise_mix` 子块，供后续构造迭代的补样反馈。其余 6 轴同理归集至 `taxonomy_axes.T_domain` / `taxonomy_axes.T_pattern` / … / `taxonomy_axes.T_nosql_feature_mix`。
-
-### §5.6 T_nosql_nativeness 与 T_topology_features 覆盖轴
-
-数据集层覆盖审计的第 8、9 个轴专门刻画 NoSQL-Exclusive 维度：
-
-| 轴 | 含义 |
-|---|---|
-| `T_nosql_nativeness` | `nosql_nativeness_level` 在 record 级的 5 档分布（L0 / L1 / L2 / L3 / L4） |
-| `T_topology_features` | $\mathcal{F}_{topo}$ 特性集合 $\mathcal{F}_{topo} \subseteq \{\texttt{flat, nested\_N\_deep, polymorphic\_collection, dynamic\_key\_document, sparse\_embedded, mixed\_embed\_ref, intentional\_denormalization}\}$ 在 db 级的分布 |
-
-第 8 轴 `T_nosql_nativeness`：每条 record 声明的 NoSQL 原生度档位 `nosql_nativeness_level` 构成该轴的随机变量，取值空间为 {L0, L1, L2, L3, L4}。构造期目标在 test 集上 L2+ 占比 $\geq 40\%$、L4 占比 $\geq 15\%$，目标来自 [04 §3.1](./04_dataset_construction.md#04-3) 的构造期预算。审计脚本对全集、train 与 test 三个视图分别做直方图归集至 `audit/coverage/coverage_report.json` 的 `taxonomy_axes.T_nosql_nativeness` 子块。
-
-第 9 轴 `T_topology_features`：每个 db 声明的 $\mathcal{F}_{topo}$ 特性集合 $\mathcal{F}_{topo} \subseteq \{\texttt{flat, nested\_N\_deep, polymorphic\_collection, dynamic\_key\_document, sparse\_embedded, mixed\_embed\_ref, intentional\_denormalization}\}$（其中 `nested_N_deep` 按 $N \in \{2, 3, 4, 5+\}$ 展开为 4 个具体标签）。该集合是多标签的——单个 db 可同时承载多个特性。采样下限由难度决定：easy 至少携带 1 个特性、medium 至少 2 个、hard 至少 3 个、expert 至少 4 个。审计脚本在 db 级做特性命中频次直方图，归集至 `audit/coverage/coverage_report.json` 的 `taxonomy_axes.T_topology_features` 子块；语义由 [03 §4.1](./03_database_synthesis.md#03-4) 与 [04 §4.4](./04_dataset_construction.md#04-4) 定义。
-
-Stratified Budget Matrix 对上述两轴的覆盖下界同样由 Taxonomy Board 维护，落入 `audit/taxonomy_board/budget_matrix.json` 的对应子块。
-
-<a id="02-6"></a>
-## §6 canonical 示例
-
-本节给出一个完整、自洽的示例 record，所有字段值与共享契约字面一致，可作为字段格式与跨字段一致性的对照基准。
-
-### §6.1 canonical record JSON
+**示例 (orchestra schema, 部分):**
 
 ```json
 {
-  "record_id": 99001,
-  "db_id": "orchestra",
-  "nl_queries": [
-    "For each conductor, attach a total_performances field counting all performances across their orchestras, while preserving the original conductor document structure.",
-    "Add performance totals to conductors.",
-    "For each conductor document in the conductor collection, add a field total_performances equal to the total count of entries in the embedded orchestra.performance arrays, without flattening the document.",
-    "For each conductor document, augment with a top-level total_performances field aggregating the sizes of nested performance arrays; preserve the embedded orchestra-performance-show array structure.",
-    "在每位指挥家的文档上附加 total_performances 字段，记录其旗下所有乐团的演出总数，并保持原文档的嵌套结构不变。"
-  ],
-  "MQL": "db.conductor.aggregate([{ $addFields: { total_performances: { $sum: { $map: { input: { $ifNull: [\"$orchestra\", []] }, as: \"orch\", in: { $size: { $ifNull: [\"$$orch.performance\", []] } } } } } } }])",
-  "structured_intent_ref": "audit/orchestra/99001/structured_intent.yaml",
-  "re_certificate_ref": "audit/orchestra/99001/certificate.json",
-  "world_robustness_certificate_ref": "audit/orchestra/99001/world_robustness.json",
-  "empirical_difficulty_ref": "audit/orchestra/99001/empirical_difficulty.json",
-  "noise_trace_ref": "audit/orchestra/99001/noise_trace.json",
-  "complexity_vector_ref": "audit/orchestra/99001/complexity_vector.json",
-  "business_narrative_ref": "audit/orchestra/99001/business_narrative.json",
-  "canonical_form_set_ref": "audit/orchestra/99001/derived/canonical_form_set.json",
-  "sql_bridge_defeat_ref": "audit/orchestra/99001/sql_bridge_defeat.json",
-  "target_difficulty": "medium",
-  "empirical_difficulty": "medium",
-  "pass_rate": 0.6,
-  "tds_cell": "nested_4_deep+sparse_embedded × shape_preserving_augment × medium × schema_naive × english",
-  "operator_family": "shape_preserving_augment",
-  "nosql_nativeness_level": "L4",
-  "idiomatic_score": 0.92,
-  "nlq_specificity_levels": ["L1", "L0", "L2", "L3", "L4"],
-  "schema_complexity_profile": { "<dim>": "<value>" },
-  "world_signature": "sha256:9c1f4a...",
-  "coverage_neighbors": [99002, 99008, 99023, 99041, 99077, 99102, 99155, 99204]
+  "conductor": {
+    "_id": "INT",
+    "Conductor_ID": "INT",
+    "Name": "TEXT",
+    "Age": "INT",
+    "Nationality": "TEXT",
+    "Years_of_Work": "INT",
+    "orchestra": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "fields": {
+          "Orchestra_ID": "INT",
+          "Orchestra": "TEXT",
+          "Year_of_Founded": "INT",
+          "Major_Record_Format": "TEXT",
+          "performance": {
+            "type": "ARRAY",
+            "items": {
+              "type": "OBJECT",
+              "fields": {
+                "Performance_ID": "INT",
+                "Attendance": "INT",
+                "Date": "TEXT"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
 ```
 
-`nl_queries` 与 `nlq_specificity_levels` 的位级映射：
+上例展示 F_topology 中的 `nested_3_deep` (3 层嵌套) + `sparse_embedded` (当部分 conductor 文档省略 `Name` 字段时触发)。
 
-- `nl_queries[0]` 对应 `nlq_specificity_levels[0] = "L1"`——L1 canonical、schema_naive、业务用户口吻，只提"conductor"与"performances"等业务词汇，不暴露 collection 名或文档物理结构；
-- `nl_queries[1]` 对应 `"L0"`——极简、关键词式（"Add performance totals to conductors."）；
-- `nl_queries[2]` 对应 `"L2"`——出现 "conductor collection"、"embedded orchestra.performance arrays"、"flattening" 等 type-aware 与 schema 词汇；
-- `nl_queries[3]` 对应 `"L3"`——出现 "document"、"top-level field"、"embedded orchestra-performance-show array structure" 等 NoSQL 物理结构与 schema-dynamic 词汇；
-- `nl_queries[4]` 对应 `"L4"`——多语言（中文），同时明确要求"保持原文档的嵌套结构不变"，对应 NoSQL-exclusive shape-preserving 语义。
+<a id="02-3-2"></a>
+### 02-3-2 `mongodb_data/<db_id>.json`
 
-本 record 的库级资产由 [03](./03_database_synthesis.md) 的 Agentic 合成管线产出（Domain Architect 写出业务叙事、Schema Evolution Simulator 演化出 4 层嵌套拓扑并登记 `sparse_embedded` 特性、Noise Taxonomy 按 Stratified Budget Matrix 注入噪声）；`nosql_nativeness_level = "L4"` 表明该 record 落入 NoSQL-exclusive 档位；`operator_family = "shape_preserving_augment"` 对应 [04 §3.2](./04_dataset_construction.md#04-3) 的 23 pattern 中的 shape-preserving 子族。未适用的可选字段按 §2.3 "省略而非 null" 规则直接省略 key。
+顶层 keys **必须** 与 `mongodb_schema/<db_id>.json` 完全一致；每个 value 为该 collection 的文档数组。
 
-### §6.2 canonical 库的 schema 4 层结构
+**尺寸下界** 与 **6 噪声层** 的注入规则由 [03 §4](./03_dataworld_synthesis.md#03-4) 规范。本文件仅规范：
 
-| Schema 层级 | 路径 | 数据结构 | 代表性字段 |
-|---|---|---|---|
-| L1（顶层 collection） | `conductor` | top-level collection（JSON 数组） | `Conductor_ID`, `Name`, `Age`, `Nationality` |
-| L2（嵌套数组） | `conductor.orchestra[]` | 嵌套数组 | `Orchestra_ID`, `Orchestra_Name`, `Year_of_Founded` |
-| L3（嵌套数组） | `conductor.orchestra[].performance[]` | 嵌套数组 | `Performance_ID`, `Date`, `Type` |
-| L4（嵌套数组） | `conductor.orchestra[].performance[].show[]` | 嵌套数组 | `Show_ID`, `Result`, `Attendance` |
+- 顶层 keys 集合 = schema keys 集合 (强等)
+- 每个文档至少含 `_id` 字段
+- 文档数组非空
+- `ObjectId` / `ISODate` 等 BSON 扩展类型以 `{"$oid": "..."}` / `{"$date": "..."}` MongoDB Extended JSON 编码
 
-该 schema 拓扑对应 `tds_cell` 中 `schema_topology = "nested_4_deep+sparse_embedded"`（即同时携带 4 层嵌套与稀疏嵌入两个 $\mathcal{F}_{topo}$ 特性），与 `operator_family = "shape_preserving_augment"` 共同构成该 record 的拓扑–算子签名。
-
-### §6.3 canonical 库的 data 形态
-
-`TEND/mongodb_data/orchestra.json` 顶层结构（节选）：
+**示例** (orchestra data, 截取):
 
 ```json
 {
   "conductor": [
     {
+      "_id": 1,
       "Conductor_ID": 1,
       "Name": "Antal Doráti",
-      "Age": 62,
-      "Nationality": "Hungarian",
+      "Age": 80,
       "orchestra": [
         {
-          "Orchestra_ID": 11,
-          "Orchestra_Name": "London Symphony Orchestra",
-          "Year_of_Founded": 1904,
+          "Orchestra_ID": 1,
+          "Orchestra": "BBC Symphony",
+          "Year_of_Founded": 1930,
           "performance": [
-            { "Performance_ID": 101, "Date": "1969-03-21", "Type": "concert", "show": [ ] },
-            { "Performance_ID": 102, "Date": "1969-09-04", "Type": "concert", "show": [ ] }
+            { "Performance_ID": 1, "Attendance": 5000, "Date": "2019-01-10" },
+            { "Performance_ID": 2, "Attendance": 6200, "Date": "2019-02-14" }
           ]
         }
       ]
+    },
+    { "_id": 2, "Conductor_ID": 2, "orchestra": [/* ... */] }
+  ]
+}
+```
+
+注意 `_id: 2` 的文档**省略**了 `Name` 键 —— 此为 `sparse_embedded` 特性的物理实现，对应 [01 §5](./01_task_definition.md#01-5) 的省略语义。
+
+<a id="02-3-3"></a>
+### 02-3-3 `phenomena_registry/<db_id>.json`
+
+每个 `db_id` 对应一份 registry，列出该库被**植入**的 Phenomena、其 witness 证据指针与 intent hooks。
+
+**格式:**
+
+```json
+{
+  "db_id": "orchestra",
+  "world_signature": "sha256:a47f3e...",
+  "phenomena": [
+    {
+      "phenomenon_id": "temporal_trend@Attendance",
+      "phenomenon_class": "temporal_trend",
+      "witness_evidence": {
+        "collection": "conductor",
+        "path": "orchestra[].performance[].Attendance",
+        "document_ids": ["conductor/1", "conductor/2", "conductor/3"]
+      },
+      "detector_signature": "sha256:1b29c7...",
+      "intent_hooks": ["window_function_with_facet_filter", "change_point"]
+    },
+    {
+      "phenomenon_id": "cross_conductor_comparison",
+      "phenomenon_class": "cross_entity_comparison",
+      "witness_evidence": {
+        "collection": "conductor",
+        "path": "orchestra[].performance[].Attendance",
+        "document_ids": ["conductor/1", "conductor/2", "conductor/3", "conductor/4"]
+      },
+      "detector_signature": "sha256:8c42a1...",
+      "intent_hooks": ["facet_comparison", "window_function_with_facet_filter"]
+    },
+    {
+      "phenomenon_id": "null_cluster@Name",
+      "phenomenon_class": "null_cluster",
+      "witness_evidence": {
+        "collection": "conductor",
+        "path": "Name",
+        "document_ids": ["conductor/2", "conductor/5"]
+      },
+      "detector_signature": "sha256:9d15f2...",
+      "intent_hooks": ["ifnull_coalesce", "null_aware_projection"]
+    },
+    {
+      "phenomenon_id": "pollution@Attendance",
+      "phenomenon_class": "measurement_pollution",
+      "witness_evidence": {
+        "collection": "conductor",
+        "path": "orchestra[].performance[].Attendance",
+        "document_ids": ["conductor/3"]
+      },
+      "detector_signature": "sha256:4e62d8...",
+      "intent_hooks": ["robust_aggregation"]
+    },
+    {
+      "phenomenon_id": "cardinality_boundary@orchestra",
+      "phenomenon_class": "cardinality_boundary",
+      "witness_evidence": {
+        "collection": "conductor",
+        "path": "orchestra[]",
+        "document_ids": ["conductor/1", "conductor/6"]
+      },
+      "detector_signature": "sha256:7f03c4...",
+      "intent_hooks": ["existence_check", "boundary_grouping"]
     }
   ]
 }
 ```
 
-该文件包含足够多 conductor / orchestra / performance 实例，使 canonical NLQ 在执行后返回非平凡结果——输出文档数严格等于输入 conductor 数，每条 conductor 文档均被 augment 出 `total_performances` 字段，整数取值分布非平凡（至少存在两档不同计数）。该 data 中还包含若干缺失 `Name` 字段的 conductor 实例，用以触发 Structural 层的 `sparse_optional_name` 噪声分支（登记于 `noise_trace.json` 的 `type_id` 与 `target field`），并使 `schema_complexity_profile.sparse_embedded_rate` 取非零值。该 data 文件即构造期从 K=2 个候选世界中选定的 canonical world；K-1 个备选变体存放于 `audit/orchestra/99001/world_variants/`。
+**字段语义:**
 
-### §6.4 canonical gold MQL
+| 字段 | 语义 |
+|---|---|
+| `phenomenon_id` | 库内唯一的现象实例 ID (通常形如 `<class>@<path>` 或 `<class>`) |
+| `phenomenon_class` | 属于 [03 §5-1](./03_dataworld_synthesis.md#03-5-1) 中 10+ 分类的哪一类 |
+| `witness_evidence` | 证据三元组: 所在 collection / 文档内路径 / 至少 1 个触发文档 ID |
+| `detector_signature` | Detector 脚本在当前 witness 数据上的指纹 (`sha256`) |
+| `intent_hooks` | 该 phenomenon 可被哪些 SI_pattern_family 消费 (用于 Phase B 种子化) |
 
-`record.MQL` 字段对应的 single-stage `$addFields + $map + $ifNull` 管道（与共享契约字面一致）：
+**强约束 (见 [§02-3-7](#02-3-7)):** `witness_evidence.document_ids` 中的每个 ID 必须在 `mongodb_data/<db_id>.json` 中存在；`phenomenon_class` 必须在 [03 §5-1](./03_dataworld_synthesis.md#03-5-1) 的正式分类表中。
 
-```javascript
-db.conductor.aggregate([
-  { $addFields: {
-      total_performances: {
-        $sum: {
-          $map: {
-            input: { $ifNull: ["$orchestra", []] },
-            as: "orch",
-            in: { $size: { $ifNull: ["$$orch.performance", []] } }
-          }
-        }
-      }
-  } }
-]);
+<a id="02-3-4"></a>
+### 02-3-4 `persona_bank.json`
+
+全局单文件，列出所有 persona。**本文件仅规范物理格式**；persona 目录与编写规则见 [04 §2-1](./04_intent_to_query_construction.md#04-2-1)。
+
+```json
+{
+  "personas": [
+    {
+      "persona_id": "analyst",
+      "name": "Business Analyst",
+      "framing_style": "analyst",
+      "priorities": ["window_function_with_facet_filter", "facet_comparison", "rank_with_tie_breaking", "time_bucket_aggregation"],
+      "description": "…"
+    },
+    {
+      "persona_id": "ops",
+      "name": "Operations Engineer",
+      "framing_style": "ops",
+      "priorities": ["existence_check", "cardinality_boundary", "recent_window_filter"],
+      "description": "…"
+    },
+    {
+      "persona_id": "auditor",
+      "name": "Compliance Auditor",
+      "framing_style": "auditor",
+      "priorities": ["null_aware_projection", "anomaly_filter", "exhaustive_match"],
+      "description": "…"
+    },
+    {
+      "persona_id": "researcher",
+      "name": "Data Researcher",
+      "framing_style": "researcher",
+      "priorities": ["robust_aggregation", "multi_level_unwind", "distribution_tail"],
+      "description": "…"
+    },
+    {
+      "persona_id": "end_user",
+      "name": "End User",
+      "framing_style": "end-user",
+      "priorities": ["simple_lookup", "single_group_summary"],
+      "description": "…"
+    }
+  ]
+}
 ```
 
-- `operator_family = "shape_preserving_augment"`：`$addFields` 在根层附加派生字段，`$map` 对嵌套数组逐元素计算演出数量，`$ifNull` 为缺失数组提供空数组回退；整条管道不展开、不分组、不投影剪裁。
-- 输出结构：每条 `conductor` 文档的原嵌套结构（`conductor.orchestra[].performance[].show[]` 4 层）全部保留，仅在根层新增 `total_performances` 整型字段；**输出文档数严格等于输入 conductor 数**，不多不少、不改变文档树形状。
-- 该 gold MQL 在 canonical world 上的执行结果通过 `audit/orchestra/99001/derived/checker.py`（该 checker 含 `preserves_document_tree` 结构断言，机械核验输入–输出文档结构同构、仅允许根层 `total_performances` 一项 diff），并在 K=2 候选世界上全部通过，留痕在 `audit/orchestra/99001/world_robustness.json`。
-- V1'-V7' 完整证书在 `audit/orchestra/99001/certificate.json`，七项验证语义见 [04 §8](./04_dataset_construction.md#04-8)。
-- V6' empirical_difficulty 见 [04 §9](./04_dataset_construction.md#04-9)；该 record 的 `pass_rate = 0.6` 落入 `empirical_difficulty = medium` 桶，与 `target_difficulty = medium` 一致。
-- canonical_form_set 留痕在 `audit/orchestra/99001/derived/canonical_form_set.json`：`must_contain = ["$addFields", "$map"]`、`must_not_contain_at_root = ["$unwind", "$group"]`；由该四元组驱动的 QIM 语法层指纹在 [05 §1.8](./05_evaluation_methodology.md#05-1-8) 定义。
-- V7' SQL-bridge defeat 结果在 `audit/orchestra/99001/sql_bridge_defeat.json`：SQL-bridge panel（`NL2SQL_panel ∘ sqltomongo_translator`）生成的候选 MQL 要么 `EX = 0`，要么 `EX = 1` 而 `QIM = 0`——典型退化形态是 `$unwind + $group + 自定义合并` 的 SQL-bridge 翻译结果：数值层面可能把 `total_performances` 算对（EX = 1），但管道结构把原文档 `conductor.orchestra[].performance[].show[]` 嵌套结构拆平再合并，根层出现了 `must_not_contain_at_root` 中的 `$unwind` / `$group` 算子，`AST_check` 判定 QIM = 0。因此该 record 被 V7' 接受为非 SQL-bridge 可解、进入 V6'。
-- 噪声注入追溯在 `audit/orchestra/99001/noise_trace.json`（6 层分布与 coupling operator，其中第 6 层 Type-Polymorphism 若触发则伴随 `$type` / `$switch on $type` 等 coupling 算子）；6 维复杂度向量 $\vec{C}$ 实测值在 `audit/orchestra/99001/complexity_vector.json`；Agentic 合成时 Domain Architect 的业务画像与事件流概要在 `audit/orchestra/99001/business_narrative.json`。
+**字段:**
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `persona_id` | string | 全局唯一，snake_case |
+| `name` | string | 人类可读名 |
+| `framing_style` | enum | `analyst` / `ops` / `auditor` / `researcher` / `end-user` |
+| `priorities` | list[string] | SI_pattern_family 偏好列表 (有序) |
+| `description` | string | 自然语言描述，影响 NLQ 生成语气 ([04 §8](./04_intent_to_query_construction.md#04-8)) |
+
+**强约束:** 至少 5 个 persona；`priorities` 中每个 token 必须是 [04 §3](./04_intent_to_query_construction.md#04-3) 23 SI_pattern_family 之一。
+
+<a id="02-3-5"></a>
+### 02-3-5 `intent_template_lattice.json`
+
+全局单文件，编码 `(phenomenon_class, persona_id) → SI_pattern_family` 的多对多映射 (即 lattice 单元)。
+
+```json
+{
+  "lattice": [
+    {
+      "phenomenon_class": "temporal_trend",
+      "persona_id": "analyst",
+      "si_pattern_family": "window_function_with_facet_filter",
+      "expansion_template_ref": "templates/wf_facet_filter.yaml",
+      "priority": 0.85
+    },
+    {
+      "phenomenon_class": "temporal_trend",
+      "persona_id": "researcher",
+      "si_pattern_family": "change_point_detection",
+      "expansion_template_ref": "templates/change_point.yaml",
+      "priority": 0.60
+    },
+    {
+      "phenomenon_class": "null_cluster",
+      "persona_id": "auditor",
+      "si_pattern_family": "null_aware_projection",
+      "expansion_template_ref": "templates/null_projection.yaml",
+      "priority": 0.90
+    }
+  ]
+}
+```
+
+**字段:**
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `phenomenon_class` | string | 必须出现在 [03 §5-1](./03_dataworld_synthesis.md#03-5-1) 的正式 taxonomy |
+| `persona_id` | string | 必须出现在 `persona_bank.json` |
+| `si_pattern_family` | string | 必须是 23 SI_pattern_family 之一 |
+| `expansion_template_ref` | string | 指向 SI DSL 展开模板 ([04 §4](./04_intent_to_query_construction.md#04-4)) |
+| `priority` | float | [0,1]；Phase B 采样时的权重系数 |
+
+**容量估计:** 10+ phenomenon_class × 5 personas × (平均 2–3 个相容 pattern) ≈ 200+ lattice 单元，覆盖全部 23 SI_pattern_family。
+
+<a id="02-3-6"></a>
+### 02-3-6 `domain_catalog.json`
+
+全局单文件，列出 105 个 domain 的模板结构。
+
+```json
+{
+  "domains": [
+    {
+      "domain_id": "performing_arts",
+      "domain_name": "Performing Arts",
+      "template_structure": {
+        "entities": [
+          { "name": "conductor", "attrs": ["name", "age", "nationality", "years_of_work"] },
+          { "name": "orchestra", "attrs": ["name", "year_of_founded", "major_record_format"] },
+          { "name": "performance", "attrs": ["performance_id", "attendance", "date"] }
+        ],
+        "cardinality": [
+          { "parent": "conductor", "child": "orchestra", "rel": "1..*" },
+          { "parent": "orchestra", "child": "performance", "rel": "1..*" }
+        ]
+      },
+      "f_topology_hints": ["nested_3_deep", "sparse_embedded"]
+    },
+    {
+      "domain_id": "academic_system",
+      "domain_name": "Academic System",
+      "template_structure": {
+        "entities": [/* … */],
+        "cardinality": [/* … */]
+      },
+      "f_topology_hints": ["mixed_embed_ref", "polymorphic_collection"]
+    }
+  ]
+}
+```
+
+**字段:**
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `domain_id` | string | 全局唯一 |
+| `domain_name` | string | 人类可读名 |
+| `template_structure.entities` | list | 每项含 `name` + `attrs` |
+| `template_structure.cardinality` | list | 每项含 `parent` / `child` / `rel` (如 `1..1` / `1..*` / `*..*`) |
+| `f_topology_hints` | list[string] | 该 domain 倾向诱导的 F_topology 子集 |
+
+**强约束:** 共 105 条；`f_topology_hints` 每项属于 [03 §3-1](./03_dataworld_synthesis.md#03-3-1) 的 7 特性集合。
+
+<a id="02-3-7"></a>
+### 02-3-7 Schema / Data / Phenomena 三方一致性约束
+
+以下约束在发布前由静态校验器强制：
+
+| ID | 约束 | 范围 |
+|---|---|---|
+| **S1** | `mongodb_schema/<db_id>.json` 与 `mongodb_data/<db_id>.json` 的顶层 keys 集合完全相等 | 所有 154 db |
+| **S2** | 每条 `phenomena_registry/<db_id>.json` 中 `phenomena[*].witness_evidence.document_ids` 里每个 ID 必在 `mongodb_data/<db_id>.json` 中可解引 | 所有 154 db |
+| **S3** | `phenomena_registry/<db_id>.json` 中 `phenomena[*].witness_evidence.path` 必可在 `mongodb_schema/<db_id>.json` 中通过 `type=OBJECT/ARRAY` 递归解析到字段 | 所有 154 db |
+| **S4** | `phenomenon_class` 取值 ⊂ [03 §5-1](./03_dataworld_synthesis.md#03-5-1) taxonomy | 所有 phenomena |
+| **S5** | `intent_template_lattice.json` 中 `persona_id` 取值 ⊂ `persona_bank.json` 的 `persona_id` 集合 | 所有 lattice 单元 |
+| **S6** | `intent_template_lattice.json` 中 `phenomenon_class` 取值 ⊂ [03 §5-1](./03_dataworld_synthesis.md#03-5-1) taxonomy | 所有 lattice 单元 |
+| **S7** | `intent_template_lattice.json` 中 `si_pattern_family` 取值 ⊂ 23 SI_pattern_family | 所有 lattice 单元 |
+| **S8** | 每条 record 的 `db_id` 必在 `mongodb_schema/` / `mongodb_data/` / `phenomena_registry/` 三个目录下同时存在同名文件 | 所有 17,020 record |
+
+**S1 + S2 + S3** 是 **schema ↔ data ↔ phenomena 三方不变式**，保证：(1) Phenomena 所声称的结构在 schema 中可达；(2) Phenomena 所声称的证据在 data 中可见；(3) 不存在"空头现象" (registered but un-witnessed)。
+
+<a id="02-3-8"></a>
+### 02-3-8 单世界发布 vs K 世界 Audit
+
+**发布 (Tier-1):** 每个 `db_id` 对应**单一** `mongodb_data/<db_id>.json`。该文件即"金标准 witness world"，`world_signature` 由其内容哈希决定。
+
+**Audit (Tier-2):** `audit/<db_id>/<record_id>/world_variants/` 目录下额外存放 K 个 (默认 K=5) **等语义变体世界** —— 相同 schema 下，phenomena 同类但 witness 实例不同的数据副本。用于 [04 §10-3](./04_intent_to_query_construction.md#04-10-3) 的 `world_robustness` 测试。
+
+**关键区别:**
+
+| 属性 | Tier-1 (单世界) | Tier-2 (K 世界) |
+|---|---|---|
+| 评测执行依赖 | 是 | 否 |
+| 包含 schema 多版本 | 否 | 否 (schema 固定) |
+| 包含 phenomena 多版本 | 否 | 是 (类同、实例异) |
+| 驱动的评测 | EX / FEX / AST / etc. | `world_robustness_certificate` |
+
+---
+
+<a id="02-4"></a>
+## 02-4 切分规则
+
+<a id="02-4-1"></a>
+### 02-4-1 切分单位 (按 db_id)
+
+**规则 SP1 (db 不可分):** 切分以 `db_id` 为原子单位 —— 同一 `db_id` 下的所有 record 整体进入 train 或整体进入 test，**不得跨集拆分**。
+
+**规则 SP2 (db_id disjoint):** `set(train.db_id) ∩ set(test.db_id) == ∅`。
+
+**规则 SP3 (no leakage via audit):** 同一 `db_id` 的 `mongodb_schema/` / `mongodb_data/` / `phenomena_registry/` 文件仅被其所在的集合使用；评测时 solver 仅可访问 `test.db_id` 对应的库级资产。
+
+<a id="02-4-2"></a>
+### 02-4-2 比例与规模
+
+| 集合 | db_id 数 | Record 数 | NLQ 数 |
+|---|---:|---:|---:|
+| Train | 130 | 14,245 | 71,225 |
+| Test | 24 | 2,775 | 13,875 |
+| **合计** | **154** | **17,020** | **85,100** |
+
+Train/Test ≈ 83.7 / 16.3 (按 record 数)。
+
+平均每 db 约 110.5 record；分布由 Phase B 的 (phenomenon × persona × pattern) 种子覆盖决定，见 [§02-5](#02-5)。
+
+<a id="02-4-3"></a>
+### 02-4-3 Domain 同侧聚合
+
+**规则 SP4 (domain coherence):** 同一 `domain_id` 下的所有 `db_id` **原则上**倾向分到同一侧 (train 或 test)；允许**有限跨侧**以满足配额，但跨侧比例必须 ≤ 15%。
+
+**105 domain → 154 db 映射:**
+
+- 多数 domain 下有 1–2 个 db (单 schema 变体)
+- 少数高产 domain 下有 3+ db (多 schema 变体，例如 `academic_system` 下可能有多个不同拓扑的 academic db)
+
+**Domain 切分目标:**
+
+| 集合 | domain 数 (近似) |
+|---:|---:|
+| Train-only | ≈ 82 |
+| Test-only | ≈ 18 |
+| Cross-side (跨 train/test) | ≤ 5 |
+
+Domain 同侧聚合降低 schema-level leakage 风险 —— solver 无法通过记忆训练 domain 的 schema 去获得 test 上的不公平优势。
+
+<a id="02-4-4"></a>
+### 02-4-4 不设多桶 (no extra buckets)
+
+TEND 采用**扁平 train / test 两分**，不额外设置 dev / val / hidden 等桶。
+
+**理由:**
+
+1. **Audit 完备性替代验证桶**：`audit/_global/reference_panel/` 已含 4-panel (small/medium/large/frontier) 的裁决矩阵，研究者可从 train 中按 `empirical_difficulty` 字段自行抽样构建 dev 集。
+2. **Test 即最终集**：test 一经发布即冻结，不再拆"hidden test"；研究透明度优先。
+3. **Coverage 监控在 train/test 两侧独立进行** ([§02-5-5](#02-5-5))。
+
+---
+
+<a id="02-5"></a>
+## 02-5 覆盖目标与配额
+
+<a id="02-5-1"></a>
+### 02-5-1 单一来源声明
+
+**本节是 TEND 覆盖目标的唯一规范来源。** 03、04、05 文件中提及"覆盖"均指向本节。
+
+Phenomena 生成 ([03 §5](./03_dataworld_synthesis.md#03-5))、SI 采样 ([04 §2](./04_intent_to_query_construction.md#04-2))、评测报告 ([05 §4](./05_evaluation_methodology.md#05-4)) 各自引用本节的轴定义与配额表，不得自行扩充或修改。
+
+<a id="02-5-2"></a>
+### 02-5-2 嵌入覆盖的 Facility-Location 目标
+
+TEND 的种子采样遵循**设施位置 (facility-location) 目标**：
+
+```
+maximize   Σ_{axis ∈ 轴集} coverage_entropy(axis)
+subject to  min_quota[cell] ≤ count[cell] ≤ max_quota[cell]  ∀ cell
+            每一轴上的分布熵 ≥ H_min(axis)
+            轴间条件独立性 (Cramer's V / mutual information) 受控
+```
+
+**解读:**
+
+- **覆盖熵最大化** —— 避免在任一轴上坍缩到少数 cell
+- **min_quota 下界** —— 保证稀有 cell (如 `L4 × frontier`) 有至少 `min_quota` 个代表
+- **max_quota 上界** —— 避免高频 cell (如 `flat × simple_lookup × easy`) 压垮配额
+- **轴间独立性** —— 避免"L4 仅出现在 nested_3_deep 上"这种强相关耦合
+
+该目标由 Phase B 的 Intent Seeding 采样器在线实现 ([04 §2-3](./04_intent_to_query_construction.md#04-2-3))；本节仅规范目标函数**形式**。
+
+<a id="02-5-3"></a>
+### 02-5-3 覆盖 9 + 1 轴
+
+| # | 轴 ID | 取值域 (示例) | 观测点 | 主要覆盖来源 |
+|---:|---|---|---|---|
+| 1 | `T_domain` | 105 domain_id | `domain_catalog.json` | Phase A · Domain Template Bank |
+| 2 | `T_pattern` | 23 SI_pattern_family | `intent_template_lattice.json` | Phase B + Phase C |
+| 3 | `T_topology` | 7 F_topology 组合 | `mongodb_schema/<db_id>.json` | Phase A · Schema Composer |
+| 4 | `T_operator_family` | 23 (同 T_pattern，MQL 角度) | record.`operator_family` | Phase C |
+| 5 | `T_difficulty` | `easy` / `medium` / `hard` / `expert` | record.`empirical_difficulty` | Phase D · 4-panel pr_medium 主桶 |
+| 6 | `T_nosql_feature_mix` | 24-feature 布尔向量 (如 `$setWindowFields`、`$lookup`、`$unwind` 等) | record.`canonical_form_set` | Phase C |
+| 7 | `T_noise_mix` | 6 noise layers × 36 items 布尔向量 | audit `noise_trace.json` | Phase A · Noise Injection |
+| 8 | `T_nosql_nativeness` | `L0` / `L1` / `L2` / `L3` / `L4` | record.`nosql_nativeness_level` | Phase C · SI → MQL |
+| 9 | `T_topology_features` | 7 F_topology 二进制向量 (单独/组合) | `mongodb_schema/<db_id>.json` | Phase A · Schema Composer |
+| **+1** | `T_intent_space` | **(phenomenon_class × persona × SI_pattern) 网格** | (`phenomenon_class`, `persona_id`, `si_pattern_family`) | Phase B · Intent Seeding |
+
+**T_intent_space 网格容量:**
+
+```
+|T_intent_space| = |phenomenon_class| × |persona| × |SI_pattern_family|
+                 = 10+ × 5 × 23
+                 ≈ 1150 cells
+```
+
+其中**可行 cell** (即 lattice 单元中有非零 priority 的) 约 200–250；覆盖目标为这 200–250 cell 上的 min_quota 全达成，而非 1150 的全覆盖。
+
+**T_topology 与 T_topology_features 的区别:**
+
+- `T_topology` 按 F_topology 7 特性的**组合 bucket** (约 7 + C(7,2) 常见组合 ≈ 30 cells)
+- `T_topology_features` 按 F_topology 7 特性的**独立二进制向量** (最多 2^7 = 128 cells；实际触发约 40+)
+
+<a id="02-5-4"></a>
+### 02-5-4 min/max 双配额协议
+
+每个 (轴, cell) 对关联一组配额 `{min_quota, max_quota}`：
+
+| 条件 | 动作 | 语义 |
+|---|---|---|
+| `current[cell] < min_quota` | **Strong-pull accept** | 无条件接收新候选，直至到达 min |
+| `min_quota ≤ current[cell] < max_quota` 且 `ΔF ≥ ε` | **Marginal accept** | 仅当带来边际覆盖增益 ΔF 超过 ε 才接收 |
+| `current[cell] ≥ max_quota` | **Reject** | 该 cell 已饱和，拒绝新候选 |
+
+其中 ΔF 为 facility-location 目标的边际增益 ([§02-5-2](#02-5-2))；ε 是流水线超参数 (Phase B)。
+
+**反馈回路 (feedback loop):**
+
+若对某 cell `current < min_quota` 连续 N 轮无法填满 (candidate 生成失败率过高)，Phase B 向 Phase A / Phase B 本身回传反馈信号：
+
+| 症状 | 反馈信号 | 调整目标 |
+|---|---|---|
+| `T_difficulty = expert` 的某 cell 空 | `bump_amplify_rounds_for_hard_records` | Phase D 难度 calibration (amplify 到 expert 桶) |
+| `T_nosql_nativeness = L4` 在某 domain 为空 | `expand_domain_l4_templates` | Phase A Domain Template Bank |
+| `T_intent_space` 某 (phenomenon × persona) 空 | `adjust_persona_sampling_prior` | Phase B persona 采样权重 |
+| `T_topology = polymorphic + sparse` 为空 | `rerun_schema_composer_with_seed` | Phase A Schema Composer 种子 |
+
+反馈的具体实现机制见 [04 §10-3](./04_intent_to_query_construction.md#04-10-3) (V_diverse 根因反馈)。
+
+<a id="02-5-5"></a>
+### 02-5-5 衍生硬约束
+
+以下约束由 [§02-5-3](#02-5-3) + [§02-5-4](#02-5-4) 在发布时刻快照出的结果，作为**发布物的硬不变式**：
+
+| ID | 约束 | 监控点 |
+|---|---|---|
+| **H1** | `|train| + |test| == 17,020` | 全集基数 |
+| **H2** | `set(train.db_id) ∩ set(test.db_id) == ∅` | db 级 disjoint |
+| **H3** | `set(mongodb_schema/*.json) == set(mongodb_data/*.json) == set(phenomena_registry/*.json)` (按文件基名) | 3-way 文件集合等 |
+| **H4** | `∀ record: len(record.nl_queries) == 5` | NLQ 严格 5 |
+| **H5** | `count(test, nosql_nativeness_level ∈ {L2,L3,L4}) / |test| ≥ 0.40` | Test 集 L2+ 比例 (高于 SQL-bridgeable tier) |
+| **H6** | `count(test, nosql_nativeness_level == L4) / |test| ≥ 0.15` | Test L4 比例 |
+| **H7** | `∀ persona_id ∈ persona_bank: count(test, persona_id=p) ≥ min_quota[persona=p]` | Test 每 persona 下界 |
+| **H8** | `∀ phenomenon_class ∈ [03 §5-1]: count(test, phenomenon_class=c) ≥ min_quota[phenomenon_class=c]` | Test 每 phenomenon 下界 |
+| **H9** | `∀ axis ∈ 10 轴: H_observed(axis, test) ≥ H_min(axis)` | Test 每轴熵下界 |
+| **H10** | 每个 `operator_family` 至少在 train 与 test 中分别出现 ≥ `min_quota` 次 | 23 patterns 跨集覆盖 |
+
+违反任一 Hx 的发布候选将被 [04 §10](./04_intent_to_query_construction.md#04-10) 的 V_diverse 验证器拒绝。
+
+<a id="02-5-6"></a>
+### 02-5-6 覆盖审计 (coverage_report.json)
+
+`audit/_global/coverage/coverage_report.json` 是发布时的覆盖快照，不被评测读取但供第三方复核。
+
+**Schema:**
+
+```json
+{
+  "dataset_snapshot": "TEND-release-<hash>",
+  "axes": {
+    "T_domain": {
+      "cells_total": 105,
+      "cells_covered": 105,
+      "min_quota_met_ratio": 1.0,
+      "histogram": { "performing_arts": 220, "academic_system": 340, /* … */ }
+    },
+    "T_pattern": {
+      "cells_total": 23,
+      "cells_covered": 23,
+      "min_quota_met_ratio": 1.0,
+      "histogram": { "window_function_with_facet_filter": 480, "facet_comparison": 512, /* … */ }
+    },
+    "T_topology": { /* … */ },
+    "T_operator_family": { /* … */ },
+    "T_difficulty": {
+      "cells_total": 4,
+      "histogram": { "easy": 4250, "medium": 6780, "hard": 4910, "expert": 1080 }
+    },
+    "T_nosql_feature_mix": { /* … */ },
+    "T_noise_mix": { /* … */ },
+    "T_nosql_nativeness": {
+      "cells_total": 5,
+      "histogram": { "L0": 1260, "L1": 7160, "L2": 3960, "L3": 2820, "L4": 1820 }
+    },
+    "T_topology_features": { /* … */ },
+    "T_intent_space": {
+      "cells_total": 1150,
+      "cells_feasible": 228,
+      "cells_covered": 226,
+      "intent_space_cells_covered": 226,
+      "histogram_top_10": [/* … */]
+    }
+  },
+  "hard_constraints": {
+    "H1_total_cardinality": { "train": 14245, "test": 2775, "sum": 17020, "pass": true },
+    "H2_db_disjoint": { "pass": true },
+    "H3_file_set_equal": { "pass": true, "n_files_each": 154 },
+    "H4_nlq_length_5": { "violations": 0, "pass": true },
+    "H5_test_nonL1_ratio": { "value": 0.513, "pass": true },
+    "H6_test_L4_ratio": { "value": 0.187, "pass": true },
+    "H7_persona_min": { "pass": true, "details": { /* per persona */ } },
+    "H8_phenomenon_min": { "pass": true, "details": { /* per class */ } },
+    "H9_entropy_min": { "pass": true, "details": { /* per axis */ } },
+    "H10_operator_cross_split": { "pass": true }
+  },
+  "frontier_panel_defeat_distribution": {
+    "all_four_panels_solved": 0.52,
+    "large_solved_medium_failed": 0.18,
+    "large_solved_small_failed": 0.15,
+    "only_frontier_solved": 0.09,
+    "none_solved": 0.06
+  }
+}
+```
+
+**新字段说明:**
+
+| 字段 | 含义 |
+|---|---|
+| `intent_space_cells_covered` | T_intent_space 网格上有至少 1 条 record 的 cell 数 (对应 H7 + H8 联合) |
+| `frontier_panel_defeat_distribution` | 4-panel 裁决矩阵的分布 —— 追踪数据集的"难度形状" ([04 §11](./04_intent_to_query_construction.md#04-11)) |
+
+---
+
+<a id="02-6"></a>
+## 02-6 Canonical 示例 Record (完整 JSON)
+
+以下为 `db_id = orchestra`, `record_id = 1001` 的完整 JSON (主集形式，含全部必填 + 主要 audit `_ref`)。该示例与 [01 §7](./01_task_definition.md#01-7)、[03 §7](./03_dataworld_synthesis.md#03-7)、[04 §12](./04_intent_to_query_construction.md#04-12)、[05 §5](./05_evaluation_methodology.md#05-5)、[06 §5](./06_solution_design.md#06-5) 的 `orchestra/1001` 逐字节一致。
+
+```json
+{
+  "record_id": 1001,
+  "db_id": "orchestra",
+
+  "nl_queries": [
+    "对每位 conductor，先在其指挥的 orchestra 的 performance 上按 Performance_ID 升序、对 Attendance 计算窗口大小为 (当前, 前 2 场) 的滑动平均；取该 conductor 的最后一次窗口平均值作为代表值 (Attendance 缺失视为 0)。然后计算所有 conductor 代表值的中位数。最终只输出代表值严格大于该中位数的 conductor，字段为 Name 与 last_window_avg；若 Name 缺失则显示为 (unknown)；不要求排序。",
+    "对每个指挥，计算其 orchestra 的 performance 记录 Attendance 上 3 场滑动平均的最后一次值 (Attendance 缺失按 0)，再求所有指挥该值的中位数，最后返回严格高于中位数的指挥的 Name 和 last_window_avg (Name 缺失写 (unknown))。",
+    "给我每个指挥的 3 场滑动出勤均值的最后一个值，和全体的中位数比较，只保留超过中位数的指挥；Attendance 空算 0，Name 空写 (unknown)。",
+    "找出出勤滑动均值明显高于大家中位数的指挥名与该均值 (缺失算 0 / (unknown))。",
+    "列出最近场次出勤趋势高于同行中位数的指挥。"
+  ],
+
+  "MQL": "db.conductor.aggregate([\n  { $unwind: { path: \"$orchestra\", preserveNullAndEmptyArrays: false } },\n  { $unwind: { path: \"$orchestra.performance\", preserveNullAndEmptyArrays: false } },\n  { $setWindowFields: {\n      partitionBy: \"$_id\",\n      sortBy: { \"orchestra.performance.Performance_ID\": 1 },\n      output: {\n        moving_avg_attendance: {\n          $avg: { $ifNull: [\"$orchestra.performance.Attendance\", 0] },\n          window: { documents: [-2, 0] }\n        }\n      }\n  } },\n  { $group: {\n      _id: \"$_id\",\n      Name: { $first: { $ifNull: [\"$Name\", \"(unknown)\"] } },\n      last_window_avg: { $last: \"$moving_avg_attendance\" }\n  } },\n  { $facet: {\n      per_conductor: [ { $project: { _id: 0, Name: 1, last_window_avg: 1 } } ],\n      global_median: [\n        { $sort: { last_window_avg: 1 } },\n        { $group: { _id: null, vals: { $push: \"$last_window_avg\" } } },\n        { $project: { _id: 0, median: { $arrayElemAt: [\"$vals\", { $floor: { $divide: [{ $size: \"$vals\" }, 2] } }] } } }\n      ]\n  } },\n  { $project: {\n      kept: { $filter: {\n        input: \"$per_conductor\",\n        as: \"c\",\n        cond: { $gt: [\"$$c.last_window_avg\", { $arrayElemAt: [\"$global_median.median\", 0] }] }\n      } }\n  } },\n  { $unwind: \"$kept\" },\n  { $project: { _id: 0, Name: \"$kept.Name\", last_window_avg: \"$kept.last_window_avg\" } }\n])",
+
+  "canonical_form_set": {
+    "must_contain": ["$setWindowFields", "$facet", "$ifNull"],
+    "must_not_contain": [],
+    "must_contain_at_root": ["$setWindowFields", "$facet"],
+    "must_not_contain_at_root": []
+  },
+
+  "operator_family": "window_function_with_facet_filter",
+  "nosql_nativeness_level": "L4",
+  "shape_policy": "reshape",
+  "empirical_difficulty": "hard",
+  "world_signature": "sha256:a47f3e...",
+  "tds_cell": "nested_3_deep+sparse_embedded × window_function_with_facet_filter × hard × schema_naive × english",
+
+  "structured_intent_ref": "audit/orchestra/1001/structured_intent.yaml",
+  "qir_ref": "audit/orchestra/1001/qir.yaml",
+  "canonical_form_set_detailed_ref": "audit/orchestra/1001/derived/canonical_form_set.json",
+  "oracle_ref": "audit/orchestra/1001/derived/oracle.json",
+  "mutations_ref": "audit/orchestra/1001/derived/mutations.json",
+  "empirical_difficulty_ref": "audit/orchestra/1001/empirical_difficulty.json",
+  "noise_trace_ref": "audit/orchestra/1001/noise_trace.json",
+  "complexity_vector_ref": "audit/orchestra/1001/complexity_vector.json",
+  "lift_trace_ref": "audit/orchestra/1001/lift_trace.json",
+  "phenomena_seed_ref": "audit/orchestra/1001/phenomena_seed.json",
+  "intent_template_ref": "audit/orchestra/1001/intent_template.json",
+  "witness_augmentation_trace_ref": "audit/orchestra/1001/witness_augmentation_trace.json",
+  "world_robustness_certificate_ref": "audit/orchestra/1001/world_robustness.json",
+  "frontier_panel_verdict_ref": "audit/orchestra/1001/frontier_panel_verdict.json",
+  "sql_bridge_defeat_ref": "audit/orchestra/1001/sql_bridge_defeat.json",
+  "template_bridge_defeat_ref": "audit/orchestra/1001/template_bridge_defeat.json"
+}
+```
+
+**示例字段解读:**
+
+| 字段 | 取值 | 说明 |
+|---|---|---|
+| `record_id` | `1001` | 全集唯一 ID |
+| `db_id` | `"orchestra"` | 对应 `mongodb_schema/orchestra.json` + `mongodb_data/orchestra.json` + `phenomena_registry/orchestra.json` |
+| `operator_family` | `"window_function_with_facet_filter"` | 23 SI_pattern_family 之一 |
+| `nosql_nativeness_level` | `"L4"` | 最原生 (heavy use of `$setWindowFields` + `$facet` + `$ifNull`)，不可被 SQL 直译 |
+| `shape_policy` | `"reshape"` | 输出 shape 与输入不同 (聚合 + filter + unwind) |
+| `empirical_difficulty` | `"hard"` | 由 `(pr_small, pr_medium, pr_large, pr_frontier) = (0.0, 0.2, 0.6, 0.2)` 判定 ([04 §11](./04_intent_to_query_construction.md#04-11)) |
+| `world_signature` | `"sha256:a47f3e..."` | `mongodb_data/orchestra.json` + `phenomena_registry/orchestra.json` 合成哈希 |
+| `canonical_form_set.must_contain` | `["$setWindowFields","$facet","$ifNull"]` | 管线中必存在 (any depth) |
+| `canonical_form_set.must_contain_at_root` | `["$setWindowFields","$facet"]` | 根阶段必存在 |
+| `canonical_form_set.must_not_contain` | `[]` | 本题无被禁算子 |
+| `canonical_form_set.must_not_contain_at_root` | `[]` | 本题无根层被禁算子 |
+
+**Phenomena seed (解引 `phenomena_seed_ref`):**
+
+```json
+{
+  "seed_phenomena": ["temporal_trend@Attendance", "cross_conductor_comparison"],
+  "persona_id": "analyst",
+  "si_pattern_family": "window_function_with_facet_filter",
+  "intent_template_cell": {
+    "phenomenon_class": "temporal_trend + cross_entity_comparison",
+    "persona_id": "analyst",
+    "priority_at_sample_time": 0.85
+  }
+}
+```
+
+**NLQ specificity 光谱** (`nl_queries[0..4]` 的 5 层 specificity,定义见 [04 §7-1](./04_intent_to_query_construction.md#04-7-1)):
+
+| Index | L 级 | 特征 |
+|---|---|---|
+| 0 | L1 canonical | schema-naive canonical,显式展开 intent + 部分 params,无 NoSQL 术语 |
+| 1 | L0 | underspecified colloquial,模糊口语,缺 schema 线索 |
+| 2 | L2 | schema-aware,显式提及字段、集合、键 |
+| 3 | L3 | NoSQL-jargon,使用 `$match`、`$facet` 等术语 |
+| 4 | L4 | multilingual or strong colloquial,中英混杂 / 方言 / 隐喻 |
+
+---
 
 <a id="02-7"></a>
-## §7 与其它 SSoT 文档的边界
+## 02-7 边界声明
 
-本文档只定义数据资产、record 字段名、目录组织、切分规则、覆盖目标与配额机制。下列内容不在本文档范围内，需查阅对应 SSoT 文档：
+| 跨引主题 | 本文件角色 | 正式来源 |
+|---|---|---|
+| 任务签名、NormExec、≡_rec、6 禁用算子、P1–P4、3 层正确性 | 仅引用 | [01 §1](./01_task_definition.md#01-1) – [01 §6](./01_task_definition.md#01-6) |
+| gold-as-class 等价类的语义定义 | 仅引用 | [01 §3](./01_task_definition.md#01-3) |
+| Domain Template Bank 目录与表 | 仅引用；通过 `domain_catalog.json` 映射 | [03 §2](./03_dataworld_synthesis.md#03-2) |
+| Schema Composer + F_topology 7 特性 + schema_complexity_profile | 仅引用 | [03 §3](./03_dataworld_synthesis.md#03-3) |
+| Witness Data Generator + 6 噪声层 + 36 item taxonomy | 仅引用；通过 `mongodb_data/` 承载 | [03 §4](./03_dataworld_synthesis.md#03-4) |
+| Phenomena taxonomy + detectors + world_signature | 仅引用；通过 `phenomena_registry/` 承载 | [03 §5](./03_dataworld_synthesis.md#03-5) |
+| Persona Bank 内容与语气规则 | 仅规范 `persona_bank.json` 格式 | [04 §2-1](./04_intent_to_query_construction.md#04-2-1) |
+| Intent Template Lattice 语义内容 | 仅规范 `intent_template_lattice.json` 格式 | [04 §2-2](./04_intent_to_query_construction.md#04-2-2) |
+| SI DSL 语法 + SI→MQL Compiler | 仅引用 | [04 §4](./04_intent_to_query_construction.md#04-4) – [04 §6](./04_intent_to_query_construction.md#04-6) |
+| Symbolic Lift → QIR | 仅引用；audit 字段 `qir_ref` | [04 §7](./04_intent_to_query_construction.md#04-7) |
+| NLQ × 5 生成策略 + specificity 光谱 | 仅规范长度=5 + L1 锚点；不规范文本策略 | [04 §8](./04_intent_to_query_construction.md#04-8) |
+| Witness Augmentation 增量 | 仅引用；audit 字段 `witness_augmentation_trace_ref` | [04 §8](./04_intent_to_query_construction.md#04-8) |
+| canonical_form_set 四元组派生 | 仅规范物理格式；不规范派生算法 | [04 §9](./04_intent_to_query_construction.md#04-9) |
+| V_correct / V_discrim / V_diverse 三方验证 | 仅引用；audit 字段 `certificate_ref` | [04 §10](./04_intent_to_query_construction.md#04-10) |
+| 4-panel 难度校准 (small/medium/large/frontier) | 仅引用；record 字段 `empirical_difficulty` | [04 §11](./04_intent_to_query_construction.md#04-11) |
+| SQL Bridge / Template Bridge 路由与防御 | 仅引用；audit 字段 `sql_bridge_defeat_ref` / `template_bridge_defeat_ref` | [04 §11](./04_intent_to_query_construction.md#04-11) |
+| 7 评测指标、EX canonical_form_set 成员判定、4-party disjointness | 仅引用 | [05 §1](./05_evaluation_methodology.md#05-1) – [05 §3](./05_evaluation_methodology.md#05-3) |
+| 4-panel 报告 + 强制披露 (mandatory disclosure) | 仅引用 | [05 §4](./05_evaluation_methodology.md#05-4) |
+| SMART 4-stage 解法流水线 + solver-side 边界 | 仅引用 | [06 §1](./06_solution_design.md#06-1) |
 
-| 关注点 | 由谁定义 |
-|---|---|
-| 任务 IO / 正确性锚 / 归一化 / ≡_rec / P1-P4 / shape-preserving 子树保留 / V1'-V7' 映射 | [01](./01_task_definition.md)（§1-§7） |
-| Agentic 合成方法（6-Agent / 三控制线 / Taxonomy Board / 6 层 Noise Taxonomy / Business Simulator / 业务叙事 / Schema Evolution Simulator / F_topology 特性集合 / 36 条 Noise Taxonomy） | [03](./03_database_synthesis.md)（§1-§12 + §A） |
-| Agentic 合成产物汇入 / SI DSL（含 `nosql_nativeness` 与 `canonical_form_set`）/ 23 个 intent pattern / 6 层 noise / L4 canonical SI / 规整化与汇入 / SI 派生 / Gold MQL / NLQ × 5 / V1'-V7' spec-grounded / SQL-bridge defeat / RP_diff / 嵌入覆盖审计 / 路由 | [04](./04_dataset_construction.md)（§2-§12） |
-| 7 评测指标（EM / QSM / QFC / EX / EFM / EVM / QIM）公式与协议、7 比特指纹、强制披露清单 | [05](./05_evaluation_methodology.md)（§1, §5-§7） |
-| SMART 4 阶段方法架构、shape_preserving target_fields、三方 disjointness、求解侧硬边界屏蔽清单 | [06](./06_solution_design.md)（§1-§2, §5, §7, §10） |
+**单向依赖声明:**
 
-任何与上述边界冲突的描述，以对应 SSoT 文档为准；本文档不重复，也不覆盖。
+- 本文件**依赖** [01](./01_task_definition.md#01-0) 的基本概念 (任务签名 / gold 等价类)
+- 本文件**依赖** [03](./03_dataworld_synthesis.md#03-0) 与 [04](./04_intent_to_query_construction.md#04-0) 产出的资产语义
+- [05](./05_evaluation_methodology.md#05-0) 与 [06](./06_solution_design.md#06-0) **依赖** 本文件定义的发布形式
+- 本文件**不**反向依赖 [05](./05_evaluation_methodology.md#05-0) 或 [06](./06_solution_design.md#06-0)
+
+**发布前校验清单 (本文件所负责):**
+
+1. C1–C9 record 级强约束全通
+2. S1–S8 schema/data/phenomena 一致性全通
+3. H1–H10 切分与覆盖硬约束全通
+4. 9 + 1 轴覆盖审计达标
+5. canonical 示例 `orchestra/1001` 与 [01 §7](./01_task_definition.md#01-7) / [03 §7](./03_dataworld_synthesis.md#03-7) / [04 §12](./04_intent_to_query_construction.md#04-12) / [05 §5](./05_evaluation_methodology.md#05-5) / [06 §5](./06_solution_design.md#06-5) 逐字节一致
+
+任一失败则 dataset 不予发布。
