@@ -1,4 +1,0 @@
-[
-  "db.orders.aggregate([ { $group: { _id: \"$customer\", total_value: { $sum: \"$units\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, customer: \"$_id\", total_value: 1 } }])",
-  "db.orders.aggregate([ { $match: {} }, { $group: { _id: \"$customer\", total_value: { $sum: \"$units\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, customer: \"$_id\", total_value: 1 } }])"
-]

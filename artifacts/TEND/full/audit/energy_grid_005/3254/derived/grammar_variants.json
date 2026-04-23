@@ -1,0 +1,4 @@
+[
+  "db.meters.aggregate([ { $group: { _id: \"$city\", total_value: { $sum: \"$peak_load\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, city: \"$_id\", total_value: 1 } }])",
+  "db.meters.aggregate([ { $match: {} }, { $group: { _id: \"$city\", total_value: { $sum: \"$peak_load\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, city: \"$_id\", total_value: 1 } }])"
+]

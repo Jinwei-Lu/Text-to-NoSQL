@@ -1,0 +1,1964 @@
+{
+  "train_records": [],
+  "test_records": [
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1609,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 year 聚合 passengers，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 passengers 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average passengers per time bucket."
+      ],
+      "MQL": "db.flights.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$passengers\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$passengers\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1612,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 year 计算 delay_minutes 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of delay_minutes."
+      ],
+      "MQL": "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$delay_minutes\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$delay_minutes\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, airline: 1, delay_minutes: \"$delay_minutes\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$delay_minutes\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$delay_minutes\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, airline: 1, delay_minutes: \"$delay_minutes\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1616,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 airline 汇总 delay_minutes，返回总量最高的前 3 项。",
+        "统计每个 airline 的总值并给我 Top 3。",
+        "聚合 delay_minutes 后按 airline 排名。",
+        "用分组加排序找出最强的几项。",
+        "Return the top 3 groups by aggregated delay_minutes."
+      ],
+      "MQL": "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$limit",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$limit",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])"
+        ]
+      },
+      "operator_family": "top_k_by_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "airline",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1620,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "对 airline 为空的记录用默认值替换，然后按值排序。",
+        "空值替换后做排序。",
+        "用 ifNull 填补缺失再展示。",
+        "给缺失的字段一个默认值。",
+        "Coalesce null airline with a default value and sort."
+      ],
+      "MQL": "db.flights.aggregate([ { $project: { _id: 0, airline: 1, value: { $ifNull: [\"$airline\", 0] } } }, { $sort: { value: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$ifNull",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $project: { _id: 0, airline: 1, value: { $ifNull: [\"$airline\", 0] } } }, { $sort: { value: -1 } }])"
+        ]
+      },
+      "operator_family": "coalesce_with_default",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "ticket_prices",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1624,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "统计 ticket_prices 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where ticket_prices exceeds 70."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"ticket_prices\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"ticket_prices\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1628,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "统计 passengers 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where passengers exceeds 70."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"passengers\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"passengers\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1632,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "先按 year 计算 passengers 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on passengers."
+      ],
+      "MQL": "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$passengers\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, airline: 1, moving_avg: 1, category: \"$destination\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, airline: \"$kept.airline\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$passengers\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, airline: 1, moving_avg: 1, category: \"$destination\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, airline: \"$kept.airline\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1636,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "统计 delay_minutes 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where delay_minutes exceeds 70."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"delay_minutes\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"delay_minutes\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1640,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 airline 汇总 delay_minutes，返回总量最高的前 3 项。",
+        "统计每个 airline 的总值并给我 Top 3。",
+        "聚合 delay_minutes 后按 airline 排名。",
+        "用分组加排序找出最强的几项。",
+        "Return the top 3 groups by aggregated delay_minutes."
+      ],
+      "MQL": "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$limit",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$limit",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])"
+        ]
+      },
+      "operator_family": "top_k_by_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "airline",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1644,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "找出 airline 大于 70 的记录，并返回 airline 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 airline 超过阈值的文档并显示 airline。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by airline."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"airline\": { $gt: 70 } } }, { $project: { _id: 0, airline: 1, airline: \"$airline\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"airline\": { $gt: 70 } } }, { $project: { _id: 0, airline: 1, airline: \"$airline\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "ticket_prices",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1648,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "找出 ticket_prices 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$ticket_prices\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, airline: 1, ticket_prices: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$ticket_prices\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, airline: 1, ticket_prices: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1652,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "找出 ticket_prices 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$ticket_prices\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, airline: 1, ticket_prices: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$ticket_prices\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, airline: 1, ticket_prices: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1656,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 year 聚合 passengers，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 passengers 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average passengers per time bucket."
+      ],
+      "MQL": "db.flights.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$passengers\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$passengers\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1660,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 year 计算 delay_minutes 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of delay_minutes."
+      ],
+      "MQL": "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$delay_minutes\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$delay_minutes\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, airline: 1, delay_minutes: \"$delay_minutes\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$delay_minutes\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$delay_minutes\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, airline: 1, delay_minutes: \"$delay_minutes\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1664,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 airline 汇总 delay_minutes，返回总量最高的前 3 项。",
+        "统计每个 airline 的总值并给我 Top 3。",
+        "聚合 delay_minutes 后按 airline 排名。",
+        "用分组加排序找出最强的几项。",
+        "Return the top 3 groups by aggregated delay_minutes."
+      ],
+      "MQL": "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$limit",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$limit",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])"
+        ]
+      },
+      "operator_family": "top_k_by_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "airline",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1668,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "对 airline 为空的记录用默认值替换，然后按值排序。",
+        "空值替换后做排序。",
+        "用 ifNull 填补缺失再展示。",
+        "给缺失的字段一个默认值。",
+        "Coalesce null airline with a default value and sort."
+      ],
+      "MQL": "db.flights.aggregate([ { $project: { _id: 0, airline: 1, value: { $ifNull: [\"$airline\", 0] } } }, { $sort: { value: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$ifNull",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $project: { _id: 0, airline: 1, value: { $ifNull: [\"$airline\", 0] } } }, { $sort: { value: -1 } }])"
+        ]
+      },
+      "operator_family": "coalesce_with_default",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "ticket_prices",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1672,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "先筛选 ticket_prices 高于阈值的记录，再按 destination 汇总数量和均值。",
+        "过滤高值后按类别统计。",
+        "对超过阈值的数据做分组聚合。",
+        "筛选再聚合，返回每组命中量。",
+        "Filter then aggregate by destination."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"ticket_prices\": { $gt: 70 } } }, { $group: { _id: \"$destination\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$ticket_prices\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, destination: \"$_id\", matched_count: 1, avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$match",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"ticket_prices\": { $gt: 70 } } }, { $group: { _id: \"$destination\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$ticket_prices\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, destination: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "filter_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1675,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "统计 passengers 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where passengers exceeds 70."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"passengers\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"passengers\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1679,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "先按 year 计算 passengers 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on passengers."
+      ],
+      "MQL": "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$passengers\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, airline: 1, moving_avg: 1, category: \"$destination\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, airline: \"$kept.airline\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$passengers\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, airline: 1, moving_avg: 1, category: \"$destination\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, airline: \"$kept.airline\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1684,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "统计 delay_minutes 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where delay_minutes exceeds 70."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"delay_minutes\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"delay_minutes\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1689,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 airline 汇总 delay_minutes，返回总量最高的前 3 项。",
+        "统计每个 airline 的总值并给我 Top 3。",
+        "聚合 delay_minutes 后按 airline 排名。",
+        "用分组加排序找出最强的几项。",
+        "Return the top 3 groups by aggregated delay_minutes."
+      ],
+      "MQL": "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$limit",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$limit",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])"
+        ]
+      },
+      "operator_family": "top_k_by_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "airline",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1693,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "找出 airline 大于 70 的记录，并返回 airline 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 airline 超过阈值的文档并显示 airline。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by airline."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"airline\": { $gt: 70 } } }, { $project: { _id: 0, airline: 1, airline: \"$airline\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"airline\": { $gt: 70 } } }, { $project: { _id: 0, airline: 1, airline: \"$airline\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "ticket_prices",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1697,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "找出 ticket_prices 中所有元素都高于阈值的记录。",
+        "筛出数组全部满足条件的项。",
+        "只保留数组中每一个元素都达标的文档。",
+        "检查是否所有元素都超过阈值。",
+        "Keep rows where every array element exceeds the threshold."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$ticket_prices\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, airline: 1, ticket_prices: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$allElementsTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$ticket_prices\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, airline: 1, ticket_prices: 1 } }])"
+        ]
+      },
+      "operator_family": "universal_quantifier",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1700,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "找出 ticket_prices 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$ticket_prices\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, airline: 1, ticket_prices: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$ticket_prices\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, airline: 1, ticket_prices: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1705,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 year 聚合 passengers，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 passengers 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average passengers per time bucket."
+      ],
+      "MQL": "db.flights.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$passengers\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$passengers\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1709,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 year 计算 delay_minutes 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of delay_minutes."
+      ],
+      "MQL": "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$delay_minutes\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$delay_minutes\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, airline: 1, delay_minutes: \"$delay_minutes\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$delay_minutes\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$delay_minutes\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, airline: 1, delay_minutes: \"$delay_minutes\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1712,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 airline 汇总 delay_minutes，返回总量最高的前 3 项。",
+        "统计每个 airline 的总值并给我 Top 3。",
+        "聚合 delay_minutes 后按 airline 排名。",
+        "用分组加排序找出最强的几项。",
+        "Return the top 3 groups by aggregated delay_minutes."
+      ],
+      "MQL": "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$limit",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$limit",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])"
+        ]
+      },
+      "operator_family": "top_k_by_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "airline",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1716,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "对 airline 为空的记录用默认值替换，然后按值排序。",
+        "空值替换后做排序。",
+        "用 ifNull 填补缺失再展示。",
+        "给缺失的字段一个默认值。",
+        "Coalesce null airline with a default value and sort."
+      ],
+      "MQL": "db.flights.aggregate([ { $project: { _id: 0, airline: 1, value: { $ifNull: [\"$airline\", 0] } } }, { $sort: { value: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$ifNull",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $project: { _id: 0, airline: 1, value: { $ifNull: [\"$airline\", 0] } } }, { $sort: { value: -1 } }])"
+        ]
+      },
+      "operator_family": "coalesce_with_default",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "ticket_prices",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1720,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "取出 ticket_prices 的第一个和最后一个元素，并返回数组长度。",
+        "提取数组首尾元素。",
+        "用位置选择器取数组元素。",
+        "获取数组边界值。",
+        "Select the first and last elements from ticket_prices."
+      ],
+      "MQL": "db.flights.aggregate([ { $project: { _id: 0, airline: 1, first: { $arrayElemAt: [\"$ticket_prices\", 0] }, last: { $arrayElemAt: [\"$ticket_prices\", -1] }, size: { $size: \"$ticket_prices\" } } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$arrayElemAt",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $project: { _id: 0, airline: 1, first: { $arrayElemAt: [\"$ticket_prices\", 0] }, last: { $arrayElemAt: [\"$ticket_prices\", -1] }, size: { $size: \"$ticket_prices\" } } }])"
+        ]
+      },
+      "operator_family": "array_positional_select",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1724,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "统计 passengers 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where passengers exceeds 70."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"passengers\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"passengers\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1728,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "先按 year 计算 passengers 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on passengers."
+      ],
+      "MQL": "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$passengers\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, airline: 1, moving_avg: 1, category: \"$destination\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, airline: \"$kept.airline\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$passengers\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, airline: 1, moving_avg: 1, category: \"$destination\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, airline: \"$kept.airline\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1732,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "统计 delay_minutes 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where delay_minutes exceeds 70."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"delay_minutes\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"delay_minutes\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1736,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 airline 汇总 delay_minutes，返回总量最高的前 3 项。",
+        "统计每个 airline 的总值并给我 Top 3。",
+        "聚合 delay_minutes 后按 airline 排名。",
+        "用分组加排序找出最强的几项。",
+        "Return the top 3 groups by aggregated delay_minutes."
+      ],
+      "MQL": "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$limit",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$limit",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])"
+        ]
+      },
+      "operator_family": "top_k_by_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "airline",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1741,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "找出 airline 大于 70 的记录，并返回 airline 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 airline 超过阈值的文档并显示 airline。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by airline."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"airline\": { $gt: 70 } } }, { $project: { _id: 0, airline: 1, airline: \"$airline\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"airline\": { $gt: 70 } } }, { $project: { _id: 0, airline: 1, airline: \"$airline\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "ticket_prices",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1745,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "统计 ticket_prices 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where ticket_prices exceeds 70."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"ticket_prices\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"ticket_prices\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1750,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "找出 ticket_prices 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$ticket_prices\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, airline: 1, ticket_prices: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$ticket_prices\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, airline: 1, ticket_prices: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1753,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 year 聚合 passengers，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 passengers 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average passengers per time bucket."
+      ],
+      "MQL": "db.flights.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$passengers\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$passengers\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1757,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 year 计算 delay_minutes 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of delay_minutes."
+      ],
+      "MQL": "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$delay_minutes\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$delay_minutes\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, airline: 1, delay_minutes: \"$delay_minutes\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$delay_minutes\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$delay_minutes\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, airline: 1, delay_minutes: \"$delay_minutes\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1761,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 airline 汇总 delay_minutes，返回总量最高的前 3 项。",
+        "统计每个 airline 的总值并给我 Top 3。",
+        "聚合 delay_minutes 后按 airline 排名。",
+        "用分组加排序找出最强的几项。",
+        "Return the top 3 groups by aggregated delay_minutes."
+      ],
+      "MQL": "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$limit",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$limit",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])"
+        ]
+      },
+      "operator_family": "top_k_by_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "airline",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1765,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "对 airline 为空的记录用默认值替换，然后按值排序。",
+        "空值替换后做排序。",
+        "用 ifNull 填补缺失再展示。",
+        "给缺失的字段一个默认值。",
+        "Coalesce null airline with a default value and sort."
+      ],
+      "MQL": "db.flights.aggregate([ { $project: { _id: 0, airline: 1, value: { $ifNull: [\"$airline\", 0] } } }, { $sort: { value: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$ifNull",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $project: { _id: 0, airline: 1, value: { $ifNull: [\"$airline\", 0] } } }, { $sort: { value: -1 } }])"
+        ]
+      },
+      "operator_family": "coalesce_with_default",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "ticket_prices",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1769,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "找出 ticket_prices 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$ticket_prices\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, airline: 1, ticket_prices: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$ticket_prices\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, airline: 1, ticket_prices: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1773,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "统计 passengers 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where passengers exceeds 70."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"passengers\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"passengers\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1778,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "先按 year 计算 passengers 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on passengers."
+      ],
+      "MQL": "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$passengers\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, airline: 1, moving_avg: 1, category: \"$destination\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, airline: \"$kept.airline\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$passengers\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, airline: 1, moving_avg: 1, category: \"$destination\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, airline: \"$kept.airline\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1781,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "统计 delay_minutes 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where delay_minutes exceeds 70."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"delay_minutes\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"delay_minutes\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1785,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 airline 汇总 delay_minutes，返回总量最高的前 3 项。",
+        "统计每个 airline 的总值并给我 Top 3。",
+        "聚合 delay_minutes 后按 airline 排名。",
+        "用分组加排序找出最强的几项。",
+        "Return the top 3 groups by aggregated delay_minutes."
+      ],
+      "MQL": "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$limit",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$limit",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])"
+        ]
+      },
+      "operator_family": "top_k_by_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "airline",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1790,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "找出 airline 大于 70 的记录，并返回 airline 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 airline 超过阈值的文档并显示 airline。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by airline."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"airline\": { $gt: 70 } } }, { $project: { _id: 0, airline: 1, airline: \"$airline\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"airline\": { $gt: 70 } } }, { $project: { _id: 0, airline: 1, airline: \"$airline\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "ticket_prices",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1793,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "先筛选 ticket_prices 高于阈值的记录，再按 destination 汇总数量和均值。",
+        "过滤高值后按类别统计。",
+        "对超过阈值的数据做分组聚合。",
+        "筛选再聚合，返回每组命中量。",
+        "Filter then aggregate by destination."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { \"ticket_prices\": { $gt: 70 } } }, { $group: { _id: \"$destination\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$ticket_prices\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, destination: \"$_id\", matched_count: 1, avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$match",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { \"ticket_prices\": { $gt: 70 } } }, { $group: { _id: \"$destination\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$ticket_prices\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, destination: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "filter_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1797,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "找出 ticket_prices 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.flights.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$ticket_prices\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, airline: 1, ticket_prices: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$ticket_prices\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, airline: 1, ticket_prices: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "passengers",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1801,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 year 聚合 passengers，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 passengers 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average passengers per time bucket."
+      ],
+      "MQL": "db.flights.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$passengers\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$passengers\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    },
+    {
+      "collection": "flights",
+      "metric_field": "delay_minutes",
+      "label_field": "airline",
+      "category_field": "destination",
+      "time_field": "year",
+      "array_field": "ticket_prices",
+      "record_id": 1805,
+      "db_id": "airline_flights_007",
+      "nl_queries": [
+        "按 year 计算 delay_minutes 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of delay_minutes."
+      ],
+      "MQL": "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$delay_minutes\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$delay_minutes\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, airline: 1, delay_minutes: \"$delay_minutes\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$delay_minutes\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$delay_minutes\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, airline: 1, delay_minutes: \"$delay_minutes\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+    }
+  ],
+  "manifest": {
+    "db_id": "airline_flights_007",
+    "domain_id": "airline_flights",
+    "record_count": 50,
+    "schema_signature": "sha256:017fac47cc43cd1c44d5683dfea16661219e8ac6490f89b2de8ca0f5cc059d6c",
+    "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7"
+  }
+}

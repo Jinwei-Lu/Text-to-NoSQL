@@ -1,3 +1,0 @@
-[
-  "db.accounts.aggregate([ { $match: { \"monthly_volumes\": { $gt: 70 } } }, { $count: \"total\" }])"
-]

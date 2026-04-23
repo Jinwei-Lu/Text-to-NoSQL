@@ -1,0 +1,12 @@
+{
+  "pattern_family": "array_positional_select",
+  "primary_operator": "$arrayElemAt",
+  "must_contain": [
+    "$arrayElemAt",
+    "$project"
+  ],
+  "must_contain_at_root": [
+    "$project"
+  ],
+  "query": "db.cells.aggregate([ { $project: { _id: 0, tower: 1, first: { $arrayElemAt: [\"$signal_strength\", 0] }, last: { $arrayElemAt: [\"$signal_strength\", -1] }, size: { $size: \"$signal_strength\" } } }])"
+}

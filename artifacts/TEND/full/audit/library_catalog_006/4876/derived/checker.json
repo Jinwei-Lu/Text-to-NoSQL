@@ -1,0 +1,11 @@
+{
+  "pattern_family": "project_only",
+  "primary_operator": "$project",
+  "must_contain": [
+    "$project"
+  ],
+  "must_contain_at_root": [
+    "$project"
+  ],
+  "query": "db.books.aggregate([ { $project: { _id: 0, title: 1, rating: \"$rating\" } }])"
+}

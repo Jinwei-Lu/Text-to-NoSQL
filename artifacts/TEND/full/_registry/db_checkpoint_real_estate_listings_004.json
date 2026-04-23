@@ -1,0 +1,1953 @@
+{
+  "train_records": [
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6251,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 price 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of price per type."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6255,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 year 计算 price 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of price."
+      ],
+      "MQL": "db.properties.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$price\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$price\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, city: 1, price: \"$price\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$price\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$price\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, city: 1, price: \"$price\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "city",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6259,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "把整条文档展开成键值对，统计每个字段出现的次数和类型。",
+        "动态展开键值做统计。",
+        "用 objectToArray 分析文档结构。",
+        "枚举文档的字段名和类型。",
+        "Expand document keys and count occurrences of each field."
+      ],
+      "MQL": "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$objectToArray",
+          "$unwind"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "dynamic_key_expansion",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "area",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6263,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 area 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by type and aggregate area."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "details.floor",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6267,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "把整条文档展开成键值对，统计每个字段出现的次数和类型。",
+        "动态展开键值做统计。",
+        "用 objectToArray 分析文档结构。",
+        "枚举文档的字段名和类型。",
+        "Expand document keys and count occurrences of each field."
+      ],
+      "MQL": "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$objectToArray",
+          "$unwind"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "dynamic_key_expansion",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "rooms",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6271,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "统计 rooms 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where rooms exceeds 70."
+      ],
+      "MQL": "db.properties.aggregate([ { $match: { \"rooms\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $match: { \"rooms\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6275,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 price 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of price per type."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6279,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "统计 price 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where price exceeds 70."
+      ],
+      "MQL": "db.properties.aggregate([ { $match: { \"price\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $match: { \"price\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "city",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6283,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 city 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by type and aggregate city."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$city\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$city\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "area",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6287,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 area 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by type and aggregate area."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "details.floor",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6291,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "用 graphLookup 递归遍历关联链，返回每个节点的链深度。",
+        "做递归的图查询。",
+        "用 $graphLookup 找关联路径。",
+        "递归展开层级关系。",
+        "Recursively traverse the graph and return chain depth per node."
+      ],
+      "MQL": "db.properties.aggregate([ { $graphLookup: { from: \"properties\", startWith: \"$city\", connectFromField: \"city\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, city: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$graphLookup",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$graphLookup",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $graphLookup: { from: \"properties\", startWith: \"$city\", connectFromField: \"city\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, city: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])"
+        ]
+      },
+      "operator_family": "graph_recursive_deep",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "rooms",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6295,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "找出 amenity_scores 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.properties.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$amenity_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, city: 1, amenity_scores: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$amenity_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, city: 1, amenity_scores: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6299,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 price 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of price per type."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6303,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 year 计算 price 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of price."
+      ],
+      "MQL": "db.properties.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$price\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$price\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, city: 1, price: \"$price\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$price\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$price\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, city: 1, price: \"$price\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "city",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6307,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "把整条文档展开成键值对，统计每个字段出现的次数和类型。",
+        "动态展开键值做统计。",
+        "用 objectToArray 分析文档结构。",
+        "枚举文档的字段名和类型。",
+        "Expand document keys and count occurrences of each field."
+      ],
+      "MQL": "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$objectToArray",
+          "$unwind"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "dynamic_key_expansion",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "area",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6311,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 area 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by type and aggregate area."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "details.floor",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6315,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "把整条文档展开成键值对，统计每个字段出现的次数和类型。",
+        "动态展开键值做统计。",
+        "用 objectToArray 分析文档结构。",
+        "枚举文档的字段名和类型。",
+        "Expand document keys and count occurrences of each field."
+      ],
+      "MQL": "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$objectToArray",
+          "$unwind"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "dynamic_key_expansion",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "rooms",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6319,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "统计 rooms 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where rooms exceeds 70."
+      ],
+      "MQL": "db.properties.aggregate([ { $match: { \"rooms\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $match: { \"rooms\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6323,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 price 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of price per type."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6327,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "统计 price 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where price exceeds 70."
+      ],
+      "MQL": "db.properties.aggregate([ { $match: { \"price\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $match: { \"price\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "city",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6331,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 city 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by type and aggregate city."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$city\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$city\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "area",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6335,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 area 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by type and aggregate area."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "details.floor",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6339,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "用 graphLookup 递归遍历关联链，返回每个节点的链深度。",
+        "做递归的图查询。",
+        "用 $graphLookup 找关联路径。",
+        "递归展开层级关系。",
+        "Recursively traverse the graph and return chain depth per node."
+      ],
+      "MQL": "db.properties.aggregate([ { $graphLookup: { from: \"properties\", startWith: \"$city\", connectFromField: \"city\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, city: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$graphLookup",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$graphLookup",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $graphLookup: { from: \"properties\", startWith: \"$city\", connectFromField: \"city\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, city: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])"
+        ]
+      },
+      "operator_family": "graph_recursive_deep",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "rooms",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6344,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "找出 amenity_scores 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.properties.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$amenity_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, city: 1, amenity_scores: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$amenity_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, city: 1, amenity_scores: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6348,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 price 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of price per type."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6352,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 year 计算 price 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of price."
+      ],
+      "MQL": "db.properties.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$price\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$price\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, city: 1, price: \"$price\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$price\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$price\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, city: 1, price: \"$price\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "city",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6356,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "把整条文档展开成键值对，统计每个字段出现的次数和类型。",
+        "动态展开键值做统计。",
+        "用 objectToArray 分析文档结构。",
+        "枚举文档的字段名和类型。",
+        "Expand document keys and count occurrences of each field."
+      ],
+      "MQL": "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$objectToArray",
+          "$unwind"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "dynamic_key_expansion",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "area",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6360,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 area 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by type and aggregate area."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "details.floor",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6364,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "把整条文档展开成键值对，统计每个字段出现的次数和类型。",
+        "动态展开键值做统计。",
+        "用 objectToArray 分析文档结构。",
+        "枚举文档的字段名和类型。",
+        "Expand document keys and count occurrences of each field."
+      ],
+      "MQL": "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$objectToArray",
+          "$unwind"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "dynamic_key_expansion",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "rooms",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6368,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "统计 rooms 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where rooms exceeds 70."
+      ],
+      "MQL": "db.properties.aggregate([ { $match: { \"rooms\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $match: { \"rooms\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6372,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 price 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of price per type."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6374,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "统计 price 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where price exceeds 70."
+      ],
+      "MQL": "db.properties.aggregate([ { $match: { \"price\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $match: { \"price\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "city",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6378,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 city 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by type and aggregate city."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$city\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$city\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "area",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6382,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 area 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by type and aggregate area."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "details.floor",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6386,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "用 graphLookup 递归遍历关联链，返回每个节点的链深度。",
+        "做递归的图查询。",
+        "用 $graphLookup 找关联路径。",
+        "递归展开层级关系。",
+        "Recursively traverse the graph and return chain depth per node."
+      ],
+      "MQL": "db.properties.aggregate([ { $graphLookup: { from: \"properties\", startWith: \"$city\", connectFromField: \"city\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, city: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$graphLookup",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$graphLookup",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $graphLookup: { from: \"properties\", startWith: \"$city\", connectFromField: \"city\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, city: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])"
+        ]
+      },
+      "operator_family": "graph_recursive_deep",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "rooms",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6390,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "找出 amenity_scores 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.properties.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$amenity_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, city: 1, amenity_scores: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$amenity_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, city: 1, amenity_scores: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6395,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 price 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of price per type."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6399,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 year 计算 price 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of price."
+      ],
+      "MQL": "db.properties.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$price\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$price\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, city: 1, price: \"$price\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$price\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$price\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, city: 1, price: \"$price\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "city",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6402,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "把整条文档展开成键值对，统计每个字段出现的次数和类型。",
+        "动态展开键值做统计。",
+        "用 objectToArray 分析文档结构。",
+        "枚举文档的字段名和类型。",
+        "Expand document keys and count occurrences of each field."
+      ],
+      "MQL": "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$objectToArray",
+          "$unwind"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "dynamic_key_expansion",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "area",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6406,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 area 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by type and aggregate area."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "details.floor",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6410,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "把整条文档展开成键值对，统计每个字段出现的次数和类型。",
+        "动态展开键值做统计。",
+        "用 objectToArray 分析文档结构。",
+        "枚举文档的字段名和类型。",
+        "Expand document keys and count occurrences of each field."
+      ],
+      "MQL": "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$objectToArray",
+          "$unwind"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "dynamic_key_expansion",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "rooms",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6414,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "统计 rooms 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where rooms exceeds 70."
+      ],
+      "MQL": "db.properties.aggregate([ { $match: { \"rooms\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $match: { \"rooms\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6418,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 price 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of price per type."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6424,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "统计 price 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where price exceeds 70."
+      ],
+      "MQL": "db.properties.aggregate([ { $match: { \"price\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $match: { \"price\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "city",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6428,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 city 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by type and aggregate city."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$city\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$city\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "area",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6431,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 area 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by type and aggregate area."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", avg_value: { $avg: \"$area\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, type: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "details.floor",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6436,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "用 graphLookup 递归遍历关联链，返回每个节点的链深度。",
+        "做递归的图查询。",
+        "用 $graphLookup 找关联路径。",
+        "递归展开层级关系。",
+        "Recursively traverse the graph and return chain depth per node."
+      ],
+      "MQL": "db.properties.aggregate([ { $graphLookup: { from: \"properties\", startWith: \"$city\", connectFromField: \"city\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, city: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$graphLookup",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$graphLookup",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $graphLookup: { from: \"properties\", startWith: \"$city\", connectFromField: \"city\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, city: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])"
+        ]
+      },
+      "operator_family": "graph_recursive_deep",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "rooms",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6440,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "找出 amenity_scores 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.properties.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$amenity_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, city: 1, amenity_scores: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$amenity_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, city: 1, amenity_scores: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6443,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 type 分组，计算 price 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of price per type."
+      ],
+      "MQL": "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    },
+    {
+      "collection": "properties",
+      "metric_field": "price",
+      "label_field": "city",
+      "category_field": "type",
+      "time_field": "year",
+      "array_field": "amenity_scores",
+      "record_id": 6447,
+      "db_id": "real_estate_listings_004",
+      "nl_queries": [
+        "按 year 计算 price 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of price."
+      ],
+      "MQL": "db.properties.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$price\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$price\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, city: 1, price: \"$price\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.properties.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$price\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$price\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, city: 1, price: \"$price\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+    }
+  ],
+  "test_records": [],
+  "manifest": {
+    "db_id": "real_estate_listings_004",
+    "domain_id": "real_estate_listings",
+    "record_count": 50,
+    "schema_signature": "sha256:f11789b1cd269adf97031e3a2f5545121b716645c892d5430c98d41d2522bc20",
+    "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1"
+  }
+}

@@ -1,0 +1,1923 @@
+{
+  "train_records": [],
+  "test_records": [
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3387,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 status 分组，计算 amount 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of amount per status."
+      ],
+      "MQL": "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3390,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 quarter 计算 balance 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of balance."
+      ],
+      "MQL": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { moving_avg: { $avg: \"$balance\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$balance\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { moving_avg: { $avg: \"$balance\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$balance\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "risk_score",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3394,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "把 risk_score 按阈值分成高低两组，并分别按 branch 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by risk_score."
+      ],
+      "MQL": "db.accounts.aggregate([ { $facet: { high: [{ $match: { \"risk_score\": { $gt: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }], low: [{ $match: { \"risk_score\": { $lte: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $facet: { high: [{ $match: { \"risk_score\": { $gt: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }], low: [{ $match: { \"risk_score\": { $lte: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3398,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 year 排序，计算 amount 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of amount sorted by year."
+      ],
+      "MQL": "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$amount\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$amount\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "monthly_volumes",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3402,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "统计 monthly_volumes 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where monthly_volumes exceeds 70."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { \"monthly_volumes\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { \"monthly_volumes\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3406,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 quarter 排序，计算 balance 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of balance sorted by quarter."
+      ],
+      "MQL": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3410,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 status 分组，计算 amount 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of amount per status."
+      ],
+      "MQL": "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3414,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "统计 balance 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where balance exceeds 70."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { \"balance\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { \"balance\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "risk_score",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3418,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "找出 risk_score 大于 70 的记录，并返回 company 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 risk_score 超过阈值的文档并显示 company。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by risk_score."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { \"risk_score\": { $gt: 70 } } }, { $project: { _id: 0, company: 1, risk_score: \"$risk_score\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { \"risk_score\": { $gt: 70 } } }, { $project: { _id: 0, company: 1, risk_score: \"$risk_score\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3422,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 year 计算 amount 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of amount."
+      ],
+      "MQL": "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "monthly_volumes",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3426,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "找出 monthly_volumes 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$monthly_volumes\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, company: 1, monthly_volumes: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$monthly_volumes\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, company: 1, monthly_volumes: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3428,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 quarter 排序，计算 balance 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of balance sorted by quarter."
+      ],
+      "MQL": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3432,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 status 分组，计算 amount 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of amount per status."
+      ],
+      "MQL": "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3436,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 quarter 计算 balance 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of balance."
+      ],
+      "MQL": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { moving_avg: { $avg: \"$balance\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$balance\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { moving_avg: { $avg: \"$balance\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$balance\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "risk_score",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3440,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "把 risk_score 按阈值分成高低两组，并分别按 branch 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by risk_score."
+      ],
+      "MQL": "db.accounts.aggregate([ { $facet: { high: [{ $match: { \"risk_score\": { $gt: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }], low: [{ $match: { \"risk_score\": { $lte: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $facet: { high: [{ $match: { \"risk_score\": { $gt: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }], low: [{ $match: { \"risk_score\": { $lte: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3444,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 year 排序，计算 amount 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of amount sorted by year."
+      ],
+      "MQL": "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$amount\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$amount\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "monthly_volumes",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3448,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "先筛选 monthly_volumes 高于阈值的记录，再按 branch 汇总数量和均值。",
+        "过滤高值后按类别统计。",
+        "对超过阈值的数据做分组聚合。",
+        "筛选再聚合，返回每组命中量。",
+        "Filter then aggregate by branch."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { \"monthly_volumes\": { $gt: 70 } } }, { $group: { _id: \"$branch\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$monthly_volumes\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, branch: \"$_id\", matched_count: 1, avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$match",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { \"monthly_volumes\": { $gt: 70 } } }, { $group: { _id: \"$branch\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$monthly_volumes\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, branch: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "filter_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3452,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 quarter 排序，计算 balance 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of balance sorted by quarter."
+      ],
+      "MQL": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3456,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 status 分组，计算 amount 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of amount per status."
+      ],
+      "MQL": "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3460,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "统计 balance 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where balance exceeds 70."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { \"balance\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { \"balance\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "risk_score",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3464,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "找出 risk_score 大于 70 的记录，并返回 company 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 risk_score 超过阈值的文档并显示 company。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by risk_score."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { \"risk_score\": { $gt: 70 } } }, { $project: { _id: 0, company: 1, risk_score: \"$risk_score\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { \"risk_score\": { $gt: 70 } } }, { $project: { _id: 0, company: 1, risk_score: \"$risk_score\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3468,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 year 计算 amount 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of amount."
+      ],
+      "MQL": "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "monthly_volumes",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3472,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "找出 monthly_volumes 中所有元素都高于阈值的记录。",
+        "筛出数组全部满足条件的项。",
+        "只保留数组中每一个元素都达标的文档。",
+        "检查是否所有元素都超过阈值。",
+        "Keep rows where every array element exceeds the threshold."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$monthly_volumes\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, company: 1, monthly_volumes: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$allElementsTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$monthly_volumes\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, company: 1, monthly_volumes: 1 } }])"
+        ]
+      },
+      "operator_family": "universal_quantifier",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3476,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 quarter 排序，计算 balance 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of balance sorted by quarter."
+      ],
+      "MQL": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3480,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 status 分组，计算 amount 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of amount per status."
+      ],
+      "MQL": "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3483,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 quarter 计算 balance 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of balance."
+      ],
+      "MQL": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { moving_avg: { $avg: \"$balance\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$balance\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { moving_avg: { $avg: \"$balance\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$balance\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "risk_score",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3487,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "把 risk_score 按阈值分成高低两组，并分别按 branch 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by risk_score."
+      ],
+      "MQL": "db.accounts.aggregate([ { $facet: { high: [{ $match: { \"risk_score\": { $gt: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }], low: [{ $match: { \"risk_score\": { $lte: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $facet: { high: [{ $match: { \"risk_score\": { $gt: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }], low: [{ $match: { \"risk_score\": { $lte: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3492,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 year 排序，计算 amount 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of amount sorted by year."
+      ],
+      "MQL": "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$amount\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$amount\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "monthly_volumes",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3496,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "取出 monthly_volumes 的第一个和最后一个元素，并返回数组长度。",
+        "提取数组首尾元素。",
+        "用位置选择器取数组元素。",
+        "获取数组边界值。",
+        "Select the first and last elements from monthly_volumes."
+      ],
+      "MQL": "db.accounts.aggregate([ { $project: { _id: 0, company: 1, first: { $arrayElemAt: [\"$monthly_volumes\", 0] }, last: { $arrayElemAt: [\"$monthly_volumes\", -1] }, size: { $size: \"$monthly_volumes\" } } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$arrayElemAt",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $project: { _id: 0, company: 1, first: { $arrayElemAt: [\"$monthly_volumes\", 0] }, last: { $arrayElemAt: [\"$monthly_volumes\", -1] }, size: { $size: \"$monthly_volumes\" } } }])"
+        ]
+      },
+      "operator_family": "array_positional_select",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3500,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 quarter 排序，计算 balance 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of balance sorted by quarter."
+      ],
+      "MQL": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3504,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 status 分组，计算 amount 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of amount per status."
+      ],
+      "MQL": "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3508,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "统计 balance 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where balance exceeds 70."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { \"balance\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { \"balance\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "risk_score",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3512,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "找出 risk_score 大于 70 的记录，并返回 company 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 risk_score 超过阈值的文档并显示 company。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by risk_score."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { \"risk_score\": { $gt: 70 } } }, { $project: { _id: 0, company: 1, risk_score: \"$risk_score\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { \"risk_score\": { $gt: 70 } } }, { $project: { _id: 0, company: 1, risk_score: \"$risk_score\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3516,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 year 计算 amount 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of amount."
+      ],
+      "MQL": "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "monthly_volumes",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3520,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "统计 monthly_volumes 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where monthly_volumes exceeds 70."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { \"monthly_volumes\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { \"monthly_volumes\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3525,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 quarter 排序，计算 balance 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of balance sorted by quarter."
+      ],
+      "MQL": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3529,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 status 分组，计算 amount 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of amount per status."
+      ],
+      "MQL": "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3534,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 quarter 计算 balance 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of balance."
+      ],
+      "MQL": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { moving_avg: { $avg: \"$balance\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$balance\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { moving_avg: { $avg: \"$balance\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$balance\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "risk_score",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3537,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "把 risk_score 按阈值分成高低两组，并分别按 branch 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by risk_score."
+      ],
+      "MQL": "db.accounts.aggregate([ { $facet: { high: [{ $match: { \"risk_score\": { $gt: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }], low: [{ $match: { \"risk_score\": { $lte: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $facet: { high: [{ $match: { \"risk_score\": { $gt: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }], low: [{ $match: { \"risk_score\": { $lte: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3540,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 year 排序，计算 amount 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of amount sorted by year."
+      ],
+      "MQL": "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$amount\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$amount\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "monthly_volumes",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3545,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "找出 monthly_volumes 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$monthly_volumes\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, company: 1, monthly_volumes: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$monthly_volumes\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, company: 1, monthly_volumes: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3548,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 quarter 排序，计算 balance 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of balance sorted by quarter."
+      ],
+      "MQL": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3552,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 status 分组，计算 amount 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of amount per status."
+      ],
+      "MQL": "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3556,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "统计 balance 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where balance exceeds 70."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { \"balance\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { \"balance\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "risk_score",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3560,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "找出 risk_score 大于 70 的记录，并返回 company 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 risk_score 超过阈值的文档并显示 company。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by risk_score."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { \"risk_score\": { $gt: 70 } } }, { $project: { _id: 0, company: 1, risk_score: \"$risk_score\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { \"risk_score\": { $gt: 70 } } }, { $project: { _id: 0, company: 1, risk_score: \"$risk_score\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3564,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 year 计算 amount 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of amount."
+      ],
+      "MQL": "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, tx_type: 1, amount: \"$amount\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "monthly_volumes",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3568,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "先筛选 monthly_volumes 高于阈值的记录，再按 branch 汇总数量和均值。",
+        "过滤高值后按类别统计。",
+        "对超过阈值的数据做分组聚合。",
+        "筛选再聚合，返回每组命中量。",
+        "Filter then aggregate by branch."
+      ],
+      "MQL": "db.accounts.aggregate([ { $match: { \"monthly_volumes\": { $gt: 70 } } }, { $group: { _id: \"$branch\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$monthly_volumes\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, branch: \"$_id\", matched_count: 1, avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$match",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $match: { \"monthly_volumes\": { $gt: 70 } } }, { $group: { _id: \"$branch\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$monthly_volumes\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, branch: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "filter_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3572,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 quarter 排序，计算 balance 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of balance sorted by quarter."
+      ],
+      "MQL": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "transactions",
+      "metric_field": "amount",
+      "label_field": "tx_type",
+      "category_field": "status",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 3576,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 status 分组，计算 amount 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of amount per status."
+      ],
+      "MQL": "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    },
+    {
+      "collection": "accounts",
+      "metric_field": "balance",
+      "label_field": "company",
+      "category_field": "branch",
+      "time_field": "quarter",
+      "array_field": "monthly_volumes",
+      "record_id": 3580,
+      "db_id": "finance_transactions_001",
+      "nl_queries": [
+        "按 quarter 计算 balance 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of balance."
+      ],
+      "MQL": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { moving_avg: { $avg: \"$balance\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$balance\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { moving_avg: { $avg: \"$balance\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$balance\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+    }
+  ],
+  "manifest": {
+    "db_id": "finance_transactions_001",
+    "domain_id": "finance_transactions",
+    "record_count": 50,
+    "schema_signature": "sha256:ae3942e934421ba4edcd67d93f5008a8e5284d5f17dd5d28ab69319857ba82ea",
+    "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802"
+  }
+}

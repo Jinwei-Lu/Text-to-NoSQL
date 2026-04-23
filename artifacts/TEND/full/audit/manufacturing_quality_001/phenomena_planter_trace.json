@@ -1,0 +1,68 @@
+{
+  "db_id": "manufacturing_quality_001",
+  "phenomena_seed": 82,
+  "decisions": [
+    {
+      "phenomenon_id": "temporal_trend@defect_count",
+      "collection": "inspections",
+      "path": "defect_count",
+      "document_ids": [
+        "inspections/1",
+        "inspections/2",
+        "inspections/3",
+        "inspections/4",
+        "inspections/5"
+      ]
+    },
+    {
+      "phenomenon_id": "outlier@defect_count",
+      "collection": "inspections",
+      "path": "defect_count",
+      "document_ids": [
+        "inspections/24"
+      ]
+    },
+    {
+      "phenomenon_id": "periodic_pattern@temperature",
+      "collection": "inspections",
+      "path": "temperature",
+      "document_ids": [
+        "inspections/1",
+        "inspections/2",
+        "inspections/3",
+        "inspections/4",
+        "inspections/5",
+        "inspections/6"
+      ]
+    },
+    {
+      "phenomenon_id": "pollution@line",
+      "collection": "inspections",
+      "path": "line",
+      "document_ids": [
+        "inspections/1",
+        "inspections/2",
+        "inspections/3"
+      ]
+    },
+    {
+      "phenomenon_id": "rare_event@measurements",
+      "collection": "inspections",
+      "path": "measurements",
+      "document_ids": [
+        "inspections/24"
+      ]
+    },
+    {
+      "phenomenon_id": "boundary_value@temperature",
+      "collection": "inspections",
+      "path": "temperature",
+      "document_ids": [
+        "inspections/1",
+        "inspections/2",
+        "inspections/3",
+        "inspections/4"
+      ]
+    }
+  ]
+}

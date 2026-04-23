@@ -1,0 +1,69 @@
+{
+  "orders": {
+    "type": "OBJECT",
+    "fields": {
+      "customer": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "segment": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "year": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "amount": {
+        "type": "REAL",
+        "nullable": true,
+        "sparse": false
+      },
+      "units": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "basket_scores": {
+        "type": "ARRAY",
+        "nullable": false,
+        "sparse": false,
+        "items": {
+          "type": "INT",
+          "nullable": false,
+          "sparse": false
+        }
+      },
+      "_sparse_notes": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": true
+      },
+      "_tags": {
+        "type": "ARRAY",
+        "nullable": false,
+        "sparse": false,
+        "items": {
+          "type": "OBJECT",
+          "nullable": false,
+          "sparse": false,
+          "fields": {
+            "key": {
+              "type": "TEXT",
+              "nullable": false,
+              "sparse": false
+            },
+            "value": {
+              "type": "INT",
+              "nullable": true,
+              "sparse": false
+            }
+          }
+        }
+      }
+    }
+  }
+}

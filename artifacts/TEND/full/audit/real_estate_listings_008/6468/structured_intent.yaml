@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "db_id": "real_estate_listings_008",
+    "record_id": 6468,
+    "schema_fingerprint_hint": "properties",
+    "si_hash": "sha256:44869e80d86cd6eeddb82738af2160076dd103aaf283b0bd56cfabc42c24d9fd"
+  },
+  "intent": {
+    "phenomenon_id": "hierarchical_nesting@details.floor",
+    "phenomenon_class": "hierarchical_nesting",
+    "persona_id": "researcher",
+    "pattern_family": "dynamic_key_expansion",
+    "collection": "properties",
+    "metric_field": "details.floor",
+    "field_leaf": "floor",
+    "label_field": "city",
+    "time_field": "year",
+    "category_field": "type",
+    "array_field": "amenity_scores",
+    "secondary_collection": null,
+    "join_field": "city"
+  },
+  "output": {
+    "keys": [
+      "city",
+      "type",
+      "floor"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L4",
+    "operator_family": "dynamic_key_expansion"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$objectToArray",
+      "$unwind"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project",
+      "$unwind"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.properties.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+    ]
+  }
+}

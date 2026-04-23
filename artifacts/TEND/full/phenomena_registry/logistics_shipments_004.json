@@ -1,0 +1,107 @@
+{
+  "db_id": "logistics_shipments_004",
+  "noise_seed": 30,
+  "phenomena_seed": 76,
+  "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e",
+  "phenomena": [
+    {
+      "phenomenon_id": "temporal_trend@delay_hours",
+      "phenomenon_class": "temporal_trend",
+      "witness_evidence": {
+        "collection": "shipments",
+        "path": "delay_hours",
+        "document_ids": [
+          "shipments/1",
+          "shipments/2",
+          "shipments/3",
+          "shipments/4",
+          "shipments/5"
+        ],
+        "summary": {
+          "seed": 76
+        }
+      },
+      "detector_signature": "sha256:125b3a2b9d98f6fb1ae79df37015b54cccbf061aa10f4c0562bfa81ca8a3d6ab",
+      "intent_hooks": [
+        "window",
+        "anomaly"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "cross_group_comparison@packages",
+      "phenomenon_class": "cross_group_comparison",
+      "witness_evidence": {
+        "collection": "shipments",
+        "path": "packages",
+        "document_ids": [
+          "shipments/1",
+          "shipments/2",
+          "shipments/3",
+          "shipments/4",
+          "shipments/5",
+          "shipments/6"
+        ],
+        "summary": {
+          "seed": 76
+        }
+      },
+      "detector_signature": "sha256:355bf489b8f834aa3a049bff2d026c12f480c9a2e2fcff4d755a77d4dff89a12",
+      "intent_hooks": [
+        "group_compare",
+        "aggregate"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "rare_event@inspection_scores",
+      "phenomenon_class": "rare_event",
+      "witness_evidence": {
+        "collection": "shipments",
+        "path": "inspection_scores",
+        "document_ids": [
+          "shipments/18"
+        ],
+        "summary": {
+          "seed": 76
+        }
+      },
+      "detector_signature": "sha256:820a89c57bb158f5af0f3a5508b4fb1c9260b8fbf512eeed12f6bf3ef4b3cc23",
+      "intent_hooks": [
+        "existential"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "type_drift@delay_hours",
+      "phenomenon_class": "type_drift",
+      "witness_evidence": {
+        "collection": "shipments",
+        "path": "delay_hours",
+        "document_ids": [
+          "shipments/1"
+        ],
+        "summary": {
+          "seed": 76
+        }
+      },
+      "detector_signature": "sha256:c0db8ed50eb75f9996def091a113913037fa3773a8db5f3b7eed226299e037b6",
+      "intent_hooks": [
+        "facet",
+        "inspect"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    }
+  ],
+  "_meta": {
+    "schema_signature": "sha256:b87eab8347a34635d34bd12a46e930e4708a04d5b46beba7f23afab24cfc03c6"
+  }
+}

@@ -1,3 +1,0 @@
-[
-  "db.cells.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$signal_strength\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, tower: 1, signal_strength: 1 } }])"
-]

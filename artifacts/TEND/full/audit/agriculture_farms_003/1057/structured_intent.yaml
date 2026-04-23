@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "agriculture_farms_003",
+    "record_id": 1057,
+    "schema_fingerprint_hint": "harvests",
+    "si_hash": "sha256:04b71e9a21c171075ed053875c4127dc6b71cc5391f525146962f08e89e191e8"
+  },
+  "intent": {
+    "phenomenon_id": "outlier@yield_tons",
+    "phenomenon_class": "outlier",
+    "persona_id": "analyst",
+    "pattern_family": "percentile_approximation",
+    "collection": "harvests",
+    "metric_field": "yield_tons",
+    "field_leaf": "yield_tons",
+    "label_field": "farm",
+    "time_field": "year",
+    "category_field": "crop",
+    "array_field": "soil_samples",
+    "secondary_collection": null,
+    "join_field": "farm"
+  },
+  "output": {
+    "keys": [
+      "farm",
+      "crop",
+      "yield_tons"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "percentile_approximation"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$percentile"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$yield_tons\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$yield_tons\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+    ]
+  }
+}

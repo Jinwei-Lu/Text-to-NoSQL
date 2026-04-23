@@ -1,4 +1,0 @@
-[
-  "db.requests.aggregate([ { $match: {} }, { $project: { _id: 0, citizen: 1, first: { $arrayElemAt: [\"$feedback_scores\", 0] }, last: { $arrayElemAt: [\"$feedback_scores\", -1] }, size: { $size: \"$feedback_scores\" } } }])",
-  "db.requests.aggregate([ { $project: { _id: 0, citizen: 1, first: { $arrayElemAt: [\"$feedback_scores\", 0] }, last: { $arrayElemAt: [\"$feedback_scores\", -1] }, size: { $size: \"$feedback_scores\" } } }])"
-]

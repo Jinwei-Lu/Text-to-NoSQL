@@ -1,0 +1,3 @@
+[
+  "db.shipments.aggregate([ { $match: { \"inspection_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+]

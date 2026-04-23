@@ -1,0 +1,13 @@
+{
+  "pattern_family": "coalesce_with_default",
+  "primary_operator": "$ifNull",
+  "must_contain": [
+    "$ifNull",
+    "$project"
+  ],
+  "must_contain_at_root": [
+    "$project",
+    "$sort"
+  ],
+  "query": "db.flights.aggregate([ { $project: { _id: 0, airline: 1, value: { $ifNull: [\"$airline\", 0] } } }, { $sort: { value: -1 } }])"
+}

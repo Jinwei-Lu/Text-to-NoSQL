@@ -1,0 +1,110 @@
+{
+  "record_id": "manufacturing_quality_006/5708",
+  "db_id": "manufacturing_quality_006",
+  "si_hash": "sha256:88ff6b9f7f56788c59c821f55f3df34bf93b1bee54809a86c4f64669e0c4f923",
+  "world_signature": "sha256:eb71d969fbeac009fe8ad91c3329586019622f98328aa6dbc747f290521ee393",
+  "split": "test",
+  "empirical_difficulty": "easy",
+  "phase_d": {
+    "v_correct": {
+      "neighborhood": {
+        "models": [
+          "mock-neighborhood"
+        ],
+        "all_candidates": [
+          {
+            "model": "mock-neighborhood",
+            "ast_pass": true,
+            "exec_equiv": true,
+            "action": "mock_accepted"
+          }
+        ]
+      },
+      "ambiguity": {
+        "attacker_model": "mock-ambiguity",
+        "si_candidates_count": 1,
+        "si_equiv_to_gold_count": 1,
+        "ambiguous": false
+      },
+      "gold_result_size": 0,
+      "pass": true
+    },
+    "v_discrim": {
+      "failure_modes": {
+        "total": 2,
+        "ex_one_count": 0,
+        "threshold": 0.02,
+        "details": [
+          {
+            "mutation_id": "wrong_operator",
+            "equivalent": false
+          },
+          {
+            "mutation_id": "tight_threshold",
+            "equivalent": false
+          }
+        ],
+        "pass": true
+      },
+      "dual_bridge": {
+        "sql_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "template_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "pass": true
+      },
+      "pass": true
+    },
+    "v_diverse": {
+      "cell": "pollution/researcher/simple_filter",
+      "axis_values": {
+        "phenomenon_class": "pollution",
+        "persona_id": "researcher",
+        "pattern_family": "simple_filter",
+        "nosql_nativeness_level": "L1",
+        "shape_policy": "preserve",
+        "difficulty_label": "unknown",
+        "collection_name": "inspections",
+        "time_field_present": "yes",
+        "array_field_present": "yes",
+        "operator_count_bucket": "3-5"
+      },
+      "axis_deltas": {
+        "phenomenon_class": 0.0036,
+        "persona_id": 0.0009,
+        "pattern_family": 0.0046,
+        "nosql_nativeness_level": 0.0012,
+        "shape_policy": 0.0015,
+        "difficulty_label": 0.0002,
+        "collection_name": 0.0033,
+        "time_field_present": 0.0002,
+        "array_field_present": 0.0003,
+        "operator_count_bucket": 0.001
+      },
+      "global_count": 4707,
+      "min_quota": 1,
+      "max_quota": 999,
+      "delta_f": 0.0002,
+      "epsilon": 0.0,
+      "under_quota": false,
+      "pass": true
+    },
+    "calibration": {
+      "target_difficulty": "easy",
+      "pr_small": 0.9,
+      "pr_medium": 0.8,
+      "pr_large": 0.7,
+      "pr_frontier": 0.6,
+      "empirical_difficulty": "easy",
+      "amplify_rounds": 0
+    }
+  },
+  "routing": {
+    "split": "test",
+    "reason": "cross_domain_holdout_selected"
+  }
+}

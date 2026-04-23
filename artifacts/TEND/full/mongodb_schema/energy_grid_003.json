@@ -1,0 +1,78 @@
+{
+  "meters": {
+    "type": "OBJECT",
+    "fields": {
+      "city": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "sector": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "year": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "consumption_kwh": {
+        "type": "REAL",
+        "nullable": true,
+        "sparse": false
+      },
+      "peak_load": {
+        "type": "REAL",
+        "nullable": false,
+        "sparse": false
+      },
+      "daily_readings": {
+        "type": "ARRAY",
+        "nullable": false,
+        "sparse": false,
+        "items": {
+          "type": "REAL",
+          "nullable": false,
+          "sparse": false
+        }
+      },
+      "_sparse_notes": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": true
+      },
+      "_poly_field": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": false,
+        "_polymorphic_hint": true
+      }
+    }
+  },
+  "alerts": {
+    "type": "OBJECT",
+    "fields": {
+      "severity": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "resolved": {
+        "type": "BOOL",
+        "nullable": false,
+        "sparse": false
+      },
+      "response_hours": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "year": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      }
+    }
+  }
+}

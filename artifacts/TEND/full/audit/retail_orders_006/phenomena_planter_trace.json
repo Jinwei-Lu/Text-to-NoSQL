@@ -1,0 +1,59 @@
+{
+  "db_id": "retail_orders_006",
+  "phenomena_seed": 58,
+  "decisions": [
+    {
+      "phenomenon_id": "high_cardinality@customer",
+      "collection": "orders",
+      "path": "customer",
+      "document_ids": [
+        "orders/1",
+        "orders/2",
+        "orders/3",
+        "orders/4",
+        "orders/5",
+        "orders/6",
+        "orders/7",
+        "orders/8"
+      ]
+    },
+    {
+      "phenomenon_id": "temporal_trend@amount",
+      "collection": "orders",
+      "path": "amount",
+      "document_ids": [
+        "orders/1",
+        "orders/2",
+        "orders/3",
+        "orders/4",
+        "orders/5"
+      ]
+    },
+    {
+      "phenomenon_id": "outlier@units",
+      "collection": "orders",
+      "path": "units",
+      "document_ids": [
+        "orders/16"
+      ]
+    },
+    {
+      "phenomenon_id": "pollution@segment",
+      "collection": "orders",
+      "path": "segment",
+      "document_ids": [
+        "orders/1",
+        "orders/2",
+        "orders/3"
+      ]
+    },
+    {
+      "phenomenon_id": "rare_event@basket_scores",
+      "collection": "orders",
+      "path": "basket_scores",
+      "document_ids": [
+        "orders/16"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "pattern_family": "group_then_aggregate",
+  "primary_operator": "$group",
+  "input_shape": {
+    "collections": [
+      "events"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "name",
+      "city",
+      "ticket_revenue"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "name",
+    "ticket_revenue",
+    "city",
+    "year",
+    "fan_scores"
+  ]
+}

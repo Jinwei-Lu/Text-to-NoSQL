@@ -1,0 +1,15 @@
+{
+  "collection_count": 2,
+  "field_count": 13,
+  "object_count": 0,
+  "array_count": 1,
+  "max_depth": 1,
+  "numeric_field_count": 6,
+  "text_field_count": 6,
+  "bool_field_count": 0,
+  "nullable_field_count": 2,
+  "sparse_field_count": 1,
+  "f_topology_active": [
+    "sparse_embedded"
+  ]
+}

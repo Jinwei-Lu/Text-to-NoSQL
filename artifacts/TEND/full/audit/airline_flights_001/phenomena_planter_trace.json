@@ -1,0 +1,82 @@
+{
+  "db_id": "airline_flights_001",
+  "phenomena_seed": 64,
+  "decisions": [
+    {
+      "phenomenon_id": "temporal_trend@passengers",
+      "collection": "flights",
+      "path": "passengers",
+      "document_ids": [
+        "flights/1",
+        "flights/2",
+        "flights/3",
+        "flights/4",
+        "flights/5"
+      ]
+    },
+    {
+      "phenomenon_id": "outlier@delay_minutes",
+      "collection": "flights",
+      "path": "delay_minutes",
+      "document_ids": [
+        "flights/20"
+      ]
+    },
+    {
+      "phenomenon_id": "skewed_distribution@delay_minutes",
+      "collection": "flights",
+      "path": "delay_minutes",
+      "document_ids": [
+        "flights/1",
+        "flights/2",
+        "flights/3",
+        "flights/4",
+        "flights/5",
+        "flights/6",
+        "flights/7",
+        "flights/8",
+        "flights/9",
+        "flights/10",
+        "flights/11",
+        "flights/12",
+        "flights/13",
+        "flights/14",
+        "flights/15",
+        "flights/16",
+        "flights/17",
+        "flights/18",
+        "flights/19",
+        "flights/20"
+      ]
+    },
+    {
+      "phenomenon_id": "pollution@airline",
+      "collection": "flights",
+      "path": "airline",
+      "document_ids": [
+        "flights/1",
+        "flights/2",
+        "flights/3"
+      ]
+    },
+    {
+      "phenomenon_id": "rare_event@ticket_prices",
+      "collection": "flights",
+      "path": "ticket_prices",
+      "document_ids": [
+        "flights/20"
+      ]
+    },
+    {
+      "phenomenon_id": "boundary_value@passengers",
+      "collection": "flights",
+      "path": "passengers",
+      "document_ids": [
+        "flights/1",
+        "flights/2",
+        "flights/3",
+        "flights/4"
+      ]
+    }
+  ]
+}

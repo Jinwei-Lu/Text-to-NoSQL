@@ -1,0 +1,3 @@
+[
+  "db.properties.aggregate([ { $match: { \"rooms\": { $gt: 70 } } }, { $count: \"total\" }])"
+]

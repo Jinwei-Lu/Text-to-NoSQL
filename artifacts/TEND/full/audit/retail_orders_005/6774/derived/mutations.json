@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "baseline_too_low",
+    "query": "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 0.8] }] } } }, { $project: { _id: 0, customer: 1, amount: \"$amount\", moving_avg: 1 } }])"
+  },
+  {
+    "mutation_id": "window_reverse",
+    "query": "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [0, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, customer: 1, amount: \"$amount\", moving_avg: 1 } }])"
+  }
+]

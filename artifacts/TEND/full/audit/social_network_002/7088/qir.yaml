@@ -1,0 +1,24 @@
+{
+  "pattern_family": "filter_then_count",
+  "primary_operator": "$count",
+  "input_shape": {
+    "collections": [
+      "posts"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "author",
+      "category",
+      "engagement_scores"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "author",
+    "engagement_scores",
+    "category",
+    "year",
+    "engagement_scores"
+  ]
+}

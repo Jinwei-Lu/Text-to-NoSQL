@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "agriculture_farms_004",
+    "record_id": 1148,
+    "schema_fingerprint_hint": "harvests",
+    "si_hash": "sha256:c07d200008067cdbb86ba6d06462ff8dbec161ac220dae7275b9e79f4353d233"
+  },
+  "intent": {
+    "phenomenon_id": "temporal_trend@yield_tons",
+    "phenomenon_class": "temporal_trend",
+    "persona_id": "analyst",
+    "pattern_family": "time_window_aggregate",
+    "collection": "harvests",
+    "metric_field": "yield_tons",
+    "field_leaf": "yield_tons",
+    "label_field": "farm",
+    "time_field": "year",
+    "category_field": "crop",
+    "array_field": "soil_samples",
+    "secondary_collection": null,
+    "join_field": "farm"
+  },
+  "output": {
+    "keys": [
+      "farm",
+      "crop",
+      "yield_tons"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "time_window_aggregate"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$sort"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$yield_tons\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+    ]
+  }
+}

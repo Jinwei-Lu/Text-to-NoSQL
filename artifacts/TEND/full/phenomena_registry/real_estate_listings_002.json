@@ -1,0 +1,181 @@
+{
+  "db_id": "real_estate_listings_002",
+  "noise_seed": 31,
+  "phenomena_seed": 79,
+  "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1",
+  "phenomena": [
+    {
+      "phenomenon_id": "skewed_distribution@price",
+      "phenomenon_class": "skewed_distribution",
+      "witness_evidence": {
+        "collection": "properties",
+        "path": "price",
+        "document_ids": [
+          "properties/1",
+          "properties/2",
+          "properties/3",
+          "properties/4",
+          "properties/5",
+          "properties/6",
+          "properties/7",
+          "properties/8",
+          "properties/9",
+          "properties/10",
+          "properties/11",
+          "properties/12",
+          "properties/13",
+          "properties/14",
+          "properties/15",
+          "properties/16",
+          "properties/17",
+          "properties/18",
+          "properties/19",
+          "properties/20",
+          "properties/21",
+          "properties/22"
+        ],
+        "summary": {
+          "seed": 79
+        }
+      },
+      "detector_signature": "sha256:b8c5c157e6fd88dfc5feb464d285ca158127a155eccc01a3b9263f1a50b0f0af",
+      "intent_hooks": [
+        "percentile",
+        "distribution"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "outlier@price",
+      "phenomenon_class": "outlier",
+      "witness_evidence": {
+        "collection": "properties",
+        "path": "price",
+        "document_ids": [
+          "properties/22"
+        ],
+        "summary": {
+          "seed": 79
+        }
+      },
+      "detector_signature": "sha256:53764ec2933c3942a515473a7bcff5b862bd284789ace30bac1eeace29cf8522",
+      "intent_hooks": [
+        "topk",
+        "anomaly"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "high_cardinality@city",
+      "phenomenon_class": "high_cardinality",
+      "witness_evidence": {
+        "collection": "properties",
+        "path": "city",
+        "document_ids": [
+          "properties/1",
+          "properties/2",
+          "properties/3",
+          "properties/4",
+          "properties/5",
+          "properties/6",
+          "properties/7",
+          "properties/8"
+        ],
+        "summary": {
+          "seed": 79
+        }
+      },
+      "detector_signature": "sha256:09cd268e367ebf0e9173d75be37eb94b7f2d22916ce240b62a3b595ba878542f",
+      "intent_hooks": [
+        "distinct",
+        "cardinality"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "correlation@area",
+      "phenomenon_class": "correlation",
+      "witness_evidence": {
+        "collection": "properties",
+        "path": "area",
+        "document_ids": [
+          "properties/1",
+          "properties/2",
+          "properties/3",
+          "properties/4",
+          "properties/5",
+          "properties/6"
+        ],
+        "summary": {
+          "seed": 79
+        }
+      },
+      "detector_signature": "sha256:9a51b50c5171d3af4c407f9c4151317253bcc71434fb9b93ab987040ed86e1b0",
+      "intent_hooks": [
+        "correlation",
+        "regression"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "hierarchical_nesting@details.floor",
+      "phenomenon_class": "hierarchical_nesting",
+      "witness_evidence": {
+        "collection": "properties",
+        "path": "details.floor",
+        "document_ids": [
+          "properties/1",
+          "properties/2",
+          "properties/3"
+        ],
+        "summary": {
+          "seed": 79
+        }
+      },
+      "detector_signature": "sha256:b39f55bea20a734e023dbbf3e9130891b68ed3ddb91139f4f6b66db74c932da8",
+      "intent_hooks": [
+        "unwind",
+        "nested_access"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "boundary_value@rooms",
+      "phenomenon_class": "boundary_value",
+      "witness_evidence": {
+        "collection": "properties",
+        "path": "rooms",
+        "document_ids": [
+          "properties/1",
+          "properties/2",
+          "properties/3",
+          "properties/4"
+        ],
+        "summary": {
+          "seed": 79
+        }
+      },
+      "detector_signature": "sha256:bf5db78e0481bb8c4bc97a1ff0141f15c1b1c1be8a9210aab4207539768f7524",
+      "intent_hooks": [
+        "edge_case",
+        "boundary"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    }
+  ],
+  "_meta": {
+    "schema_signature": "sha256:bd8c5a9c7b177cc34d866b9845a588d0d628867ddba6c03d346ed607659a35dc"
+  }
+}

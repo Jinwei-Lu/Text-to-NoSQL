@@ -1,0 +1,191 @@
+{
+  "db_id": "library_catalog_007",
+  "noise_seed": 26,
+  "phenomena_seed": 64,
+  "world_signature": "sha256:e90a49ea1ca02a26f104db1b85e921390369c9bd5301eb486d6fc15846c1a2f9",
+  "phenomena": [
+    {
+      "phenomenon_id": "skewed_distribution@pages",
+      "phenomenon_class": "skewed_distribution",
+      "witness_evidence": {
+        "collection": "books",
+        "path": "pages",
+        "document_ids": [
+          "books/1",
+          "books/2",
+          "books/3",
+          "books/4",
+          "books/5",
+          "books/6",
+          "books/7",
+          "books/8",
+          "books/9",
+          "books/10",
+          "books/11",
+          "books/12",
+          "books/13",
+          "books/14",
+          "books/15",
+          "books/16",
+          "books/17",
+          "books/18",
+          "books/19",
+          "books/20",
+          "books/21",
+          "books/22"
+        ],
+        "summary": {
+          "seed": 64
+        }
+      },
+      "detector_signature": "sha256:b8c5c157e6fd88dfc5feb464d285ca158127a155eccc01a3b9263f1a50b0f0af",
+      "intent_hooks": [
+        "histogram",
+        "percentile"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "high_cardinality@title",
+      "phenomenon_class": "high_cardinality",
+      "witness_evidence": {
+        "collection": "books",
+        "path": "title",
+        "document_ids": [
+          "books/1",
+          "books/2",
+          "books/3",
+          "books/4",
+          "books/5",
+          "books/6",
+          "books/7",
+          "books/8"
+        ],
+        "summary": {
+          "seed": 64
+        }
+      },
+      "detector_signature": "sha256:09cd268e367ebf0e9173d75be37eb94b7f2d22916ce240b62a3b595ba878542f",
+      "intent_hooks": [
+        "distinct",
+        "groupby"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "temporal_trend@rating",
+      "phenomenon_class": "temporal_trend",
+      "witness_evidence": {
+        "collection": "books",
+        "path": "rating",
+        "document_ids": [
+          "books/1",
+          "books/2",
+          "books/3",
+          "books/4",
+          "books/5"
+        ],
+        "summary": {
+          "seed": 64
+        }
+      },
+      "detector_signature": "sha256:125b3a2b9d98f6fb1ae79df37015b54cccbf061aa10f4c0562bfa81ca8a3d6ab",
+      "intent_hooks": [
+        "window",
+        "trend"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "null_cluster@rating",
+      "phenomenon_class": "null_cluster",
+      "witness_evidence": {
+        "collection": "books",
+        "path": "rating",
+        "document_ids": [
+          "books/1",
+          "books/2",
+          "books/3"
+        ],
+        "summary": {
+          "seed": 64
+        }
+      },
+      "detector_signature": "sha256:1493a0255ee3a53705e301d67e0c000b7698504476b5264ba6d13604406f5679",
+      "intent_hooks": [
+        "missing",
+        "null_pattern"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "pollution@condition",
+      "phenomenon_class": "pollution",
+      "witness_evidence": {
+        "collection": "books",
+        "path": "condition",
+        "document_ids": [
+          "books/1",
+          "books/2",
+          "books/3"
+        ],
+        "summary": {
+          "seed": 64
+        }
+      },
+      "detector_signature": "sha256:a62e42d55f9d5afabeef91ee468baea7226a65cb033a9da6e9b39a2a1e041318",
+      "intent_hooks": [
+        "facet"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "sparse_field@rating",
+      "phenomenon_class": "sparse_field",
+      "witness_evidence": {
+        "collection": "books",
+        "path": "rating",
+        "document_ids": [
+          "books/1",
+          "books/4",
+          "books/7",
+          "books/8",
+          "books/9",
+          "books/10",
+          "books/11",
+          "books/14",
+          "books/17",
+          "books/18",
+          "books/19",
+          "books/20",
+          "books/21",
+          "books/22"
+        ],
+        "summary": {
+          "seed": 64
+        }
+      },
+      "detector_signature": "sha256:286ade3b1b142dd13876e442c17d5c6971b71c2a2471f970f9f7a8624d138981",
+      "intent_hooks": [
+        "missing",
+        "coverage"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    }
+  ],
+  "_meta": {
+    "schema_signature": "sha256:75a5b15b9250fb3fb61f851ef47456cca81d53bdc7bdfe445237c80fcdd4027c"
+  }
+}

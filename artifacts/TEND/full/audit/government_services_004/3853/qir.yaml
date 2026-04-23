@@ -1,0 +1,25 @@
+{
+  "pattern_family": "lookup_join",
+  "primary_operator": "$lookup",
+  "input_shape": {
+    "collections": [
+      "requests"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "citizen",
+      "priority",
+      "processing_days"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "citizen",
+    "processing_days",
+    "priority",
+    "year",
+    "feedback_scores",
+    "departments"
+  ]
+}

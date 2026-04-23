@@ -1,0 +1,191 @@
+{
+  "db_id": "education_courses_001",
+  "noise_seed": 28,
+  "phenomena_seed": 70,
+  "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878",
+  "phenomena": [
+    {
+      "phenomenon_id": "skewed_distribution@gpa",
+      "phenomenon_class": "skewed_distribution",
+      "witness_evidence": {
+        "collection": "students",
+        "path": "gpa",
+        "document_ids": [
+          "students/1",
+          "students/2",
+          "students/3",
+          "students/4",
+          "students/5",
+          "students/6",
+          "students/7",
+          "students/8",
+          "students/9",
+          "students/10",
+          "students/11",
+          "students/12",
+          "students/13",
+          "students/14",
+          "students/15",
+          "students/16",
+          "students/17",
+          "students/18",
+          "students/19",
+          "students/20",
+          "students/21",
+          "students/22"
+        ],
+        "summary": {
+          "seed": 70
+        }
+      },
+      "detector_signature": "sha256:b8c5c157e6fd88dfc5feb464d285ca158127a155eccc01a3b9263f1a50b0f0af",
+      "intent_hooks": [
+        "percentile",
+        "distribution"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "cross_group_comparison@avg_score",
+      "phenomenon_class": "cross_group_comparison",
+      "witness_evidence": {
+        "collection": "courses",
+        "path": "avg_score",
+        "document_ids": [
+          "courses/1",
+          "courses/2",
+          "courses/3",
+          "courses/4",
+          "courses/5",
+          "courses/6"
+        ],
+        "summary": {
+          "seed": 70
+        }
+      },
+      "detector_signature": "sha256:355bf489b8f834aa3a049bff2d026c12f480c9a2e2fcff4d755a77d4dff89a12",
+      "intent_hooks": [
+        "group",
+        "compare"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "boundary_value@exam_scores",
+      "phenomenon_class": "boundary_value",
+      "witness_evidence": {
+        "collection": "students",
+        "path": "exam_scores",
+        "document_ids": [
+          "students/1",
+          "students/2",
+          "students/3",
+          "students/4"
+        ],
+        "summary": {
+          "seed": 70
+        }
+      },
+      "detector_signature": "sha256:bf5db78e0481bb8c4bc97a1ff0141f15c1b1c1be8a9210aab4207539768f7524",
+      "intent_hooks": [
+        "edge_case",
+        "boundary"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "null_cluster@gpa",
+      "phenomenon_class": "null_cluster",
+      "witness_evidence": {
+        "collection": "students",
+        "path": "gpa",
+        "document_ids": [
+          "students/1",
+          "students/2",
+          "students/3"
+        ],
+        "summary": {
+          "seed": 70
+        }
+      },
+      "detector_signature": "sha256:1493a0255ee3a53705e301d67e0c000b7698504476b5264ba6d13604406f5679",
+      "intent_hooks": [
+        "missing",
+        "null_filter"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "sparse_field@avg_score",
+      "phenomenon_class": "sparse_field",
+      "witness_evidence": {
+        "collection": "courses",
+        "path": "avg_score",
+        "document_ids": [
+          "courses/1",
+          "courses/2",
+          "courses/4",
+          "courses/5",
+          "courses/6",
+          "courses/7",
+          "courses/8",
+          "courses/10",
+          "courses/11",
+          "courses/12",
+          "courses/13",
+          "courses/14",
+          "courses/15"
+        ],
+        "summary": {
+          "seed": 70
+        }
+      },
+      "detector_signature": "sha256:286ade3b1b142dd13876e442c17d5c6971b71c2a2471f970f9f7a8624d138981",
+      "intent_hooks": [
+        "sparse",
+        "exists"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "correlation@gpa",
+      "phenomenon_class": "correlation",
+      "witness_evidence": {
+        "collection": "students",
+        "path": "gpa",
+        "document_ids": [
+          "students/1",
+          "students/2",
+          "students/3",
+          "students/4",
+          "students/5",
+          "students/6"
+        ],
+        "summary": {
+          "seed": 70
+        }
+      },
+      "detector_signature": "sha256:9a51b50c5171d3af4c407f9c4151317253bcc71434fb9b93ab987040ed86e1b0",
+      "intent_hooks": [
+        "correlation",
+        "regression"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    }
+  ],
+  "_meta": {
+    "schema_signature": "sha256:ec84fd3d420f2bba4b04e9ae58c6022255012c1bee3776edfb10e914273f7246"
+  }
+}

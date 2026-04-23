@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "db_id": "agriculture_farms_006",
+    "record_id": 1319,
+    "schema_fingerprint_hint": "harvests",
+    "si_hash": "sha256:37f920b1c75212e778f40213310510fd2ae502d61496dca718b7711b508a8fc0"
+  },
+  "intent": {
+    "phenomenon_id": "temporal_trend@yield_tons",
+    "phenomenon_class": "temporal_trend",
+    "persona_id": "researcher",
+    "pattern_family": "window_function_with_facet_filter",
+    "collection": "harvests",
+    "metric_field": "yield_tons",
+    "field_leaf": "yield_tons",
+    "label_field": "farm",
+    "time_field": "year",
+    "category_field": "crop",
+    "array_field": "soil_samples",
+    "secondary_collection": null,
+    "join_field": "farm"
+  },
+  "output": {
+    "keys": [
+      "farm",
+      "crop",
+      "yield_tons"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L4",
+    "operator_family": "window_function_with_facet_filter"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$facet",
+      "$setWindowFields"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$facet",
+      "$project",
+      "$setWindowFields",
+      "$unwind"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.harvests.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$yield_tons\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, farm: 1, moving_avg: 1, category: \"$crop\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, farm: \"$kept.farm\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+    ]
+  }
+}

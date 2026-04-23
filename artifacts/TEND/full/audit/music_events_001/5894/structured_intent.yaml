@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "db_id": "music_events_001",
+    "record_id": 5894,
+    "schema_fingerprint_hint": "events",
+    "si_hash": "sha256:cd2b5621e12b7553a09417f3b32b063fd49107a48ab9971ad9d27e058d51294e"
+  },
+  "intent": {
+    "phenomenon_id": "temporal_trend@attendance",
+    "phenomenon_class": "temporal_trend",
+    "persona_id": "researcher",
+    "pattern_family": "window_function_with_facet_filter",
+    "collection": "events",
+    "metric_field": "attendance",
+    "field_leaf": "attendance",
+    "label_field": "name",
+    "time_field": "year",
+    "category_field": "city",
+    "array_field": "fan_scores",
+    "secondary_collection": null,
+    "join_field": "name"
+  },
+  "output": {
+    "keys": [
+      "name",
+      "city",
+      "attendance"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L4",
+    "operator_family": "window_function_with_facet_filter"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$facet",
+      "$setWindowFields"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$facet",
+      "$project",
+      "$setWindowFields",
+      "$unwind"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.events.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$attendance\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, name: 1, moving_avg: 1, category: \"$city\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, name: \"$kept.name\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+    ]
+  }
+}

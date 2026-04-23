@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "db_id": "airline_flights_007",
+    "record_id": 1720,
+    "schema_fingerprint_hint": "flights",
+    "si_hash": "sha256:cc6dd19839fc64c58f470bbb9feeb02e211d6b6fbe5d08e6fa33277a8de22cb6"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@ticket_prices",
+    "phenomenon_class": "rare_event",
+    "persona_id": "end-user",
+    "pattern_family": "array_positional_select",
+    "collection": "flights",
+    "metric_field": "ticket_prices",
+    "field_leaf": "ticket_prices",
+    "label_field": "airline",
+    "time_field": "year",
+    "category_field": "destination",
+    "array_field": "ticket_prices",
+    "secondary_collection": null,
+    "join_field": "airline"
+  },
+  "output": {
+    "keys": [
+      "airline",
+      "destination",
+      "ticket_prices"
+    ],
+    "shape_policy": "preserve"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "array_positional_select"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$arrayElemAt",
+      "$project"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.flights.aggregate([ { $project: { _id: 0, airline: 1, first: { $arrayElemAt: [\"$ticket_prices\", 0] }, last: { $arrayElemAt: [\"$ticket_prices\", -1] }, size: { $size: \"$ticket_prices\" } } }])"
+    ]
+  }
+}

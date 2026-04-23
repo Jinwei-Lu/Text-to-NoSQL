@@ -1,0 +1,25 @@
+{
+  "pattern_family": "dynamic_key_expansion",
+  "primary_operator": "$objectToArray",
+  "input_shape": {
+    "collections": [
+      "patients"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "name",
+      "gender",
+      "heart_rate"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "name",
+    "vitals.heart_rate",
+    "gender",
+    "admission_year",
+    "diagnoses",
+    "trials"
+  ]
+}

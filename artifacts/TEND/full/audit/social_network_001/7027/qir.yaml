@@ -1,0 +1,24 @@
+{
+  "pattern_family": "window_function",
+  "primary_operator": "$setWindowFields",
+  "input_shape": {
+    "collections": [
+      "posts"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "author",
+      "category",
+      "likes"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "author",
+    "likes",
+    "category",
+    "year",
+    "engagement_scores"
+  ]
+}

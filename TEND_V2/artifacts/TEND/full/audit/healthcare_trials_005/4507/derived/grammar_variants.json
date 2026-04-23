@@ -1,4 +1,0 @@
-[
-  "db.patients.aggregate([ { $match: {} }, { $graphLookup: { from: \"patients\", startWith: \"$name\", connectFromField: \"name\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, name: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])",
-  "db.patients.aggregate([ { $graphLookup: { from: \"patients\", startWith: \"$name\", connectFromField: \"name\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, name: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])"
-]

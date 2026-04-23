@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "music_events_008",
+    "record_id": 6246,
+    "schema_fingerprint_hint": "events",
+    "si_hash": "sha256:7a3b9a07d7c19ce7fcdcf3c5c50bde6f59671da93ff1933ede9b6d530cf2a239"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@fan_scores",
+    "phenomenon_class": "rare_event",
+    "persona_id": "end-user",
+    "pattern_family": "filter_then_count",
+    "collection": "events",
+    "metric_field": "fan_scores",
+    "field_leaf": "fan_scores",
+    "label_field": "name",
+    "time_field": "year",
+    "category_field": "city",
+    "array_field": "fan_scores",
+    "secondary_collection": null,
+    "join_field": "name"
+  },
+  "output": {
+    "keys": [
+      "name",
+      "city",
+      "fan_scores"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L1",
+    "operator_family": "filter_then_count"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.events.aggregate([ { $match: { \"fan_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+    ]
+  }
+}

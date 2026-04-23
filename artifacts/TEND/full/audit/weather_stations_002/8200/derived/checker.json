@@ -1,0 +1,13 @@
+{
+  "pattern_family": "type_introspection",
+  "primary_operator": "$type",
+  "must_contain": [
+    "$group",
+    "$type"
+  ],
+  "must_contain_at_root": [
+    "$group",
+    "$project"
+  ],
+  "query": "db.readings.aggregate([ { $group: { _id: { $type: \"$pressure\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+}

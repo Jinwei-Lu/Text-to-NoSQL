@@ -1,0 +1,14 @@
+{
+  "must_contain": [
+    "$facet"
+  ],
+  "must_not_contain": [],
+  "must_contain_at_root": [
+    "$facet",
+    "$project"
+  ],
+  "must_not_contain_at_root": [],
+  "known_variants": [
+    "db.accounts.aggregate([ { $facet: { high: [{ $match: { \"risk_score\": { $gt: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }], low: [{ $match: { \"risk_score\": { $lte: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+  ]
+}

@@ -1,0 +1,1956 @@
+{
+  "train_records": [],
+  "test_records": [
+    {
+      "collection": "sensors",
+      "metric_field": "reading",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1811,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 聚合 reading，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 reading 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average reading per time bucket."
+      ],
+      "MQL": "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "alert_count",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1814,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 计算 alert_count 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of alert_count."
+      ],
+      "MQL": "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "zone",
+      "label_field": "station",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1818,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "区分 zone 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify zone as explicit null, missing, or has value."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading_history",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1822,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "取出 reading_history 的第一个和最后一个元素，并返回数组长度。",
+        "提取数组首尾元素。",
+        "用位置选择器取数组元素。",
+        "获取数组边界值。",
+        "Select the first and last elements from reading_history."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, first: { $arrayElemAt: [\"$reading_history\", 0] }, last: { $arrayElemAt: [\"$reading_history\", -1] }, size: { $size: \"$reading_history\" } } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$arrayElemAt",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, first: { $arrayElemAt: [\"$reading_history\", 0] }, last: { $arrayElemAt: [\"$reading_history\", -1] }, size: { $size: \"$reading_history\" } } }])"
+        ]
+      },
+      "operator_family": "array_positional_select",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1826,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 聚合 reading，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 reading 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average reading per time bucket."
+      ],
+      "MQL": "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "alert_count",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1830,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 计算 alert_count 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of alert_count."
+      ],
+      "MQL": "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "zone",
+      "label_field": "station",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1834,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "区分 zone 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify zone as explicit null, missing, or has value."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading_history",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1838,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "找出 reading_history 中所有元素都高于阈值的记录。",
+        "筛出数组全部满足条件的项。",
+        "只保留数组中每一个元素都达标的文档。",
+        "检查是否所有元素都超过阈值。",
+        "Keep rows where every array element exceeds the threshold."
+      ],
+      "MQL": "db.sensors.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$reading_history\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, station: 1, reading_history: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$allElementsTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$reading_history\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, station: 1, reading_history: 1 } }])"
+        ]
+      },
+      "operator_family": "universal_quantifier",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1842,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 聚合 reading，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 reading 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average reading per time bucket."
+      ],
+      "MQL": "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "alert_count",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1846,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 计算 alert_count 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of alert_count."
+      ],
+      "MQL": "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "zone",
+      "label_field": "station",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1850,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "区分 zone 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify zone as explicit null, missing, or has value."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading_history",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1854,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "先筛选 reading_history 高于阈值的记录，再按 zone 汇总数量和均值。",
+        "过滤高值后按类别统计。",
+        "对超过阈值的数据做分组聚合。",
+        "筛选再聚合，返回每组命中量。",
+        "Filter then aggregate by zone."
+      ],
+      "MQL": "db.sensors.aggregate([ { $match: { \"reading_history\": { $gt: 70 } } }, { $group: { _id: \"$zone\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$reading_history\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, zone: \"$_id\", matched_count: 1, avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$match",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $match: { \"reading_history\": { $gt: 70 } } }, { $group: { _id: \"$zone\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$reading_history\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, zone: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "filter_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1858,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 聚合 reading，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 reading 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average reading per time bucket."
+      ],
+      "MQL": "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "alert_count",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1863,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 计算 alert_count 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of alert_count."
+      ],
+      "MQL": "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "zone",
+      "label_field": "station",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1867,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "区分 zone 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify zone as explicit null, missing, or has value."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading_history",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1871,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "找出 reading_history 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.sensors.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$reading_history\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, station: 1, reading_history: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$reading_history\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, station: 1, reading_history: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1875,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 聚合 reading，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 reading 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average reading per time bucket."
+      ],
+      "MQL": "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "alert_count",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1879,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 计算 alert_count 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of alert_count."
+      ],
+      "MQL": "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "zone",
+      "label_field": "station",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1883,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "区分 zone 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify zone as explicit null, missing, or has value."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading_history",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1887,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "统计 reading_history 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where reading_history exceeds 70."
+      ],
+      "MQL": "db.sensors.aggregate([ { $match: { \"reading_history\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $match: { \"reading_history\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1891,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 聚合 reading，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 reading 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average reading per time bucket."
+      ],
+      "MQL": "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "alert_count",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1895,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 计算 alert_count 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of alert_count."
+      ],
+      "MQL": "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "zone",
+      "label_field": "station",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1899,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "区分 zone 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify zone as explicit null, missing, or has value."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading_history",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1903,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "取出 reading_history 的第一个和最后一个元素，并返回数组长度。",
+        "提取数组首尾元素。",
+        "用位置选择器取数组元素。",
+        "获取数组边界值。",
+        "Select the first and last elements from reading_history."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, first: { $arrayElemAt: [\"$reading_history\", 0] }, last: { $arrayElemAt: [\"$reading_history\", -1] }, size: { $size: \"$reading_history\" } } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$arrayElemAt",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, first: { $arrayElemAt: [\"$reading_history\", 0] }, last: { $arrayElemAt: [\"$reading_history\", -1] }, size: { $size: \"$reading_history\" } } }])"
+        ]
+      },
+      "operator_family": "array_positional_select",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1907,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 聚合 reading，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 reading 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average reading per time bucket."
+      ],
+      "MQL": "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "alert_count",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1911,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 计算 alert_count 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of alert_count."
+      ],
+      "MQL": "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "zone",
+      "label_field": "station",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1915,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "区分 zone 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify zone as explicit null, missing, or has value."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading_history",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1919,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "找出 reading_history 中所有元素都高于阈值的记录。",
+        "筛出数组全部满足条件的项。",
+        "只保留数组中每一个元素都达标的文档。",
+        "检查是否所有元素都超过阈值。",
+        "Keep rows where every array element exceeds the threshold."
+      ],
+      "MQL": "db.sensors.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$reading_history\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, station: 1, reading_history: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$allElementsTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$reading_history\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, station: 1, reading_history: 1 } }])"
+        ]
+      },
+      "operator_family": "universal_quantifier",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1923,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 聚合 reading，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 reading 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average reading per time bucket."
+      ],
+      "MQL": "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "alert_count",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1927,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 计算 alert_count 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of alert_count."
+      ],
+      "MQL": "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "zone",
+      "label_field": "station",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1931,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "区分 zone 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify zone as explicit null, missing, or has value."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading_history",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1935,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "先筛选 reading_history 高于阈值的记录，再按 zone 汇总数量和均值。",
+        "过滤高值后按类别统计。",
+        "对超过阈值的数据做分组聚合。",
+        "筛选再聚合，返回每组命中量。",
+        "Filter then aggregate by zone."
+      ],
+      "MQL": "db.sensors.aggregate([ { $match: { \"reading_history\": { $gt: 70 } } }, { $group: { _id: \"$zone\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$reading_history\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, zone: \"$_id\", matched_count: 1, avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$match",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $match: { \"reading_history\": { $gt: 70 } } }, { $group: { _id: \"$zone\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$reading_history\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, zone: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "filter_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1939,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 聚合 reading，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 reading 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average reading per time bucket."
+      ],
+      "MQL": "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "alert_count",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1943,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 计算 alert_count 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of alert_count."
+      ],
+      "MQL": "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "zone",
+      "label_field": "station",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1947,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "区分 zone 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify zone as explicit null, missing, or has value."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading_history",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1952,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "找出 reading_history 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.sensors.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$reading_history\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, station: 1, reading_history: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$reading_history\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, station: 1, reading_history: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1955,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 聚合 reading，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 reading 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average reading per time bucket."
+      ],
+      "MQL": "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "alert_count",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1959,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 计算 alert_count 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of alert_count."
+      ],
+      "MQL": "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "zone",
+      "label_field": "station",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1964,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "区分 zone 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify zone as explicit null, missing, or has value."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading_history",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1968,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "统计 reading_history 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where reading_history exceeds 70."
+      ],
+      "MQL": "db.sensors.aggregate([ { $match: { \"reading_history\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $match: { \"reading_history\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1972,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 聚合 reading，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 reading 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average reading per time bucket."
+      ],
+      "MQL": "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "alert_count",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1975,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 计算 alert_count 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of alert_count."
+      ],
+      "MQL": "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "zone",
+      "label_field": "station",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1979,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "区分 zone 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify zone as explicit null, missing, or has value."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading_history",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1984,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "取出 reading_history 的第一个和最后一个元素，并返回数组长度。",
+        "提取数组首尾元素。",
+        "用位置选择器取数组元素。",
+        "获取数组边界值。",
+        "Select the first and last elements from reading_history."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, first: { $arrayElemAt: [\"$reading_history\", 0] }, last: { $arrayElemAt: [\"$reading_history\", -1] }, size: { $size: \"$reading_history\" } } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$arrayElemAt",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, first: { $arrayElemAt: [\"$reading_history\", 0] }, last: { $arrayElemAt: [\"$reading_history\", -1] }, size: { $size: \"$reading_history\" } } }])"
+        ]
+      },
+      "operator_family": "array_positional_select",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1987,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 聚合 reading，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 reading 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average reading per time bucket."
+      ],
+      "MQL": "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "alert_count",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1991,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 计算 alert_count 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of alert_count."
+      ],
+      "MQL": "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "zone",
+      "label_field": "station",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1995,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "区分 zone 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify zone as explicit null, missing, or has value."
+      ],
+      "MQL": "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading_history",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 1999,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "找出 reading_history 中所有元素都高于阈值的记录。",
+        "筛出数组全部满足条件的项。",
+        "只保留数组中每一个元素都达标的文档。",
+        "检查是否所有元素都超过阈值。",
+        "Keep rows where every array element exceeds the threshold."
+      ],
+      "MQL": "db.sensors.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$reading_history\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, station: 1, reading_history: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$allElementsTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$reading_history\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, station: 1, reading_history: 1 } }])"
+        ]
+      },
+      "operator_family": "universal_quantifier",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "reading",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 2003,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 聚合 reading，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 reading 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average reading per time bucket."
+      ],
+      "MQL": "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    },
+    {
+      "collection": "sensors",
+      "metric_field": "alert_count",
+      "label_field": "station",
+      "category_field": "zone",
+      "time_field": "year",
+      "array_field": "reading_history",
+      "record_id": 2007,
+      "db_id": "city_sensors_003",
+      "nl_queries": [
+        "按 year 计算 alert_count 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of alert_count."
+      ],
+      "MQL": "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+    }
+  ],
+  "manifest": {
+    "db_id": "city_sensors_003",
+    "domain_id": "city_sensors",
+    "record_count": 50,
+    "schema_signature": "sha256:5f4976dc09bb306d58c2438e2b6f6da555728f2f1c55785e172a0b1829ded7a9",
+    "world_signature": "sha256:62068cb3f97a7d9598cec087bee69b3e9ca9cb307d47fd168682282a95fde2b2"
+  }
+}

@@ -1,3 +1,0 @@
-[
-  "db.readings.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$wind_speeds\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, station: 1, wind_speeds: 1 } }])"
-]

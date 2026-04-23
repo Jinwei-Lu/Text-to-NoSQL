@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_operator",
+    "query": "db.posts.aggregate([ { $match: { \"engagement_scores\": { $lt: 70 } } }, { $count: \"total\" }])"
+  },
+  {
+    "mutation_id": "drop_count",
+    "query": "db.posts.aggregate([ { $match: { \"engagement_scores\": { $gt: 70 } } }, { $group: \"total\" }])"
+  }
+]

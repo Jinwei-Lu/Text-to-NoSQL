@@ -1,4 +1,0 @@
-[
-  "db.meters.aggregate([ { $match: {} }, { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$peak_load\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$peak_load\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, city: 1, peak_load: \"$peak_load\", moving_avg: 1 } }])",
-  "db.meters.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$peak_load\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$peak_load\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, city: 1, peak_load: \"$peak_load\", moving_avg: 1 } }])"
-]

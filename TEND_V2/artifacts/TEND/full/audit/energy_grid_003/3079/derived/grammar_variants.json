@@ -1,3 +1,0 @@
-[
-  "db.meters.aggregate([ { $match: { \"peak_load\": { $gt: 70 } } }, { $count: \"total\" }])"
-]

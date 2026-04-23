@@ -1,0 +1,25 @@
+{
+  "pattern_family": "facet_split",
+  "primary_operator": "$facet",
+  "input_shape": {
+    "collections": [
+      "students"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "name",
+      "department",
+      "exam_scores"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "name",
+    "exam_scores",
+    "department",
+    "enrollment_year",
+    "exam_scores",
+    "courses"
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "healthcare_trials_005",
+    "record_id": 4562,
+    "schema_fingerprint_hint": "trials",
+    "si_hash": "sha256:11ad021e05290db3a2731a53dc7ea6ff4d4bf601ba0f0eee21eba1b70c590dc0"
+  },
+  "intent": {
+    "phenomenon_id": "cross_group_comparison@enrollment_count",
+    "phenomenon_class": "cross_group_comparison",
+    "persona_id": "analyst",
+    "pattern_family": "percentile_approximation",
+    "collection": "trials",
+    "metric_field": "enrollment_count",
+    "field_leaf": "enrollment_count",
+    "label_field": "trial_id",
+    "time_field": "start_year",
+    "category_field": "trial_phase",
+    "array_field": null,
+    "secondary_collection": "patients",
+    "join_field": "trial_id"
+  },
+  "output": {
+    "keys": [
+      "trial_id",
+      "trial_phase",
+      "enrollment_count"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "percentile_approximation"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$percentile"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.trials.aggregate([ { $group: { _id: \"$trial_phase\", p50: { $percentile: { input: \"$enrollment_count\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$enrollment_count\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, trial_phase: \"$_id\", p50: 1, p95: 1 } }])"
+    ]
+  }
+}

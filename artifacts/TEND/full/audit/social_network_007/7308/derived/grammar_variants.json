@@ -1,0 +1,4 @@
+[
+  "db.posts.aggregate([ { $match: {} }, { $project: { _id: 0, author: 1, first: { $arrayElemAt: [\"$engagement_scores\", 0] }, last: { $arrayElemAt: [\"$engagement_scores\", -1] }, size: { $size: \"$engagement_scores\" } } }])",
+  "db.posts.aggregate([ { $project: { _id: 0, author: 1, first: { $arrayElemAt: [\"$engagement_scores\", 0] }, last: { $arrayElemAt: [\"$engagement_scores\", -1] }, size: { $size: \"$engagement_scores\" } } }])"
+]

@@ -1,4 +1,0 @@
-[
-  "db.flights.aggregate([ { $project: { _id: 0, airline: 1, first: { $arrayElemAt: [\"$ticket_prices\", 0] }, last: { $arrayElemAt: [\"$ticket_prices\", -1] }, size: { $size: \"$ticket_prices\" } } }])",
-  "db.flights.aggregate([ { $match: {} }, { $project: { _id: 0, airline: 1, first: { $arrayElemAt: [\"$ticket_prices\", 0] }, last: { $arrayElemAt: [\"$ticket_prices\", -1] }, size: { $size: \"$ticket_prices\" } } }])"
-]

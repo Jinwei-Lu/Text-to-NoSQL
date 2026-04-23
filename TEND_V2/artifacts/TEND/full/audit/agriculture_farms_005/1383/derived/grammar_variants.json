@@ -1,4 +1,0 @@
-[
-  "db.harvests.aggregate([ { $match: {} }, { $facet: { high: [{ $match: { \"yield_tons\": { $gt: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }], low: [{ $match: { \"yield_tons\": { $lte: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
-  "db.harvests.aggregate([ { $facet: { high: [{ $match: { \"yield_tons\": { $gt: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }], low: [{ $match: { \"yield_tons\": { $lte: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
-]

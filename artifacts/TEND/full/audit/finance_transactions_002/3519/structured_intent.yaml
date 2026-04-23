@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "finance_transactions_002",
+    "record_id": 3519,
+    "schema_fingerprint_hint": "accounts",
+    "si_hash": "sha256:732c9ea0b3f4ce6583459c272fc48118f9ec26bcb9841488d4658d3bc73bb033"
+  },
+  "intent": {
+    "phenomenon_id": "outlier@balance",
+    "phenomenon_class": "outlier",
+    "persona_id": "auditor",
+    "pattern_family": "filter_then_count",
+    "collection": "accounts",
+    "metric_field": "balance",
+    "field_leaf": "balance",
+    "label_field": "company",
+    "time_field": "quarter",
+    "category_field": "branch",
+    "array_field": "monthly_volumes",
+    "secondary_collection": "transactions",
+    "join_field": "company"
+  },
+  "output": {
+    "keys": [
+      "company",
+      "branch",
+      "balance"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L1",
+    "operator_family": "filter_then_count"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.accounts.aggregate([ { $match: { \"balance\": { $gt: 70 } } }, { $count: \"total\" }])"
+    ]
+  }
+}

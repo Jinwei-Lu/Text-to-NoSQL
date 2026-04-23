@@ -1,0 +1,24 @@
+{
+  "pattern_family": "facet_split",
+  "primary_operator": "$facet",
+  "input_shape": {
+    "collections": [
+      "books"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "title",
+      "genre",
+      "condition"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "title",
+    "condition",
+    "genre",
+    "year",
+    "borrow_counts"
+  ]
+}

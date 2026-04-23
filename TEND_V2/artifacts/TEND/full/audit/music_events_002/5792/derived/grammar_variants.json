@@ -1,3 +1,0 @@
-[
-  "db.events.aggregate([ { $match: { \"fan_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
-]

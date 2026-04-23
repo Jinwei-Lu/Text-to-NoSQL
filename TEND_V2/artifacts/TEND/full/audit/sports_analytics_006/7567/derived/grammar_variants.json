@@ -1,4 +1,0 @@
-[
-  "db.matches.aggregate([ { $sort: { \"season\": 1 } }, { $group: { _id: \"$season\", avg_value: { $avg: \"$goals\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
-  "db.matches.aggregate([ { $match: {} }, { $sort: { \"season\": 1 } }, { $group: { _id: \"$season\", avg_value: { $avg: \"$goals\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
-]

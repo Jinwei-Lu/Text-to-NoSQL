@@ -1,0 +1,11 @@
+{
+  "pattern_family": "project_only",
+  "primary_operator": "$project",
+  "must_contain": [
+    "$project"
+  ],
+  "must_contain_at_root": [
+    "$project"
+  ],
+  "query": "db.products.aggregate([ { $project: { _id: 0, name: 1, name: \"$name\" } }])"
+}

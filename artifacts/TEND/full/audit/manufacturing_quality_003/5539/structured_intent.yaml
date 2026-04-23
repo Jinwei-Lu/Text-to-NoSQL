@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "manufacturing_quality_003",
+    "record_id": 5539,
+    "schema_fingerprint_hint": "inspections",
+    "si_hash": "sha256:325290a243bfda30dd6b1610acb08396bea019ba4d80460b6987fb413cc0a584"
+  },
+  "intent": {
+    "phenomenon_id": "periodic_pattern@temperature",
+    "phenomenon_class": "periodic_pattern",
+    "persona_id": "analyst",
+    "pattern_family": "anomaly_vs_baseline",
+    "collection": "inspections",
+    "metric_field": "temperature",
+    "field_leaf": "temperature",
+    "label_field": "product",
+    "time_field": "year",
+    "category_field": "line",
+    "array_field": "measurements",
+    "secondary_collection": null,
+    "join_field": "product"
+  },
+  "output": {
+    "keys": [
+      "product",
+      "line",
+      "temperature"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "anomaly_vs_baseline"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$match",
+      "$setWindowFields"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$match",
+      "$project",
+      "$setWindowFields"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.inspections.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$temperature\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$temperature\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, product: 1, temperature: \"$temperature\", moving_avg: 1 } }])"
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+[
+  "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$amount\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, customer: 1, amount: \"$amount\", running_total: 1 } }])",
+  "db.orders.aggregate([ { $match: {} }, { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$amount\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, customer: 1, amount: \"$amount\", running_total: 1 } }])"
+]

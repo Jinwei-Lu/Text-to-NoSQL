@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "facet_threshold_flip",
+    "query": "db.products.aggregate([ { $facet: { high: [{ $match: { \"name\": { $lt: 70 } } }, { $group: { _id: \"$category\", count: { $sum: 1 } } }], low: [{ $match: { \"name\": { $lte: 70 } } }, { $group: { _id: \"$category\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+  },
+  {
+    "mutation_id": "drop_facet_branch",
+    "query": "db.products.aggregate([ { $facet: { high: [{ $match: { \"name\": { $gt: 70 } } }, { $group: { _id: \"$category\", count: { $sum: 1 } } }], low_disabled: [{ $match: { \"name\": { $lte: 70 } } }, { $group: { _id: \"$category\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+  }
+]

@@ -1,4 +1,0 @@
-[
-  "db.meters.aggregate([ { $project: { _id: 0, city: 1, first: { $arrayElemAt: [\"$daily_readings\", 0] }, last: { $arrayElemAt: [\"$daily_readings\", -1] }, size: { $size: \"$daily_readings\" } } }])",
-  "db.meters.aggregate([ { $match: {} }, { $project: { _id: 0, city: 1, first: { $arrayElemAt: [\"$daily_readings\", 0] }, last: { $arrayElemAt: [\"$daily_readings\", -1] }, size: { $size: \"$daily_readings\" } } }])"
-]

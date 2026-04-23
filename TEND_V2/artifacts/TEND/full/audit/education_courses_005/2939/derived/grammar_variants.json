@@ -1,4 +1,0 @@
-[
-  "db.students.aggregate([ { $facet: { high: [{ $match: { \"exam_scores\": { $gt: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }], low: [{ $match: { \"exam_scores\": { $lte: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
-  "db.students.aggregate([ { $match: {} }, { $facet: { high: [{ $match: { \"exam_scores\": { $gt: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }], low: [{ $match: { \"exam_scores\": { $lte: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
-]

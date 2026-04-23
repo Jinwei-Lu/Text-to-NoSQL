@@ -1,3 +1,0 @@
-[
-  "db.flights.aggregate([ { $match: { \"airline\": { $gt: 70 } } }, { $project: { _id: 0, airline: 1, airline: \"$airline\" } }])"
-]

@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "db_id": "finance_transactions_004",
+    "record_id": 3613,
+    "schema_fingerprint_hint": "accounts",
+    "si_hash": "sha256:d4057ad7bed5ddb6dcdc32d9cd09f72c27899d8c80a8f2b7f115541a15b57f20"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@monthly_volumes",
+    "phenomenon_class": "rare_event",
+    "persona_id": "end-user",
+    "pattern_family": "filter_then_aggregate",
+    "collection": "accounts",
+    "metric_field": "monthly_volumes",
+    "field_leaf": "monthly_volumes",
+    "label_field": "company",
+    "time_field": "quarter",
+    "category_field": "branch",
+    "array_field": "monthly_volumes",
+    "secondary_collection": "transactions",
+    "join_field": "company"
+  },
+  "output": {
+    "keys": [
+      "company",
+      "branch",
+      "monthly_volumes"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "filter_then_aggregate"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$match",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.accounts.aggregate([ { $match: { \"monthly_volumes\": { $gt: 70 } } }, { $group: { _id: \"$branch\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$monthly_volumes\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, branch: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+    ]
+  }
+}

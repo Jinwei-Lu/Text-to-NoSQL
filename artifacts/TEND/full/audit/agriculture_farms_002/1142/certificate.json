@@ -1,0 +1,106 @@
+{
+  "record_id": "agriculture_farms_002/1142",
+  "db_id": "agriculture_farms_002",
+  "si_hash": "sha256:a22102bd43bf82f77e5b280fb4f0b0e0f7dcd382f59d5345d4da5b7d0e83a0ab",
+  "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7",
+  "split": "test",
+  "empirical_difficulty": "medium",
+  "phase_d": {
+    "v_correct": {
+      "neighborhood": {
+        "models": [
+          "mock-neighborhood"
+        ],
+        "all_candidates": [
+          {
+            "model": "mock-neighborhood",
+            "ast_pass": true,
+            "exec_equiv": true,
+            "action": "mock_accepted"
+          }
+        ]
+      },
+      "ambiguity": {
+        "attacker_model": "mock-ambiguity",
+        "si_candidates_count": 1,
+        "si_equiv_to_gold_count": 1,
+        "ambiguous": false
+      },
+      "gold_result_size": 0,
+      "pass": true
+    },
+    "v_discrim": {
+      "failure_modes": {
+        "total": 1,
+        "ex_one_count": 0,
+        "threshold": 0.02,
+        "details": [
+          {
+            "mutation_id": "wrong_type_op",
+            "equivalent": false
+          }
+        ],
+        "pass": true
+      },
+      "dual_bridge": {
+        "sql_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "template_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "pass": true
+      },
+      "pass": true
+    },
+    "v_diverse": {
+      "cell": "type_drift/auditor/type_introspection",
+      "axis_values": {
+        "phenomenon_class": "type_drift",
+        "persona_id": "auditor",
+        "pattern_family": "type_introspection",
+        "nosql_nativeness_level": "L2",
+        "shape_policy": "reshape",
+        "difficulty_label": "unknown",
+        "collection_name": "harvests",
+        "time_field_present": "yes",
+        "array_field_present": "yes",
+        "operator_count_bucket": "6-8"
+      },
+      "axis_deltas": {
+        "phenomenon_class": 0.0455,
+        "persona_id": 0.0263,
+        "pattern_family": 0.1,
+        "nosql_nativeness_level": 0.0143,
+        "shape_policy": 0.0077,
+        "difficulty_label": 0.007,
+        "collection_name": 0.007,
+        "time_field_present": 0.007,
+        "array_field_present": 0.007,
+        "operator_count_bucket": 0.0085
+      },
+      "global_count": 142,
+      "min_quota": 1,
+      "max_quota": 999,
+      "delta_f": 0.007,
+      "epsilon": 0.0,
+      "under_quota": false,
+      "pass": true
+    },
+    "calibration": {
+      "target_difficulty": "medium",
+      "pr_small": 0.5,
+      "pr_medium": 0.4,
+      "pr_large": 0.3,
+      "pr_frontier": 0.2,
+      "empirical_difficulty": "medium",
+      "amplify_rounds": 0
+    }
+  },
+  "routing": {
+    "split": "test",
+    "reason": "cross_domain_holdout_selected"
+  }
+}

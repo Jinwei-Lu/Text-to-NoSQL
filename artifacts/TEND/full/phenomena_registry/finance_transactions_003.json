@@ -1,0 +1,179 @@
+{
+  "db_id": "finance_transactions_003",
+  "noise_seed": 31,
+  "phenomena_seed": 79,
+  "world_signature": "sha256:06f40b8c7c2f7ccd3d024515d37ad19e53cfa5794b9f6d8e5472d338d3c24802",
+  "phenomena": [
+    {
+      "phenomenon_id": "skewed_distribution@amount",
+      "phenomenon_class": "skewed_distribution",
+      "witness_evidence": {
+        "collection": "transactions",
+        "path": "amount",
+        "document_ids": [
+          "transactions/1",
+          "transactions/2",
+          "transactions/3",
+          "transactions/4",
+          "transactions/5",
+          "transactions/6",
+          "transactions/7",
+          "transactions/8",
+          "transactions/9",
+          "transactions/10",
+          "transactions/11",
+          "transactions/12",
+          "transactions/13",
+          "transactions/14",
+          "transactions/15",
+          "transactions/16",
+          "transactions/17",
+          "transactions/18",
+          "transactions/19",
+          "transactions/20",
+          "transactions/21",
+          "transactions/22",
+          "transactions/23",
+          "transactions/24",
+          "transactions/25"
+        ],
+        "summary": {
+          "seed": 79
+        }
+      },
+      "detector_signature": "sha256:b8c5c157e6fd88dfc5feb464d285ca158127a155eccc01a3b9263f1a50b0f0af",
+      "intent_hooks": [
+        "percentile",
+        "distribution"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "outlier@balance",
+      "phenomenon_class": "outlier",
+      "witness_evidence": {
+        "collection": "accounts",
+        "path": "balance",
+        "document_ids": [
+          "accounts/18"
+        ],
+        "summary": {
+          "seed": 79
+        }
+      },
+      "detector_signature": "sha256:53764ec2933c3942a515473a7bcff5b862bd284789ace30bac1eeace29cf8522",
+      "intent_hooks": [
+        "topk",
+        "anomaly"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "boundary_value@risk_score",
+      "phenomenon_class": "boundary_value",
+      "witness_evidence": {
+        "collection": "accounts",
+        "path": "risk_score",
+        "document_ids": [
+          "accounts/1",
+          "accounts/2",
+          "accounts/3",
+          "accounts/4"
+        ],
+        "summary": {
+          "seed": 79
+        }
+      },
+      "detector_signature": "sha256:bf5db78e0481bb8c4bc97a1ff0141f15c1b1c1be8a9210aab4207539768f7524",
+      "intent_hooks": [
+        "edge_case",
+        "boundary"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "temporal_trend@amount",
+      "phenomenon_class": "temporal_trend",
+      "witness_evidence": {
+        "collection": "transactions",
+        "path": "amount",
+        "document_ids": [
+          "transactions/1",
+          "transactions/2",
+          "transactions/3",
+          "transactions/4",
+          "transactions/5"
+        ],
+        "summary": {
+          "seed": 79
+        }
+      },
+      "detector_signature": "sha256:125b3a2b9d98f6fb1ae79df37015b54cccbf061aa10f4c0562bfa81ca8a3d6ab",
+      "intent_hooks": [
+        "window",
+        "trend"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "rare_event@monthly_volumes",
+      "phenomenon_class": "rare_event",
+      "witness_evidence": {
+        "collection": "accounts",
+        "path": "monthly_volumes",
+        "document_ids": [
+          "accounts/18"
+        ],
+        "summary": {
+          "seed": 79
+        }
+      },
+      "detector_signature": "sha256:820a89c57bb158f5af0f3a5508b4fb1c9260b8fbf512eeed12f6bf3ef4b3cc23",
+      "intent_hooks": [
+        "rare",
+        "filter"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "correlation@balance",
+      "phenomenon_class": "correlation",
+      "witness_evidence": {
+        "collection": "accounts",
+        "path": "balance",
+        "document_ids": [
+          "accounts/1",
+          "accounts/2",
+          "accounts/3",
+          "accounts/4",
+          "accounts/5",
+          "accounts/6"
+        ],
+        "summary": {
+          "seed": 79
+        }
+      },
+      "detector_signature": "sha256:9a51b50c5171d3af4c407f9c4151317253bcc71434fb9b93ab987040ed86e1b0",
+      "intent_hooks": [
+        "correlation",
+        "regression"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    }
+  ],
+  "_meta": {
+    "schema_signature": "sha256:ae3942e934421ba4edcd67d93f5008a8e5284d5f17dd5d28ab69319857ba82ea"
+  }
+}

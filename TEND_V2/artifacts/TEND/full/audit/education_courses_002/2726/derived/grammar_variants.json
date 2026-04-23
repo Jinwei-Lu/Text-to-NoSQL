@@ -1,4 +1,0 @@
-[
-  "db.courses.aggregate([ { $match: {} }, { $group: { _id: { $type: \"$avg_score\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
-  "db.courses.aggregate([ { $group: { _id: { $type: \"$avg_score\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
-]

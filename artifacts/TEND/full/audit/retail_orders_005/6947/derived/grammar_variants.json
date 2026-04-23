@@ -1,0 +1,4 @@
+[
+  "db.orders.aggregate([ { $match: {} }, { $facet: { high: [{ $match: { \"customer\": { $gt: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }], low: [{ $match: { \"customer\": { $lte: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+  "db.orders.aggregate([ { $facet: { high: [{ $match: { \"customer\": { $gt: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }], low: [{ $match: { \"customer\": { $lte: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+]

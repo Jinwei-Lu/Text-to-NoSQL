@@ -1,0 +1,53 @@
+{
+  "sensors": {
+    "type": "OBJECT",
+    "fields": {
+      "station": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "zone": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "year": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "reading": {
+        "type": "REAL",
+        "nullable": true,
+        "sparse": false
+      },
+      "alert_count": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "reading_history": {
+        "type": "ARRAY",
+        "nullable": false,
+        "sparse": false,
+        "items": {
+          "type": "INT",
+          "nullable": false,
+          "sparse": false
+        }
+      },
+      "_sparse_notes": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": true
+      },
+      "_mixed": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": false,
+        "_mixed_type_hint": true
+      }
+    }
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "library_catalog_002",
+    "record_id": 4770,
+    "schema_fingerprint_hint": "books",
+    "si_hash": "sha256:128c434477f36f5e54750dda0b775b60b1a15b4e34652931baa9f5c41d5c35be"
+  },
+  "intent": {
+    "phenomenon_id": "pollution@condition",
+    "phenomenon_class": "pollution",
+    "persona_id": "auditor",
+    "pattern_family": "null_vs_missing_disambig",
+    "collection": "books",
+    "metric_field": "condition",
+    "field_leaf": "condition",
+    "label_field": "title",
+    "time_field": "year",
+    "category_field": "genre",
+    "array_field": "borrow_counts",
+    "secondary_collection": null,
+    "join_field": "title"
+  },
+  "output": {
+    "keys": [
+      "title",
+      "genre",
+      "condition"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "null_vs_missing_disambig"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$project",
+      "$type"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.books.aggregate([ { $project: { _id: 0, title: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$condition\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$condition\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+    ]
+  }
+}

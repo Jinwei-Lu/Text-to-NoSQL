@@ -1,0 +1,25 @@
+{
+  "pattern_family": "universal_quantifier",
+  "primary_operator": "$allElementsTrue",
+  "input_shape": {
+    "collections": [
+      "requests"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "citizen",
+      "priority",
+      "feedback_scores"
+    ],
+    "shape_policy": "preserve"
+  },
+  "referenced_fields": [
+    "citizen",
+    "feedback_scores",
+    "priority",
+    "year",
+    "feedback_scores",
+    "departments"
+  ]
+}

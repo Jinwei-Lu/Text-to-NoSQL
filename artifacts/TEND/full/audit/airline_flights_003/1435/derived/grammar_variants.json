@@ -1,0 +1,3 @@
+[
+  "db.flights.aggregate([ { $match: { \"delay_minutes\": { $gt: 70 } } }, { $count: \"total\" }])"
+]

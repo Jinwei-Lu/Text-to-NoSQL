@@ -1,4 +1,0 @@
-[
-  "db.matches.aggregate([ { $project: { _id: 0, team: 1, first: { $arrayElemAt: [\"$player_ratings\", 0] }, last: { $arrayElemAt: [\"$player_ratings\", -1] }, size: { $size: \"$player_ratings\" } } }])",
-  "db.matches.aggregate([ { $match: {} }, { $project: { _id: 0, team: 1, first: { $arrayElemAt: [\"$player_ratings\", 0] }, last: { $arrayElemAt: [\"$player_ratings\", -1] }, size: { $size: \"$player_ratings\" } } }])"
-]

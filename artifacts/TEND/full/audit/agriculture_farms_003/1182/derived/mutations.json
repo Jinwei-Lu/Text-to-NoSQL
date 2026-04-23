@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_operator",
+    "query": "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $sum: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+  },
+  {
+    "mutation_id": "reverse_sort",
+    "query": "db.harvests.aggregate([ { $sort: { \"year\": -1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+  }
+]

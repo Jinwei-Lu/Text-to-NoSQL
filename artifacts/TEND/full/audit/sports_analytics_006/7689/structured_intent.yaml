@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "sports_analytics_006",
+    "record_id": 7689,
+    "schema_fingerprint_hint": "matches",
+    "si_hash": "sha256:d6e7995ca72195328b10770657d98f280ef477e91b79cceb38f20b862a5f4f60"
+  },
+  "intent": {
+    "phenomenon_id": "outlier@possession",
+    "phenomenon_class": "outlier",
+    "persona_id": "auditor",
+    "pattern_family": "filter_then_count",
+    "collection": "matches",
+    "metric_field": "possession",
+    "field_leaf": "possession",
+    "label_field": "team",
+    "time_field": "season",
+    "category_field": "stadium",
+    "array_field": "player_ratings",
+    "secondary_collection": null,
+    "join_field": "team"
+  },
+  "output": {
+    "keys": [
+      "team",
+      "stadium",
+      "possession"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L1",
+    "operator_family": "filter_then_count"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.matches.aggregate([ { $match: { \"possession\": { $gt: 70 } } }, { $count: \"total\" }])"
+    ]
+  }
+}

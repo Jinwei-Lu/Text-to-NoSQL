@@ -1,0 +1,6 @@
+[
+  {
+    "mutation_id": "add_extra_field",
+    "query": "db.books.aggregate([ { $project: { _id: 1, title: 1, title: \"$title\" } }])"
+  }
+]

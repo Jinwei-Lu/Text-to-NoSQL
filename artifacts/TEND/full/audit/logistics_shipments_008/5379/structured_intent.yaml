@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "logistics_shipments_008",
+    "record_id": 5379,
+    "schema_fingerprint_hint": "shipments",
+    "si_hash": "sha256:dc45d8b47a8d2e14dbc084e9ebdb44489c1e1450eb0b2c61a61b19d59ba57e71"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@inspection_scores",
+    "phenomenon_class": "rare_event",
+    "persona_id": "auditor",
+    "pattern_family": "filter_then_count",
+    "collection": "shipments",
+    "metric_field": "inspection_scores",
+    "field_leaf": "inspection_scores",
+    "label_field": "warehouse",
+    "time_field": "year",
+    "category_field": "route",
+    "array_field": "inspection_scores",
+    "secondary_collection": null,
+    "join_field": "warehouse"
+  },
+  "output": {
+    "keys": [
+      "warehouse",
+      "route",
+      "inspection_scores"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L1",
+    "operator_family": "filter_then_count"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.shipments.aggregate([ { $match: { \"inspection_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+    ]
+  }
+}

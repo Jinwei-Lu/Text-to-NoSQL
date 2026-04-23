@@ -1,0 +1,14 @@
+{
+  "must_contain": [
+    "$facet"
+  ],
+  "must_not_contain": [],
+  "must_contain_at_root": [
+    "$facet",
+    "$project"
+  ],
+  "must_not_contain_at_root": [],
+  "known_variants": [
+    "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+  ]
+}

@@ -1,0 +1,4 @@
+[
+  "db.events.aggregate([ { $match: {} }, { $lookup: { from: \"events\", localField: \"name\", foreignField: \"name\", as: \"joined\" } }, { $project: { _id: 0, name: 1, ticket_revenue: \"$ticket_revenue\", joined_count: { $size: \"$joined\" } } }, { $sort: { joined_count: -1 } }])",
+  "db.events.aggregate([ { $lookup: { from: \"events\", localField: \"name\", foreignField: \"name\", as: \"joined\" } }, { $project: { _id: 0, name: 1, ticket_revenue: \"$ticket_revenue\", joined_count: { $size: \"$joined\" } } }, { $sort: { joined_count: -1 } }])"
+]

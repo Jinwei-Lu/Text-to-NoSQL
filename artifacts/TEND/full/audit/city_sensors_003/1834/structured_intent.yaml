@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "city_sensors_003",
+    "record_id": 1834,
+    "schema_fingerprint_hint": "sensors",
+    "si_hash": "sha256:57226b1cf02afa2f128a2759d4d17063f3acb968dc697a5683b64f2915e5377e"
+  },
+  "intent": {
+    "phenomenon_id": "pollution@zone",
+    "phenomenon_class": "pollution",
+    "persona_id": "researcher",
+    "pattern_family": "null_vs_missing_disambig",
+    "collection": "sensors",
+    "metric_field": "zone",
+    "field_leaf": "zone",
+    "label_field": "station",
+    "time_field": "year",
+    "category_field": "_sparse_notes",
+    "array_field": "reading_history",
+    "secondary_collection": null,
+    "join_field": "station"
+  },
+  "output": {
+    "keys": [
+      "station",
+      "_sparse_notes",
+      "zone"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "null_vs_missing_disambig"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$project",
+      "$type"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+    ]
+  }
+}

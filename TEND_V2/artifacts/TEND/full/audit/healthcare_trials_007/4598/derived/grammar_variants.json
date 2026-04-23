@@ -1,4 +1,0 @@
-[
-  "db.trials.aggregate([ { $match: {} }, { $group: { _id: \"$trial_phase\", p50: { $percentile: { input: \"$enrollment_count\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$enrollment_count\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, trial_phase: \"$_id\", p50: 1, p95: 1 } }])",
-  "db.trials.aggregate([ { $group: { _id: \"$trial_phase\", p50: { $percentile: { input: \"$enrollment_count\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$enrollment_count\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, trial_phase: \"$_id\", p50: 1, p95: 1 } }])"
-]

@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "telecom_network_004",
+    "record_id": 8015,
+    "schema_fingerprint_hint": "cells",
+    "si_hash": "sha256:9c6c2b0c5ff265f1c67be97d456a85aa353c56b1191258e3385631309eace184"
+  },
+  "intent": {
+    "phenomenon_id": "temporal_trend@throughput_mbps",
+    "phenomenon_class": "temporal_trend",
+    "persona_id": "analyst",
+    "pattern_family": "time_window_aggregate",
+    "collection": "cells",
+    "metric_field": "throughput_mbps",
+    "field_leaf": "throughput_mbps",
+    "label_field": "tower",
+    "time_field": "year",
+    "category_field": "region",
+    "array_field": "signal_strength",
+    "secondary_collection": null,
+    "join_field": "tower"
+  },
+  "output": {
+    "keys": [
+      "tower",
+      "region",
+      "throughput_mbps"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "time_window_aggregate"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$sort"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.cells.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$throughput_mbps\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+    ]
+  }
+}

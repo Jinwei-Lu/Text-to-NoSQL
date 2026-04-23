@@ -1,0 +1,246 @@
+{
+  "shipments": [
+    {
+      "_id": 1,
+      "warehouse": " W-North ",
+      "route": "R1",
+      "year": 2018,
+      "delay_hours": "50",
+      "packages": 20,
+      "inspection_scores": [
+        56,
+        43,
+        65
+      ]
+    },
+    {
+      "_id": 2,
+      "warehouse": "W-South",
+      "route": "R2",
+      "year": 2019,
+      "delay_hours": 60,
+      "packages": 60,
+      "inspection_scores": [
+        40,
+        73,
+        99,
+        55,
+        41
+      ]
+    },
+    {
+      "_id": 3,
+      "warehouse": "W-East",
+      "route": "R3",
+      "year": 2020,
+      "delay_hours": 70,
+      "packages": 100,
+      "inspection_scores": [
+        93,
+        81,
+        62,
+        74,
+        96
+      ]
+    },
+    {
+      "_id": 4,
+      "warehouse": "W-North",
+      "route": "R4",
+      "year": 2021,
+      "delay_hours": 80,
+      "packages": 20,
+      "inspection_scores": [
+        91,
+        76,
+        83
+      ]
+    },
+    {
+      "_id": 5,
+      "warehouse": "W-South",
+      "route": "R1",
+      "year": 2022,
+      "delay_hours": 90,
+      "packages": 60,
+      "inspection_scores": [
+        80,
+        75,
+        97,
+        47
+      ]
+    },
+    {
+      "_id": 6,
+      "warehouse": "W-East",
+      "route": "R2",
+      "year": 2023,
+      "delay_hours": 100,
+      "packages": 100,
+      "inspection_scores": [
+        96,
+        59,
+        56,
+        72
+      ]
+    },
+    {
+      "_id": 7,
+      "warehouse": "W-North",
+      "route": "R3",
+      "year": 2024,
+      "delay_hours": 110,
+      "packages": 20,
+      "inspection_scores": [
+        89,
+        41
+      ]
+    },
+    {
+      "_id": 8,
+      "warehouse": "W-South",
+      "route": "R4",
+      "year": 2025,
+      "delay_hours": 120,
+      "packages": 60,
+      "inspection_scores": [
+        73,
+        81,
+        51
+      ]
+    },
+    {
+      "_id": 9,
+      "warehouse": "W-East",
+      "route": "R1",
+      "year": 2026,
+      "delay_hours": 130,
+      "packages": 100,
+      "inspection_scores": [
+        73,
+        61,
+        44,
+        41
+      ]
+    },
+    {
+      "_id": 10,
+      "warehouse": "W-North",
+      "route": "R2",
+      "year": 2027,
+      "delay_hours": 140,
+      "packages": 20,
+      "inspection_scores": [
+        56,
+        99,
+        70,
+        56,
+        77
+      ]
+    },
+    {
+      "_id": 11,
+      "warehouse": "W-South",
+      "route": "R3",
+      "year": 2028,
+      "delay_hours": 150,
+      "packages": 60,
+      "inspection_scores": [
+        92,
+        51,
+        72
+      ]
+    },
+    {
+      "_id": 12,
+      "warehouse": "W-East",
+      "route": "R4",
+      "year": 2029,
+      "delay_hours": 160,
+      "packages": 100,
+      "inspection_scores": [
+        63,
+        99,
+        67,
+        97,
+        87
+      ]
+    },
+    {
+      "_id": 13,
+      "warehouse": "W-North",
+      "route": "R1",
+      "year": 2030,
+      "delay_hours": 170,
+      "packages": 20,
+      "inspection_scores": [
+        59,
+        91,
+        91,
+        81,
+        93
+      ]
+    },
+    {
+      "_id": 14,
+      "warehouse": "W-South",
+      "route": "R2",
+      "year": 2031,
+      "delay_hours": 180,
+      "packages": 60,
+      "inspection_scores": [
+        86,
+        50,
+        58
+      ]
+    },
+    {
+      "_id": 15,
+      "warehouse": "W-East",
+      "route": "R3",
+      "year": 2032,
+      "delay_hours": 190,
+      "packages": 100,
+      "inspection_scores": [
+        89,
+        61
+      ]
+    },
+    {
+      "_id": 16,
+      "warehouse": "W-North",
+      "route": "R4",
+      "year": 2033,
+      "delay_hours": 200,
+      "packages": 20,
+      "inspection_scores": [
+        86,
+        90,
+        92,
+        80,
+        74
+      ]
+    },
+    {
+      "_id": 17,
+      "warehouse": "W-South",
+      "route": "R1",
+      "year": 2034,
+      "delay_hours": 210,
+      "packages": 60,
+      "inspection_scores": [
+        49,
+        92
+      ]
+    },
+    {
+      "_id": 18,
+      "warehouse": "W-East",
+      "route": "R2",
+      "year": 10175,
+      "delay_hours": 220,
+      "packages": 100,
+      "inspection_scores": "rare"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "pattern_family": "percentile_approximation",
+  "primary_operator": "$percentile",
+  "must_contain": [
+    "$group",
+    "$percentile"
+  ],
+  "must_contain_at_root": [
+    "$group",
+    "$project"
+  ],
+  "query": "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$yield_tons\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$yield_tons\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+}

@@ -1,0 +1,4 @@
+[
+  "db.reviews.aggregate([ { $project: { _id: 0, title: 1, first: { $arrayElemAt: [\"$helpful_votes\", 0] }, last: { $arrayElemAt: [\"$helpful_votes\", -1] }, size: { $size: \"$helpful_votes\" } } }])",
+  "db.reviews.aggregate([ { $match: {} }, { $project: { _id: 0, title: 1, first: { $arrayElemAt: [\"$helpful_votes\", 0] }, last: { $arrayElemAt: [\"$helpful_votes\", -1] }, size: { $size: \"$helpful_votes\" } } }])"
+]

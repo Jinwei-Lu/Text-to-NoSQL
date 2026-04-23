@@ -1,4 +1,0 @@
-[
-  "db.orders.aggregate([ { $project: { _id: 0, customer: 1, value: { $ifNull: [\"$segment\", 0] } } }, { $sort: { value: -1 } }])",
-  "db.orders.aggregate([ { $match: {} }, { $project: { _id: 0, customer: 1, value: { $ifNull: [\"$segment\", 0] } } }, { $sort: { value: -1 } }])"
-]

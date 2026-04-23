@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_operator",
+    "query": "db.inspections.aggregate([ { $match: { \"line\": { $lt: 70 } } }, { $project: { _id: 0, product: 1, line: \"$line\" } }])"
+  },
+  {
+    "mutation_id": "tight_threshold",
+    "query": "db.inspections.aggregate([ { $match: { \"line\": { $gt: 90 } } }, { $project: { _id: 0, product: 1, line: \"$line\" } }])"
+  }
+]

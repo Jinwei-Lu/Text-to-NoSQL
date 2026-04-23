@@ -1,0 +1,25 @@
+{
+  "pattern_family": "existential_quantifier",
+  "primary_operator": "$match",
+  "input_shape": {
+    "collections": [
+      "requests"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "citizen",
+      "priority",
+      "feedback_scores"
+    ],
+    "shape_policy": "preserve"
+  },
+  "referenced_fields": [
+    "citizen",
+    "feedback_scores",
+    "priority",
+    "year",
+    "feedback_scores",
+    "departments"
+  ]
+}

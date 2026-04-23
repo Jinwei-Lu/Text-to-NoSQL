@@ -1,0 +1,24 @@
+{
+  "pattern_family": "anomaly_vs_baseline",
+  "primary_operator": "$setWindowFields",
+  "input_shape": {
+    "collections": [
+      "orders"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "customer",
+      "segment",
+      "amount"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "customer",
+    "amount",
+    "segment",
+    "year",
+    "basket_scores"
+  ]
+}

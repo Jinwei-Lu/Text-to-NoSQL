@@ -1,0 +1,39 @@
+{
+  "noise_seed": 32,
+  "noise_budget": {
+    "literal": 0.15,
+    "structural": 0.1,
+    "semantic": 0.12,
+    "historical": 0.08,
+    "pollution": 0.12,
+    "type_polymorphism": 0.1
+  },
+  "applied_layers": [
+    "literal",
+    "structural",
+    "semantic",
+    "historical",
+    "pollution",
+    "type_polymorphism"
+  ],
+  "events": [
+    {
+      "layer": "historical",
+      "type": "partial_update",
+      "field": "doc_id=8"
+    },
+    {
+      "layer": "pollution",
+      "type": "sentinel_value",
+      "field": "shift"
+    }
+  ],
+  "layer_summary": {
+    "literal": 0,
+    "structural": 0,
+    "semantic": 0,
+    "historical": 1,
+    "pollution": 1,
+    "type_polymorphism": 0
+  }
+}

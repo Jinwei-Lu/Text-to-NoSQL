@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_index",
+    "query": "db.meters.aggregate([ { $project: { _id: 0, city: 1, first: { $arrayElemAt: [\"$daily_readings\", 1] }, last: { $arrayElemAt: [\"$daily_readings\", -1] }, size: { $size: \"$daily_readings\" } } }])"
+  },
+  {
+    "mutation_id": "drop_size",
+    "query": "db.meters.aggregate([ { $project: { _id: 0, city: 1, first: { $arrayElemAt: [\"$daily_readings\", 0] }, last: { $arrayElemAt: [\"$daily_readings\", -1] }, size: { $type: \"$daily_readings\" } } }])"
+  }
+]

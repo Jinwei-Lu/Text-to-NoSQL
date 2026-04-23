@@ -1,3 +1,0 @@
-[
-  "db.meters.aggregate([ { $match: { \"daily_readings\": { $gt: 70 } } }, { $count: \"total\" }])"
-]

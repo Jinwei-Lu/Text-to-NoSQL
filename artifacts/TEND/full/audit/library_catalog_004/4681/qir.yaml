@@ -1,0 +1,24 @@
+{
+  "pattern_family": "null_vs_missing_disambig",
+  "primary_operator": "$type",
+  "input_shape": {
+    "collections": [
+      "books"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "title",
+      "genre",
+      "condition"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "title",
+    "condition",
+    "genre",
+    "year",
+    "borrow_counts"
+  ]
+}

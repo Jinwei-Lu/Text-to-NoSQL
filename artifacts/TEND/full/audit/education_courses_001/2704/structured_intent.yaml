@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "education_courses_001",
+    "record_id": 2704,
+    "schema_fingerprint_hint": "courses",
+    "si_hash": "sha256:7ea2c91c8fde513db40176a2b2d58ee0e5805547d53846f1d0f932415ea73e00"
+  },
+  "intent": {
+    "phenomenon_id": "sparse_field@avg_score",
+    "phenomenon_class": "sparse_field",
+    "persona_id": "researcher",
+    "pattern_family": "null_vs_missing_disambig",
+    "collection": "courses",
+    "metric_field": "avg_score",
+    "field_leaf": "avg_score",
+    "label_field": "title",
+    "time_field": "year",
+    "category_field": "difficulty",
+    "array_field": null,
+    "secondary_collection": "students",
+    "join_field": "title"
+  },
+  "output": {
+    "keys": [
+      "title",
+      "difficulty",
+      "avg_score"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "null_vs_missing_disambig"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$project",
+      "$type"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.courses.aggregate([ { $project: { _id: 0, title: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$avg_score\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$avg_score\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+[
+  "db.accounts.aggregate([ { $match: {} }, { $facet: { high: [{ $match: { \"risk_score\": { $gt: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }], low: [{ $match: { \"risk_score\": { $lte: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+  "db.accounts.aggregate([ { $facet: { high: [{ $match: { \"risk_score\": { $gt: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }], low: [{ $match: { \"risk_score\": { $lte: 70 } } }, { $group: { _id: \"$branch\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+]
