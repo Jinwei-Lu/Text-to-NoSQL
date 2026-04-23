@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "db_id": "ecommerce_reviews_008",
+    "record_id": 2508,
+    "schema_fingerprint_hint": "reviews",
+    "si_hash": "sha256:5f13ec163e7defd420faec8b23e5e79441f3382355bb87e773704609c092ddf2"
+  },
+  "intent": {
+    "phenomenon_id": "cross_group_comparison@rating",
+    "phenomenon_class": "cross_group_comparison",
+    "persona_id": "analyst",
+    "pattern_family": "window_function_with_facet_filter",
+    "collection": "reviews",
+    "metric_field": "rating",
+    "field_leaf": "rating",
+    "label_field": "title",
+    "time_field": "year",
+    "category_field": "sentiment",
+    "array_field": "helpful_votes",
+    "secondary_collection": "products",
+    "join_field": "title"
+  },
+  "output": {
+    "keys": [
+      "title",
+      "sentiment",
+      "rating"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L4",
+    "operator_family": "window_function_with_facet_filter"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$facet",
+      "$setWindowFields"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$facet",
+      "$project",
+      "$setWindowFields",
+      "$unwind"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.reviews.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$rating\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, title: 1, moving_avg: 1, category: \"$sentiment\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, title: \"$kept.title\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+    ]
+  }
+}

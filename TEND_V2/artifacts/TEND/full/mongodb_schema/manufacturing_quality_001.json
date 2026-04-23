@@ -1,0 +1,63 @@
+{
+  "inspections": {
+    "type": "OBJECT",
+    "fields": {
+      "product": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "line": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "shift": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "defect_count": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "temperature": {
+        "type": "REAL",
+        "nullable": true,
+        "sparse": false
+      },
+      "year": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "measurements": {
+        "type": "ARRAY",
+        "nullable": false,
+        "sparse": false,
+        "items": {
+          "type": "REAL",
+          "nullable": false,
+          "sparse": false
+        }
+      },
+      "is_passed": {
+        "type": "BOOL",
+        "nullable": false,
+        "sparse": false
+      },
+      "_sparse_notes": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": true
+      },
+      "_poly_field": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": false,
+        "_polymorphic_hint": true
+      }
+    }
+  }
+}

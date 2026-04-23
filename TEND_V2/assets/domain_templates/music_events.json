@@ -1,0 +1,59 @@
+{
+  "domain_id": "music_events",
+  "name": "Music Events",
+  "entities": [
+    {
+      "collection": "events",
+      "cardinality": 12,
+      "fields": [
+        { "name": "name", "type": "TEXT", "values": ["Aurora", "Luna", "Nova"], "sparse": false },
+        { "name": "city", "type": "TEXT", "values": ["Paris", "Berlin", "Tokyo"], "sparse": false },
+        { "name": "year", "type": "INT", "role": "time", "nullable": false },
+        { "name": "attendance", "type": "INT", "range": [50, 250], "nullable": true, "null_rate": 0.05 },
+        { "name": "ticket_revenue", "type": "REAL", "range": [1000.0, 9000.0], "nullable": false },
+        { "name": "fan_scores", "type": "ARRAY", "min_items": 3, "max_items": 5, "items": { "type": "INT", "range": [10, 100], "name": "fan_score" } }
+      ]
+    }
+  ],
+  "relations": [],
+  "f_topology_hints": {
+    "nested_objects": false,
+    "sparse_embedded": true,
+    "time_series_ready": true
+  },
+  "distribution_priors": {
+    "default_cardinality": 12
+  },
+  "phenomenon_blueprints": [
+    {
+      "phenomenon_class": "temporal_trend",
+      "collection": "events",
+      "path": "attendance",
+      "intent_hooks": ["trend", "ranking"]
+    },
+    {
+      "phenomenon_class": "outlier",
+      "collection": "events",
+      "path": "ticket_revenue",
+      "intent_hooks": ["topk", "aggregate"]
+    },
+    {
+      "phenomenon_class": "null_cluster",
+      "collection": "events",
+      "path": "attendance",
+      "intent_hooks": ["filter"]
+    },
+    {
+      "phenomenon_class": "cross_group_comparison",
+      "collection": "events",
+      "path": "ticket_revenue",
+      "intent_hooks": ["group_compare", "facet"]
+    },
+    {
+      "phenomenon_class": "rare_event",
+      "collection": "events",
+      "path": "fan_scores",
+      "intent_hooks": ["existential", "filter"]
+    }
+  ]
+}

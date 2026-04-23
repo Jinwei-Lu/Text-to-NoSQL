@@ -1,0 +1,152 @@
+[
+  {
+    "mutation_id": "maxdepth_zero",
+    "failure_type": "wrong_depth_limit",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 0 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "lookup_instead_of_graphlookup",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $lookup: {{ from: \"{collection}\", localField: \"{label_field}\", foreignField: \"{category_field}\", as: \"hierarchy\" }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_maxdepth_one",
+    "failure_type": "wrong_depth_limit",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_maxdepth_large",
+    "failure_type": "wrong_depth_limit",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 100 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_swap_connect_fields",
+    "failure_type": "wrong_join_key",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{category_field}\", connectToField: \"{label_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_wrong_start_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${metric_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_wrong_connect_from",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{metric_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_wrong_connect_to",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{metric_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_missing_project",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_include_id",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 1, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_count_instead_of_size",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_extra_match",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{label_field}\": {{ $exists: true }} }} }}, {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_extra_sort",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $sort: {{ hierarchy_depth: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_extra_limit",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $limit: {top_k} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_extra_unwind",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $unwind: \"$hierarchy\" }}, {{ $project: {{ _id: 0, {label_field}: 1, connected: \"$hierarchy.{label_field}\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_wrong_from",
+    "failure_type": "wrong_join_key",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"wrong_collection\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_null_handling",
+    "failure_type": "null_handling_error",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{label_field}\": {{ $ne: null }} }} }}, {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_wrong_as_name",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"result\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_no_maxdepth",
+    "failure_type": "wrong_depth_limit",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\" }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_wrong_alias",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, name: \"${label_field}\", depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_group_after",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $group: {{ _id: null, avg_depth: {{ $avg: {{ $size: \"$hierarchy\" }} }} }} }}, {{ $project: {{ _id: 0, avg_depth: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_type_confusion",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${metric_field}\", connectFromField: \"{metric_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_facet_approach",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $facet: {{ with_hierarchy: [{{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }}] }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_depth_filter_after",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $addFields: {{ hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }}, {{ $match: {{ hierarchy_depth: {{ $gt: 0 }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_sample_first",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sample: {{ size: 10 }} }}, {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_restrict_search",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5, restrictSearchWithMatch: {{ \"{metric_field}\": {{ $gt: {threshold} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_project_hierarchy_raw",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_replaceroot",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $replaceRoot: {{ newRoot: {{ {label_field}: \"${label_field}\", depth: {{ $size: \"$hierarchy\" }} }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_maxdepth_two",
+    "failure_type": "wrong_depth_limit",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 2 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_grd_double_graphlookup",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${label_field}\", connectFromField: \"{label_field}\", connectToField: \"{category_field}\", as: \"hierarchy\", maxDepth: 5 }} }}, {{ $graphLookup: {{ from: \"{collection}\", startWith: \"${category_field}\", connectFromField: \"{category_field}\", connectToField: \"{label_field}\", as: \"reverse_hierarchy\", maxDepth: 5 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, hierarchy_depth: {{ $size: \"$hierarchy\" }}, reverse_depth: {{ $size: \"$reverse_hierarchy\" }} }} }} ])"
+  }
+]

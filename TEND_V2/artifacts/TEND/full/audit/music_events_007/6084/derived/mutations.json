@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_from",
+    "query": "db.events.aggregate([ { $group: { from: \"events\", localField: \"name\", foreignField: \"name\", as: \"joined\" } }, { $project: { _id: 0, name: 1, ticket_revenue: \"$ticket_revenue\", joined_count: { $size: \"$joined\" } } }, { $sort: { joined_count: -1 } }])"
+  },
+  {
+    "mutation_id": "reverse_sort",
+    "query": "db.events.aggregate([ { $lookup: { from: \"events\", localField: \"name\", foreignField: \"name\", as: \"joined\" } }, { $project: { _id: 0, name: 1, ticket_revenue: \"$ticket_revenue\", joined_count: { $size: \"$joined\" } } }, { $sort: { joined_count: 1 } }])"
+  }
+]

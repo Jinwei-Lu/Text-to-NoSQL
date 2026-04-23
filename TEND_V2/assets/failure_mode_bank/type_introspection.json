@@ -1,0 +1,152 @@
+[
+  {
+    "mutation_id": "tostring_instead_of_type",
+    "failure_type": "wrong_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $toString: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "wrong_grouping_key",
+    "failure_type": "wrong_group",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"${label_field}\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_wrong_field_typed",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${label_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_category_field_typed",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${category_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_toint_instead_of_type",
+    "failure_type": "wrong_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $toInt: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_typeof_literal",
+    "failure_type": "wrong_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $literal: \"double\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_missing_addfields",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_missing_group",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, field_type: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_missing_project",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_avg_instead_of_count",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $avg: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_sum_field",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_include_id",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 1, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_extra_match",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": {{ $exists: true }} }} }}, {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_extra_sort",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $sort: {{ count: -1 }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_extra_limit",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $limit: {top_k} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_push_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", items: {{ $push: \"${label_field}\" }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", items: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_addtoset_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", unique_vals: {{ $addToSet: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", unique_vals: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_wrong_alias",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, field_type: \"$_id\", total: \"$count\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_group_by_category",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"${category_field}\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_null_handling",
+    "failure_type": "null_handling_error",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": {{ $ne: null }} }} }}, {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_stage_order_reversed",
+    "failure_type": "wrong_stage_order",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, count: {{ $sum: 1 }} }} }}, {{ $addFields: {{ field_type: \"all\" }} }}, {{ $project: {{ _id: 0, type: \"$field_type\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_first_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", example: {{ $first: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", example: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_switch_instead",
+    "failure_type": "wrong_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $switch: {{ branches: [{{ case: {{ $isNumber: \"${metric_field}\" }}, then: \"number\" }}], default: \"other\" }} }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_facet_approach",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $facet: {{ types: [{{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}] }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_double_addfields",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $addFields: {{ field_type: \"unknown\" }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_replaceroot",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $replaceRoot: {{ newRoot: {{ type: \"$_id\", count: \"$count\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_unwind_before",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $unwind: \"${metric_field}\" }}, {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_sample_first",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sample: {{ size: 100 }} }}, {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_type_on_time_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ field_type: {{ $type: \"${time_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_ti_project_before_addfields",
+    "failure_type": "wrong_stage_order",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ {metric_field}: 1 }} }}, {{ $addFields: {{ field_type: {{ $type: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: \"$field_type\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, type: \"$_id\", count: 1 }} }} ])"
+  }
+]

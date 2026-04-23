@@ -1,0 +1,70 @@
+{
+  "db_id": "social_network_003",
+  "phenomena_seed": 61,
+  "decisions": [
+    {
+      "phenomenon_id": "high_cardinality@author",
+      "collection": "posts",
+      "path": "author",
+      "document_ids": [
+        "posts/1",
+        "posts/2",
+        "posts/3",
+        "posts/4",
+        "posts/5",
+        "posts/6",
+        "posts/7",
+        "posts/8"
+      ]
+    },
+    {
+      "phenomenon_id": "outlier@likes",
+      "collection": "posts",
+      "path": "likes",
+      "document_ids": [
+        "posts/25"
+      ]
+    },
+    {
+      "phenomenon_id": "pollution@category",
+      "collection": "posts",
+      "path": "category",
+      "document_ids": [
+        "posts/1",
+        "posts/2",
+        "posts/3"
+      ]
+    },
+    {
+      "phenomenon_id": "temporal_trend@likes",
+      "collection": "posts",
+      "path": "likes",
+      "document_ids": [
+        "posts/1",
+        "posts/2",
+        "posts/3",
+        "posts/4",
+        "posts/5"
+      ]
+    },
+    {
+      "phenomenon_id": "duplicate_cluster@shares",
+      "collection": "posts",
+      "path": "shares",
+      "document_ids": [
+        "posts/1",
+        "posts/2",
+        "posts/3",
+        "posts/4"
+      ]
+    },
+    {
+      "phenomenon_id": "rare_event@engagement_scores",
+      "collection": "posts",
+      "path": "engagement_scores",
+      "document_ids": [
+        "posts/25"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,152 @@
+[
+  {
+    "mutation_id": "all_elements_instead_of_any",
+    "failure_type": "quantifier_swap",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $allElementsTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "wrong_array_threshold",
+    "failure_type": "threshold_drift",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold_minus_20}] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_lt_instead_of_gt",
+    "failure_type": "predicate_flip",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $lt: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_gte_boundary",
+    "failure_type": "predicate_boundary",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gte: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_lte_flip",
+    "failure_type": "predicate_flip",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $lte: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_eq_compare",
+    "failure_type": "wrong_comparison",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $eq: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_wrong_array_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${metric_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_threshold_doubled",
+    "failure_type": "threshold_drift",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_missing_match",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_missing_project",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_unwind_instead_of_map",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $unwind: \"${array_field}\" }}, {{ $match: {{ \"{array_field}\": {{ $gt: {threshold} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_filter_instead_of_map",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{array_field}\": {{ $elemMatch: {{ $gt: {threshold} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_include_id",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $project: {{ _id: 1, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_project_missing_array",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_project_missing_label",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_extra_sort",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $sort: {{ \"{label_field}\": 1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_extra_limit",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $limit: {top_k} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_extra_group",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $group: {{ _id: \"${label_field}\", arrays: {{ $push: \"${array_field}\" }} }} }}, {{ $project: {{ _id: 0, {label_field}: \"$_id\", arrays: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_null_handling",
+    "failure_type": "null_handling_error",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $and: [{{ \"{array_field}\": {{ $ne: null }} }}, {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }}] }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_type_confusion",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", \"{threshold}\"] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_ne_instead_of_gt",
+    "failure_type": "wrong_comparison",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $ne: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_or_wrap",
+    "failure_type": "wrong_logical_op",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $or: [{{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }}] }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_size_check",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $gt: [{{ $size: \"${array_field}\" }}, 0] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_reduce_instead_of_map",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $reduce: {{ input: \"${array_field}\", initialValue: false, in: {{ $or: [\"$$value\", {{ $gt: [\"$$this\", {threshold}] }}] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_wrong_variable_name",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"elem\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_addfields_before",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ array_size: {{ $size: \"${array_field}\" }} }} }}, {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_project_with_filter",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, filtered: {{ $filter: {{ input: \"${array_field}\", as: \"item\", cond: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_first_instead_of_any",
+    "failure_type": "wrong_comparison",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $gt: [{{ $arrayElemAt: [\"${array_field}\", 0] }}, {threshold}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_threshold_zero",
+    "failure_type": "threshold_drift",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", 0] }} }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_eq_double_match",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $anyElementTrue: {{ $map: {{ input: \"${array_field}\", as: \"item\", in: {{ $gt: [\"$$item\", {threshold}] }} }} }} }} }} }}, {{ $match: {{ \"{label_field}\": {{ $exists: true }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }} ])"
+  }
+]

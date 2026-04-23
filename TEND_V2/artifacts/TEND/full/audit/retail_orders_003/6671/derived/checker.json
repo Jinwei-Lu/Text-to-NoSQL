@@ -1,0 +1,11 @@
+{
+  "pattern_family": "project_only",
+  "primary_operator": "$project",
+  "must_contain": [
+    "$project"
+  ],
+  "must_contain_at_root": [
+    "$project"
+  ],
+  "query": "db.orders.aggregate([ { $project: { _id: 0, customer: 1, customer: \"$customer\" } }])"
+}

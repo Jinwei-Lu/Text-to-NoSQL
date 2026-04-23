@@ -1,0 +1,42 @@
+{
+  "domain_id": "education_courses",
+  "name": "Education Courses",
+  "entities": [
+    {
+      "collection": "students",
+      "cardinality": 22,
+      "fields": [
+        { "name": "name", "type": "TEXT" },
+        { "name": "grade", "type": "TEXT", "values": ["A", "B", "C", "D", "F"] },
+        { "name": "department", "type": "TEXT", "values": ["CS", "Math", "Physics", "Biology"] },
+        { "name": "gpa", "type": "REAL", "range": [0.0, 4.0], "nullable": true, "null_rate": 0.08 },
+        { "name": "enrollment_year", "type": "INT", "role": "time", "nullable": false },
+        { "name": "exam_scores", "type": "ARRAY", "min_items": 3, "max_items": 8, "items": { "type": "INT", "range": [0, 100], "name": "score" } }
+      ]
+    },
+    {
+      "collection": "courses",
+      "cardinality": 15,
+      "fields": [
+        { "name": "title", "type": "TEXT" },
+        { "name": "credits", "type": "INT", "range": [1, 6] },
+        { "name": "difficulty", "type": "TEXT", "values": ["beginner", "intermediate", "advanced"] },
+        { "name": "avg_score", "type": "REAL", "range": [40.0, 100.0], "nullable": true, "null_rate": 0.1 },
+        { "name": "year", "type": "INT", "role": "time", "nullable": false }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "students", "to": "courses", "type": "lookup_join" }
+  ],
+  "f_topology_hints": { "nested_objects": false, "sparse_embedded": true, "time_series_ready": true },
+  "distribution_priors": { "default_cardinality": 20 },
+  "phenomenon_blueprints": [
+    { "phenomenon_class": "skewed_distribution", "collection": "students", "path": "gpa", "intent_hooks": ["percentile", "distribution"] },
+    { "phenomenon_class": "cross_group_comparison", "collection": "courses", "path": "avg_score", "intent_hooks": ["group", "compare"] },
+    { "phenomenon_class": "boundary_value", "collection": "students", "path": "exam_scores", "intent_hooks": ["edge_case", "boundary"] },
+    { "phenomenon_class": "null_cluster", "collection": "students", "path": "gpa", "intent_hooks": ["missing", "null_filter"] },
+    { "phenomenon_class": "sparse_field", "collection": "courses", "path": "avg_score", "intent_hooks": ["sparse", "exists"] },
+    { "phenomenon_class": "correlation", "collection": "students", "path": "gpa", "intent_hooks": ["correlation", "regression"] }
+  ]
+}

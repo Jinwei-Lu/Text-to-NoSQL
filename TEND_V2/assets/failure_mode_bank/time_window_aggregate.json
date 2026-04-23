@@ -1,0 +1,152 @@
+[
+  {
+    "mutation_id": "missing_sort_before_group",
+    "failure_type": "wrong_stage_order",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "sum_not_avg_bucket",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $sum: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_min_agg",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $min: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_max_agg",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $max: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_first_agg",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $first: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_last_agg",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $last: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_desc_sort",
+    "failure_type": "wrong_sort",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": -1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_sort_by_metric",
+    "failure_type": "wrong_sort",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{metric_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_group_by_category",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_group_by_label",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${label_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_avg_wrong_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${label_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_missing_project",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_missing_sort",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_extra_match",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": {{ $gt: {threshold} }} }} }}, {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_extra_limit",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $limit: {top_k} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_push_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $push: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_include_id",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 1, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_null_time_filter",
+    "failure_type": "null_handling_error",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{time_field}\": {{ $ne: null }} }} }}, {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_count_instead_of_avg",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_addtoset_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $addToSet: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_project_sort_reverse",
+    "failure_type": "wrong_stage_order",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }}, {{ $sort: {{ bucket: -1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_wrong_alias",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, time_bucket: \"$_id\", metric_avg: \"$avg_value\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_double_group",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $group: {{ _id: null, grand_avg: {{ $avg: \"$avg_value\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_stddev_agg",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $stdDevPop: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_type_confusion_string",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${category_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_unwind_before_group",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $unwind: \"${metric_field}\" }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_sample_before_sort",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sample: {{ size: 50 }} }}, {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, bucket: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_null_group_id",
+    "failure_type": "null_handling_error",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: null, avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_replaceroot",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{time_field}\": 1 }} }}, {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $replaceRoot: {{ newRoot: {{ bucket: \"$_id\", avg_value: \"$avg_value\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_twa_bucket_stage",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $bucket: {{ groupBy: \"${time_field}\", boundaries: [0, 100, 200, 300], default: \"other\", output: {{ avg_value: {{ $avg: \"${metric_field}\" }} }} }} }} ])"
+  }
+]

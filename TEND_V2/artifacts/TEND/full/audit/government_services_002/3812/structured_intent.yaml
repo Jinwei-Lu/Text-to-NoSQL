@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "government_services_002",
+    "record_id": 3812,
+    "schema_fingerprint_hint": "requests",
+    "si_hash": "sha256:69ca50f9b2bdc47ccc77d702174174ef5d8680017a02c1348594c843ef9c134c"
+  },
+  "intent": {
+    "phenomenon_id": "duplicate_cluster@processing_days",
+    "phenomenon_class": "duplicate_cluster",
+    "persona_id": "auditor",
+    "pattern_family": "lookup_join",
+    "collection": "requests",
+    "metric_field": "processing_days",
+    "field_leaf": "processing_days",
+    "label_field": "citizen",
+    "time_field": "year",
+    "category_field": "priority",
+    "array_field": "feedback_scores",
+    "secondary_collection": "departments",
+    "join_field": "citizen"
+  },
+  "output": {
+    "keys": [
+      "citizen",
+      "priority",
+      "processing_days"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "lookup_join"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$lookup",
+      "$project"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$lookup",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.requests.aggregate([ { $lookup: { from: \"departments\", localField: \"citizen\", foreignField: \"citizen\", as: \"joined\" } }, { $project: { _id: 0, citizen: 1, processing_days: \"$processing_days\", joined_count: { $size: \"$joined\" } } }, { $sort: { joined_count: -1 } }])"
+    ]
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "agriculture_farms_003",
+    "record_id": 1158,
+    "schema_fingerprint_hint": "harvests",
+    "si_hash": "sha256:4120b03f07fdbcc8777d914ecf0b5798d8306329098d92378158ea335d82b417"
+  },
+  "intent": {
+    "phenomenon_id": "periodic_pattern@rainfall_mm",
+    "phenomenon_class": "periodic_pattern",
+    "persona_id": "analyst",
+    "pattern_family": "time_window_aggregate",
+    "collection": "harvests",
+    "metric_field": "rainfall_mm",
+    "field_leaf": "rainfall_mm",
+    "label_field": "farm",
+    "time_field": "year",
+    "category_field": "crop",
+    "array_field": "soil_samples",
+    "secondary_collection": null,
+    "join_field": "farm"
+  },
+  "output": {
+    "keys": [
+      "farm",
+      "crop",
+      "rainfall_mm"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "time_window_aggregate"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$sort"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+    ]
+  }
+}

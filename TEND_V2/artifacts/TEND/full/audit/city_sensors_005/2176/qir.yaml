@@ -1,0 +1,24 @@
+{
+  "pattern_family": "universal_quantifier",
+  "primary_operator": "$allElementsTrue",
+  "input_shape": {
+    "collections": [
+      "sensors"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "station",
+      "zone",
+      "reading_history"
+    ],
+    "shape_policy": "preserve"
+  },
+  "referenced_fields": [
+    "station",
+    "reading_history",
+    "zone",
+    "year",
+    "reading_history"
+  ]
+}

@@ -1,0 +1,3 @@
+[
+  "db.requests.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$feedback_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, citizen: 1, feedback_scores: 1 } }])"
+]

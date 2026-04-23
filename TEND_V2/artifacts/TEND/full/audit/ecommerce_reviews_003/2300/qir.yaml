@@ -1,0 +1,25 @@
+{
+  "pattern_family": "array_positional_select",
+  "primary_operator": "$arrayElemAt",
+  "input_shape": {
+    "collections": [
+      "reviews"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "title",
+      "sentiment",
+      "helpful_votes"
+    ],
+    "shape_policy": "preserve"
+  },
+  "referenced_fields": [
+    "title",
+    "helpful_votes",
+    "sentiment",
+    "year",
+    "helpful_votes",
+    "products"
+  ]
+}

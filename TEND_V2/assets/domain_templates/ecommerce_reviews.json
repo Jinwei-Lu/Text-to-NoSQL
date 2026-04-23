@@ -1,0 +1,75 @@
+{
+  "domain_id": "ecommerce_reviews",
+  "name": "E-commerce Product Reviews",
+  "entities": [
+    {
+      "collection": "products",
+      "cardinality": 15,
+      "fields": [
+        { "name": "name", "type": "TEXT", "sparse": false },
+        { "name": "category", "type": "TEXT", "values": ["electronics", "clothing", "books", "home", "toys"], "sparse": false },
+        { "name": "price", "type": "REAL", "range": [5.0, 500.0], "nullable": false },
+        { "name": "stock", "type": "INT", "range": [0, 1000], "nullable": true, "null_rate": 0.10 },
+        { "name": "year", "type": "INT", "role": "time", "nullable": false }
+      ]
+    },
+    {
+      "collection": "reviews",
+      "cardinality": 22,
+      "fields": [
+        { "name": "title", "type": "TEXT", "sparse": false },
+        { "name": "rating", "type": "INT", "range": [1, 5], "nullable": false },
+        { "name": "sentiment", "type": "TEXT", "values": ["positive", "neutral", "negative"], "sparse": false },
+        { "name": "year", "type": "INT", "role": "time", "nullable": false },
+        { "name": "helpful_votes", "type": "ARRAY", "min_items": 2, "max_items": 5, "items": { "type": "INT", "range": [0, 50], "name": "vote_item" } }
+      ]
+    }
+  ],
+  "relations": [],
+  "f_topology_hints": {
+    "nested_objects": false,
+    "sparse_embedded": true,
+    "time_series_ready": true
+  },
+  "distribution_priors": {
+    "default_cardinality": 18
+  },
+  "phenomenon_blueprints": [
+    {
+      "phenomenon_class": "skewed_distribution",
+      "collection": "reviews",
+      "path": "rating",
+      "intent_hooks": ["histogram", "percentile"]
+    },
+    {
+      "phenomenon_class": "high_cardinality",
+      "collection": "products",
+      "path": "name",
+      "intent_hooks": ["distinct", "groupby"]
+    },
+    {
+      "phenomenon_class": "outlier",
+      "collection": "products",
+      "path": "price",
+      "intent_hooks": ["topk", "anomaly"]
+    },
+    {
+      "phenomenon_class": "cross_group_comparison",
+      "collection": "reviews",
+      "path": "rating",
+      "intent_hooks": ["facet", "compare"]
+    },
+    {
+      "phenomenon_class": "null_cluster",
+      "collection": "products",
+      "path": "stock",
+      "intent_hooks": ["missing", "null_pattern"]
+    },
+    {
+      "phenomenon_class": "rare_event",
+      "collection": "reviews",
+      "path": "helpful_votes",
+      "intent_hooks": ["existential"]
+    }
+  ]
+}

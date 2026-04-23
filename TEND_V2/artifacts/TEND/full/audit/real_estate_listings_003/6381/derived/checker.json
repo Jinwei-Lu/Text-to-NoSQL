@@ -1,0 +1,13 @@
+{
+  "pattern_family": "filter_then_count",
+  "primary_operator": "$count",
+  "must_contain": [
+    "$count",
+    "$match"
+  ],
+  "must_contain_at_root": [
+    "$count",
+    "$match"
+  ],
+  "query": "db.properties.aggregate([ { $match: { \"price\": { $gt: 70 } } }, { $count: \"total\" }])"
+}

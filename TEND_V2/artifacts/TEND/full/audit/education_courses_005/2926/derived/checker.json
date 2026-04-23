@@ -1,0 +1,13 @@
+{
+  "pattern_family": "window_function",
+  "primary_operator": "$setWindowFields",
+  "must_contain": [
+    "$project",
+    "$setWindowFields"
+  ],
+  "must_contain_at_root": [
+    "$project",
+    "$setWindowFields"
+  ],
+  "query": "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])"
+}

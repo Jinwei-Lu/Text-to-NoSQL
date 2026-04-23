@@ -1,0 +1,25 @@
+{
+  "pattern_family": "anomaly_vs_baseline",
+  "primary_operator": "$setWindowFields",
+  "input_shape": {
+    "collections": [
+      "accounts"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "company",
+      "branch",
+      "balance"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "company",
+    "balance",
+    "branch",
+    "quarter",
+    "monthly_volumes",
+    "transactions"
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "social_network_001",
+    "record_id": 7035,
+    "schema_fingerprint_hint": "posts",
+    "si_hash": "sha256:3a49b5def3e9935ccd3d81f536c12b4aece0ad14a2952ab987e8804f8276a8d5"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@engagement_scores",
+    "phenomenon_class": "rare_event",
+    "persona_id": "end-user",
+    "pattern_family": "universal_quantifier",
+    "collection": "posts",
+    "metric_field": "engagement_scores",
+    "field_leaf": "engagement_scores",
+    "label_field": "author",
+    "time_field": "year",
+    "category_field": "category",
+    "array_field": "engagement_scores",
+    "secondary_collection": null,
+    "join_field": "author"
+  },
+  "output": {
+    "keys": [
+      "author",
+      "category",
+      "engagement_scores"
+    ],
+    "shape_policy": "preserve"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "universal_quantifier"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$allElementsTrue",
+      "$expr",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$match",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.posts.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$engagement_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, author: 1, engagement_scores: 1 } }])"
+    ]
+  }
+}

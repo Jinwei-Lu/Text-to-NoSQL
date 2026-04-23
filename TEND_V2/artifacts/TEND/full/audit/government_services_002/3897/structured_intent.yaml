@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "government_services_002",
+    "record_id": 3897,
+    "schema_fingerprint_hint": "requests",
+    "si_hash": "sha256:627cbcd4f3ac56f0e0d134ae902ee6ef7ea145436ec94b74fa3cd20273996e01"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@feedback_scores",
+    "phenomenon_class": "rare_event",
+    "persona_id": "end-user",
+    "pattern_family": "universal_quantifier",
+    "collection": "requests",
+    "metric_field": "feedback_scores",
+    "field_leaf": "feedback_scores",
+    "label_field": "citizen",
+    "time_field": "year",
+    "category_field": "priority",
+    "array_field": "feedback_scores",
+    "secondary_collection": "departments",
+    "join_field": "citizen"
+  },
+  "output": {
+    "keys": [
+      "citizen",
+      "priority",
+      "feedback_scores"
+    ],
+    "shape_policy": "preserve"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "universal_quantifier"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$allElementsTrue",
+      "$expr",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$match",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.requests.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$feedback_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, citizen: 1, feedback_scores: 1 } }])"
+    ]
+  }
+}

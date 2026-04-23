@@ -1,0 +1,14 @@
+{
+  "pattern_family": "anomaly_vs_baseline",
+  "primary_operator": "$setWindowFields",
+  "must_contain": [
+    "$match",
+    "$setWindowFields"
+  ],
+  "must_contain_at_root": [
+    "$match",
+    "$project",
+    "$setWindowFields"
+  ],
+  "query": "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$delay_minutes\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$delay_minutes\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, airline: 1, delay_minutes: \"$delay_minutes\", moving_avg: 1 } }])"
+}

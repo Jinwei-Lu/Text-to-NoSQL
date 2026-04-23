@@ -1,0 +1,66 @@
+{
+  "domain_id": "weather_stations",
+  "name": "Weather Stations",
+  "entities": [
+    {
+      "collection": "readings",
+      "cardinality": 18,
+      "fields": [
+        { "name": "station", "type": "TEXT", "values": ["WS01", "WS02", "WS03", "WS04", "WS05"], "sparse": false },
+        { "name": "region", "type": "TEXT", "values": ["coastal", "mountain", "plain", "desert"], "sparse": false },
+        { "name": "month", "type": "INT", "role": "time", "range": [1, 12], "nullable": false },
+        { "name": "temperature", "type": "REAL", "range": [-20.0, 50.0], "nullable": true, "null_rate": 0.08 },
+        { "name": "humidity", "type": "REAL", "range": [0.0, 100.0], "nullable": false },
+        { "name": "wind_speeds", "type": "ARRAY", "min_items": 3, "max_items": 6, "items": { "type": "REAL", "range": [0.0, 60.0], "name": "speed_item" } },
+        { "name": "pressure", "type": "REAL", "range": [950.0, 1050.0], "nullable": true, "null_rate": 0.05 }
+      ]
+    }
+  ],
+  "relations": [],
+  "f_topology_hints": {
+    "nested_objects": false,
+    "sparse_embedded": true,
+    "time_series_ready": true
+  },
+  "distribution_priors": {
+    "default_cardinality": 18
+  },
+  "phenomenon_blueprints": [
+    {
+      "phenomenon_class": "periodic_pattern",
+      "collection": "readings",
+      "path": "temperature",
+      "intent_hooks": ["cycle", "seasonal"]
+    },
+    {
+      "phenomenon_class": "correlation",
+      "collection": "readings",
+      "path": "humidity",
+      "intent_hooks": ["covariance", "joint"]
+    },
+    {
+      "phenomenon_class": "outlier",
+      "collection": "readings",
+      "path": "wind_speeds",
+      "intent_hooks": ["topk", "anomaly"]
+    },
+    {
+      "phenomenon_class": "temporal_trend",
+      "collection": "readings",
+      "path": "temperature",
+      "intent_hooks": ["window", "trend"]
+    },
+    {
+      "phenomenon_class": "sparse_field",
+      "collection": "readings",
+      "path": "pressure",
+      "intent_hooks": ["missing", "coverage"]
+    },
+    {
+      "phenomenon_class": "boundary_value",
+      "collection": "readings",
+      "path": "humidity",
+      "intent_hooks": ["range", "edge_case"]
+    }
+  ]
+}

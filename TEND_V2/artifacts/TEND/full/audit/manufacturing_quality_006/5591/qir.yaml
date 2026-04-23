@@ -1,0 +1,24 @@
+{
+  "pattern_family": "coalesce_with_default",
+  "primary_operator": "$ifNull",
+  "input_shape": {
+    "collections": [
+      "inspections"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "product",
+      "shift",
+      "line"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "product",
+    "line",
+    "shift",
+    "year",
+    "measurements"
+  ]
+}

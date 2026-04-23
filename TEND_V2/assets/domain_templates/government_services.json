@@ -1,0 +1,43 @@
+{
+  "domain_id": "government_services",
+  "name": "Government Public Services",
+  "entities": [
+    {
+      "collection": "requests",
+      "cardinality": 22,
+      "fields": [
+        { "name": "citizen", "type": "TEXT" },
+        { "name": "service_type", "type": "TEXT", "values": ["permit", "license", "complaint", "inquiry"] },
+        { "name": "priority", "type": "TEXT", "values": ["low", "medium", "high", "critical"] },
+        { "name": "processing_days", "type": "INT", "range": [1, 90] },
+        { "name": "satisfaction", "type": "REAL", "range": [1.0, 5.0], "nullable": true, "null_rate": 0.12 },
+        { "name": "year", "type": "INT", "role": "time", "nullable": false },
+        { "name": "feedback_scores", "type": "ARRAY", "min_items": 1, "max_items": 5, "items": { "type": "INT", "range": [1, 5], "name": "feedback_score" } }
+      ]
+    },
+    {
+      "collection": "departments",
+      "cardinality": 12,
+      "fields": [
+        { "name": "name", "type": "TEXT" },
+        { "name": "region", "type": "TEXT", "values": ["north", "south", "east", "west"] },
+        { "name": "budget", "type": "REAL", "range": [100000, 5000000] },
+        { "name": "staff_count", "type": "INT", "range": [10, 500] },
+        { "name": "year", "type": "INT", "role": "time", "nullable": false }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "requests", "to": "departments", "type": "lookup_join" }
+  ],
+  "f_topology_hints": { "nested_objects": false, "sparse_embedded": true, "time_series_ready": true },
+  "distribution_priors": { "default_cardinality": 20 },
+  "phenomenon_blueprints": [
+    { "phenomenon_class": "temporal_trend", "collection": "requests", "path": "processing_days", "intent_hooks": ["window", "trend"] },
+    { "phenomenon_class": "outlier", "collection": "departments", "path": "budget", "intent_hooks": ["topk", "anomaly"] },
+    { "phenomenon_class": "null_cluster", "collection": "requests", "path": "satisfaction", "intent_hooks": ["missing", "null_filter"] },
+    { "phenomenon_class": "rare_event", "collection": "requests", "path": "feedback_scores", "intent_hooks": ["rare", "filter"] },
+    { "phenomenon_class": "cross_group_comparison", "collection": "departments", "path": "budget", "intent_hooks": ["group", "compare"] },
+    { "phenomenon_class": "duplicate_cluster", "collection": "requests", "path": "processing_days", "intent_hooks": ["dedup", "duplicate"] }
+  ]
+}

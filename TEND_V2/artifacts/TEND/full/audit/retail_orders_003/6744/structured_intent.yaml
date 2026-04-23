@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "retail_orders_003",
+    "record_id": 6744,
+    "schema_fingerprint_hint": "orders",
+    "si_hash": "sha256:29612d2af0da5d049d04124981205715b7eba4e263445a16271d1ea19e473315"
+  },
+  "intent": {
+    "phenomenon_id": "pollution@segment",
+    "phenomenon_class": "pollution",
+    "persona_id": "researcher",
+    "pattern_family": "simple_filter",
+    "collection": "orders",
+    "metric_field": "segment",
+    "field_leaf": "segment",
+    "label_field": "customer",
+    "time_field": "year",
+    "category_field": "_sparse_notes",
+    "array_field": "basket_scores",
+    "secondary_collection": null,
+    "join_field": "customer"
+  },
+  "output": {
+    "keys": [
+      "customer",
+      "_sparse_notes",
+      "segment"
+    ],
+    "shape_policy": "preserve"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L1",
+    "operator_family": "simple_filter"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$match",
+      "$project"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$match",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.orders.aggregate([ { $match: { \"segment\": { $gt: 70 } } }, { $project: { _id: 0, customer: 1, segment: \"$segment\" } }])"
+    ]
+  }
+}

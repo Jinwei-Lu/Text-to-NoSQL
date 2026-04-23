@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_default",
+    "query": "db.products.aggregate([ { $project: { _id: 0, name: 1, value: { $literal: [\"$stock\", 0] } } }, { $sort: { value: -1 } }])"
+  },
+  {
+    "mutation_id": "reverse_sort",
+    "query": "db.products.aggregate([ { $project: { _id: 0, name: 1, value: { $ifNull: [\"$stock\", 0] } } }, { $sort: { value: 1 } }])"
+  }
+]

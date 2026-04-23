@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_operator",
+    "query": "db.students.aggregate([ { $match: { \"exam_scores\": { $lt: 70 } } }, { $project: { _id: 0, name: 1, exam_scores: \"$exam_scores\" } }])"
+  },
+  {
+    "mutation_id": "tight_threshold",
+    "query": "db.students.aggregate([ { $match: { \"exam_scores\": { $gt: 90 } } }, { $project: { _id: 0, name: 1, exam_scores: \"$exam_scores\" } }])"
+  }
+]

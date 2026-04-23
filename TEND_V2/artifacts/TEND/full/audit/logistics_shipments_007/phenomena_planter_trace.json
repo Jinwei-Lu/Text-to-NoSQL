@@ -1,0 +1,47 @@
+{
+  "db_id": "logistics_shipments_007",
+  "phenomena_seed": 76,
+  "decisions": [
+    {
+      "phenomenon_id": "temporal_trend@delay_hours",
+      "collection": "shipments",
+      "path": "delay_hours",
+      "document_ids": [
+        "shipments/1",
+        "shipments/2",
+        "shipments/3",
+        "shipments/4",
+        "shipments/5"
+      ]
+    },
+    {
+      "phenomenon_id": "cross_group_comparison@packages",
+      "collection": "shipments",
+      "path": "packages",
+      "document_ids": [
+        "shipments/1",
+        "shipments/2",
+        "shipments/3",
+        "shipments/4",
+        "shipments/5",
+        "shipments/6"
+      ]
+    },
+    {
+      "phenomenon_id": "rare_event@inspection_scores",
+      "collection": "shipments",
+      "path": "inspection_scores",
+      "document_ids": [
+        "shipments/18"
+      ]
+    },
+    {
+      "phenomenon_id": "type_drift@delay_hours",
+      "collection": "shipments",
+      "path": "delay_hours",
+      "document_ids": [
+        "shipments/1"
+      ]
+    }
+  ]
+}

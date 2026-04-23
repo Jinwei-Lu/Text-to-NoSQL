@@ -1,0 +1,3 @@
+[
+  "db.readings.aggregate([ { $match: { \"humidity\": { $gt: 70 } } }, { $count: \"total\" }])"
+]

@@ -1,0 +1,406 @@
+{
+  "inspections": [
+    {
+      "_id": 1,
+      "product": "product_1",
+      "line": "??line_A??",
+      "shift": "morning",
+      "defect_count": 50,
+      "temperature": 0,
+      "year": 2018,
+      "measurements": [
+        9.01,
+        5.01,
+        7.23,
+        1.09,
+        5.14,
+        8.45,
+        5.28,
+        9.45
+      ],
+      "is_passed": true
+    },
+    {
+      "_id": 2,
+      "product": "product_2",
+      "line": "??line_B??",
+      "shift": "afternoon",
+      "defect_count": 60,
+      "temperature": 999,
+      "year": 2019,
+      "measurements": [
+        5.29,
+        4.91,
+        7.75,
+        2.11
+      ],
+      "is_passed": true
+    },
+    {
+      "_id": 3,
+      "product": "product_3",
+      "line": "??line_C??",
+      "shift": "night",
+      "defect_count": 70,
+      "temperature": 0,
+      "year": 2020,
+      "measurements": [
+        9.78,
+        1.21,
+        1.68
+      ],
+      "is_passed": false
+    },
+    {
+      "_id": 4,
+      "product": "product_4",
+      "line": "line_A",
+      "shift": "morning",
+      "defect_count": 80,
+      "temperature": 999,
+      "year": 2021,
+      "measurements": [
+        5.6,
+        2.35,
+        4.73
+      ],
+      "is_passed": true
+    },
+    {
+      "_id": 5,
+      "product": "product_5",
+      "line": "line_B",
+      "shift": "afternoon",
+      "defect_count": 90,
+      "temperature": 74.67,
+      "year": 2022,
+      "measurements": [
+        5.73,
+        5.8,
+        7.72,
+        5.91,
+        2.37
+      ],
+      "is_passed": true
+    },
+    {
+      "_id": 6,
+      "product": "product_6",
+      "line": "line_C",
+      "shift": "night",
+      "defect_count": 100,
+      "temperature": 78.84,
+      "year": 2023,
+      "measurements": [
+        4.32,
+        0.79,
+        4.82,
+        8.15,
+        4.51
+      ],
+      "is_passed": false
+    },
+    {
+      "_id": 7,
+      "product": "product_7",
+      "line": "line_A",
+      "shift": "morning",
+      "defect_count": 110,
+      "temperature": 76.22,
+      "year": 2024,
+      "measurements": [
+        3.09,
+        3.91,
+        2.02,
+        0.46,
+        0.17,
+        9.52,
+        6.92
+      ],
+      "is_passed": true
+    },
+    {
+      "_id": 8,
+      "product": "product_8",
+      "line": "line_B",
+      "shift": "afternoon",
+      "defect_count": 120,
+      "temperature": 77.75,
+      "year": 2025,
+      "measurements": [
+        6.22,
+        5.3,
+        5.14,
+        2.33
+      ],
+      "is_passed": true
+    },
+    {
+      "_id": 9,
+      "product": "product_9",
+      "line": "line_C",
+      "shift": "N/A",
+      "defect_count": 130,
+      "temperature": 79.14,
+      "year": 2026,
+      "measurements": [
+        1.37,
+        6.87,
+        3.57,
+        3.77,
+        6.25,
+        9.68,
+        5.04
+      ],
+      "is_passed": false
+    },
+    {
+      "_id": 10,
+      "product": "product_10",
+      "line": "line_A",
+      "shift": "morning",
+      "defect_count": 140,
+      "temperature": 72.98,
+      "year": 2027,
+      "measurements": [
+        7.8,
+        4.23,
+        2.34,
+        4.07,
+        9.78
+      ],
+      "is_passed": true
+    },
+    {
+      "_id": 11,
+      "product": "product_11",
+      "line": "line_B",
+      "shift": "afternoon",
+      "defect_count": 150,
+      "temperature": 60.3,
+      "year": 2028,
+      "measurements": [
+        5.07,
+        7.83,
+        1.38,
+        6.95,
+        2.69,
+        6.84,
+        3.73,
+        1.02
+      ],
+      "is_passed": false
+    },
+    {
+      "_id": 12,
+      "product": "product_12",
+      "line": "line_C",
+      "shift": "night",
+      "defect_count": 160,
+      "temperature": 61.84,
+      "year": 2029,
+      "measurements": [
+        0.58,
+        6.02,
+        2.06
+      ],
+      "is_passed": true
+    },
+    {
+      "_id": 13,
+      "product": "product_13",
+      "line": "line_A",
+      "shift": "morning",
+      "defect_count": 170,
+      "temperature": 50.87,
+      "year": 2030,
+      "measurements": [
+        9.54,
+        9.82,
+        2.38,
+        4.48
+      ],
+      "is_passed": true
+    },
+    {
+      "_id": 14,
+      "product": "product_14",
+      "line": "line_B",
+      "shift": "afternoon",
+      "defect_count": 180,
+      "temperature": 40.47,
+      "year": 2031,
+      "measurements": [
+        0.26,
+        0.78,
+        3.54,
+        7.3,
+        1.29
+      ],
+      "is_passed": false
+    },
+    {
+      "_id": 15,
+      "product": "product_15",
+      "line": "line_C",
+      "shift": "night",
+      "defect_count": 190,
+      "temperature": 35.95,
+      "year": 2032,
+      "measurements": [
+        3.12,
+        1.9,
+        2.4
+      ],
+      "is_passed": false
+    },
+    {
+      "_id": 16,
+      "product": "product_16",
+      "line": "line_A",
+      "shift": "morning",
+      "defect_count": 200,
+      "temperature": 28.23,
+      "year": 2033,
+      "measurements": [
+        2.55,
+        3.25,
+        7.18
+      ],
+      "is_passed": true
+    },
+    {
+      "_id": 17,
+      "product": "product_17",
+      "line": "line_B",
+      "shift": "afternoon",
+      "defect_count": 210,
+      "temperature": 24.34,
+      "year": 2034,
+      "measurements": [
+        3.72,
+        0.32,
+        5.15,
+        7.54,
+        1.86,
+        0.96,
+        7.27,
+        9.21
+      ],
+      "is_passed": true
+    },
+    {
+      "_id": 18,
+      "product": "product_18",
+      "line": "line_C",
+      "shift": "night",
+      "defect_count": 220,
+      "temperature": 17.83,
+      "year": 2035,
+      "measurements": [
+        8.87,
+        4.53,
+        7.07,
+        8.7,
+        3.11,
+        6.61,
+        7.59
+      ],
+      "is_passed": false
+    },
+    {
+      "_id": 19,
+      "product": "product_19",
+      "line": "line_A",
+      "shift": "morning",
+      "defect_count": 230,
+      "temperature": 24.22,
+      "year": 2036,
+      "measurements": [
+        6.53,
+        8.43,
+        2.22,
+        3.09,
+        9.42
+      ],
+      "is_passed": false
+    },
+    {
+      "_id": 20,
+      "product": "product_20",
+      "line": "line_B",
+      "shift": "afternoon",
+      "defect_count": 240,
+      "temperature": 22.36,
+      "year": 2037,
+      "measurements": [
+        2.63,
+        9.23,
+        3.03,
+        9.95
+      ],
+      "is_passed": false
+    },
+    {
+      "_id": 21,
+      "product": "product_21",
+      "line": "line_C",
+      "shift": "night",
+      "defect_count": 250,
+      "temperature": 26.14,
+      "year": 2038,
+      "measurements": [
+        7.88,
+        4.27,
+        0.95
+      ],
+      "is_passed": false
+    },
+    {
+      "_id": 22,
+      "product": "product_22",
+      "line": "line_A",
+      "shift": "morning",
+      "defect_count": 260,
+      "temperature": 24.92,
+      "year": 2039,
+      "measurements": [
+        9.83,
+        3.09,
+        5.29,
+        4.95,
+        4.78
+      ],
+      "is_passed": false
+    },
+    {
+      "_id": 23,
+      "product": "product_23",
+      "line": "line_B",
+      "shift": "afternoon",
+      "defect_count": 270,
+      "temperature": 39.66,
+      "year": 2040,
+      "measurements": [
+        2.63,
+        7.14,
+        9.04,
+        1.57,
+        3.53,
+        5.3
+      ],
+      "is_passed": true
+    },
+    {
+      "_id": 24,
+      "product": "product_24",
+      "line": "line_C",
+      "shift": "night",
+      "defect_count": 2240,
+      "temperature": 42.18,
+      "year": 2041,
+      "measurements": "rare",
+      "is_passed": false
+    }
+  ]
+}

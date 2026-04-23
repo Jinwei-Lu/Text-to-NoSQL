@@ -1,0 +1,414 @@
+{
+  "properties": [
+    {
+      "_id": 1,
+      "city": "city_1",
+      "type": "apartment",
+      "price": 3,
+      "area": 11.4,
+      "year": 2018,
+      "rooms": 0,
+      "amenity_scores": [
+        2,
+        9,
+        4
+      ],
+      "details": {
+        "floor": 87,
+        "has_parking": false
+      }
+    },
+    {
+      "_id": 2,
+      "city": "city_2",
+      "type": "villa",
+      "price": 10,
+      "area": 14.94,
+      "year": 2019,
+      "rooms": 999,
+      "amenity_scores": [
+        9,
+        8,
+        9
+      ],
+      "details": {
+        "floor": 48,
+        "has_parking": false
+      }
+    },
+    {
+      "_id": 3,
+      "city": "city_3",
+      "type": "commercial",
+      "price": 2,
+      "area": 26.74,
+      "year": 2020,
+      "rooms": 0,
+      "amenity_scores": [
+        4,
+        4,
+        6,
+        7
+      ],
+      "details": {
+        "floor": 64,
+        "has_parking": false
+      }
+    },
+    {
+      "_id": 4,
+      "city": "city_4",
+      "type": "apartment",
+      "price": 10,
+      "area": 30.99,
+      "year": 2021,
+      "rooms": 999,
+      "amenity_scores": [
+        3,
+        6
+      ],
+      "details": {
+        "floor": 9,
+        "has_parking": false
+      }
+    },
+    {
+      "_id": 5,
+      "city": "city_5",
+      "type": "villa",
+      "price": 18,
+      "area": 40.45,
+      "year": 2022,
+      "rooms": 2,
+      "amenity_scores": [
+        8,
+        4,
+        4,
+        7,
+        6,
+        4
+      ],
+      "details": {
+        "floor": 22,
+        "has_parking": false
+      }
+    },
+    {
+      "_id": 6,
+      "city": "city_6",
+      "type": "commercial",
+      "price": 17,
+      "area": 42.19,
+      "year": 2023,
+      "rooms": 7,
+      "amenity_scores": [
+        6,
+        4,
+        2,
+        5,
+        3
+      ],
+      "details": {
+        "floor": 36,
+        "has_parking": true
+      }
+    },
+    {
+      "_id": 7,
+      "city": "city_7",
+      "type": "apartment",
+      "price": 18,
+      "area": 54.48,
+      "year": 2024,
+      "rooms": 6,
+      "amenity_scores": [
+        7,
+        5
+      ],
+      "details": {
+        "floor": 20,
+        "has_parking": false
+      }
+    },
+    {
+      "_id": 8,
+      "city": "city_8",
+      "type": "villa",
+      "price": 20,
+      "area": 58.62,
+      "year": 2025,
+      "rooms": 7,
+      "amenity_scores": [
+        9,
+        2
+      ],
+      "details": {
+        "floor": 18,
+        "has_parking": false
+      }
+    },
+    {
+      "_id": 9,
+      "city": "city_9",
+      "type": "N/A",
+      "price": 4,
+      "area": 67.3,
+      "year": 2026,
+      "rooms": 4,
+      "amenity_scores": [
+        3,
+        3,
+        8,
+        1
+      ],
+      "details": {
+        "floor": 32,
+        "has_parking": true
+      }
+    },
+    {
+      "_id": 10,
+      "city": "city_10",
+      "type": "apartment",
+      "price": 10,
+      "area": 73.64,
+      "year": 2027,
+      "rooms": 1,
+      "amenity_scores": [
+        8,
+        3
+      ],
+      "details": {
+        "floor": 47,
+        "has_parking": true
+      }
+    },
+    {
+      "_id": 11,
+      "city": "city_11",
+      "type": "villa",
+      "price": 9,
+      "area": 82.86,
+      "year": 2028,
+      "rooms": 8,
+      "amenity_scores": [
+        4,
+        1,
+        2,
+        7
+      ],
+      "details": {
+        "floor": 38,
+        "has_parking": true
+      }
+    },
+    {
+      "_id": 12,
+      "city": "city_12",
+      "type": "commercial",
+      "price": 5,
+      "area": 85.35,
+      "year": 2029,
+      "rooms": 1,
+      "amenity_scores": [
+        4,
+        4,
+        5,
+        3,
+        9,
+        8
+      ],
+      "details": {
+        "floor": 36,
+        "has_parking": true
+      }
+    },
+    {
+      "_id": 13,
+      "city": "city_13",
+      "type": "apartment",
+      "price": 9,
+      "area": 92.02,
+      "year": 2030,
+      "rooms": 5,
+      "amenity_scores": [
+        6,
+        3,
+        6,
+        2,
+        9
+      ],
+      "details": {
+        "floor": 23,
+        "has_parking": false
+      }
+    },
+    {
+      "_id": 14,
+      "city": "city_14",
+      "type": "villa",
+      "price": 11,
+      "area": 103.95,
+      "year": 2031,
+      "rooms": 3,
+      "amenity_scores": [
+        2,
+        7
+      ],
+      "details": {
+        "floor": 14,
+        "has_parking": false
+      }
+    },
+    {
+      "_id": 15,
+      "city": "city_15",
+      "type": "commercial",
+      "price": 4,
+      "area": 105.72,
+      "year": 2032,
+      "rooms": 5,
+      "amenity_scores": [
+        10,
+        4,
+        5,
+        1,
+        1,
+        8
+      ],
+      "details": {
+        "floor": 40,
+        "has_parking": true
+      }
+    },
+    {
+      "_id": 16,
+      "city": "city_16",
+      "type": "apartment",
+      "price": 5,
+      "area": 116.34,
+      "year": 2033,
+      "rooms": 6,
+      "amenity_scores": [
+        7,
+        1,
+        8
+      ],
+      "details": {
+        "floor": 25,
+        "has_parking": false
+      }
+    },
+    {
+      "_id": 17,
+      "city": "city_17",
+      "type": "villa",
+      "price": 289,
+      "area": 119.54,
+      "year": 2034,
+      "rooms": 6,
+      "amenity_scores": [
+        4,
+        2
+      ],
+      "details": {
+        "floor": 16,
+        "has_parking": true
+      }
+    },
+    {
+      "_id": 18,
+      "city": "city_18",
+      "type": "commercial",
+      "price": 284,
+      "area": 127.73,
+      "year": 2035,
+      "rooms": 3,
+      "amenity_scores": [
+        1,
+        2,
+        8,
+        3,
+        5
+      ],
+      "details": {
+        "floor": 31,
+        "has_parking": false
+      }
+    },
+    {
+      "_id": 19,
+      "city": "city_19",
+      "type": "apartment",
+      "price": 403,
+      "area": 138.41,
+      "year": 2036,
+      "rooms": 5,
+      "amenity_scores": [
+        4,
+        10,
+        5,
+        7
+      ],
+      "details": {
+        "floor": 50,
+        "has_parking": false
+      }
+    },
+    {
+      "_id": 20,
+      "city": "city_20",
+      "type": "villa",
+      "price": 222,
+      "area": 142.93,
+      "year": 2037,
+      "rooms": 6,
+      "amenity_scores": [
+        10,
+        4
+      ],
+      "details": {
+        "floor": 2,
+        "has_parking": true
+      }
+    },
+    {
+      "_id": 21,
+      "city": "city_21",
+      "type": "commercial",
+      "price": 441,
+      "area": 147.11,
+      "year": 2038,
+      "rooms": 8,
+      "amenity_scores": [
+        5,
+        5,
+        7,
+        7,
+        4,
+        9
+      ],
+      "details": {
+        "floor": 15,
+        "has_parking": true
+      }
+    },
+    {
+      "_id": 22,
+      "city": "city_22",
+      "type": "apartment",
+      "price": 3976,
+      "area": 154.19,
+      "year": 2039,
+      "rooms": 4,
+      "amenity_scores": [
+        7,
+        6
+      ],
+      "details": {
+        "floor": 18,
+        "has_parking": false
+      }
+    }
+  ]
+}

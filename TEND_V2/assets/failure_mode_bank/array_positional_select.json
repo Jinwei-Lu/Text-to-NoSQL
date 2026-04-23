@@ -1,0 +1,152 @@
+[
+  {
+    "mutation_id": "wrong_array_index",
+    "failure_type": "off_by_one_index",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $arrayElemAt: [\"${array_field}\", 1] }} }} }} ])"
+  },
+  {
+    "mutation_id": "slice_instead_of_arrayelemat",
+    "failure_type": "wrong_array_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $slice: [\"${array_field}\", 1] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_negative_index",
+    "failure_type": "off_by_one_index",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $arrayElemAt: [\"${array_field}\", -1] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_index_two",
+    "failure_type": "off_by_one_index",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $arrayElemAt: [\"${array_field}\", 2] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_wrong_array_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $arrayElemAt: [\"${metric_field}\", 0] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_first_instead_of_elemat",
+    "failure_type": "wrong_array_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $first: \"${array_field}\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_last_instead_of_first",
+    "failure_type": "wrong_array_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $last: \"${array_field}\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_filter_instead_of_elemat",
+    "failure_type": "wrong_array_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $filter: {{ input: \"${array_field}\", as: \"item\", cond: {{ $gte: [\"$$item\", 0] }} }} }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_size_instead_of_elemat",
+    "failure_type": "wrong_array_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $size: \"${array_field}\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_missing_label",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, first_element: {{ $arrayElemAt: [\"${array_field}\", 0] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_include_id",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 1, {label_field}: 1, first_element: {{ $arrayElemAt: [\"${array_field}\", 0] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_extra_match",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{array_field}\": {{ $exists: true }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $arrayElemAt: [\"${array_field}\", 0] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_extra_sort",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $arrayElemAt: [\"${array_field}\", 0] }} }} }}, {{ $sort: {{ first_element: -1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_extra_limit",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $arrayElemAt: [\"${array_field}\", 0] }} }} }}, {{ $limit: {top_k} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_unwind_instead",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $unwind: \"${array_field}\" }}, {{ $group: {{ _id: \"${label_field}\", first_element: {{ $first: \"${array_field}\" }} }} }}, {{ $project: {{ _id: 0, {label_field}: \"$_id\", first_element: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_wrong_alias",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, wrong_name: {{ $arrayElemAt: [\"${array_field}\", 0] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_null_handling",
+    "failure_type": "null_handling_error",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{array_field}\": {{ $ne: null }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $arrayElemAt: [\"${array_field}\", 0] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_type_confusion",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $arrayElemAt: [\"${label_field}\", 0] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_slice_two",
+    "failure_type": "wrong_array_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $slice: [\"${array_field}\", 0, 2] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_reduce_instead",
+    "failure_type": "wrong_array_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $reduce: {{ input: \"${array_field}\", initialValue: null, in: {{ $cond: {{ if: {{ $eq: [\"$$value\", null] }}, then: \"$$this\", else: \"$$value\" }} }} }} }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_addfields_instead_of_project",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ first_element: {{ $arrayElemAt: [\"${array_field}\", 0] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, first_element: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_category_field_instead",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {category_field}: 1, first_element: {{ $arrayElemAt: [\"${array_field}\", 0] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_double_project",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, {array_field}: 1 }} }}, {{ $project: {{ {label_field}: 1, first_element: {{ $arrayElemAt: [\"${array_field}\", 0] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_extra_group",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $arrayElemAt: [\"${array_field}\", 0] }} }} }}, {{ $group: {{ _id: \"$first_element\", count: {{ $sum: 1 }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_ifnull_wrap",
+    "failure_type": "null_handling_error",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $ifNull: [{{ $arrayElemAt: [\"${array_field}\", 0] }}, 0] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_map_instead",
+    "failure_type": "wrong_array_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $map: {{ input: {{ $slice: [\"${array_field}\", 1] }}, as: \"item\", in: \"$$item\" }} }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_concat_arrays",
+    "failure_type": "wrong_array_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $concatArrays: [{{ $slice: [\"${array_field}\", 1] }}, []] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_sample_first",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sample: {{ size: 10 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $arrayElemAt: [\"${array_field}\", 0] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_whole_array",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: \"${array_field}\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_aps_index_large",
+    "failure_type": "off_by_one_index",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, first_element: {{ $arrayElemAt: [\"${array_field}\", 99] }} }} }} ])"
+  }
+]

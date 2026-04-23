@@ -1,0 +1,14 @@
+{
+  "pattern_family": "existential_quantifier",
+  "primary_operator": "$match",
+  "must_contain": [
+    "$anyElementTrue",
+    "$expr",
+    "$match"
+  ],
+  "must_contain_at_root": [
+    "$match",
+    "$project"
+  ],
+  "query": "db.shipments.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$inspection_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, warehouse: 1, inspection_scores: 1 } }])"
+}

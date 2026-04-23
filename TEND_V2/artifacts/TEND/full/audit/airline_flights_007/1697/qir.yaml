@@ -1,0 +1,24 @@
+{
+  "pattern_family": "universal_quantifier",
+  "primary_operator": "$allElementsTrue",
+  "input_shape": {
+    "collections": [
+      "flights"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "airline",
+      "destination",
+      "ticket_prices"
+    ],
+    "shape_policy": "preserve"
+  },
+  "referenced_fields": [
+    "airline",
+    "ticket_prices",
+    "destination",
+    "year",
+    "ticket_prices"
+  ]
+}

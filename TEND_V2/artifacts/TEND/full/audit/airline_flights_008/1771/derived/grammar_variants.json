@@ -1,0 +1,4 @@
+[
+  "db.flights.aggregate([ { $match: {} }, { $project: { _id: 0, airline: 1, value: { $ifNull: [\"$airline\", 0] } } }, { $sort: { value: -1 } }])",
+  "db.flights.aggregate([ { $project: { _id: 0, airline: 1, value: { $ifNull: [\"$airline\", 0] } } }, { $sort: { value: -1 } }])"
+]

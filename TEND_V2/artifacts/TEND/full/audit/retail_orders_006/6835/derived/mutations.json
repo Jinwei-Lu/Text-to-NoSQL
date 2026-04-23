@@ -1,0 +1,6 @@
+[
+  {
+    "mutation_id": "add_extra_field",
+    "query": "db.orders.aggregate([ { $project: { _id: 1, customer: 1, customer: \"$customer\" } }])"
+  }
+]

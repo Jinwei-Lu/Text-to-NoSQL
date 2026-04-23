@@ -1,0 +1,110 @@
+{
+  "record_id": "airline_flights_005/1731",
+  "db_id": "airline_flights_005",
+  "si_hash": "sha256:ad79f8445852f1d11a37430a292622920023f5d93c4c2a85435cdc79d166b45a",
+  "world_signature": "sha256:ab50f6ae8321e007fe6be99f3b8c0153e4da2367e65bdff0eae891f5c8e7c6c7",
+  "split": "test",
+  "empirical_difficulty": "easy",
+  "phase_d": {
+    "v_correct": {
+      "neighborhood": {
+        "models": [
+          "mock-neighborhood"
+        ],
+        "all_candidates": [
+          {
+            "model": "mock-neighborhood",
+            "ast_pass": true,
+            "exec_equiv": true,
+            "action": "mock_accepted"
+          }
+        ]
+      },
+      "ambiguity": {
+        "attacker_model": "mock-ambiguity",
+        "si_candidates_count": 1,
+        "si_equiv_to_gold_count": 1,
+        "ambiguous": false
+      },
+      "gold_result_size": 0,
+      "pass": true
+    },
+    "v_discrim": {
+      "failure_modes": {
+        "total": 2,
+        "ex_one_count": 0,
+        "threshold": 0.02,
+        "details": [
+          {
+            "mutation_id": "wrong_operator",
+            "equivalent": false
+          },
+          {
+            "mutation_id": "drop_count",
+            "equivalent": false
+          }
+        ],
+        "pass": true
+      },
+      "dual_bridge": {
+        "sql_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "template_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "pass": true
+      },
+      "pass": true
+    },
+    "v_diverse": {
+      "cell": "rare_event/auditor/filter_then_count",
+      "axis_values": {
+        "phenomenon_class": "rare_event",
+        "persona_id": "auditor",
+        "pattern_family": "filter_then_count",
+        "nosql_nativeness_level": "L1",
+        "shape_policy": "reshape",
+        "difficulty_label": "unknown",
+        "collection_name": "flights",
+        "time_field_present": "yes",
+        "array_field_present": "yes",
+        "operator_count_bucket": "3-5"
+      },
+      "axis_deltas": {
+        "phenomenon_class": 0.0185,
+        "persona_id": 0.0046,
+        "pattern_family": 0.0147,
+        "nosql_nativeness_level": 0.0062,
+        "shape_policy": 0.0016,
+        "difficulty_label": 0.0014,
+        "collection_name": 0.003,
+        "time_field_present": 0.0014,
+        "array_field_present": 0.0014,
+        "operator_count_bucket": 0.0062
+      },
+      "global_count": 731,
+      "min_quota": 1,
+      "max_quota": 999,
+      "delta_f": 0.0014,
+      "epsilon": 0.0,
+      "under_quota": false,
+      "pass": true
+    },
+    "calibration": {
+      "target_difficulty": "easy",
+      "pr_small": 0.88,
+      "pr_medium": 0.78,
+      "pr_large": 0.68,
+      "pr_frontier": 0.55,
+      "empirical_difficulty": "easy",
+      "amplify_rounds": 0
+    }
+  },
+  "routing": {
+    "split": "test",
+    "reason": "cross_domain_holdout_selected"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "pattern_family": "null_vs_missing_disambig",
+  "primary_operator": "$type",
+  "input_shape": {
+    "collections": [
+      "posts"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "author",
+      "_sparse_notes",
+      "category"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "author",
+    "category",
+    "_sparse_notes",
+    "year",
+    "engagement_scores"
+  ]
+}

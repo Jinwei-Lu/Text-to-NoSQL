@@ -1,0 +1,14 @@
+{
+  "pattern_family": "time_window_aggregate",
+  "primary_operator": "$group",
+  "must_contain": [
+    "$group",
+    "$sort"
+  ],
+  "must_contain_at_root": [
+    "$group",
+    "$project",
+    "$sort"
+  ],
+  "query": "db.matches.aggregate([ { $sort: { \"season\": 1 } }, { $group: { _id: \"$season\", avg_value: { $avg: \"$possession\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+}

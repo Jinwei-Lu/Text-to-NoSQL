@@ -1,0 +1,1946 @@
+{
+  "train_records": [],
+  "test_records": [
+    {
+      "collection": "trials",
+      "metric_field": "success_rate",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4374,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 start_year 聚合 success_rate，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 success_rate 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average success_rate per time bucket."
+      ],
+      "MQL": "db.trials.aggregate([ { $sort: { \"start_year\": 1 } }, { $group: { _id: \"$start_year\", avg_value: { $avg: \"$success_rate\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $sort: { \"start_year\": 1 } }, { $group: { _id: \"$start_year\", avg_value: { $avg: \"$success_rate\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4378,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 admission_year 计算 blood_pressure 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of blood_pressure."
+      ],
+      "MQL": "db.patients.aggregate([ { $setWindowFields: { sortBy: { \"admission_year\": 1 }, output: { moving_avg: { $avg: \"$blood_pressure\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$blood_pressure\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, name: 1, blood_pressure: \"$blood_pressure\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $setWindowFields: { sortBy: { \"admission_year\": 1 }, output: { moving_avg: { $avg: \"$blood_pressure\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$blood_pressure\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, name: 1, blood_pressure: \"$blood_pressure\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4382,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "把 blood_pressure 按阈值分成高低两组，并分别按 gender 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by blood_pressure."
+      ],
+      "MQL": "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4385,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "统计 vitals.heart_rate 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of vitals.heart_rate."
+      ],
+      "MQL": "db.patients.aggregate([ { $group: { _id: { $type: \"$vitals.heart_rate\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $group: { _id: { $type: \"$vitals.heart_rate\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4389,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "把整条文档展开成键值对，统计每个字段出现的次数和类型。",
+        "动态展开键值做统计。",
+        "用 objectToArray 分析文档结构。",
+        "枚举文档的字段名和类型。",
+        "Expand document keys and count occurrences of each field."
+      ],
+      "MQL": "db.patients.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$objectToArray",
+          "$unwind"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "dynamic_key_expansion",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "enrollment_count",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4393,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "先按 start_year 计算 enrollment_count 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on enrollment_count."
+      ],
+      "MQL": "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$enrollment_count\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$enrollment_count\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "success_rate",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4397,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "先按 start_year 计算 success_rate 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on success_rate."
+      ],
+      "MQL": "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$success_rate\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$success_rate\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4401,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "统计 blood_pressure 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where blood_pressure exceeds 70."
+      ],
+      "MQL": "db.patients.aggregate([ { $match: { \"blood_pressure\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $match: { \"blood_pressure\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4405,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "把 blood_pressure 按阈值分成高低两组，并分别按 gender 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by blood_pressure."
+      ],
+      "MQL": "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4408,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 gender 分组，计算 vitals.heart_rate 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by gender and aggregate vitals.heart_rate."
+      ],
+      "MQL": "db.patients.aggregate([ { $group: { _id: \"$gender\", avg_value: { $avg: \"$vitals.heart_rate\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, gender: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $group: { _id: \"$gender\", avg_value: { $avg: \"$vitals.heart_rate\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, gender: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4411,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "用 graphLookup 递归遍历关联链，返回每个节点的链深度。",
+        "做递归的图查询。",
+        "用 $graphLookup 找关联路径。",
+        "递归展开层级关系。",
+        "Recursively traverse the graph and return chain depth per node."
+      ],
+      "MQL": "db.patients.aggregate([ { $graphLookup: { from: \"patients\", startWith: \"$name\", connectFromField: \"name\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, name: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$graphLookup",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$graphLookup",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $graphLookup: { from: \"patients\", startWith: \"$name\", connectFromField: \"name\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, name: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])"
+        ]
+      },
+      "operator_family": "graph_recursive_deep",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "enrollment_count",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4415,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 trial_phase 分组，计算 enrollment_count 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of enrollment_count per trial_phase."
+      ],
+      "MQL": "db.trials.aggregate([ { $group: { _id: \"$trial_phase\", p50: { $percentile: { input: \"$enrollment_count\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$enrollment_count\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, trial_phase: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $group: { _id: \"$trial_phase\", p50: { $percentile: { input: \"$enrollment_count\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$enrollment_count\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, trial_phase: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "success_rate",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4419,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 start_year 聚合 success_rate，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 success_rate 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average success_rate per time bucket."
+      ],
+      "MQL": "db.trials.aggregate([ { $sort: { \"start_year\": 1 } }, { $group: { _id: \"$start_year\", avg_value: { $avg: \"$success_rate\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $sort: { \"start_year\": 1 } }, { $group: { _id: \"$start_year\", avg_value: { $avg: \"$success_rate\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4424,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 admission_year 计算 blood_pressure 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of blood_pressure."
+      ],
+      "MQL": "db.patients.aggregate([ { $setWindowFields: { sortBy: { \"admission_year\": 1 }, output: { moving_avg: { $avg: \"$blood_pressure\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$blood_pressure\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, name: 1, blood_pressure: \"$blood_pressure\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $setWindowFields: { sortBy: { \"admission_year\": 1 }, output: { moving_avg: { $avg: \"$blood_pressure\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$blood_pressure\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, name: 1, blood_pressure: \"$blood_pressure\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4428,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "把 blood_pressure 按阈值分成高低两组，并分别按 gender 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by blood_pressure."
+      ],
+      "MQL": "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4432,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "统计 vitals.heart_rate 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of vitals.heart_rate."
+      ],
+      "MQL": "db.patients.aggregate([ { $group: { _id: { $type: \"$vitals.heart_rate\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $group: { _id: { $type: \"$vitals.heart_rate\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4435,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "把整条文档展开成键值对，统计每个字段出现的次数和类型。",
+        "动态展开键值做统计。",
+        "用 objectToArray 分析文档结构。",
+        "枚举文档的字段名和类型。",
+        "Expand document keys and count occurrences of each field."
+      ],
+      "MQL": "db.patients.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$objectToArray",
+          "$unwind"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "dynamic_key_expansion",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "enrollment_count",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4439,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "先按 start_year 计算 enrollment_count 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on enrollment_count."
+      ],
+      "MQL": "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$enrollment_count\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$enrollment_count\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "success_rate",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4444,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "先按 start_year 计算 success_rate 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on success_rate."
+      ],
+      "MQL": "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$success_rate\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$success_rate\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4448,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "统计 blood_pressure 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where blood_pressure exceeds 70."
+      ],
+      "MQL": "db.patients.aggregate([ { $match: { \"blood_pressure\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $match: { \"blood_pressure\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4451,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "把 blood_pressure 按阈值分成高低两组，并分别按 gender 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by blood_pressure."
+      ],
+      "MQL": "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4455,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 gender 分组，计算 vitals.heart_rate 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by gender and aggregate vitals.heart_rate."
+      ],
+      "MQL": "db.patients.aggregate([ { $group: { _id: \"$gender\", avg_value: { $avg: \"$vitals.heart_rate\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, gender: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $group: { _id: \"$gender\", avg_value: { $avg: \"$vitals.heart_rate\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, gender: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4459,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "用 graphLookup 递归遍历关联链，返回每个节点的链深度。",
+        "做递归的图查询。",
+        "用 $graphLookup 找关联路径。",
+        "递归展开层级关系。",
+        "Recursively traverse the graph and return chain depth per node."
+      ],
+      "MQL": "db.patients.aggregate([ { $graphLookup: { from: \"patients\", startWith: \"$name\", connectFromField: \"name\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, name: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$graphLookup",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$graphLookup",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $graphLookup: { from: \"patients\", startWith: \"$name\", connectFromField: \"name\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, name: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])"
+        ]
+      },
+      "operator_family": "graph_recursive_deep",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "enrollment_count",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4464,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 trial_phase 分组，计算 enrollment_count 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of enrollment_count per trial_phase."
+      ],
+      "MQL": "db.trials.aggregate([ { $group: { _id: \"$trial_phase\", p50: { $percentile: { input: \"$enrollment_count\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$enrollment_count\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, trial_phase: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $group: { _id: \"$trial_phase\", p50: { $percentile: { input: \"$enrollment_count\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$enrollment_count\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, trial_phase: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "success_rate",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4468,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 start_year 聚合 success_rate，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 success_rate 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average success_rate per time bucket."
+      ],
+      "MQL": "db.trials.aggregate([ { $sort: { \"start_year\": 1 } }, { $group: { _id: \"$start_year\", avg_value: { $avg: \"$success_rate\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $sort: { \"start_year\": 1 } }, { $group: { _id: \"$start_year\", avg_value: { $avg: \"$success_rate\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4472,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 admission_year 计算 blood_pressure 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of blood_pressure."
+      ],
+      "MQL": "db.patients.aggregate([ { $setWindowFields: { sortBy: { \"admission_year\": 1 }, output: { moving_avg: { $avg: \"$blood_pressure\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$blood_pressure\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, name: 1, blood_pressure: \"$blood_pressure\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $setWindowFields: { sortBy: { \"admission_year\": 1 }, output: { moving_avg: { $avg: \"$blood_pressure\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$blood_pressure\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, name: 1, blood_pressure: \"$blood_pressure\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4476,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "把 blood_pressure 按阈值分成高低两组，并分别按 gender 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by blood_pressure."
+      ],
+      "MQL": "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4480,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "统计 vitals.heart_rate 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of vitals.heart_rate."
+      ],
+      "MQL": "db.patients.aggregate([ { $group: { _id: { $type: \"$vitals.heart_rate\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $group: { _id: { $type: \"$vitals.heart_rate\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4484,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "把整条文档展开成键值对，统计每个字段出现的次数和类型。",
+        "动态展开键值做统计。",
+        "用 objectToArray 分析文档结构。",
+        "枚举文档的字段名和类型。",
+        "Expand document keys and count occurrences of each field."
+      ],
+      "MQL": "db.patients.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$objectToArray",
+          "$unwind"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "dynamic_key_expansion",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "enrollment_count",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4488,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "先按 start_year 计算 enrollment_count 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on enrollment_count."
+      ],
+      "MQL": "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$enrollment_count\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$enrollment_count\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "success_rate",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4492,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "先按 start_year 计算 success_rate 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on success_rate."
+      ],
+      "MQL": "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$success_rate\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$success_rate\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4496,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "统计 blood_pressure 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where blood_pressure exceeds 70."
+      ],
+      "MQL": "db.patients.aggregate([ { $match: { \"blood_pressure\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $match: { \"blood_pressure\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4500,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "把 blood_pressure 按阈值分成高低两组，并分别按 gender 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by blood_pressure."
+      ],
+      "MQL": "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4503,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 gender 分组，计算 vitals.heart_rate 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by gender and aggregate vitals.heart_rate."
+      ],
+      "MQL": "db.patients.aggregate([ { $group: { _id: \"$gender\", avg_value: { $avg: \"$vitals.heart_rate\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, gender: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $group: { _id: \"$gender\", avg_value: { $avg: \"$vitals.heart_rate\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, gender: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4507,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "用 graphLookup 递归遍历关联链，返回每个节点的链深度。",
+        "做递归的图查询。",
+        "用 $graphLookup 找关联路径。",
+        "递归展开层级关系。",
+        "Recursively traverse the graph and return chain depth per node."
+      ],
+      "MQL": "db.patients.aggregate([ { $graphLookup: { from: \"patients\", startWith: \"$name\", connectFromField: \"name\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, name: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$graphLookup",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$graphLookup",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $graphLookup: { from: \"patients\", startWith: \"$name\", connectFromField: \"name\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, name: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])"
+        ]
+      },
+      "operator_family": "graph_recursive_deep",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "enrollment_count",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4511,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 trial_phase 分组，计算 enrollment_count 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of enrollment_count per trial_phase."
+      ],
+      "MQL": "db.trials.aggregate([ { $group: { _id: \"$trial_phase\", p50: { $percentile: { input: \"$enrollment_count\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$enrollment_count\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, trial_phase: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $group: { _id: \"$trial_phase\", p50: { $percentile: { input: \"$enrollment_count\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$enrollment_count\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, trial_phase: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "success_rate",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4515,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 start_year 聚合 success_rate，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 success_rate 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average success_rate per time bucket."
+      ],
+      "MQL": "db.trials.aggregate([ { $sort: { \"start_year\": 1 } }, { $group: { _id: \"$start_year\", avg_value: { $avg: \"$success_rate\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $sort: { \"start_year\": 1 } }, { $group: { _id: \"$start_year\", avg_value: { $avg: \"$success_rate\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4519,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 admission_year 计算 blood_pressure 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of blood_pressure."
+      ],
+      "MQL": "db.patients.aggregate([ { $setWindowFields: { sortBy: { \"admission_year\": 1 }, output: { moving_avg: { $avg: \"$blood_pressure\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$blood_pressure\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, name: 1, blood_pressure: \"$blood_pressure\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $setWindowFields: { sortBy: { \"admission_year\": 1 }, output: { moving_avg: { $avg: \"$blood_pressure\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$blood_pressure\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, name: 1, blood_pressure: \"$blood_pressure\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4524,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "把 blood_pressure 按阈值分成高低两组，并分别按 gender 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by blood_pressure."
+      ],
+      "MQL": "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4528,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "统计 vitals.heart_rate 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of vitals.heart_rate."
+      ],
+      "MQL": "db.patients.aggregate([ { $group: { _id: { $type: \"$vitals.heart_rate\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $group: { _id: { $type: \"$vitals.heart_rate\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4533,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "把整条文档展开成键值对，统计每个字段出现的次数和类型。",
+        "动态展开键值做统计。",
+        "用 objectToArray 分析文档结构。",
+        "枚举文档的字段名和类型。",
+        "Expand document keys and count occurrences of each field."
+      ],
+      "MQL": "db.patients.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$objectToArray",
+          "$unwind"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "dynamic_key_expansion",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "enrollment_count",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4537,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "先按 start_year 计算 enrollment_count 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on enrollment_count."
+      ],
+      "MQL": "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$enrollment_count\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$enrollment_count\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "success_rate",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4541,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "先按 start_year 计算 success_rate 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on success_rate."
+      ],
+      "MQL": "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$success_rate\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $setWindowFields: { sortBy: { \"start_year\": 1 }, output: { moving_avg: { $avg: \"$success_rate\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, trial_id: 1, moving_avg: 1, category: \"$trial_phase\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, trial_id: \"$kept.trial_id\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4545,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "统计 blood_pressure 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where blood_pressure exceeds 70."
+      ],
+      "MQL": "db.patients.aggregate([ { $match: { \"blood_pressure\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $match: { \"blood_pressure\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4550,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "把 blood_pressure 按阈值分成高低两组，并分别按 gender 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by blood_pressure."
+      ],
+      "MQL": "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4554,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 gender 分组，计算 vitals.heart_rate 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by gender and aggregate vitals.heart_rate."
+      ],
+      "MQL": "db.patients.aggregate([ { $group: { _id: \"$gender\", avg_value: { $avg: \"$vitals.heart_rate\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, gender: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $group: { _id: \"$gender\", avg_value: { $avg: \"$vitals.heart_rate\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, gender: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "vitals.heart_rate",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4557,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "用 graphLookup 递归遍历关联链，返回每个节点的链深度。",
+        "做递归的图查询。",
+        "用 $graphLookup 找关联路径。",
+        "递归展开层级关系。",
+        "Recursively traverse the graph and return chain depth per node."
+      ],
+      "MQL": "db.patients.aggregate([ { $graphLookup: { from: \"patients\", startWith: \"$name\", connectFromField: \"name\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, name: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$graphLookup",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$graphLookup",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $graphLookup: { from: \"patients\", startWith: \"$name\", connectFromField: \"name\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, name: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])"
+        ]
+      },
+      "operator_family": "graph_recursive_deep",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "enrollment_count",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4562,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 trial_phase 分组，计算 enrollment_count 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of enrollment_count per trial_phase."
+      ],
+      "MQL": "db.trials.aggregate([ { $group: { _id: \"$trial_phase\", p50: { $percentile: { input: \"$enrollment_count\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$enrollment_count\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, trial_phase: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $group: { _id: \"$trial_phase\", p50: { $percentile: { input: \"$enrollment_count\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$enrollment_count\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, trial_phase: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "trials",
+      "metric_field": "success_rate",
+      "label_field": "trial_id",
+      "category_field": "trial_phase",
+      "time_field": "start_year",
+      "array_field": null,
+      "record_id": 4566,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 start_year 聚合 success_rate，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 success_rate 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average success_rate per time bucket."
+      ],
+      "MQL": "db.trials.aggregate([ { $sort: { \"start_year\": 1 } }, { $group: { _id: \"$start_year\", avg_value: { $avg: \"$success_rate\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.trials.aggregate([ { $sort: { \"start_year\": 1 } }, { $group: { _id: \"$start_year\", avg_value: { $avg: \"$success_rate\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    },
+    {
+      "collection": "patients",
+      "metric_field": "blood_pressure",
+      "label_field": "name",
+      "category_field": "gender",
+      "time_field": "admission_year",
+      "array_field": "diagnoses",
+      "record_id": 4570,
+      "db_id": "healthcare_trials_005",
+      "nl_queries": [
+        "按 admission_year 计算 blood_pressure 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of blood_pressure."
+      ],
+      "MQL": "db.patients.aggregate([ { $setWindowFields: { sortBy: { \"admission_year\": 1 }, output: { moving_avg: { $avg: \"$blood_pressure\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$blood_pressure\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, name: 1, blood_pressure: \"$blood_pressure\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.patients.aggregate([ { $setWindowFields: { sortBy: { \"admission_year\": 1 }, output: { moving_avg: { $avg: \"$blood_pressure\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$blood_pressure\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, name: 1, blood_pressure: \"$blood_pressure\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+    }
+  ],
+  "manifest": {
+    "db_id": "healthcare_trials_005",
+    "domain_id": "healthcare_trials",
+    "record_count": 50,
+    "schema_signature": "sha256:57382418da7e24a73fce601eb0dda81acaaf26b034691409d0f8f3967d9991c1",
+    "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c"
+  }
+}

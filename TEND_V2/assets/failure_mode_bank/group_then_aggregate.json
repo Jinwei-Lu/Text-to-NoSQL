@@ -1,0 +1,152 @@
+[
+  {
+    "mutation_id": "wrong_group_field",
+    "failure_type": "wrong_group",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${label_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {label_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "sum_instead_of_avg",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $sum: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_min_instead_of_avg",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $min: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_max_instead_of_avg",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $max: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_first_instead_of_avg",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $first: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_last_instead_of_avg",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $last: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_push_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $push: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_group_by_time",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${time_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {time_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_group_by_metric",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${metric_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {metric_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_avg_wrong_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${label_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_missing_project",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_missing_count",
+    "failure_type": "missing_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_extra_match_before",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": {{ $exists: true }} }} }}, {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_extra_sort_after",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $sort: {{ avg_value: -1 }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_extra_limit",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $limit: {top_k} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_include_id",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 1, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_project_before_group",
+    "failure_type": "wrong_stage_order",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ {category_field}: 1, {metric_field}: 1 }} }}, {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_null_group_id",
+    "failure_type": "null_handling_error",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_addtoset_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $addToSet: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_count_avg",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $avg: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_double_group",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $group: {{ _id: null, grand_avg: {{ $avg: \"$avg_value\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_wrong_alias",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, wrong_name: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_unwind_before_group",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $unwind: \"${metric_field}\" }}, {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_type_confusion_sum_string",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${label_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_sum_on_literal",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_exists_match",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{category_field}\": {{ $exists: true }} }} }}, {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_replaceroot_project",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $replaceRoot: {{ newRoot: {{ {category_field}: \"$_id\", avg_value: \"$avg_value\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_stddev_instead_of_avg",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $stdDevPop: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_sample_before_group",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sample: {{ size: 100 }} }}, {{ $group: {{ _id: \"${category_field}\", avg_value: {{ $avg: \"${metric_field}\" }}, total_docs: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", avg_value: 1, total_docs: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_gta_bucket_instead_of_group",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $bucket: {{ groupBy: \"${metric_field}\", boundaries: [0, 50, 100], default: \"other\", output: {{ count: {{ $sum: 1 }} }} }} }} ])"
+  }
+]

@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "city_sensors_004",
+    "record_id": 1881,
+    "schema_fingerprint_hint": "sensors",
+    "si_hash": "sha256:e5a3978654e494c279553ff07f8f73877e189c0473463d28b76961c7617abf4a"
+  },
+  "intent": {
+    "phenomenon_id": "temporal_trend@reading",
+    "phenomenon_class": "temporal_trend",
+    "persona_id": "auditor",
+    "pattern_family": "time_window_aggregate",
+    "collection": "sensors",
+    "metric_field": "reading",
+    "field_leaf": "reading",
+    "label_field": "station",
+    "time_field": "year",
+    "category_field": "zone",
+    "array_field": "reading_history",
+    "secondary_collection": null,
+    "join_field": "station"
+  },
+  "output": {
+    "keys": [
+      "station",
+      "zone",
+      "reading"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "time_window_aggregate"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$sort"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.sensors.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$reading\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+    ]
+  }
+}

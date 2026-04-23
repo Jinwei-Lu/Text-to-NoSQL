@@ -1,0 +1,4 @@
+[
+  "db.requests.aggregate([ { $match: {} }, { $lookup: { from: \"departments\", localField: \"citizen\", foreignField: \"citizen\", as: \"joined\" } }, { $project: { _id: 0, citizen: 1, processing_days: \"$processing_days\", joined_count: { $size: \"$joined\" } } }, { $sort: { joined_count: -1 } }])",
+  "db.requests.aggregate([ { $lookup: { from: \"departments\", localField: \"citizen\", foreignField: \"citizen\", as: \"joined\" } }, { $project: { _id: 0, citizen: 1, processing_days: \"$processing_days\", joined_count: { $size: \"$joined\" } } }, { $sort: { joined_count: -1 } }])"
+]

@@ -1,0 +1,24 @@
+{
+  "pattern_family": "universal_quantifier",
+  "primary_operator": "$allElementsTrue",
+  "input_shape": {
+    "collections": [
+      "matches"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "team",
+      "stadium",
+      "player_ratings"
+    ],
+    "shape_policy": "preserve"
+  },
+  "referenced_fields": [
+    "team",
+    "player_ratings",
+    "stadium",
+    "season",
+    "player_ratings"
+  ]
+}

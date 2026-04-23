@@ -1,0 +1,13 @@
+{
+  "pattern_family": "simple_filter",
+  "primary_operator": "$match",
+  "must_contain": [
+    "$match",
+    "$project"
+  ],
+  "must_contain_at_root": [
+    "$match",
+    "$project"
+  ],
+  "query": "db.inspections.aggregate([ { $match: { \"line\": { $gt: 70 } } }, { $project: { _id: 0, product: 1, line: \"$line\" } }])"
+}

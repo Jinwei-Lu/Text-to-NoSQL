@@ -1,0 +1,24 @@
+{
+  "pattern_family": "group_then_aggregate",
+  "primary_operator": "$group",
+  "input_shape": {
+    "collections": [
+      "properties"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "city",
+      "type",
+      "area"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "city",
+    "area",
+    "type",
+    "year",
+    "amenity_scores"
+  ]
+}

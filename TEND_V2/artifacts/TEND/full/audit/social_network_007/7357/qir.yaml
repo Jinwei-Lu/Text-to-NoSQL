@@ -1,0 +1,24 @@
+{
+  "pattern_family": "existential_quantifier",
+  "primary_operator": "$match",
+  "input_shape": {
+    "collections": [
+      "posts"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "author",
+      "category",
+      "engagement_scores"
+    ],
+    "shape_policy": "preserve"
+  },
+  "referenced_fields": [
+    "author",
+    "engagement_scores",
+    "category",
+    "year",
+    "engagement_scores"
+  ]
+}

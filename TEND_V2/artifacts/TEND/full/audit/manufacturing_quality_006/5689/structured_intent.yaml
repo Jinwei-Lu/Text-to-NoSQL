@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "db_id": "manufacturing_quality_006",
+    "record_id": 5689,
+    "schema_fingerprint_hint": "inspections",
+    "si_hash": "sha256:a8b71d904fa4c1bfb009aa03eca6fe4e1850d755c6a42cac90d6e26adf156f75"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@measurements",
+    "phenomenon_class": "rare_event",
+    "persona_id": "end-user",
+    "pattern_family": "array_positional_select",
+    "collection": "inspections",
+    "metric_field": "measurements",
+    "field_leaf": "measurements",
+    "label_field": "product",
+    "time_field": "year",
+    "category_field": "line",
+    "array_field": "measurements",
+    "secondary_collection": null,
+    "join_field": "product"
+  },
+  "output": {
+    "keys": [
+      "product",
+      "line",
+      "measurements"
+    ],
+    "shape_policy": "preserve"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "array_positional_select"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$arrayElemAt",
+      "$project"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.inspections.aggregate([ { $project: { _id: 0, product: 1, first: { $arrayElemAt: [\"$measurements\", 0] }, last: { $arrayElemAt: [\"$measurements\", -1] }, size: { $size: \"$measurements\" } } }])"
+    ]
+  }
+}

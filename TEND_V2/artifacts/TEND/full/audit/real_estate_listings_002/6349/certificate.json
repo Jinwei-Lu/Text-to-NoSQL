@@ -1,0 +1,110 @@
+{
+  "record_id": "real_estate_listings_002/6349",
+  "db_id": "real_estate_listings_002",
+  "si_hash": "sha256:911fedfa7e9ed85d76d2e4c42d193d2ff247bf8ae83036ccd20cbd32a1a82ec6",
+  "world_signature": "sha256:2a145b0fde10c73b807ce753fee911352cba8c183e7c0fe1fe2f36087f1e21f1",
+  "split": "train",
+  "empirical_difficulty": "medium",
+  "phase_d": {
+    "v_correct": {
+      "neighborhood": {
+        "models": [
+          "mock-neighborhood"
+        ],
+        "all_candidates": [
+          {
+            "model": "mock-neighborhood",
+            "ast_pass": true,
+            "exec_equiv": true,
+            "action": "mock_accepted"
+          }
+        ]
+      },
+      "ambiguity": {
+        "attacker_model": "mock-ambiguity",
+        "si_candidates_count": 1,
+        "si_equiv_to_gold_count": 1,
+        "ambiguous": false
+      },
+      "gold_result_size": 0,
+      "pass": true
+    },
+    "v_discrim": {
+      "failure_modes": {
+        "total": 2,
+        "ex_one_count": 0,
+        "threshold": 0.02,
+        "details": [
+          {
+            "mutation_id": "wrong_aggregate",
+            "equivalent": false
+          },
+          {
+            "mutation_id": "reverse_sort",
+            "equivalent": false
+          }
+        ],
+        "pass": true
+      },
+      "dual_bridge": {
+        "sql_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "template_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "pass": true
+      },
+      "pass": true
+    },
+    "v_diverse": {
+      "cell": "high_cardinality/analyst/group_then_aggregate",
+      "axis_values": {
+        "phenomenon_class": "high_cardinality",
+        "persona_id": "analyst",
+        "pattern_family": "group_then_aggregate",
+        "nosql_nativeness_level": "L2",
+        "shape_policy": "reshape",
+        "difficulty_label": "unknown",
+        "collection_name": "properties",
+        "time_field_present": "yes",
+        "array_field_present": "yes",
+        "operator_count_bucket": "6-8"
+      },
+      "axis_deltas": {
+        "phenomenon_class": 0.0059,
+        "persona_id": 0.0006,
+        "pattern_family": 0.0064,
+        "nosql_nativeness_level": 0.0005,
+        "shape_policy": 0.0002,
+        "difficulty_label": 0.0002,
+        "collection_name": 0.0066,
+        "time_field_present": 0.0002,
+        "array_field_present": 0.0002,
+        "operator_count_bucket": 0.0004
+      },
+      "global_count": 5351,
+      "min_quota": 1,
+      "max_quota": 999,
+      "delta_f": 0.0002,
+      "epsilon": 0.0,
+      "under_quota": false,
+      "pass": true
+    },
+    "calibration": {
+      "target_difficulty": "medium",
+      "pr_small": 0.55,
+      "pr_medium": 0.45,
+      "pr_large": 0.35,
+      "pr_frontier": 0.25,
+      "empirical_difficulty": "medium",
+      "amplify_rounds": 0
+    }
+  },
+  "routing": {
+    "split": "train",
+    "reason": "default_train"
+  }
+}

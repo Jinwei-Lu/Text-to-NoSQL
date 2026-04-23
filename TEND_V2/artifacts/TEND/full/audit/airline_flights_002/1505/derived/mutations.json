@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_default",
+    "query": "db.flights.aggregate([ { $project: { _id: 0, airline: 1, value: { $literal: [\"$airline\", 0] } } }, { $sort: { value: -1 } }])"
+  },
+  {
+    "mutation_id": "reverse_sort",
+    "query": "db.flights.aggregate([ { $project: { _id: 0, airline: 1, value: { $ifNull: [\"$airline\", 0] } } }, { $sort: { value: 1 } }])"
+  }
+]

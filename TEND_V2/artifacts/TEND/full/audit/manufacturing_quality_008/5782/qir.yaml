@@ -1,0 +1,24 @@
+{
+  "pattern_family": "filter_then_count",
+  "primary_operator": "$count",
+  "input_shape": {
+    "collections": [
+      "inspections"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "product",
+      "line",
+      "measurements"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "product",
+    "measurements",
+    "line",
+    "year",
+    "measurements"
+  ]
+}

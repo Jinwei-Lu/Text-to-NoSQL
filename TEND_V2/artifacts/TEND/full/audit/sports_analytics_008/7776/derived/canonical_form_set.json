@@ -1,0 +1,14 @@
+{
+  "must_contain": [
+    "$arrayElemAt",
+    "$project"
+  ],
+  "must_not_contain": [],
+  "must_contain_at_root": [
+    "$project"
+  ],
+  "must_not_contain_at_root": [],
+  "known_variants": [
+    "db.matches.aggregate([ { $project: { _id: 0, team: 1, first: { $arrayElemAt: [\"$player_ratings\", 0] }, last: { $arrayElemAt: [\"$player_ratings\", -1] }, size: { $size: \"$player_ratings\" } } }])"
+  ]
+}

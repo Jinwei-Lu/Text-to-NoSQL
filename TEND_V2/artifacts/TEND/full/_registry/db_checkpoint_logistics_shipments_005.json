@@ -1,0 +1,1960 @@
+{
+  "train_records": [],
+  "test_records": [
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5179,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "按 year 聚合 delay_hours，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 delay_hours 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average delay_hours per time bucket."
+      ],
+      "MQL": "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "packages",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5182,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先按 year 计算 packages 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on packages."
+      ],
+      "MQL": "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "inspection_scores",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5186,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "找出 inspection_scores 中所有元素都高于阈值的记录。",
+        "筛出数组全部满足条件的项。",
+        "只保留数组中每一个元素都达标的文档。",
+        "检查是否所有元素都超过阈值。",
+        "Keep rows where every array element exceeds the threshold."
+      ],
+      "MQL": "db.shipments.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$inspection_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, warehouse: 1, inspection_scores: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$allElementsTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$inspection_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, warehouse: 1, inspection_scores: 1 } }])"
+        ]
+      },
+      "operator_family": "universal_quantifier",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5190,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "统计 delay_hours 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of delay_hours."
+      ],
+      "MQL": "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5195,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "按 year 聚合 delay_hours，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 delay_hours 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average delay_hours per time bucket."
+      ],
+      "MQL": "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "packages",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5199,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先按 year 计算 packages 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on packages."
+      ],
+      "MQL": "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "inspection_scores",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5203,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先筛选 inspection_scores 高于阈值的记录，再按 route 汇总数量和均值。",
+        "过滤高值后按类别统计。",
+        "对超过阈值的数据做分组聚合。",
+        "筛选再聚合，返回每组命中量。",
+        "Filter then aggregate by route."
+      ],
+      "MQL": "db.shipments.aggregate([ { $match: { \"inspection_scores\": { $gt: 70 } } }, { $group: { _id: \"$route\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$inspection_scores\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, route: \"$_id\", matched_count: 1, avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$match",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $match: { \"inspection_scores\": { $gt: 70 } } }, { $group: { _id: \"$route\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$inspection_scores\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, route: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "filter_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5207,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "统计 delay_hours 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of delay_hours."
+      ],
+      "MQL": "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5210,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "按 year 聚合 delay_hours，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 delay_hours 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average delay_hours per time bucket."
+      ],
+      "MQL": "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "packages",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5213,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先按 year 计算 packages 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on packages."
+      ],
+      "MQL": "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "inspection_scores",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5218,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "找出 inspection_scores 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.shipments.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$inspection_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, warehouse: 1, inspection_scores: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$inspection_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, warehouse: 1, inspection_scores: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5222,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "统计 delay_hours 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of delay_hours."
+      ],
+      "MQL": "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5225,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "按 year 聚合 delay_hours，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 delay_hours 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average delay_hours per time bucket."
+      ],
+      "MQL": "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "packages",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5230,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先按 year 计算 packages 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on packages."
+      ],
+      "MQL": "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "inspection_scores",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5235,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "统计 inspection_scores 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where inspection_scores exceeds 70."
+      ],
+      "MQL": "db.shipments.aggregate([ { $match: { \"inspection_scores\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $match: { \"inspection_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5238,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "统计 delay_hours 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of delay_hours."
+      ],
+      "MQL": "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5242,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "按 year 聚合 delay_hours，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 delay_hours 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average delay_hours per time bucket."
+      ],
+      "MQL": "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "packages",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5246,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先按 year 计算 packages 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on packages."
+      ],
+      "MQL": "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "inspection_scores",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5250,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "取出 inspection_scores 的第一个和最后一个元素，并返回数组长度。",
+        "提取数组首尾元素。",
+        "用位置选择器取数组元素。",
+        "获取数组边界值。",
+        "Select the first and last elements from inspection_scores."
+      ],
+      "MQL": "db.shipments.aggregate([ { $project: { _id: 0, warehouse: 1, first: { $arrayElemAt: [\"$inspection_scores\", 0] }, last: { $arrayElemAt: [\"$inspection_scores\", -1] }, size: { $size: \"$inspection_scores\" } } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$arrayElemAt",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $project: { _id: 0, warehouse: 1, first: { $arrayElemAt: [\"$inspection_scores\", 0] }, last: { $arrayElemAt: [\"$inspection_scores\", -1] }, size: { $size: \"$inspection_scores\" } } }])"
+        ]
+      },
+      "operator_family": "array_positional_select",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5254,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "统计 delay_hours 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of delay_hours."
+      ],
+      "MQL": "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5259,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "按 year 聚合 delay_hours，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 delay_hours 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average delay_hours per time bucket."
+      ],
+      "MQL": "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "packages",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5263,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先按 year 计算 packages 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on packages."
+      ],
+      "MQL": "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "inspection_scores",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5266,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "找出 inspection_scores 中所有元素都高于阈值的记录。",
+        "筛出数组全部满足条件的项。",
+        "只保留数组中每一个元素都达标的文档。",
+        "检查是否所有元素都超过阈值。",
+        "Keep rows where every array element exceeds the threshold."
+      ],
+      "MQL": "db.shipments.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$inspection_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, warehouse: 1, inspection_scores: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$allElementsTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$inspection_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, warehouse: 1, inspection_scores: 1 } }])"
+        ]
+      },
+      "operator_family": "universal_quantifier",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5270,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "统计 delay_hours 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of delay_hours."
+      ],
+      "MQL": "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5275,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "按 year 聚合 delay_hours，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 delay_hours 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average delay_hours per time bucket."
+      ],
+      "MQL": "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "packages",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5279,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先按 year 计算 packages 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on packages."
+      ],
+      "MQL": "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "inspection_scores",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5283,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先筛选 inspection_scores 高于阈值的记录，再按 route 汇总数量和均值。",
+        "过滤高值后按类别统计。",
+        "对超过阈值的数据做分组聚合。",
+        "筛选再聚合，返回每组命中量。",
+        "Filter then aggregate by route."
+      ],
+      "MQL": "db.shipments.aggregate([ { $match: { \"inspection_scores\": { $gt: 70 } } }, { $group: { _id: \"$route\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$inspection_scores\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, route: \"$_id\", matched_count: 1, avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$match",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $match: { \"inspection_scores\": { $gt: 70 } } }, { $group: { _id: \"$route\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$inspection_scores\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, route: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "filter_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5286,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "统计 delay_hours 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of delay_hours."
+      ],
+      "MQL": "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5292,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "按 year 聚合 delay_hours，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 delay_hours 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average delay_hours per time bucket."
+      ],
+      "MQL": "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "packages",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5296,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先按 year 计算 packages 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on packages."
+      ],
+      "MQL": "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "inspection_scores",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5300,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "找出 inspection_scores 中至少有一个值高于阈值的记录。",
+        "筛出数组里存在高值元素的项。",
+        "只保留数组中命中条件的文档。",
+        "检查是否存在任一元素超过阈值。",
+        "Keep rows where any array element exceeds the threshold."
+      ],
+      "MQL": "db.shipments.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$inspection_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, warehouse: 1, inspection_scores: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$anyElementTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$inspection_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, warehouse: 1, inspection_scores: 1 } }])"
+        ]
+      },
+      "operator_family": "existential_quantifier",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5302,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "统计 delay_hours 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of delay_hours."
+      ],
+      "MQL": "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5306,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "按 year 聚合 delay_hours，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 delay_hours 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average delay_hours per time bucket."
+      ],
+      "MQL": "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "packages",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5310,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先按 year 计算 packages 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on packages."
+      ],
+      "MQL": "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "inspection_scores",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5314,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "统计 inspection_scores 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where inspection_scores exceeds 70."
+      ],
+      "MQL": "db.shipments.aggregate([ { $match: { \"inspection_scores\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $match: { \"inspection_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5318,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "统计 delay_hours 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of delay_hours."
+      ],
+      "MQL": "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5322,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "按 year 聚合 delay_hours，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 delay_hours 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average delay_hours per time bucket."
+      ],
+      "MQL": "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "packages",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5326,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先按 year 计算 packages 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on packages."
+      ],
+      "MQL": "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "inspection_scores",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5330,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "取出 inspection_scores 的第一个和最后一个元素，并返回数组长度。",
+        "提取数组首尾元素。",
+        "用位置选择器取数组元素。",
+        "获取数组边界值。",
+        "Select the first and last elements from inspection_scores."
+      ],
+      "MQL": "db.shipments.aggregate([ { $project: { _id: 0, warehouse: 1, first: { $arrayElemAt: [\"$inspection_scores\", 0] }, last: { $arrayElemAt: [\"$inspection_scores\", -1] }, size: { $size: \"$inspection_scores\" } } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$arrayElemAt",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $project: { _id: 0, warehouse: 1, first: { $arrayElemAt: [\"$inspection_scores\", 0] }, last: { $arrayElemAt: [\"$inspection_scores\", -1] }, size: { $size: \"$inspection_scores\" } } }])"
+        ]
+      },
+      "operator_family": "array_positional_select",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5335,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "统计 delay_hours 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of delay_hours."
+      ],
+      "MQL": "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5340,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "按 year 聚合 delay_hours，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 delay_hours 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average delay_hours per time bucket."
+      ],
+      "MQL": "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "packages",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5344,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先按 year 计算 packages 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on packages."
+      ],
+      "MQL": "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "inspection_scores",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5348,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "找出 inspection_scores 中所有元素都高于阈值的记录。",
+        "筛出数组全部满足条件的项。",
+        "只保留数组中每一个元素都达标的文档。",
+        "检查是否所有元素都超过阈值。",
+        "Keep rows where every array element exceeds the threshold."
+      ],
+      "MQL": "db.shipments.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$inspection_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, warehouse: 1, inspection_scores: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$allElementsTrue",
+          "$expr",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$inspection_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, warehouse: 1, inspection_scores: 1 } }])"
+        ]
+      },
+      "operator_family": "universal_quantifier",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5353,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "统计 delay_hours 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of delay_hours."
+      ],
+      "MQL": "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5357,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "按 year 聚合 delay_hours，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 delay_hours 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average delay_hours per time bucket."
+      ],
+      "MQL": "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "packages",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5361,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先按 year 计算 packages 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on packages."
+      ],
+      "MQL": "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "inspection_scores",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5365,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先筛选 inspection_scores 高于阈值的记录，再按 route 汇总数量和均值。",
+        "过滤高值后按类别统计。",
+        "对超过阈值的数据做分组聚合。",
+        "筛选再聚合，返回每组命中量。",
+        "Filter then aggregate by route."
+      ],
+      "MQL": "db.shipments.aggregate([ { $match: { \"inspection_scores\": { $gt: 70 } } }, { $group: { _id: \"$route\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$inspection_scores\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, route: \"$_id\", matched_count: 1, avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$match",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $match: { \"inspection_scores\": { $gt: 70 } } }, { $group: { _id: \"$route\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$inspection_scores\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, route: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "filter_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5369,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "统计 delay_hours 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of delay_hours."
+      ],
+      "MQL": "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "delay_hours",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5372,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "按 year 聚合 delay_hours，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 delay_hours 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average delay_hours per time bucket."
+      ],
+      "MQL": "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$delay_hours\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    },
+    {
+      "collection": "shipments",
+      "metric_field": "packages",
+      "label_field": "warehouse",
+      "category_field": "route",
+      "time_field": "year",
+      "array_field": "inspection_scores",
+      "record_id": 5376,
+      "db_id": "logistics_shipments_005",
+      "nl_queries": [
+        "先按 year 计算 packages 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on packages."
+      ],
+      "MQL": "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.shipments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$packages\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, warehouse: 1, moving_avg: 1, category: \"$route\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, warehouse: \"$kept.warehouse\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+    }
+  ],
+  "manifest": {
+    "db_id": "logistics_shipments_005",
+    "domain_id": "logistics_shipments",
+    "record_count": 50,
+    "schema_signature": "sha256:5bd87565dd4c729c4687528e1d86dd0c0491cd062be4ee9c110017bcfee56d05",
+    "world_signature": "sha256:1ab6fd3512b06744280759002c708541ad01dc305c30d71db5f58b31cedc216e"
+  }
+}

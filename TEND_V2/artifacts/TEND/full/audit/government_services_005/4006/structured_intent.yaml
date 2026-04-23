@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "db_id": "government_services_005",
+    "record_id": 4006,
+    "schema_fingerprint_hint": "requests",
+    "si_hash": "sha256:bd99d187269cf9b2a89d74e8e87d8ea89751178a0db6996a689ea9f2176c6257"
+  },
+  "intent": {
+    "phenomenon_id": "temporal_trend@processing_days",
+    "phenomenon_class": "temporal_trend",
+    "persona_id": "auditor",
+    "pattern_family": "window_function_with_facet_filter",
+    "collection": "requests",
+    "metric_field": "processing_days",
+    "field_leaf": "processing_days",
+    "label_field": "citizen",
+    "time_field": "year",
+    "category_field": "priority",
+    "array_field": "feedback_scores",
+    "secondary_collection": "departments",
+    "join_field": "citizen"
+  },
+  "output": {
+    "keys": [
+      "citizen",
+      "priority",
+      "processing_days"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L4",
+    "operator_family": "window_function_with_facet_filter"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$facet",
+      "$setWindowFields"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$facet",
+      "$project",
+      "$setWindowFields",
+      "$unwind"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.requests.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$processing_days\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, citizen: 1, moving_avg: 1, category: \"$priority\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, citizen: \"$kept.citizen\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+    ]
+  }
+}

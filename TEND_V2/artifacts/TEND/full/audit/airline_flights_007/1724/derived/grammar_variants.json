@@ -1,0 +1,3 @@
+[
+  "db.flights.aggregate([ { $match: { \"passengers\": { $gt: 70 } } }, { $count: \"total\" }])"
+]

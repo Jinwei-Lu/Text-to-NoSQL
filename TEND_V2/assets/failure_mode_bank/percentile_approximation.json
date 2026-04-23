@@ -1,0 +1,152 @@
+[
+  {
+    "mutation_id": "wrong_percentile_value",
+    "failure_type": "wrong_percentile",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p50: {{ $percentile: {{ input: \"${metric_field}\", p: [0.5], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p50: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "wrong_percentile_method",
+    "failure_type": "wrong_method",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.95], method: \"exact\" }} }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_p90_instead_of_p95",
+    "failure_type": "wrong_percentile",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.90], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_p99_instead_of_p95",
+    "failure_type": "wrong_percentile",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.99], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_p75_instead_of_p95",
+    "failure_type": "wrong_percentile",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.75], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_wrong_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${label_field}\", p: [0.95], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_category_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${category_field}\", p: [0.95], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_group_by_category",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.95], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_avg_instead_of_percentile",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $avg: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_median_instead",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $median: {{ input: \"${metric_field}\", method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_max_instead",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $max: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_min_instead",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $min: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_missing_group",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {metric_field}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_missing_project",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.95], method: \"approximate\" }} }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_extra_match",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": {{ $gt: 0 }} }} }}, {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.95], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_extra_sort",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sort: {{ \"{metric_field}\": 1 }} }}, {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.95], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_extra_limit",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $limit: 1000 }}, {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.95], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_include_id",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.95], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 1, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_null_handling",
+    "failure_type": "null_handling_error",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": {{ $ne: null }} }} }}, {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.95], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_multiple_percentiles",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p50: {{ $percentile: {{ input: \"${metric_field}\", p: [0.5], method: \"approximate\" }} }}, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.95], method: \"approximate\" }} }}, p99: {{ $percentile: {{ input: \"${metric_field}\", p: [0.99], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p50: 1, p95: 1, p99: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_sum_instead",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $sum: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_stddev_instead",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $stdDevPop: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_wrong_alias",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.95], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, percentile_95: \"$p95\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_sample_first",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sample: {{ size: 100 }} }}, {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.95], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_type_confusion",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${category_field}\", p: [0.95], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_facet_approach",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $facet: {{ percentiles: [{{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.95], method: \"approximate\" }} }} }} }}] }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_push_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, all_values: {{ $push: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, all_values: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_group_by_label",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${label_field}\", p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.95], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: \"$_id\", p95: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_stage_order",
+    "failure_type": "wrong_stage_order",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {metric_field}: 1 }} }}, {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.95], method: \"approximate\" }} }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_pa_p10_instead",
+    "failure_type": "wrong_percentile",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, p95: {{ $percentile: {{ input: \"${metric_field}\", p: [0.10], method: \"approximate\" }} }} }} }}, {{ $project: {{ _id: 0, p95: 1 }} }} ])"
+  }
+]

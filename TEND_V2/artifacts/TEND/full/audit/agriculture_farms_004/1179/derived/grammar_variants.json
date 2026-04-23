@@ -1,0 +1,4 @@
+[
+  "db.harvests.aggregate([ { $group: { _id: \"$farm\", total_value: { $sum: \"$yield_tons\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, farm: \"$_id\", total_value: 1 } }])",
+  "db.harvests.aggregate([ { $match: {} }, { $group: { _id: \"$farm\", total_value: { $sum: \"$yield_tons\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, farm: \"$_id\", total_value: 1 } }])"
+]

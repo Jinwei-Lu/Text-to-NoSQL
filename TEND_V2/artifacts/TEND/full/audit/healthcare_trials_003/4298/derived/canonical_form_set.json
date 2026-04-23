@@ -1,0 +1,16 @@
+{
+  "must_contain": [
+    "$graphLookup",
+    "$project"
+  ],
+  "must_not_contain": [],
+  "must_contain_at_root": [
+    "$graphLookup",
+    "$project",
+    "$sort"
+  ],
+  "must_not_contain_at_root": [],
+  "known_variants": [
+    "db.patients.aggregate([ { $graphLookup: { from: \"patients\", startWith: \"$name\", connectFromField: \"name\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, name: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])"
+  ]
+}

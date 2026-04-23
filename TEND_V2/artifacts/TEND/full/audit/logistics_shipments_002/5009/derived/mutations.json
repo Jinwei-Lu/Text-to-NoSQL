@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_match",
+    "query": "db.shipments.aggregate([ { $match: { \"inspection_scores\": { $lt: 70 } } }, { $group: { _id: \"$route\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$inspection_scores\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, route: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+  },
+  {
+    "mutation_id": "wrong_group_metric",
+    "query": "db.shipments.aggregate([ { $match: { \"inspection_scores\": { $gt: 70 } } }, { $group: { _id: \"$route\", matched_count: { $sum: 1 }, avg_value: { $sum: \"$inspection_scores\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, route: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+  }
+]

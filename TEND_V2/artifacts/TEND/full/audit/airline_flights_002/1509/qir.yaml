@@ -1,0 +1,24 @@
+{
+  "pattern_family": "array_positional_select",
+  "primary_operator": "$arrayElemAt",
+  "input_shape": {
+    "collections": [
+      "flights"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "airline",
+      "destination",
+      "ticket_prices"
+    ],
+    "shape_policy": "preserve"
+  },
+  "referenced_fields": [
+    "airline",
+    "ticket_prices",
+    "destination",
+    "year",
+    "ticket_prices"
+  ]
+}

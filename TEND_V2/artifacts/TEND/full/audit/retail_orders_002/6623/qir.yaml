@@ -1,0 +1,24 @@
+{
+  "pattern_family": "top_k_by_aggregate",
+  "primary_operator": "$group",
+  "input_shape": {
+    "collections": [
+      "orders"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "customer",
+      "segment",
+      "units"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "customer",
+    "units",
+    "segment",
+    "year",
+    "basket_scores"
+  ]
+}

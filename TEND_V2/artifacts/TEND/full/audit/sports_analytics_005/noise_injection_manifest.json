@@ -1,0 +1,39 @@
+{
+  "noise_seed": 27,
+  "noise_budget": {
+    "literal": 0.15,
+    "structural": 0.1,
+    "semantic": 0.12,
+    "historical": 0.08,
+    "pollution": 0.12,
+    "type_polymorphism": 0.1
+  },
+  "applied_layers": [
+    "literal",
+    "structural",
+    "semantic",
+    "historical",
+    "pollution",
+    "type_polymorphism"
+  ],
+  "events": [
+    {
+      "layer": "literal",
+      "type": "number_format_variation",
+      "field": "season"
+    },
+    {
+      "layer": "type_polymorphism",
+      "type": "int_as_string",
+      "field": "season"
+    }
+  ],
+  "layer_summary": {
+    "literal": 1,
+    "structural": 0,
+    "semantic": 0,
+    "historical": 0,
+    "pollution": 0,
+    "type_polymorphism": 1
+  }
+}

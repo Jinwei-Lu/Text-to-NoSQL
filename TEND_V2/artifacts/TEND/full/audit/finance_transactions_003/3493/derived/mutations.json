@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_accumulator",
+    "query": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $avg: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])"
+  },
+  {
+    "mutation_id": "wrong_window",
+    "query": "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [0, \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])"
+  }
+]

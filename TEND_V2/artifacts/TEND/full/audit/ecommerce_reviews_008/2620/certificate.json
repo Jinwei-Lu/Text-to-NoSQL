@@ -1,0 +1,110 @@
+{
+  "record_id": "ecommerce_reviews_008/2620",
+  "db_id": "ecommerce_reviews_008",
+  "si_hash": "sha256:d6179a204b7e6ee2580248faa446df675879c721c9ac3558c3e2dde3a2f685b0",
+  "world_signature": "sha256:ee44b9163a970fddbc266c354e8332292f0fae68a5cf68bd3bdf2ac49afe66a0",
+  "split": "test",
+  "empirical_difficulty": "hard",
+  "phase_d": {
+    "v_correct": {
+      "neighborhood": {
+        "models": [
+          "mock-neighborhood"
+        ],
+        "all_candidates": [
+          {
+            "model": "mock-neighborhood",
+            "ast_pass": true,
+            "exec_equiv": true,
+            "action": "mock_accepted"
+          }
+        ]
+      },
+      "ambiguity": {
+        "attacker_model": "mock-ambiguity",
+        "si_candidates_count": 1,
+        "si_equiv_to_gold_count": 1,
+        "ambiguous": false
+      },
+      "gold_result_size": 0,
+      "pass": true
+    },
+    "v_discrim": {
+      "failure_modes": {
+        "total": 2,
+        "ex_one_count": 0,
+        "threshold": 0.02,
+        "details": [
+          {
+            "mutation_id": "facet_threshold_flip",
+            "equivalent": false
+          },
+          {
+            "mutation_id": "drop_facet_branch",
+            "equivalent": false
+          }
+        ],
+        "pass": true
+      },
+      "dual_bridge": {
+        "sql_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "template_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "pass": true
+      },
+      "pass": true
+    },
+    "v_diverse": {
+      "cell": "high_cardinality/analyst/facet_split",
+      "axis_values": {
+        "phenomenon_class": "high_cardinality",
+        "persona_id": "analyst",
+        "pattern_family": "facet_split",
+        "nosql_nativeness_level": "L3",
+        "shape_policy": "reshape",
+        "difficulty_label": "unknown",
+        "collection_name": "products",
+        "time_field_present": "yes",
+        "array_field_present": "no",
+        "operator_count_bucket": "6-8"
+      },
+      "axis_deltas": {
+        "phenomenon_class": 0.0139,
+        "persona_id": 0.0021,
+        "pattern_family": 0.0133,
+        "nosql_nativeness_level": 0.0021,
+        "shape_policy": 0.0007,
+        "difficulty_label": 0.0006,
+        "collection_name": 0.005,
+        "time_field_present": 0.0006,
+        "array_field_present": 0.0064,
+        "operator_count_bucket": 0.0011
+      },
+      "global_count": 1619,
+      "min_quota": 1,
+      "max_quota": 999,
+      "delta_f": 0.0006,
+      "epsilon": 0.0,
+      "under_quota": false,
+      "pass": true
+    },
+    "calibration": {
+      "target_difficulty": "hard",
+      "pr_small": 0.4,
+      "pr_medium": 0.3,
+      "pr_large": 0.2,
+      "pr_frontier": 0.1,
+      "empirical_difficulty": "hard",
+      "amplify_rounds": 0
+    }
+  },
+  "routing": {
+    "split": "test",
+    "reason": "cross_domain_holdout_selected"
+  }
+}

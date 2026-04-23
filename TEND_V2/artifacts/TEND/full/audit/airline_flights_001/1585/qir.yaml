@@ -1,0 +1,24 @@
+{
+  "pattern_family": "existential_quantifier",
+  "primary_operator": "$match",
+  "input_shape": {
+    "collections": [
+      "flights"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "airline",
+      "destination",
+      "passengers"
+    ],
+    "shape_policy": "preserve"
+  },
+  "referenced_fields": [
+    "airline",
+    "passengers",
+    "destination",
+    "year",
+    "ticket_prices"
+  ]
+}

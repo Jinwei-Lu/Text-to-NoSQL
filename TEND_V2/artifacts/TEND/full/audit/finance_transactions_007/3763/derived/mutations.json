@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "existential_to_universal_like",
+    "query": "db.accounts.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$monthly_volumes\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, company: 1, monthly_volumes: 1 } }])"
+  },
+  {
+    "mutation_id": "lower_threshold",
+    "query": "db.accounts.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$monthly_volumes\", as: \"item\", in: { $gt: [\"$$item\", 50] } } } } } }, { $project: { _id: 0, company: 1, monthly_volumes: 1 } }])"
+  }
+]

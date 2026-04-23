@@ -1,0 +1,24 @@
+{
+  "pattern_family": "time_window_aggregate",
+  "primary_operator": "$group",
+  "input_shape": {
+    "collections": [
+      "shipments"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "warehouse",
+      "route",
+      "delay_hours"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "warehouse",
+    "delay_hours",
+    "route",
+    "year",
+    "inspection_scores"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "pattern_family": "array_positional_select",
+  "primary_operator": "$arrayElemAt",
+  "must_contain": [
+    "$arrayElemAt",
+    "$project"
+  ],
+  "must_contain_at_root": [
+    "$project"
+  ],
+  "query": "db.shipments.aggregate([ { $project: { _id: 0, warehouse: 1, first: { $arrayElemAt: [\"$inspection_scores\", 0] }, last: { $arrayElemAt: [\"$inspection_scores\", -1] }, size: { $size: \"$inspection_scores\" } } }])"
+}

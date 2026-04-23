@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "real_estate_listings_003",
+    "record_id": 6260,
+    "schema_fingerprint_hint": "properties",
+    "si_hash": "sha256:b1b56b579e52748dd8ce716e22d6d2d81b1fb14540f0378bd5fc0a2557ee5d6b"
+  },
+  "intent": {
+    "phenomenon_id": "skewed_distribution@price",
+    "phenomenon_class": "skewed_distribution",
+    "persona_id": "analyst",
+    "pattern_family": "percentile_approximation",
+    "collection": "properties",
+    "metric_field": "price",
+    "field_leaf": "price",
+    "label_field": "city",
+    "time_field": "year",
+    "category_field": "type",
+    "array_field": "amenity_scores",
+    "secondary_collection": null,
+    "join_field": "city"
+  },
+  "output": {
+    "keys": [
+      "city",
+      "type",
+      "price"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "percentile_approximation"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$percentile"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.properties.aggregate([ { $group: { _id: \"$type\", p50: { $percentile: { input: \"$price\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$price\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, type: \"$_id\", p50: 1, p95: 1 } }])"
+    ]
+  }
+}

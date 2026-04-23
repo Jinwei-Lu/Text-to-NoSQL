@@ -1,0 +1,25 @@
+{
+  "pattern_family": "filter_then_aggregate",
+  "primary_operator": "$group",
+  "input_shape": {
+    "collections": [
+      "requests"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "citizen",
+      "priority",
+      "feedback_scores"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "citizen",
+    "feedback_scores",
+    "priority",
+    "year",
+    "feedback_scores",
+    "departments"
+  ]
+}

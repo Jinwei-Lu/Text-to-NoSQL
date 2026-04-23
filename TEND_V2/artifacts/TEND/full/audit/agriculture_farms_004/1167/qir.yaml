@@ -1,0 +1,24 @@
+{
+  "pattern_family": "group_then_aggregate",
+  "primary_operator": "$group",
+  "input_shape": {
+    "collections": [
+      "harvests"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "farm",
+      "crop",
+      "yield_tons"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "farm",
+    "yield_tons",
+    "crop",
+    "year",
+    "soil_samples"
+  ]
+}

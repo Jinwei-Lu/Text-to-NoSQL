@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "sports_analytics_006",
+    "record_id": 7622,
+    "schema_fingerprint_hint": "matches",
+    "si_hash": "sha256:bc329e17cac1ac9b09d4e842736bf8f9c08e33f4c26c4ea897bc05d1615b81bd"
+  },
+  "intent": {
+    "phenomenon_id": "cross_group_comparison@goals",
+    "phenomenon_class": "cross_group_comparison",
+    "persona_id": "analyst",
+    "pattern_family": "lookup_join",
+    "collection": "matches",
+    "metric_field": "goals",
+    "field_leaf": "goals",
+    "label_field": "team",
+    "time_field": "season",
+    "category_field": "stadium",
+    "array_field": "player_ratings",
+    "secondary_collection": null,
+    "join_field": "team"
+  },
+  "output": {
+    "keys": [
+      "team",
+      "stadium",
+      "goals"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "lookup_join"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$lookup",
+      "$project"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$lookup",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.matches.aggregate([ { $lookup: { from: \"matches\", localField: \"team\", foreignField: \"team\", as: \"joined\" } }, { $project: { _id: 0, team: 1, goals: \"$goals\", joined_count: { $size: \"$joined\" } } }, { $sort: { joined_count: -1 } }])"
+    ]
+  }
+}

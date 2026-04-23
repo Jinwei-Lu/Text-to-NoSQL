@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_operator",
+    "query": "db.alerts.aggregate([ { $match: { \"response_hours\": { $lt: 70 } } }, { $project: { _id: 0, severity: 1, response_hours: \"$response_hours\" } }])"
+  },
+  {
+    "mutation_id": "tight_threshold",
+    "query": "db.alerts.aggregate([ { $match: { \"response_hours\": { $gt: 90 } } }, { $project: { _id: 0, severity: 1, response_hours: \"$response_hours\" } }])"
+  }
+]

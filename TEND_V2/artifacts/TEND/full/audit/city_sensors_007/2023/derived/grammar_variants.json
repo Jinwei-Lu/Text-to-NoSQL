@@ -1,0 +1,4 @@
+[
+  "db.sensors.aggregate([ { $project: { _id: 0, station: 1, first: { $arrayElemAt: [\"$reading_history\", 0] }, last: { $arrayElemAt: [\"$reading_history\", -1] }, size: { $size: \"$reading_history\" } } }])",
+  "db.sensors.aggregate([ { $match: {} }, { $project: { _id: 0, station: 1, first: { $arrayElemAt: [\"$reading_history\", 0] }, last: { $arrayElemAt: [\"$reading_history\", -1] }, size: { $size: \"$reading_history\" } } }])"
+]

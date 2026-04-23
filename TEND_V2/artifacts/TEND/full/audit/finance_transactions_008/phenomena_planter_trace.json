@@ -1,0 +1,90 @@
+{
+  "db_id": "finance_transactions_008",
+  "phenomena_seed": 79,
+  "decisions": [
+    {
+      "phenomenon_id": "skewed_distribution@amount",
+      "collection": "transactions",
+      "path": "amount",
+      "document_ids": [
+        "transactions/1",
+        "transactions/2",
+        "transactions/3",
+        "transactions/4",
+        "transactions/5",
+        "transactions/6",
+        "transactions/7",
+        "transactions/8",
+        "transactions/9",
+        "transactions/10",
+        "transactions/11",
+        "transactions/12",
+        "transactions/13",
+        "transactions/14",
+        "transactions/15",
+        "transactions/16",
+        "transactions/17",
+        "transactions/18",
+        "transactions/19",
+        "transactions/20",
+        "transactions/21",
+        "transactions/22",
+        "transactions/23",
+        "transactions/24",
+        "transactions/25"
+      ]
+    },
+    {
+      "phenomenon_id": "outlier@balance",
+      "collection": "accounts",
+      "path": "balance",
+      "document_ids": [
+        "accounts/18"
+      ]
+    },
+    {
+      "phenomenon_id": "boundary_value@risk_score",
+      "collection": "accounts",
+      "path": "risk_score",
+      "document_ids": [
+        "accounts/1",
+        "accounts/2",
+        "accounts/3",
+        "accounts/4"
+      ]
+    },
+    {
+      "phenomenon_id": "temporal_trend@amount",
+      "collection": "transactions",
+      "path": "amount",
+      "document_ids": [
+        "transactions/1",
+        "transactions/2",
+        "transactions/3",
+        "transactions/4",
+        "transactions/5"
+      ]
+    },
+    {
+      "phenomenon_id": "rare_event@monthly_volumes",
+      "collection": "accounts",
+      "path": "monthly_volumes",
+      "document_ids": [
+        "accounts/18"
+      ]
+    },
+    {
+      "phenomenon_id": "correlation@balance",
+      "collection": "accounts",
+      "path": "balance",
+      "document_ids": [
+        "accounts/1",
+        "accounts/2",
+        "accounts/3",
+        "accounts/4",
+        "accounts/5",
+        "accounts/6"
+      ]
+    }
+  ]
+}

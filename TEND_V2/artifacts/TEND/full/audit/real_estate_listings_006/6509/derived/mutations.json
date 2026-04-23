@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "shallow_depth",
+    "query": "db.properties.aggregate([ { $graphLookup: { from: \"properties\", startWith: \"$city\", connectFromField: \"city\", connectToField: \"_id\", as: \"chain\", maxDepth: 0 } }, { $project: { _id: 0, city: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])"
+  },
+  {
+    "mutation_id": "wrong_connect",
+    "query": "db.properties.aggregate([ { $lookup: { from: \"properties\", startWith: \"$city\", connectFromField: \"city\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, city: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])"
+  }
+]

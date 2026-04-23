@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_operator",
+    "query": "db.events.aggregate([ { $match: { \"attendance\": { $lt: 70 } } }, { $project: { _id: 0, name: 1, attendance: \"$attendance\" } }])"
+  },
+  {
+    "mutation_id": "tight_threshold",
+    "query": "db.events.aggregate([ { $match: { \"attendance\": { $gt: 90 } } }, { $project: { _id: 0, name: 1, attendance: \"$attendance\" } }])"
+  }
+]

@@ -1,0 +1,50 @@
+{
+  "domain_id": "healthcare_trials",
+  "name": "Healthcare Clinical Trials",
+  "entities": [
+    {
+      "collection": "patients",
+      "cardinality": 20,
+      "fields": [
+        { "name": "name", "type": "TEXT" },
+        { "name": "age", "type": "INT", "range": [18, 90] },
+        { "name": "gender", "type": "TEXT", "values": ["male", "female"] },
+        { "name": "blood_pressure", "type": "REAL", "range": [80.0, 200.0], "nullable": true, "null_rate": 0.1 },
+        { "name": "admission_year", "type": "INT", "role": "time", "nullable": false },
+        { "name": "diagnoses", "type": "ARRAY", "min_items": 1, "max_items": 4, "items": { "type": "TEXT", "values": ["diabetes", "hypertension", "asthma", "arthritis", "migraine"], "name": "diagnosis" } },
+        {
+          "name": "vitals",
+          "type": "OBJECT",
+          "fields": [
+            { "name": "heart_rate", "type": "INT", "range": [50, 120] },
+            { "name": "temperature", "type": "REAL", "range": [35.5, 40.0] }
+          ]
+        }
+      ]
+    },
+    {
+      "collection": "trials",
+      "cardinality": 15,
+      "fields": [
+        { "name": "trial_id", "type": "TEXT" },
+        { "name": "trial_phase", "type": "TEXT", "values": ["phase_1", "phase_2", "phase_3"] },
+        { "name": "enrollment_count", "type": "INT", "range": [10, 500] },
+        { "name": "success_rate", "type": "REAL", "range": [0.0, 1.0], "nullable": true, "null_rate": 0.08 },
+        { "name": "start_year", "type": "INT", "role": "time", "nullable": false }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "patients", "to": "trials", "type": "lookup_join" }
+  ],
+  "f_topology_hints": { "nested_objects": true, "sparse_embedded": true, "time_series_ready": true },
+  "distribution_priors": { "default_cardinality": 20 },
+  "phenomenon_blueprints": [
+    { "phenomenon_class": "temporal_trend", "collection": "trials", "path": "success_rate", "intent_hooks": ["window", "trend"] },
+    { "phenomenon_class": "outlier", "collection": "patients", "path": "blood_pressure", "intent_hooks": ["topk", "anomaly"] },
+    { "phenomenon_class": "null_cluster", "collection": "patients", "path": "blood_pressure", "intent_hooks": ["missing", "null_filter"] },
+    { "phenomenon_class": "type_drift", "collection": "patients", "path": "vitals.heart_rate", "intent_hooks": ["type_check", "cast"] },
+    { "phenomenon_class": "hierarchical_nesting", "collection": "patients", "path": "vitals.heart_rate", "intent_hooks": ["unwind", "nested_access"] },
+    { "phenomenon_class": "cross_group_comparison", "collection": "trials", "path": "enrollment_count", "intent_hooks": ["group", "compare"] }
+  ]
+}

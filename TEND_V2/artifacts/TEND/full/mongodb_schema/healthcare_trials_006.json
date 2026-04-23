@@ -1,0 +1,126 @@
+{
+  "patients": {
+    "type": "OBJECT",
+    "fields": {
+      "name": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "age": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "gender": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "blood_pressure": {
+        "type": "REAL",
+        "nullable": true,
+        "sparse": false
+      },
+      "admission_year": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "diagnoses": {
+        "type": "ARRAY",
+        "nullable": false,
+        "sparse": false,
+        "items": {
+          "type": "TEXT",
+          "nullable": false,
+          "sparse": false
+        }
+      },
+      "vitals": {
+        "type": "OBJECT",
+        "nullable": false,
+        "sparse": false,
+        "fields": {
+          "heart_rate": {
+            "type": "INT",
+            "nullable": false,
+            "sparse": false
+          },
+          "temperature": {
+            "type": "REAL",
+            "nullable": false,
+            "sparse": false
+          }
+        }
+      },
+      "_nested_meta": {
+        "type": "OBJECT",
+        "nullable": false,
+        "sparse": false,
+        "fields": {
+          "level1": {
+            "type": "OBJECT",
+            "nullable": false,
+            "sparse": false,
+            "fields": {
+              "level2": {
+                "type": "OBJECT",
+                "nullable": false,
+                "sparse": false,
+                "fields": {
+                  "deep_value": {
+                    "type": "INT",
+                    "nullable": true,
+                    "sparse": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "_sparse_notes": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": true
+      },
+      "_poly_field": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": false,
+        "_polymorphic_hint": true
+      }
+    }
+  },
+  "trials": {
+    "type": "OBJECT",
+    "fields": {
+      "trial_id": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "trial_phase": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "enrollment_count": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "success_rate": {
+        "type": "REAL",
+        "nullable": true,
+        "sparse": false
+      },
+      "start_year": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      }
+    }
+  }
+}

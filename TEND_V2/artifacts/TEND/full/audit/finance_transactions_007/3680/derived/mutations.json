@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_operator",
+    "query": "db.accounts.aggregate([ { $match: { \"balance\": { $lt: 70 } } }, { $count: \"total\" }])"
+  },
+  {
+    "mutation_id": "drop_count",
+    "query": "db.accounts.aggregate([ { $match: { \"balance\": { $gt: 70 } } }, { $group: \"total\" }])"
+  }
+]

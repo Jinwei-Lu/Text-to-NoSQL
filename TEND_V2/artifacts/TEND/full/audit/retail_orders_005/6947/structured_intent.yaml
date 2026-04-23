@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "db_id": "retail_orders_005",
+    "record_id": 6947,
+    "schema_fingerprint_hint": "orders",
+    "si_hash": "sha256:74e49ce9ed13237549569537fd985abbc3bddea0df92ed7fa82fc59a54c74fc1"
+  },
+  "intent": {
+    "phenomenon_id": "high_cardinality@customer",
+    "phenomenon_class": "high_cardinality",
+    "persona_id": "researcher",
+    "pattern_family": "facet_split",
+    "collection": "orders",
+    "metric_field": "customer",
+    "field_leaf": "customer",
+    "label_field": "customer",
+    "time_field": "year",
+    "category_field": "segment",
+    "array_field": "basket_scores",
+    "secondary_collection": null,
+    "join_field": "customer"
+  },
+  "output": {
+    "keys": [
+      "customer",
+      "segment",
+      "customer"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "facet_split"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$facet"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$facet",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.orders.aggregate([ { $facet: { high: [{ $match: { \"customer\": { $gt: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }], low: [{ $match: { \"customer\": { $lte: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+    ]
+  }
+}

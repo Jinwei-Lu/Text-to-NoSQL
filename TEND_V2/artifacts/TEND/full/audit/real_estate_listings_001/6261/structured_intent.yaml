@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "real_estate_listings_001",
+    "record_id": 6261,
+    "schema_fingerprint_hint": "properties",
+    "si_hash": "sha256:c201e76200ab3ba18cf6ccd662a55f2beddd8e8d1dcb2beeef39180518fbc565"
+  },
+  "intent": {
+    "phenomenon_id": "hierarchical_nesting@details.floor",
+    "phenomenon_class": "hierarchical_nesting",
+    "persona_id": "analyst",
+    "pattern_family": "graph_recursive_deep",
+    "collection": "properties",
+    "metric_field": "details.floor",
+    "field_leaf": "floor",
+    "label_field": "city",
+    "time_field": "year",
+    "category_field": "type",
+    "array_field": "amenity_scores",
+    "secondary_collection": null,
+    "join_field": "city"
+  },
+  "output": {
+    "keys": [
+      "city",
+      "type",
+      "floor"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L4",
+    "operator_family": "graph_recursive_deep"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$graphLookup",
+      "$project"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$graphLookup",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.properties.aggregate([ { $graphLookup: { from: \"properties\", startWith: \"$city\", connectFromField: \"city\", connectToField: \"_id\", as: \"chain\", maxDepth: 3 } }, { $project: { _id: 0, city: 1, chain_depth: { $size: \"$chain\" } } }, { $sort: { chain_depth: -1 } }])"
+    ]
+  }
+}

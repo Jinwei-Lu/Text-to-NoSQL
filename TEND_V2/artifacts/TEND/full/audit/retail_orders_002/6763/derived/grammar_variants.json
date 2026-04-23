@@ -1,0 +1,3 @@
+[
+  "db.orders.aggregate([ { $match: { \"units\": { $gt: 70 } } }, { $count: \"total\" }])"
+]

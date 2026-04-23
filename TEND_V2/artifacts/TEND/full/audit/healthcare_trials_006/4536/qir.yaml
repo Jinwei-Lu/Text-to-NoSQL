@@ -1,0 +1,25 @@
+{
+  "pattern_family": "facet_split",
+  "primary_operator": "$facet",
+  "input_shape": {
+    "collections": [
+      "patients"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "name",
+      "gender",
+      "blood_pressure"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "name",
+    "blood_pressure",
+    "gender",
+    "admission_year",
+    "diagnoses",
+    "trials"
+  ]
+}

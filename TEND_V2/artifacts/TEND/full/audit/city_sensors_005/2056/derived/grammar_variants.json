@@ -1,0 +1,4 @@
+[
+  "db.sensors.aggregate([ { $match: {} }, { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])",
+  "db.sensors.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$alert_count\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$alert_count\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, station: 1, alert_count: \"$alert_count\", moving_avg: 1 } }])"
+]

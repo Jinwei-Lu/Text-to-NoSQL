@@ -1,0 +1,66 @@
+{
+  "domain_id": "sports_analytics",
+  "name": "Sports Analytics",
+  "entities": [
+    {
+      "collection": "matches",
+      "cardinality": 20,
+      "fields": [
+        { "name": "team", "type": "TEXT", "values": ["Lions", "Eagles", "Bears", "Sharks", "Panthers"], "sparse": false },
+        { "name": "season", "type": "INT", "role": "time", "nullable": false },
+        { "name": "goals", "type": "INT", "range": [0, 8], "nullable": false },
+        { "name": "possession", "type": "REAL", "range": [20.0, 80.0], "nullable": true, "null_rate": 0.08 },
+        { "name": "stadium", "type": "TEXT", "values": ["Arena_A", "Arena_B", "Arena_C"], "sparse": false },
+        { "name": "player_ratings", "type": "ARRAY", "min_items": 3, "max_items": 7, "items": { "type": "INT", "range": [1, 10], "name": "rating_item" } },
+        { "name": "is_home", "type": "BOOL", "nullable": false }
+      ]
+    }
+  ],
+  "relations": [],
+  "f_topology_hints": {
+    "nested_objects": false,
+    "sparse_embedded": true,
+    "time_series_ready": true
+  },
+  "distribution_priors": {
+    "default_cardinality": 20
+  },
+  "phenomenon_blueprints": [
+    {
+      "phenomenon_class": "temporal_trend",
+      "collection": "matches",
+      "path": "goals",
+      "intent_hooks": ["window", "trend"]
+    },
+    {
+      "phenomenon_class": "outlier",
+      "collection": "matches",
+      "path": "possession",
+      "intent_hooks": ["topk", "anomaly"]
+    },
+    {
+      "phenomenon_class": "cross_group_comparison",
+      "collection": "matches",
+      "path": "goals",
+      "intent_hooks": ["facet", "compare"]
+    },
+    {
+      "phenomenon_class": "periodic_pattern",
+      "collection": "matches",
+      "path": "possession",
+      "intent_hooks": ["cycle", "seasonal"]
+    },
+    {
+      "phenomenon_class": "rare_event",
+      "collection": "matches",
+      "path": "player_ratings",
+      "intent_hooks": ["existential"]
+    },
+    {
+      "phenomenon_class": "duplicate_cluster",
+      "collection": "matches",
+      "path": "goals",
+      "intent_hooks": ["dedup", "exact_match"]
+    }
+  ]
+}

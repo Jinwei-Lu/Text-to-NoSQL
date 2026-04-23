@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "energy_grid_006",
+    "record_id": 3245,
+    "schema_fingerprint_hint": "meters",
+    "si_hash": "sha256:1b6cab4cf62d17c62a3afb8cd58dc030574d399fdb2d2f011ba53a94c0df887e"
+  },
+  "intent": {
+    "phenomenon_id": "outlier@peak_load",
+    "phenomenon_class": "outlier",
+    "persona_id": "auditor",
+    "pattern_family": "anomaly_vs_baseline",
+    "collection": "meters",
+    "metric_field": "peak_load",
+    "field_leaf": "peak_load",
+    "label_field": "city",
+    "time_field": "year",
+    "category_field": "sector",
+    "array_field": "daily_readings",
+    "secondary_collection": "alerts",
+    "join_field": "city"
+  },
+  "output": {
+    "keys": [
+      "city",
+      "sector",
+      "peak_load"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "anomaly_vs_baseline"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$match",
+      "$setWindowFields"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$match",
+      "$project",
+      "$setWindowFields"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.meters.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$peak_load\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$peak_load\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, city: 1, peak_load: \"$peak_load\", moving_avg: 1 } }])"
+    ]
+  }
+}

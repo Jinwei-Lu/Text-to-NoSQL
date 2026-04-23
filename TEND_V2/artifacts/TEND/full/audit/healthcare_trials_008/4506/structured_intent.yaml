@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "db_id": "healthcare_trials_008",
+    "record_id": 4506,
+    "schema_fingerprint_hint": "patients",
+    "si_hash": "sha256:fa4bfb5cf79da65e09646cceab2a68ce37696679f2a2b619c2dfa3a8d8653f06"
+  },
+  "intent": {
+    "phenomenon_id": "hierarchical_nesting@vitals.heart_rate",
+    "phenomenon_class": "hierarchical_nesting",
+    "persona_id": "researcher",
+    "pattern_family": "dynamic_key_expansion",
+    "collection": "patients",
+    "metric_field": "vitals.heart_rate",
+    "field_leaf": "heart_rate",
+    "label_field": "name",
+    "time_field": "admission_year",
+    "category_field": "gender",
+    "array_field": "diagnoses",
+    "secondary_collection": "trials",
+    "join_field": "name"
+  },
+  "output": {
+    "keys": [
+      "name",
+      "gender",
+      "heart_rate"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L4",
+    "operator_family": "dynamic_key_expansion"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$objectToArray",
+      "$unwind"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project",
+      "$unwind"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.patients.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+    ]
+  }
+}

@@ -1,0 +1,3 @@
+[
+  "db.accounts.aggregate([ { $match: { \"balance\": { $gt: 70 } } }, { $count: \"total\" }])"
+]

@@ -1,0 +1,3 @@
+[
+  "db.matches.aggregate([ { $match: { \"player_ratings\": { $gt: 70 } } }, { $count: \"total\" }])"
+]

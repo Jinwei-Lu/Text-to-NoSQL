@@ -1,0 +1,3 @@
+[
+  "db.posts.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$engagement_scores\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, author: 1, engagement_scores: 1 } }])"
+]

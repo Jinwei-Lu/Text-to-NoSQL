@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_operator",
+    "query": "db.readings.aggregate([ { $group: { _id: \"$station\", total_value: { $avg: \"$wind_speeds\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, station: \"$_id\", total_value: 1 } }])"
+  },
+  {
+    "mutation_id": "wrong_limit",
+    "query": "db.readings.aggregate([ { $group: { _id: \"$station\", total_value: { $sum: \"$wind_speeds\" } } }, { $sort: { total_value: -1 } }, { $limit: 4 }, { $project: { _id: 0, station: \"$_id\", total_value: 1 } }])"
+  }
+]

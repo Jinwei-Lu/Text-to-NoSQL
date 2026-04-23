@@ -1,0 +1,92 @@
+{
+  "db_id": "real_estate_listings_008",
+  "phenomena_seed": 79,
+  "decisions": [
+    {
+      "phenomenon_id": "skewed_distribution@price",
+      "collection": "properties",
+      "path": "price",
+      "document_ids": [
+        "properties/1",
+        "properties/2",
+        "properties/3",
+        "properties/4",
+        "properties/5",
+        "properties/6",
+        "properties/7",
+        "properties/8",
+        "properties/9",
+        "properties/10",
+        "properties/11",
+        "properties/12",
+        "properties/13",
+        "properties/14",
+        "properties/15",
+        "properties/16",
+        "properties/17",
+        "properties/18",
+        "properties/19",
+        "properties/20",
+        "properties/21",
+        "properties/22"
+      ]
+    },
+    {
+      "phenomenon_id": "outlier@price",
+      "collection": "properties",
+      "path": "price",
+      "document_ids": [
+        "properties/22"
+      ]
+    },
+    {
+      "phenomenon_id": "high_cardinality@city",
+      "collection": "properties",
+      "path": "city",
+      "document_ids": [
+        "properties/1",
+        "properties/2",
+        "properties/3",
+        "properties/4",
+        "properties/5",
+        "properties/6",
+        "properties/7",
+        "properties/8"
+      ]
+    },
+    {
+      "phenomenon_id": "correlation@area",
+      "collection": "properties",
+      "path": "area",
+      "document_ids": [
+        "properties/1",
+        "properties/2",
+        "properties/3",
+        "properties/4",
+        "properties/5",
+        "properties/6"
+      ]
+    },
+    {
+      "phenomenon_id": "hierarchical_nesting@details.floor",
+      "collection": "properties",
+      "path": "details.floor",
+      "document_ids": [
+        "properties/1",
+        "properties/2",
+        "properties/3"
+      ]
+    },
+    {
+      "phenomenon_id": "boundary_value@rooms",
+      "collection": "properties",
+      "path": "rooms",
+      "document_ids": [
+        "properties/1",
+        "properties/2",
+        "properties/3",
+        "properties/4"
+      ]
+    }
+  ]
+}

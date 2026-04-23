@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "db_id": "energy_grid_004",
+    "record_id": 3093,
+    "schema_fingerprint_hint": "meters",
+    "si_hash": "sha256:066acdf331cfa37c1762fc938883fc71cfb12da5b104ced76e69bd916445c0ed"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@daily_readings",
+    "phenomenon_class": "rare_event",
+    "persona_id": "auditor",
+    "pattern_family": "filter_then_aggregate",
+    "collection": "meters",
+    "metric_field": "daily_readings",
+    "field_leaf": "daily_readings",
+    "label_field": "city",
+    "time_field": "year",
+    "category_field": "sector",
+    "array_field": "daily_readings",
+    "secondary_collection": "alerts",
+    "join_field": "city"
+  },
+  "output": {
+    "keys": [
+      "city",
+      "sector",
+      "daily_readings"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "filter_then_aggregate"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$match",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.meters.aggregate([ { $match: { \"daily_readings\": { $gt: 70 } } }, { $group: { _id: \"$sector\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$daily_readings\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, sector: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+    ]
+  }
+}

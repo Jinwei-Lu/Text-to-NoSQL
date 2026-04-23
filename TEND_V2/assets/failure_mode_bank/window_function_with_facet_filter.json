@@ -1,0 +1,152 @@
+[
+  {
+    "mutation_id": "drop_window_stage",
+    "failure_type": "missing_window",
+    "query_template": "db.{collection}.aggregate([ {{ $facet: {{ ranked: [{{ $sort: {{ {metric_alias}: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"${metric_field}\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.{metric_alias}\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", {metric_alias}: \"$kept.{metric_alias}\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "facet_without_filter",
+    "failure_type": "missing_filter",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ _id: 0, ranked: 1, baseline: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_sum_window",
+    "failure_type": "wrong_window_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $sum: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_min_window",
+    "failure_type": "wrong_window_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $min: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_wide_window",
+    "failure_type": "wrong_window_range",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-5, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_narrow_window",
+    "failure_type": "wrong_window_range",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-1, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_lt_filter",
+    "failure_type": "predicate_flip",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $lt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_desc_sort_window",
+    "failure_type": "wrong_sort",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": -1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_asc_sort_ranked",
+    "failure_type": "wrong_sort",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: 1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_wrong_window_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${label_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_missing_unwind",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_missing_facet",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ moving_avg: {{ $gt: {threshold} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_single_facet_branch",
+    "failure_type": "missing_facet_branch",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}] }} }}, {{ $project: {{ _id: 0, ranked: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_extra_match",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": {{ $exists: true }} }} }}, {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_extra_limit_ranked",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $limit: {top_k} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_include_id",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 1, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_null_handling",
+    "failure_type": "null_handling_error",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": {{ $ne: null }} }} }}, {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_facet_before_window",
+    "failure_type": "wrong_stage_order",
+    "query_template": "db.{collection}.aggregate([ {{ $facet: {{ ranked: [{{ $sort: {{ \"{metric_field}\": -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"${metric_field}\" }} }} }}] }} }}, {{ $project: {{ _id: 0, ranked: 1, baseline: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_type_confusion",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${category_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_max_window",
+    "failure_type": "wrong_window_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $max: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_unbounded_window",
+    "failure_type": "wrong_window_range",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_wrong_baseline_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"${metric_field}\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_sum_baseline",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $sum: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_partition_added",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_sort_wrong_field",
+    "failure_type": "wrong_sort",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{metric_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_gte_filter",
+    "failure_type": "predicate_boundary",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gte: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_stddev_window",
+    "failure_type": "wrong_window_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $stdDevPop: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_wrong_project_alias",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, name: \"$kept.{label_field}\", avg_val: \"$kept.moving_avg\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_double_unwind",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $unwind: \"$kept.category\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wfwf_sample_first",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sample: {{ size: 50 }} }}, {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $facet: {{ ranked: [{{ $sort: {{ moving_avg: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, moving_avg: 1, category: \"${category_field}\" }} }}], baseline: [{{ $group: {{ _id: null, global_avg: {{ $avg: \"$moving_avg\" }} }} }}] }} }}, {{ $project: {{ kept: {{ $filter: {{ input: \"$ranked\", as: \"row\", cond: {{ $gt: [\"$$row.moving_avg\", {{ $arrayElemAt: [\"$baseline.global_avg\", 0] }}] }} }} }} }} }}, {{ $unwind: \"$kept\" }}, {{ $project: {{ _id: 0, {label_field}: \"$kept.{label_field}\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" }} }} ])"
+  }
+]

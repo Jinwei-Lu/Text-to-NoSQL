@@ -1,0 +1,14 @@
+{
+  "pattern_family": "lookup_join",
+  "primary_operator": "$lookup",
+  "must_contain": [
+    "$lookup",
+    "$project"
+  ],
+  "must_contain_at_root": [
+    "$lookup",
+    "$project",
+    "$sort"
+  ],
+  "query": "db.departments.aggregate([ { $lookup: { from: \"requests\", localField: \"name\", foreignField: \"name\", as: \"joined\" } }, { $project: { _id: 0, name: 1, budget: \"$budget\", joined_count: { $size: \"$joined\" } } }, { $sort: { joined_count: -1 } }])"
+}

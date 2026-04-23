@@ -1,0 +1,25 @@
+{
+  "pattern_family": "window_function",
+  "primary_operator": "$setWindowFields",
+  "input_shape": {
+    "collections": [
+      "students"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "name",
+      "department",
+      "gpa"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "name",
+    "gpa",
+    "department",
+    "enrollment_year",
+    "exam_scores",
+    "courses"
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "db_id": "library_catalog_005",
+  "phenomena_seed": 64,
+  "decisions": [
+    {
+      "phenomenon_id": "skewed_distribution@pages",
+      "collection": "books",
+      "path": "pages",
+      "document_ids": [
+        "books/1",
+        "books/2",
+        "books/3",
+        "books/4",
+        "books/5",
+        "books/6",
+        "books/7",
+        "books/8",
+        "books/9",
+        "books/10",
+        "books/11",
+        "books/12",
+        "books/13",
+        "books/14",
+        "books/15",
+        "books/16",
+        "books/17",
+        "books/18",
+        "books/19",
+        "books/20",
+        "books/21",
+        "books/22"
+      ]
+    },
+    {
+      "phenomenon_id": "high_cardinality@title",
+      "collection": "books",
+      "path": "title",
+      "document_ids": [
+        "books/1",
+        "books/2",
+        "books/3",
+        "books/4",
+        "books/5",
+        "books/6",
+        "books/7",
+        "books/8"
+      ]
+    },
+    {
+      "phenomenon_id": "temporal_trend@rating",
+      "collection": "books",
+      "path": "rating",
+      "document_ids": [
+        "books/1",
+        "books/2",
+        "books/3",
+        "books/4",
+        "books/5"
+      ]
+    },
+    {
+      "phenomenon_id": "null_cluster@rating",
+      "collection": "books",
+      "path": "rating",
+      "document_ids": [
+        "books/1",
+        "books/2",
+        "books/3"
+      ]
+    },
+    {
+      "phenomenon_id": "pollution@condition",
+      "collection": "books",
+      "path": "condition",
+      "document_ids": [
+        "books/1",
+        "books/2",
+        "books/3"
+      ]
+    },
+    {
+      "phenomenon_id": "sparse_field@rating",
+      "collection": "books",
+      "path": "rating",
+      "document_ids": [
+        "books/1",
+        "books/4",
+        "books/7",
+        "books/8",
+        "books/9",
+        "books/10",
+        "books/11",
+        "books/14",
+        "books/17",
+        "books/18",
+        "books/19",
+        "books/20",
+        "books/21",
+        "books/22"
+      ]
+    }
+  ]
+}

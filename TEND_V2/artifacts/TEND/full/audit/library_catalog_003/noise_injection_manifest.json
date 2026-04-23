@@ -1,0 +1,44 @@
+{
+  "noise_seed": 26,
+  "noise_budget": {
+    "literal": 0.15,
+    "structural": 0.1,
+    "semantic": 0.12,
+    "historical": 0.08,
+    "pollution": 0.12,
+    "type_polymorphism": 0.1
+  },
+  "applied_layers": [
+    "literal",
+    "structural",
+    "semantic",
+    "historical",
+    "pollution",
+    "type_polymorphism"
+  ],
+  "events": [
+    {
+      "layer": "semantic",
+      "type": "outlier_boost",
+      "field": "year"
+    },
+    {
+      "layer": "historical",
+      "type": "partial_update",
+      "field": "doc_id=8"
+    },
+    {
+      "layer": "type_polymorphism",
+      "type": "int_as_string",
+      "field": "year"
+    }
+  ],
+  "layer_summary": {
+    "literal": 0,
+    "structural": 0,
+    "semantic": 1,
+    "historical": 1,
+    "pollution": 0,
+    "type_polymorphism": 1
+  }
+}

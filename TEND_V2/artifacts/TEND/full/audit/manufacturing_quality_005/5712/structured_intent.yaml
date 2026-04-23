@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "manufacturing_quality_005",
+    "record_id": 5712,
+    "schema_fingerprint_hint": "inspections",
+    "si_hash": "sha256:dcbf96573471a7706f06d7daabf2eee9e3400ee70b6e2b9178a8e78b40b2a7b4"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@measurements",
+    "phenomenon_class": "rare_event",
+    "persona_id": "auditor",
+    "pattern_family": "filter_then_count",
+    "collection": "inspections",
+    "metric_field": "measurements",
+    "field_leaf": "measurements",
+    "label_field": "product",
+    "time_field": "year",
+    "category_field": "line",
+    "array_field": "measurements",
+    "secondary_collection": null,
+    "join_field": "product"
+  },
+  "output": {
+    "keys": [
+      "product",
+      "line",
+      "measurements"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L1",
+    "operator_family": "filter_then_count"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.inspections.aggregate([ { $match: { \"measurements\": { $gt: 70 } } }, { $count: \"total\" }])"
+    ]
+  }
+}

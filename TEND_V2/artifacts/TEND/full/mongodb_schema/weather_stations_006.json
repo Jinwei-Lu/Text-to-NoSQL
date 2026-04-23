@@ -1,0 +1,52 @@
+{
+  "readings": {
+    "type": "OBJECT",
+    "fields": {
+      "station": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "region": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "month": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "temperature": {
+        "type": "REAL",
+        "nullable": true,
+        "sparse": false
+      },
+      "humidity": {
+        "type": "REAL",
+        "nullable": false,
+        "sparse": false
+      },
+      "wind_speeds": {
+        "type": "ARRAY",
+        "nullable": false,
+        "sparse": false,
+        "items": {
+          "type": "REAL",
+          "nullable": false,
+          "sparse": false
+        }
+      },
+      "pressure": {
+        "type": "REAL",
+        "nullable": true,
+        "sparse": false
+      },
+      "_sparse_notes": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": true
+      }
+    }
+  }
+}

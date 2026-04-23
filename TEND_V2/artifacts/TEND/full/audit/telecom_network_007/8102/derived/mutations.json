@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_operator",
+    "query": "db.cells.aggregate([ { $match: { \"dropped_calls\": { $lt: 70 } } }, { $count: \"total\" }])"
+  },
+  {
+    "mutation_id": "drop_count",
+    "query": "db.cells.aggregate([ { $match: { \"dropped_calls\": { $gt: 70 } } }, { $group: \"total\" }])"
+  }
+]

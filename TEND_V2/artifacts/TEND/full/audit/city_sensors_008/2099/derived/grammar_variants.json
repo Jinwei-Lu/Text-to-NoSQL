@@ -1,0 +1,3 @@
+[
+  "db.sensors.aggregate([ { $match: { \"reading_history\": { $gt: 70 } } }, { $count: \"total\" }])"
+]

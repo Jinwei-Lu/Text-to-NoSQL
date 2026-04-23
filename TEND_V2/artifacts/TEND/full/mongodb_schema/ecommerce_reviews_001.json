@@ -1,0 +1,84 @@
+{
+  "products": {
+    "type": "OBJECT",
+    "fields": {
+      "name": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "category": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "price": {
+        "type": "REAL",
+        "nullable": false,
+        "sparse": false
+      },
+      "stock": {
+        "type": "INT",
+        "nullable": true,
+        "sparse": false
+      },
+      "year": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "_sparse_notes": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": true
+      },
+      "_poly_field": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": false,
+        "_polymorphic_hint": true
+      },
+      "_mixed": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": false,
+        "_mixed_type_hint": true
+      }
+    }
+  },
+  "reviews": {
+    "type": "OBJECT",
+    "fields": {
+      "title": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "rating": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "sentiment": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "year": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "helpful_votes": {
+        "type": "ARRAY",
+        "nullable": false,
+        "sparse": false,
+        "items": {
+          "type": "INT",
+          "nullable": false,
+          "sparse": false
+        }
+      }
+    }
+  }
+}

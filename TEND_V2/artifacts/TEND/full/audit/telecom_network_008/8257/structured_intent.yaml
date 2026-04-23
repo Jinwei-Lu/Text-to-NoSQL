@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "db_id": "telecom_network_008",
+    "record_id": 8257,
+    "schema_fingerprint_hint": "cells",
+    "si_hash": "sha256:8215e70ac37f8be9d6da85f87b4ea12dc658e3fcecaa4352f744cff2891f7452"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@signal_strength",
+    "phenomenon_class": "rare_event",
+    "persona_id": "end-user",
+    "pattern_family": "filter_then_aggregate",
+    "collection": "cells",
+    "metric_field": "signal_strength",
+    "field_leaf": "signal_strength",
+    "label_field": "tower",
+    "time_field": "year",
+    "category_field": "region",
+    "array_field": "signal_strength",
+    "secondary_collection": null,
+    "join_field": "tower"
+  },
+  "output": {
+    "keys": [
+      "tower",
+      "region",
+      "signal_strength"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "filter_then_aggregate"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$match",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.cells.aggregate([ { $match: { \"signal_strength\": { $gt: 70 } } }, { $group: { _id: \"$region\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$signal_strength\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, region: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+    ]
+  }
+}

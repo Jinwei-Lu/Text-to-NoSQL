@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "city_sensors_004",
+    "record_id": 1974,
+    "schema_fingerprint_hint": "sensors",
+    "si_hash": "sha256:6627bf9fb98fee27a69736d3234f927e3ea1e18255a6a5a2e1bc5d837276eaa6"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@reading_history",
+    "phenomenon_class": "rare_event",
+    "persona_id": "ops",
+    "pattern_family": "filter_then_count",
+    "collection": "sensors",
+    "metric_field": "reading_history",
+    "field_leaf": "reading_history",
+    "label_field": "station",
+    "time_field": "year",
+    "category_field": "zone",
+    "array_field": "reading_history",
+    "secondary_collection": null,
+    "join_field": "station"
+  },
+  "output": {
+    "keys": [
+      "station",
+      "zone",
+      "reading_history"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L1",
+    "operator_family": "filter_then_count"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.sensors.aggregate([ { $match: { \"reading_history\": { $gt: 70 } } }, { $count: \"total\" }])"
+    ]
+  }
+}

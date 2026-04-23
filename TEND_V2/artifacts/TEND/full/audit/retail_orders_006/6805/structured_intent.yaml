@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "retail_orders_006",
+    "record_id": 6805,
+    "schema_fingerprint_hint": "orders",
+    "si_hash": "sha256:324fee9606e3d85b3cc312fc4a12611d403f06c0ad17c502b677708259b30572"
+  },
+  "intent": {
+    "phenomenon_id": "outlier@units",
+    "phenomenon_class": "outlier",
+    "persona_id": "analyst",
+    "pattern_family": "filter_then_count",
+    "collection": "orders",
+    "metric_field": "units",
+    "field_leaf": "units",
+    "label_field": "customer",
+    "time_field": "year",
+    "category_field": "segment",
+    "array_field": "basket_scores",
+    "secondary_collection": null,
+    "join_field": "customer"
+  },
+  "output": {
+    "keys": [
+      "customer",
+      "segment",
+      "units"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L1",
+    "operator_family": "filter_then_count"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.orders.aggregate([ { $match: { \"units\": { $gt: 70 } } }, { $count: \"total\" }])"
+    ]
+  }
+}

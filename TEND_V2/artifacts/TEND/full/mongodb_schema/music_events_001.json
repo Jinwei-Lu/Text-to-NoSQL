@@ -1,0 +1,54 @@
+{
+  "events": {
+    "type": "OBJECT",
+    "fields": {
+      "name": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "city": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "year": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "attendance": {
+        "type": "INT",
+        "nullable": true,
+        "sparse": false
+      },
+      "ticket_revenue": {
+        "type": "REAL",
+        "nullable": false,
+        "sparse": false
+      },
+      "fan_scores": {
+        "type": "ARRAY",
+        "nullable": false,
+        "sparse": false,
+        "items": {
+          "type": "INT",
+          "nullable": false,
+          "sparse": false
+        }
+      },
+      "_sparse_notes": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": true
+      },
+      "_dynamic_attrs": {
+        "type": "OBJECT",
+        "nullable": true,
+        "sparse": true,
+        "fields": {},
+        "_dynamic_hint": true
+      }
+    }
+  }
+}

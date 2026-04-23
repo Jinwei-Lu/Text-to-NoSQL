@@ -1,0 +1,152 @@
+[
+  {
+    "mutation_id": "avg_instead_of_sum_window",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $avg: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "wrong_window_boundary",
+    "failure_type": "wrong_window_range",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [-3, 0] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_min_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $min: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_max_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $max: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_count_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $count: {{}}, window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_wrong_partition",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${label_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_wrong_sort_field",
+    "failure_type": "wrong_sort",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{metric_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_desc_sort",
+    "failure_type": "wrong_sort",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": -1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_wrong_metric_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${label_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_sliding_window",
+    "failure_type": "wrong_window_range",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [-5, 5] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_forward_window",
+    "failure_type": "wrong_window_range",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [0, 3] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_missing_window_stage",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: \"${metric_field}\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_missing_project",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_missing_partition",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_include_id",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 1, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_extra_match",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": {{ $exists: true }} }} }}, {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_extra_sort",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $sort: {{ running_total: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_extra_limit",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $limit: {top_k} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_group_instead",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: \"${category_field}\", running_total: {{ $sum: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_null_handling",
+    "failure_type": "null_handling_error",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": {{ $ne: null }} }} }}, {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_wrong_alias",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, cumulative_sum: \"$running_total\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_type_confusion",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${category_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_stddev_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $stdDevPop: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_push_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $push: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_double_window",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-3, 0] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1, running_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_range_window",
+    "failure_type": "wrong_window_range",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ range: [-10, 0] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_project_missing_category",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_sample_first",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sample: {{ size: 50 }} }}, {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {category_field}: 1, running_total: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_facet_instead",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $facet: {{ totals: [{{ $group: {{ _id: \"${category_field}\", total: {{ $sum: \"${metric_field}\" }} }} }}] }} }} ])"
+  },
+  {
+    "mutation_id": "bank_wf_replaceroot",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ running_total: {{ $sum: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $replaceRoot: {{ newRoot: {{ {label_field}: \"${label_field}\", {category_field}: \"${category_field}\", running_total: \"$running_total\" }} }} }} ])"
+  }
+]

@@ -1,0 +1,110 @@
+{
+  "record_id": "healthcare_trials_003/4365",
+  "db_id": "healthcare_trials_003",
+  "si_hash": "sha256:1c0c29babdaa793ca51d540859ec8daea0c143fd1821301c26fcf33e6be377f8",
+  "world_signature": "sha256:7d02e503eb69e415f46e1dce17236188e6599ca4f3e4c849ffaf932c2263c01c",
+  "split": "test",
+  "empirical_difficulty": "hard",
+  "phase_d": {
+    "v_correct": {
+      "neighborhood": {
+        "models": [
+          "mock-neighborhood"
+        ],
+        "all_candidates": [
+          {
+            "model": "mock-neighborhood",
+            "ast_pass": true,
+            "exec_equiv": true,
+            "action": "mock_accepted"
+          }
+        ]
+      },
+      "ambiguity": {
+        "attacker_model": "mock-ambiguity",
+        "si_candidates_count": 1,
+        "si_equiv_to_gold_count": 1,
+        "ambiguous": false
+      },
+      "gold_result_size": 0,
+      "pass": true
+    },
+    "v_discrim": {
+      "failure_modes": {
+        "total": 2,
+        "ex_one_count": 0,
+        "threshold": 0.02,
+        "details": [
+          {
+            "mutation_id": "facet_threshold_flip",
+            "equivalent": false
+          },
+          {
+            "mutation_id": "drop_facet_branch",
+            "equivalent": false
+          }
+        ],
+        "pass": true
+      },
+      "dual_bridge": {
+        "sql_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "template_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "pass": true
+      },
+      "pass": true
+    },
+    "v_diverse": {
+      "cell": "null_cluster/ops/facet_split",
+      "axis_values": {
+        "phenomenon_class": "null_cluster",
+        "persona_id": "ops",
+        "pattern_family": "facet_split",
+        "nosql_nativeness_level": "L3",
+        "shape_policy": "reshape",
+        "difficulty_label": "unknown",
+        "collection_name": "patients",
+        "time_field_present": "yes",
+        "array_field_present": "yes",
+        "operator_count_bucket": "6-8"
+      },
+      "axis_deltas": {
+        "phenomenon_class": 0.0045,
+        "persona_id": 0.0021,
+        "pattern_family": 0.0044,
+        "nosql_nativeness_level": 0.0008,
+        "shape_policy": 0.0003,
+        "difficulty_label": 0.0003,
+        "collection_name": 0.0092,
+        "time_field_present": 0.0003,
+        "array_field_present": 0.0004,
+        "operator_count_bucket": 0.0006
+      },
+      "global_count": 3364,
+      "min_quota": 1,
+      "max_quota": 999,
+      "delta_f": 0.0003,
+      "epsilon": 0.0,
+      "under_quota": false,
+      "pass": true
+    },
+    "calibration": {
+      "target_difficulty": "hard",
+      "pr_small": 0.4,
+      "pr_medium": 0.3,
+      "pr_large": 0.2,
+      "pr_frontier": 0.1,
+      "empirical_difficulty": "hard",
+      "amplify_rounds": 0
+    }
+  },
+  "routing": {
+    "split": "test",
+    "reason": "cross_domain_holdout_selected"
+  }
+}

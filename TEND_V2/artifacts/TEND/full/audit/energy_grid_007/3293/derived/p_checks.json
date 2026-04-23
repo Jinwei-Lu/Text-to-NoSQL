@@ -1,0 +1,24 @@
+{
+  "p1_gold_ast_pass": true,
+  "p1_detail": "pass",
+  "p2_mutation_differ_count": 2,
+  "p2_pass": true,
+  "p3_variant_checks": [
+    {
+      "pass": true,
+      "gold_pattern": "top_k_by_aggregate",
+      "variant_pattern": "top_k_by_aggregate",
+      "reason": "qir_match"
+    },
+    {
+      "pass": false,
+      "gold_pattern": "top_k_by_aggregate",
+      "variant_pattern": "filter_then_aggregate",
+      "reason": "pattern_mismatch"
+    }
+  ],
+  "p3_pass": false,
+  "p4_si_qir_match": true,
+  "p4_pass": true,
+  "all_pass": false
+}

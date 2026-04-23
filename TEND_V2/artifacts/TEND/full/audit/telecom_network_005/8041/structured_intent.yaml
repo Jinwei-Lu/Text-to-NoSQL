@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "telecom_network_005",
+    "record_id": 8041,
+    "schema_fingerprint_hint": "cells",
+    "si_hash": "sha256:1ba051800a0bd67a448a1174e14d50d73d142b3a21f7b73c7542d6da0a07043b"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@signal_strength",
+    "phenomenon_class": "rare_event",
+    "persona_id": "end-user",
+    "pattern_family": "universal_quantifier",
+    "collection": "cells",
+    "metric_field": "signal_strength",
+    "field_leaf": "signal_strength",
+    "label_field": "tower",
+    "time_field": "year",
+    "category_field": "region",
+    "array_field": "signal_strength",
+    "secondary_collection": null,
+    "join_field": "tower"
+  },
+  "output": {
+    "keys": [
+      "tower",
+      "region",
+      "signal_strength"
+    ],
+    "shape_policy": "preserve"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "universal_quantifier"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$allElementsTrue",
+      "$expr",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$match",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.cells.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$signal_strength\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, tower: 1, signal_strength: 1 } }])"
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+[
+  "db.events.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$attendance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, attendance: \"$attendance\", running_total: 1 } }])",
+  "db.events.aggregate([ { $match: {} }, { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$attendance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, attendance: \"$attendance\", running_total: 1 } }])"
+]
