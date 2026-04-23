@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "healthcare_trials_007",
+    "record_id": 4602,
+    "schema_fingerprint_hint": "trials",
+    "si_hash": "sha256:96b4d156527341c41d088d2dba62a76f7187beb8f4a02c7a0afda8be644d4d34"
+  },
+  "intent": {
+    "phenomenon_id": "temporal_trend@success_rate",
+    "phenomenon_class": "temporal_trend",
+    "persona_id": "analyst",
+    "pattern_family": "time_window_aggregate",
+    "collection": "trials",
+    "metric_field": "success_rate",
+    "field_leaf": "success_rate",
+    "label_field": "trial_id",
+    "time_field": "start_year",
+    "category_field": "trial_phase",
+    "array_field": null,
+    "secondary_collection": "patients",
+    "join_field": "trial_id"
+  },
+  "output": {
+    "keys": [
+      "trial_id",
+      "trial_phase",
+      "success_rate"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "time_window_aggregate"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$sort"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.trials.aggregate([ { $sort: { \"start_year\": 1 } }, { $group: { _id: \"$start_year\", avg_value: { $avg: \"$success_rate\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+    ]
+  }
+}

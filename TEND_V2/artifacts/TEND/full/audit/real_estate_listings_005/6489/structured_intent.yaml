@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "real_estate_listings_005",
+    "record_id": 6489,
+    "schema_fingerprint_hint": "properties",
+    "si_hash": "sha256:c462238f26c3d493c417826bb39d511362e1a7708f8018bf0ced196c1909777f"
+  },
+  "intent": {
+    "phenomenon_id": "boundary_value@rooms",
+    "phenomenon_class": "boundary_value",
+    "persona_id": "auditor",
+    "pattern_family": "filter_then_count",
+    "collection": "properties",
+    "metric_field": "rooms",
+    "field_leaf": "rooms",
+    "label_field": "city",
+    "time_field": "year",
+    "category_field": "type",
+    "array_field": "amenity_scores",
+    "secondary_collection": null,
+    "join_field": "city"
+  },
+  "output": {
+    "keys": [
+      "city",
+      "type",
+      "rooms"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L1",
+    "operator_family": "filter_then_count"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.properties.aggregate([ { $match: { \"rooms\": { $gt: 70 } } }, { $count: \"total\" }])"
+    ]
+  }
+}

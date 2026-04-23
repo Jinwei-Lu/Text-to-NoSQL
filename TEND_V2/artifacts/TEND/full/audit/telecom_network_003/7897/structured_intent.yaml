@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "db_id": "telecom_network_003",
+    "record_id": 7897,
+    "schema_fingerprint_hint": "cells",
+    "si_hash": "sha256:dc8a9f17e1192552c4833a189d597bfbab2aa440138e469416bc2538b1faba1d"
+  },
+  "intent": {
+    "phenomenon_id": "temporal_trend@throughput_mbps",
+    "phenomenon_class": "temporal_trend",
+    "persona_id": "auditor",
+    "pattern_family": "window_function_with_facet_filter",
+    "collection": "cells",
+    "metric_field": "throughput_mbps",
+    "field_leaf": "throughput_mbps",
+    "label_field": "tower",
+    "time_field": "year",
+    "category_field": "region",
+    "array_field": "signal_strength",
+    "secondary_collection": null,
+    "join_field": "tower"
+  },
+  "output": {
+    "keys": [
+      "tower",
+      "region",
+      "throughput_mbps"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L4",
+    "operator_family": "window_function_with_facet_filter"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$facet",
+      "$setWindowFields"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$facet",
+      "$project",
+      "$setWindowFields",
+      "$unwind"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.cells.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$throughput_mbps\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, tower: 1, moving_avg: 1, category: \"$region\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, tower: \"$kept.tower\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+    ]
+  }
+}

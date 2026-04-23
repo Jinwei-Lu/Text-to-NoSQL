@@ -1,0 +1,16 @@
+{
+  "pattern_family": "top_k_by_aggregate",
+  "primary_operator": "$group",
+  "must_contain": [
+    "$group",
+    "$limit",
+    "$sort"
+  ],
+  "must_contain_at_root": [
+    "$group",
+    "$limit",
+    "$project",
+    "$sort"
+  ],
+  "query": "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])"
+}

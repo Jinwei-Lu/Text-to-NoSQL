@@ -1,0 +1,66 @@
+{
+  "domain_id": "library_catalog",
+  "name": "Library Catalog",
+  "entities": [
+    {
+      "collection": "books",
+      "cardinality": 22,
+      "fields": [
+        { "name": "title", "type": "TEXT", "sparse": false },
+        { "name": "genre", "type": "TEXT", "values": ["fiction", "non-fiction", "science", "history", "art"], "sparse": false },
+        { "name": "year", "type": "INT", "role": "time", "nullable": false },
+        { "name": "pages", "type": "INT", "range": [50, 1200], "nullable": false },
+        { "name": "rating", "type": "REAL", "range": [1.0, 5.0], "nullable": true, "null_rate": 0.12 },
+        { "name": "borrow_counts", "type": "ARRAY", "min_items": 2, "max_items": 6, "items": { "type": "INT", "range": [0, 30], "name": "borrow_item" } },
+        { "name": "condition", "type": "TEXT", "values": ["new", "good", "fair", "poor"], "sparse": false }
+      ]
+    }
+  ],
+  "relations": [],
+  "f_topology_hints": {
+    "nested_objects": false,
+    "sparse_embedded": true,
+    "time_series_ready": true
+  },
+  "distribution_priors": {
+    "default_cardinality": 22
+  },
+  "phenomenon_blueprints": [
+    {
+      "phenomenon_class": "skewed_distribution",
+      "collection": "books",
+      "path": "pages",
+      "intent_hooks": ["histogram", "percentile"]
+    },
+    {
+      "phenomenon_class": "high_cardinality",
+      "collection": "books",
+      "path": "title",
+      "intent_hooks": ["distinct", "groupby"]
+    },
+    {
+      "phenomenon_class": "temporal_trend",
+      "collection": "books",
+      "path": "rating",
+      "intent_hooks": ["window", "trend"]
+    },
+    {
+      "phenomenon_class": "null_cluster",
+      "collection": "books",
+      "path": "rating",
+      "intent_hooks": ["missing", "null_pattern"]
+    },
+    {
+      "phenomenon_class": "pollution",
+      "collection": "books",
+      "path": "condition",
+      "intent_hooks": ["facet"]
+    },
+    {
+      "phenomenon_class": "sparse_field",
+      "collection": "books",
+      "path": "rating",
+      "intent_hooks": ["missing", "coverage"]
+    }
+  ]
+}

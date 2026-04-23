@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "db_id": "government_services_008",
+    "record_id": 4116,
+    "schema_fingerprint_hint": "requests",
+    "si_hash": "sha256:1adc71196baf635cbc9addf30f7181fe665f29183b215d3b634fc8543cca2300"
+  },
+  "intent": {
+    "phenomenon_id": "null_cluster@satisfaction",
+    "phenomenon_class": "null_cluster",
+    "persona_id": "auditor",
+    "pattern_family": "facet_split",
+    "collection": "requests",
+    "metric_field": "satisfaction",
+    "field_leaf": "satisfaction",
+    "label_field": "citizen",
+    "time_field": "year",
+    "category_field": "priority",
+    "array_field": "feedback_scores",
+    "secondary_collection": "departments",
+    "join_field": "citizen"
+  },
+  "output": {
+    "keys": [
+      "citizen",
+      "priority",
+      "satisfaction"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "facet_split"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$facet"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$facet",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.requests.aggregate([ { $facet: { high: [{ $match: { \"satisfaction\": { $gt: 70 } } }, { $group: { _id: \"$priority\", count: { $sum: 1 } } }], low: [{ $match: { \"satisfaction\": { $lte: 70 } } }, { $group: { _id: \"$priority\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+    ]
+  }
+}

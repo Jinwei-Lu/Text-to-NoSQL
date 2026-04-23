@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "music_events_004",
+    "record_id": 5941,
+    "schema_fingerprint_hint": "events",
+    "si_hash": "sha256:e673f9b2c8a67aeb1318813aa162fc9768796bfb256a1828bb8877f7f230e99d"
+  },
+  "intent": {
+    "phenomenon_id": "cross_group_comparison@ticket_revenue",
+    "phenomenon_class": "cross_group_comparison",
+    "persona_id": "researcher",
+    "pattern_family": "percentile_approximation",
+    "collection": "events",
+    "metric_field": "ticket_revenue",
+    "field_leaf": "ticket_revenue",
+    "label_field": "name",
+    "time_field": "year",
+    "category_field": "city",
+    "array_field": "fan_scores",
+    "secondary_collection": null,
+    "join_field": "name"
+  },
+  "output": {
+    "keys": [
+      "name",
+      "city",
+      "ticket_revenue"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "percentile_approximation"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$percentile"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.events.aggregate([ { $group: { _id: \"$city\", p50: { $percentile: { input: \"$ticket_revenue\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$ticket_revenue\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, city: \"$_id\", p50: 1, p95: 1 } }])"
+    ]
+  }
+}

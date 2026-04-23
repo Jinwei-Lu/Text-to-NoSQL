@@ -1,0 +1,81 @@
+{
+  "db_id": "weather_stations_005",
+  "phenomena_seed": 67,
+  "decisions": [
+    {
+      "phenomenon_id": "periodic_pattern@temperature",
+      "collection": "readings",
+      "path": "temperature",
+      "document_ids": [
+        "readings/1",
+        "readings/2",
+        "readings/3",
+        "readings/4",
+        "readings/5",
+        "readings/6"
+      ]
+    },
+    {
+      "phenomenon_id": "correlation@humidity",
+      "collection": "readings",
+      "path": "humidity",
+      "document_ids": [
+        "readings/1",
+        "readings/2",
+        "readings/3",
+        "readings/4",
+        "readings/5",
+        "readings/6"
+      ]
+    },
+    {
+      "phenomenon_id": "outlier@wind_speeds",
+      "collection": "readings",
+      "path": "wind_speeds",
+      "document_ids": [
+        "readings/18"
+      ]
+    },
+    {
+      "phenomenon_id": "temporal_trend@temperature",
+      "collection": "readings",
+      "path": "temperature",
+      "document_ids": [
+        "readings/1",
+        "readings/2",
+        "readings/3",
+        "readings/4",
+        "readings/5"
+      ]
+    },
+    {
+      "phenomenon_id": "sparse_field@pressure",
+      "collection": "readings",
+      "path": "pressure",
+      "document_ids": [
+        "readings/3",
+        "readings/4",
+        "readings/6",
+        "readings/7",
+        "readings/9",
+        "readings/11",
+        "readings/13",
+        "readings/15",
+        "readings/16",
+        "readings/17",
+        "readings/18"
+      ]
+    },
+    {
+      "phenomenon_id": "boundary_value@humidity",
+      "collection": "readings",
+      "path": "humidity",
+      "document_ids": [
+        "readings/1",
+        "readings/2",
+        "readings/3",
+        "readings/4"
+      ]
+    }
+  ]
+}

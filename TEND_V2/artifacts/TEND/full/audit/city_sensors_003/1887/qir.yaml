@@ -1,0 +1,24 @@
+{
+  "pattern_family": "filter_then_count",
+  "primary_operator": "$count",
+  "input_shape": {
+    "collections": [
+      "sensors"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "station",
+      "zone",
+      "reading_history"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "station",
+    "reading_history",
+    "zone",
+    "year",
+    "reading_history"
+  ]
+}

@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_operator",
+    "query": "db.matches.aggregate([ { $match: { \"possession\": { $lt: 70 } } }, { $count: \"total\" }])"
+  },
+  {
+    "mutation_id": "drop_count",
+    "query": "db.matches.aggregate([ { $match: { \"possession\": { $gt: 70 } } }, { $group: \"total\" }])"
+  }
+]

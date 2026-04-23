@@ -1,0 +1,290 @@
+{
+  "sensors": [
+    {
+      "_id": 1,
+      "station": "S1",
+      "zone": "??north??",
+      "year": 2018,
+      "reading": 50,
+      "alert_count": 2,
+      "reading_history": [
+        80,
+        44,
+        59
+      ]
+    },
+    {
+      "_id": 2,
+      "station": "S2",
+      "zone": "??south??",
+      "year": 2019,
+      "reading": 60,
+      "alert_count": 6,
+      "reading_history": [
+        61,
+        6,
+        33,
+        84,
+        63
+      ]
+    },
+    {
+      "_id": 3,
+      "station": "S3",
+      "zone": "??west??",
+      "year": 2020,
+      "reading": 70,
+      "alert_count": 15,
+      "reading_history": [
+        7,
+        70,
+        85,
+        98,
+        60,
+        50
+      ]
+    },
+    {
+      "_id": 4,
+      "station": "S4",
+      "zone": "north",
+      "year": 2021,
+      "reading": 80,
+      "alert_count": 1,
+      "reading_history": [
+        89,
+        27,
+        84,
+        32,
+        99
+      ]
+    },
+    {
+      "_id": 5,
+      "station": "S1",
+      "zone": "south",
+      "year": "2022",
+      "reading": 90,
+      "alert_count": 11,
+      "reading_history": [
+        89,
+        45,
+        78,
+        15,
+        109
+      ]
+    },
+    {
+      "_id": 6,
+      "station": "S2",
+      "zone": "west",
+      "year": 2023,
+      "reading": 100,
+      "alert_count": 14,
+      "reading_history": [
+        28,
+        107,
+        27,
+        73
+      ]
+    },
+    {
+      "_id": 7,
+      "station": "S3",
+      "zone": "north",
+      "year": 2024,
+      "reading": 110,
+      "alert_count": 6,
+      "reading_history": [
+        15,
+        17,
+        59
+      ]
+    },
+    {
+      "_id": 8,
+      "station": "S4",
+      "zone": "south",
+      "year": 2025,
+      "reading": 120,
+      "alert_count": 8,
+      "reading_history": [
+        110,
+        80,
+        47,
+        18,
+        52
+      ]
+    },
+    {
+      "_id": 9,
+      "station": "S1",
+      "zone": "west",
+      "year": 2026,
+      "reading": 130,
+      "alert_count": 14,
+      "reading_history": [
+        38,
+        24,
+        18,
+        84
+      ]
+    },
+    {
+      "_id": 10,
+      "station": "S2",
+      "zone": "north",
+      "year": 2027,
+      "reading": 140,
+      "alert_count": 15,
+      "reading_history": [
+        47,
+        74,
+        23,
+        100
+      ]
+    },
+    {
+      "_id": 11,
+      "station": "S3",
+      "zone": "south",
+      "year": 2028,
+      "reading": 150,
+      "alert_count": 5,
+      "reading_history": [
+        9,
+        12,
+        85,
+        58,
+        55,
+        7
+      ]
+    },
+    {
+      "_id": 12,
+      "station": "S4",
+      "zone": "west",
+      "year": 2029,
+      "reading": 160,
+      "alert_count": 0,
+      "reading_history": [
+        108,
+        99,
+        12,
+        73
+      ]
+    },
+    {
+      "_id": 13,
+      "station": "S1",
+      "zone": "north",
+      "year": 2030,
+      "reading": 170,
+      "alert_count": 2,
+      "reading_history": [
+        7,
+        105,
+        53,
+        67,
+        29
+      ]
+    },
+    {
+      "_id": 14,
+      "station": "S2",
+      "zone": "south",
+      "year": 2031,
+      "reading": 180,
+      "alert_count": 8,
+      "reading_history": [
+        75,
+        30,
+        101,
+        63,
+        42,
+        32
+      ]
+    },
+    {
+      "_id": 15,
+      "station": "S3",
+      "zone": "west",
+      "year": 2032,
+      "reading": 190,
+      "alert_count": 5,
+      "reading_history": [
+        37,
+        17,
+        58,
+        26
+      ]
+    },
+    {
+      "_id": 16,
+      "station": "S4",
+      "zone": "north",
+      "year": 2033,
+      "reading": 200,
+      "alert_count": 10,
+      "reading_history": [
+        109,
+        26,
+        119,
+        83,
+        93,
+        108
+      ]
+    },
+    {
+      "_id": 17,
+      "station": "S1",
+      "zone": "south",
+      "year": 2034,
+      "reading": 210,
+      "alert_count": 7,
+      "reading_history": [
+        59,
+        57,
+        43,
+        103,
+        115
+      ]
+    },
+    {
+      "_id": 18,
+      "station": "S2",
+      "zone": "west",
+      "year": 2035,
+      "reading": 220,
+      "alert_count": 9,
+      "reading_history": [
+        8,
+        85,
+        22
+      ]
+    },
+    {
+      "_id": 19,
+      "station": "S3",
+      "zone": "north",
+      "year": 2036,
+      "reading": 230,
+      "alert_count": 13,
+      "reading_history": [
+        26,
+        89,
+        15,
+        48
+      ]
+    },
+    {
+      "_id": 20,
+      "station": "S4",
+      "zone": "south",
+      "year": 2037,
+      "reading": 240,
+      "alert_count": 56,
+      "reading_history": "rare"
+    }
+  ]
+}

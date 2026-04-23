@@ -1,0 +1,4 @@
+[
+  "db.patients.aggregate([ { $match: {} }, { $group: { _id: \"$gender\", avg_value: { $avg: \"$vitals.heart_rate\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, gender: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+  "db.patients.aggregate([ { $group: { _id: \"$gender\", avg_value: { $avg: \"$vitals.heart_rate\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, gender: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+]

@@ -1,0 +1,66 @@
+{
+  "domain_id": "airline_flights",
+  "name": "Airline Flights",
+  "entities": [
+    {
+      "collection": "flights",
+      "cardinality": 20,
+      "fields": [
+        { "name": "airline", "type": "TEXT", "values": ["AA", "UA", "DL", "SW", "BA"], "sparse": false },
+        { "name": "destination", "type": "TEXT", "values": ["LAX", "JFK", "LHR", "NRT", "CDG"], "sparse": false },
+        { "name": "year", "type": "INT", "role": "time", "nullable": false },
+        { "name": "passengers", "type": "INT", "range": [50, 400], "nullable": false },
+        { "name": "delay_minutes", "type": "REAL", "range": [-10.0, 180.0], "nullable": true, "null_rate": 0.15 },
+        { "name": "ticket_prices", "type": "ARRAY", "min_items": 3, "max_items": 6, "items": { "type": "REAL", "range": [100, 2000], "name": "price_item" } },
+        { "name": "is_international", "type": "BOOL", "nullable": false }
+      ]
+    }
+  ],
+  "relations": [],
+  "f_topology_hints": {
+    "nested_objects": false,
+    "sparse_embedded": true,
+    "time_series_ready": true
+  },
+  "distribution_priors": {
+    "default_cardinality": 20
+  },
+  "phenomenon_blueprints": [
+    {
+      "phenomenon_class": "temporal_trend",
+      "collection": "flights",
+      "path": "passengers",
+      "intent_hooks": ["window", "trend"]
+    },
+    {
+      "phenomenon_class": "outlier",
+      "collection": "flights",
+      "path": "delay_minutes",
+      "intent_hooks": ["topk", "anomaly"]
+    },
+    {
+      "phenomenon_class": "skewed_distribution",
+      "collection": "flights",
+      "path": "delay_minutes",
+      "intent_hooks": ["histogram", "percentile"]
+    },
+    {
+      "phenomenon_class": "pollution",
+      "collection": "flights",
+      "path": "airline",
+      "intent_hooks": ["facet"]
+    },
+    {
+      "phenomenon_class": "rare_event",
+      "collection": "flights",
+      "path": "ticket_prices",
+      "intent_hooks": ["existential"]
+    },
+    {
+      "phenomenon_class": "boundary_value",
+      "collection": "flights",
+      "path": "passengers",
+      "intent_hooks": ["range", "edge_case"]
+    }
+  ]
+}

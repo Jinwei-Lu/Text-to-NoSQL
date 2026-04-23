@@ -1,0 +1,24 @@
+{
+  "pattern_family": "coalesce_with_default",
+  "primary_operator": "$ifNull",
+  "input_shape": {
+    "collections": [
+      "orders"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "customer",
+      "_sparse_notes",
+      "segment"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "customer",
+    "segment",
+    "_sparse_notes",
+    "year",
+    "basket_scores"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "pattern_family": "universal_quantifier",
+  "primary_operator": "$allElementsTrue",
+  "input_shape": {
+    "collections": [
+      "shipments"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "warehouse",
+      "route",
+      "inspection_scores"
+    ],
+    "shape_policy": "preserve"
+  },
+  "referenced_fields": [
+    "warehouse",
+    "inspection_scores",
+    "route",
+    "year",
+    "inspection_scores"
+  ]
+}

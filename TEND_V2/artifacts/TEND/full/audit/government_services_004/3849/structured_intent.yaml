@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "government_services_004",
+    "record_id": 3849,
+    "schema_fingerprint_hint": "departments",
+    "si_hash": "sha256:d6e14157f3054a81a0a06b859007de9a73af0c81eb6898ba3d38cd7cee867d0c"
+  },
+  "intent": {
+    "phenomenon_id": "cross_group_comparison@budget",
+    "phenomenon_class": "cross_group_comparison",
+    "persona_id": "researcher",
+    "pattern_family": "group_then_aggregate",
+    "collection": "departments",
+    "metric_field": "budget",
+    "field_leaf": "budget",
+    "label_field": "name",
+    "time_field": "year",
+    "category_field": "region",
+    "array_field": null,
+    "secondary_collection": "requests",
+    "join_field": "name"
+  },
+  "output": {
+    "keys": [
+      "name",
+      "region",
+      "budget"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "group_then_aggregate"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$project"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.departments.aggregate([ { $group: { _id: \"$region\", avg_value: { $avg: \"$budget\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, region: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+    ]
+  }
+}

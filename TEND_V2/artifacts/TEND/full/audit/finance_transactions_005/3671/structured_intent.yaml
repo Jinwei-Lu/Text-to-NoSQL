@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "finance_transactions_005",
+    "record_id": 3671,
+    "schema_fingerprint_hint": "accounts",
+    "si_hash": "sha256:c9d7d4da6e086faf2f4dc4e3cd95f96292a9f5f67a6cb48204ae734caf47a513"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@monthly_volumes",
+    "phenomenon_class": "rare_event",
+    "persona_id": "end-user",
+    "pattern_family": "universal_quantifier",
+    "collection": "accounts",
+    "metric_field": "monthly_volumes",
+    "field_leaf": "monthly_volumes",
+    "label_field": "company",
+    "time_field": "quarter",
+    "category_field": "branch",
+    "array_field": "monthly_volumes",
+    "secondary_collection": "transactions",
+    "join_field": "company"
+  },
+  "output": {
+    "keys": [
+      "company",
+      "branch",
+      "monthly_volumes"
+    ],
+    "shape_policy": "preserve"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "universal_quantifier"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$allElementsTrue",
+      "$expr",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$match",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.accounts.aggregate([ { $match: { $expr: { $allElementsTrue: { $map: { input: \"$monthly_volumes\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, company: 1, monthly_volumes: 1 } }])"
+    ]
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "real_estate_listings_002",
+    "record_id": 6181,
+    "schema_fingerprint_hint": "properties",
+    "si_hash": "sha256:a3b7ccf25dcf8dc2e427b59d155b9d8b5a2e4639802c773cee4a56ea047f274c"
+  },
+  "intent": {
+    "phenomenon_id": "outlier@price",
+    "phenomenon_class": "outlier",
+    "persona_id": "analyst",
+    "pattern_family": "anomaly_vs_baseline",
+    "collection": "properties",
+    "metric_field": "price",
+    "field_leaf": "price",
+    "label_field": "city",
+    "time_field": "year",
+    "category_field": "type",
+    "array_field": "amenity_scores",
+    "secondary_collection": null,
+    "join_field": "city"
+  },
+  "output": {
+    "keys": [
+      "city",
+      "type",
+      "price"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "anomaly_vs_baseline"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$match",
+      "$setWindowFields"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$match",
+      "$project",
+      "$setWindowFields"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.properties.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$price\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$price\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, city: 1, price: \"$price\", moving_avg: 1 } }])"
+    ]
+  }
+}

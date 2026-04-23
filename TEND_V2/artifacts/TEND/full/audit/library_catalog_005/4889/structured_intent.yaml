@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "db_id": "library_catalog_005",
+    "record_id": 4889,
+    "schema_fingerprint_hint": "books",
+    "si_hash": "sha256:239755c9a2a46ca86ad8086fca25a5fcc9a476ba57b3312d50f719be918b3472"
+  },
+  "intent": {
+    "phenomenon_id": "pollution@condition",
+    "phenomenon_class": "pollution",
+    "persona_id": "researcher",
+    "pattern_family": "facet_split",
+    "collection": "books",
+    "metric_field": "condition",
+    "field_leaf": "condition",
+    "label_field": "title",
+    "time_field": "year",
+    "category_field": "genre",
+    "array_field": "borrow_counts",
+    "secondary_collection": null,
+    "join_field": "title"
+  },
+  "output": {
+    "keys": [
+      "title",
+      "genre",
+      "condition"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "facet_split"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$facet"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$facet",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.books.aggregate([ { $facet: { high: [{ $match: { \"condition\": { $gt: 70 } } }, { $group: { _id: \"$genre\", count: { $sum: 1 } } }], low: [{ $match: { \"condition\": { $lte: 70 } } }, { $group: { _id: \"$genre\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+    ]
+  }
+}

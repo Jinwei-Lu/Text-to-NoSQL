@@ -1,0 +1,1945 @@
+{
+  "train_records": [],
+  "test_records": [
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1003,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 year 聚合 yield_tons，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 yield_tons 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average yield_tons per time bucket."
+      ],
+      "MQL": "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$yield_tons\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$yield_tons\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1008,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 rainfall_mm 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of rainfall_mm per crop."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1012,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 yield_tons 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of yield_tons per crop."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$yield_tons\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$yield_tons\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$yield_tons\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$yield_tons\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1016,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 year 聚合 rainfall_mm，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 rainfall_mm 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average rainfall_mm per time bucket."
+      ],
+      "MQL": "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1020,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "找出 yield_tons 大于 70 的记录，并返回 farm 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 yield_tons 超过阈值的文档并显示 farm。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $match: { \"yield_tons\": { $gt: 70 } } }, { $project: { _id: 0, farm: 1, yield_tons: \"$yield_tons\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $match: { \"yield_tons\": { $gt: 70 } } }, { $project: { _id: 0, farm: 1, yield_tons: \"$yield_tons\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1024,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 yield_tons 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by crop and aggregate yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", avg_value: { $avg: \"$yield_tons\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, crop: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", avg_value: { $avg: \"$yield_tons\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, crop: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1028,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "先按 year 计算 yield_tons 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$yield_tons\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, farm: 1, moving_avg: 1, category: \"$crop\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, farm: \"$kept.farm\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$yield_tons\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, farm: 1, moving_avg: 1, category: \"$crop\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, farm: \"$kept.farm\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1032,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 rainfall_mm 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of rainfall_mm per crop."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1036,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 farm 汇总 yield_tons，返回总量最高的前 3 项。",
+        "统计每个 farm 的总值并给我 Top 3。",
+        "聚合 yield_tons 后按 farm 排名。",
+        "用分组加排序找出最强的几项。",
+        "Return the top 3 groups by aggregated yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$farm\", total_value: { $sum: \"$yield_tons\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, farm: \"$_id\", total_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$limit",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$limit",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$farm\", total_value: { $sum: \"$yield_tons\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, farm: \"$_id\", total_value: 1 } }])"
+        ]
+      },
+      "operator_family": "top_k_by_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1040,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 year 聚合 rainfall_mm，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 rainfall_mm 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average rainfall_mm per time bucket."
+      ],
+      "MQL": "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1044,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "把 yield_tons 按阈值分成高低两组，并分别按 crop 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $facet: { high: [{ $match: { \"yield_tons\": { $gt: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }], low: [{ $match: { \"yield_tons\": { $lte: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $facet: { high: [{ $match: { \"yield_tons\": { $gt: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }], low: [{ $match: { \"yield_tons\": { $lte: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1048,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "统计 yield_tons 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: { $type: \"$yield_tons\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: { $type: \"$yield_tons\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1052,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 year 聚合 yield_tons，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 yield_tons 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average yield_tons per time bucket."
+      ],
+      "MQL": "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$yield_tons\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$yield_tons\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1056,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 rainfall_mm 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of rainfall_mm per crop."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1060,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 yield_tons 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of yield_tons per crop."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$yield_tons\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$yield_tons\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$yield_tons\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$yield_tons\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1064,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 year 聚合 rainfall_mm，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 rainfall_mm 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average rainfall_mm per time bucket."
+      ],
+      "MQL": "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1068,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "找出 yield_tons 大于 70 的记录，并返回 farm 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 yield_tons 超过阈值的文档并显示 farm。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $match: { \"yield_tons\": { $gt: 70 } } }, { $project: { _id: 0, farm: 1, yield_tons: \"$yield_tons\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $match: { \"yield_tons\": { $gt: 70 } } }, { $project: { _id: 0, farm: 1, yield_tons: \"$yield_tons\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1072,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 yield_tons 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by crop and aggregate yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", avg_value: { $avg: \"$yield_tons\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, crop: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", avg_value: { $avg: \"$yield_tons\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, crop: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1076,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "先按 year 计算 yield_tons 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$yield_tons\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, farm: 1, moving_avg: 1, category: \"$crop\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, farm: \"$kept.farm\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$yield_tons\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, farm: 1, moving_avg: 1, category: \"$crop\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, farm: \"$kept.farm\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1080,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 rainfall_mm 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of rainfall_mm per crop."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1084,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 farm 汇总 yield_tons，返回总量最高的前 3 项。",
+        "统计每个 farm 的总值并给我 Top 3。",
+        "聚合 yield_tons 后按 farm 排名。",
+        "用分组加排序找出最强的几项。",
+        "Return the top 3 groups by aggregated yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$farm\", total_value: { $sum: \"$yield_tons\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, farm: \"$_id\", total_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$limit",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$limit",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$farm\", total_value: { $sum: \"$yield_tons\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, farm: \"$_id\", total_value: 1 } }])"
+        ]
+      },
+      "operator_family": "top_k_by_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1088,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 year 聚合 rainfall_mm，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 rainfall_mm 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average rainfall_mm per time bucket."
+      ],
+      "MQL": "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1092,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "把 yield_tons 按阈值分成高低两组，并分别按 crop 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $facet: { high: [{ $match: { \"yield_tons\": { $gt: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }], low: [{ $match: { \"yield_tons\": { $lte: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $facet: { high: [{ $match: { \"yield_tons\": { $gt: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }], low: [{ $match: { \"yield_tons\": { $lte: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1096,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "统计 yield_tons 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: { $type: \"$yield_tons\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: { $type: \"$yield_tons\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1100,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 year 聚合 yield_tons，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 yield_tons 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average yield_tons per time bucket."
+      ],
+      "MQL": "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$yield_tons\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$yield_tons\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1104,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 rainfall_mm 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of rainfall_mm per crop."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1108,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 yield_tons 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of yield_tons per crop."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$yield_tons\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$yield_tons\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$yield_tons\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$yield_tons\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1112,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 year 聚合 rainfall_mm，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 rainfall_mm 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average rainfall_mm per time bucket."
+      ],
+      "MQL": "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1116,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "找出 yield_tons 大于 70 的记录，并返回 farm 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 yield_tons 超过阈值的文档并显示 farm。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $match: { \"yield_tons\": { $gt: 70 } } }, { $project: { _id: 0, farm: 1, yield_tons: \"$yield_tons\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $match: { \"yield_tons\": { $gt: 70 } } }, { $project: { _id: 0, farm: 1, yield_tons: \"$yield_tons\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1120,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 yield_tons 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by crop and aggregate yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", avg_value: { $avg: \"$yield_tons\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, crop: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", avg_value: { $avg: \"$yield_tons\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, crop: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1124,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "先按 year 计算 yield_tons 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$yield_tons\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, farm: 1, moving_avg: 1, category: \"$crop\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, farm: \"$kept.farm\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$yield_tons\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, farm: 1, moving_avg: 1, category: \"$crop\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, farm: \"$kept.farm\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1128,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 rainfall_mm 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of rainfall_mm per crop."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1132,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 farm 汇总 yield_tons，返回总量最高的前 3 项。",
+        "统计每个 farm 的总值并给我 Top 3。",
+        "聚合 yield_tons 后按 farm 排名。",
+        "用分组加排序找出最强的几项。",
+        "Return the top 3 groups by aggregated yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$farm\", total_value: { $sum: \"$yield_tons\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, farm: \"$_id\", total_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$limit",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$limit",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$farm\", total_value: { $sum: \"$yield_tons\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, farm: \"$_id\", total_value: 1 } }])"
+        ]
+      },
+      "operator_family": "top_k_by_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1136,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 year 聚合 rainfall_mm，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 rainfall_mm 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average rainfall_mm per time bucket."
+      ],
+      "MQL": "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1140,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "把 yield_tons 按阈值分成高低两组，并分别按 crop 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $facet: { high: [{ $match: { \"yield_tons\": { $gt: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }], low: [{ $match: { \"yield_tons\": { $lte: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $facet: { high: [{ $match: { \"yield_tons\": { $gt: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }], low: [{ $match: { \"yield_tons\": { $lte: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1144,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "统计 yield_tons 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: { $type: \"$yield_tons\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: { $type: \"$yield_tons\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1148,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 year 聚合 yield_tons，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 yield_tons 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average yield_tons per time bucket."
+      ],
+      "MQL": "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$yield_tons\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$yield_tons\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1152,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 rainfall_mm 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of rainfall_mm per crop."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1156,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 yield_tons 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of yield_tons per crop."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$yield_tons\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$yield_tons\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$yield_tons\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$yield_tons\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1160,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 year 聚合 rainfall_mm，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 rainfall_mm 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average rainfall_mm per time bucket."
+      ],
+      "MQL": "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1164,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "找出 yield_tons 大于 70 的记录，并返回 farm 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 yield_tons 超过阈值的文档并显示 farm。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $match: { \"yield_tons\": { $gt: 70 } } }, { $project: { _id: 0, farm: 1, yield_tons: \"$yield_tons\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $match: { \"yield_tons\": { $gt: 70 } } }, { $project: { _id: 0, farm: 1, yield_tons: \"$yield_tons\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1167,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 yield_tons 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by crop and aggregate yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", avg_value: { $avg: \"$yield_tons\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, crop: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", avg_value: { $avg: \"$yield_tons\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, crop: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1171,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "先按 year 计算 yield_tons 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$yield_tons\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, farm: 1, moving_avg: 1, category: \"$crop\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, farm: \"$kept.farm\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$yield_tons\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, farm: 1, moving_avg: 1, category: \"$crop\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, farm: \"$kept.farm\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1176,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 rainfall_mm 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of rainfall_mm per crop."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1179,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 farm 汇总 yield_tons，返回总量最高的前 3 项。",
+        "统计每个 farm 的总值并给我 Top 3。",
+        "聚合 yield_tons 后按 farm 排名。",
+        "用分组加排序找出最强的几项。",
+        "Return the top 3 groups by aggregated yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$farm\", total_value: { $sum: \"$yield_tons\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, farm: \"$_id\", total_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$limit",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$limit",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$farm\", total_value: { $sum: \"$yield_tons\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, farm: \"$_id\", total_value: 1 } }])"
+        ]
+      },
+      "operator_family": "top_k_by_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1183,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 year 聚合 rainfall_mm，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 rainfall_mm 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average rainfall_mm per time bucket."
+      ],
+      "MQL": "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rainfall_mm\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1187,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "把 yield_tons 按阈值分成高低两组，并分别按 crop 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $facet: { high: [{ $match: { \"yield_tons\": { $gt: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }], low: [{ $match: { \"yield_tons\": { $lte: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $facet: { high: [{ $match: { \"yield_tons\": { $gt: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }], low: [{ $match: { \"yield_tons\": { $lte: 70 } } }, { $group: { _id: \"$crop\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1191,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "统计 yield_tons 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of yield_tons."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: { $type: \"$yield_tons\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: { $type: \"$yield_tons\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "yield_tons",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1196,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 year 聚合 yield_tons，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 yield_tons 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average yield_tons per time bucket."
+      ],
+      "MQL": "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$yield_tons\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$yield_tons\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    },
+    {
+      "collection": "harvests",
+      "metric_field": "rainfall_mm",
+      "label_field": "farm",
+      "category_field": "crop",
+      "time_field": "year",
+      "array_field": "soil_samples",
+      "record_id": 1200,
+      "db_id": "agriculture_farms_004",
+      "nl_queries": [
+        "按 crop 分组，计算 rainfall_mm 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of rainfall_mm per crop."
+      ],
+      "MQL": "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.harvests.aggregate([ { $group: { _id: \"$crop\", p50: { $percentile: { input: \"$rainfall_mm\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$rainfall_mm\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, crop: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+    }
+  ],
+  "manifest": {
+    "db_id": "agriculture_farms_004",
+    "domain_id": "agriculture_farms",
+    "record_count": 50,
+    "schema_signature": "sha256:4c75cd0db2b31004a121867c03562657a51bd430a9406fa62d3dfd6c889493df",
+    "world_signature": "sha256:c7a60ebbcff832af6b4cfe98d64c97da4089ea88c990ba145ebf0ecc62cca6a7"
+  }
+}

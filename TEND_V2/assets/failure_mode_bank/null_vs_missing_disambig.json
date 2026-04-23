@@ -1,0 +1,152 @@
+[
+  {
+    "mutation_id": "confuse_null_missing_labels",
+    "failure_type": "null_missing_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "drop_classification_condition",
+    "failure_type": "missing_classification",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: \"present\" }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_exists_instead_of_type",
+    "failure_type": "wrong_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $not: [{{ $ifNull: [\"${metric_field}\", false] }}] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_swap_labels",
+    "failure_type": "wrong_branch_labels",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"present\", else: \"missing\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_three_way_wrong",
+    "failure_type": "wrong_branch_labels",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $switch: {{ branches: [{{ case: {{ $eq: [{{ $type: \"${metric_field}\" }}, \"missing\"] }}, then: \"null\" }}, {{ case: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\" }}], default: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_wrong_field_checked",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${label_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_category_field_checked",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${category_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_missing_addfields",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_missing_group",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $project: {{ _id: 0, status: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_missing_project",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_avg_instead_of_count",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $avg: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_sum_field_instead_of_1",
+    "failure_type": "wrong_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_ne_instead_of_eq",
+    "failure_type": "predicate_flip",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $ne: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_extra_match",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": {{ $exists: true }} }} }}, {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_extra_sort",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $sort: {{ count: -1 }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_include_id",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 1, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_wrong_alias",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, status: \"$_id\", total: \"$count\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_group_by_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"${category_field}\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_ifnull_instead_of_cond",
+    "failure_type": "wrong_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $ifNull: [\"${metric_field}\", \"missing\"] }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_type_check_wrong_val",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [{{ $type: \"${metric_field}\" }}, \"null\"] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_compare_zero",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", 0] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_compare_empty_string",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", \"\"] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_push_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", items: {{ $push: \"${label_field}\" }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", items: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_match_instead_of_addfields",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": null }} }}, {{ $group: {{ _id: null, count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"missing\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_double_addfields",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $addFields: {{ status: \"present\" }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_or_logic",
+    "failure_type": "wrong_logical_op",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $or: [{{ $eq: [\"${metric_field}\", null] }}, {{ $eq: [\"${metric_field}\", 0] }}] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_stage_order_reversed",
+    "failure_type": "wrong_stage_order",
+    "query_template": "db.{collection}.aggregate([ {{ $group: {{ _id: null, count: {{ $sum: 1 }} }} }}, {{ $addFields: {{ status: \"all\" }} }}, {{ $project: {{ _id: 0, classification: \"$status\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_limit_results",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", count: {{ $sum: 1 }} }} }}, {{ $limit: 1 }}, {{ $project: {{ _id: 0, classification: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_facet_approach",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $facet: {{ missing: [{{ $match: {{ \"{metric_field}\": null }} }}, {{ $count: \"count\" }}], present: [{{ $match: {{ \"{metric_field}\": {{ $ne: null }} }} }}, {{ $count: \"count\" }}] }} }} ])"
+  },
+  {
+    "mutation_id": "bank_nvm_addtoset_accumulator",
+    "failure_type": "wrong_accumulator",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ status: {{ $cond: {{ if: {{ $eq: [\"${metric_field}\", null] }}, then: \"missing\", else: \"present\" }} }} }} }}, {{ $group: {{ _id: \"$status\", items: {{ $addToSet: \"${metric_field}\" }} }} }}, {{ $project: {{ _id: 0, classification: \"$_id\", items: 1 }} }} ])"
+  }
+]

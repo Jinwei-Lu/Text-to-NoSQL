@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "ecommerce_reviews_001",
+    "record_id": 2277,
+    "schema_fingerprint_hint": "products",
+    "si_hash": "sha256:54510fe33304aa44561952ca9fd6dcf725e94f0d10b199d93b057472f2f898d6"
+  },
+  "intent": {
+    "phenomenon_id": "null_cluster@stock",
+    "phenomenon_class": "null_cluster",
+    "persona_id": "auditor",
+    "pattern_family": "coalesce_with_default",
+    "collection": "products",
+    "metric_field": "stock",
+    "field_leaf": "stock",
+    "label_field": "name",
+    "time_field": "year",
+    "category_field": "category",
+    "array_field": null,
+    "secondary_collection": "reviews",
+    "join_field": "name"
+  },
+  "output": {
+    "keys": [
+      "name",
+      "category",
+      "stock"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "coalesce_with_default"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$ifNull",
+      "$project"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.products.aggregate([ { $project: { _id: 0, name: 1, value: { $ifNull: [\"$stock\", 0] } } }, { $sort: { value: -1 } }])"
+    ]
+  }
+}

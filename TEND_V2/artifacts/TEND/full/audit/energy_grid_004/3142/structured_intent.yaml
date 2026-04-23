@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "db_id": "energy_grid_004",
+    "record_id": 3142,
+    "schema_fingerprint_hint": "meters",
+    "si_hash": "sha256:b7b58c68bf373f679d649e8fa661ead68e75294589c3f52a56c39a7cc9118130"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@daily_readings",
+    "phenomenon_class": "rare_event",
+    "persona_id": "end-user",
+    "pattern_family": "array_positional_select",
+    "collection": "meters",
+    "metric_field": "daily_readings",
+    "field_leaf": "daily_readings",
+    "label_field": "city",
+    "time_field": "year",
+    "category_field": "sector",
+    "array_field": "daily_readings",
+    "secondary_collection": "alerts",
+    "join_field": "city"
+  },
+  "output": {
+    "keys": [
+      "city",
+      "sector",
+      "daily_readings"
+    ],
+    "shape_policy": "preserve"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "array_positional_select"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$arrayElemAt",
+      "$project"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.meters.aggregate([ { $project: { _id: 0, city: 1, first: { $arrayElemAt: [\"$daily_readings\", 0] }, last: { $arrayElemAt: [\"$daily_readings\", -1] }, size: { $size: \"$daily_readings\" } } }])"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "pattern_family": "anomaly_vs_baseline",
+  "primary_operator": "$setWindowFields",
+  "must_contain": [
+    "$match",
+    "$setWindowFields"
+  ],
+  "must_contain_at_root": [
+    "$match",
+    "$project",
+    "$setWindowFields"
+  ],
+  "query": "db.departments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$budget\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$budget\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, name: 1, budget: \"$budget\", moving_avg: 1 } }])"
+}

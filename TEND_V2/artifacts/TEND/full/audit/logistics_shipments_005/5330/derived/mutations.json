@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_index",
+    "query": "db.shipments.aggregate([ { $project: { _id: 0, warehouse: 1, first: { $arrayElemAt: [\"$inspection_scores\", 1] }, last: { $arrayElemAt: [\"$inspection_scores\", -1] }, size: { $size: \"$inspection_scores\" } } }])"
+  },
+  {
+    "mutation_id": "drop_size",
+    "query": "db.shipments.aggregate([ { $project: { _id: 0, warehouse: 1, first: { $arrayElemAt: [\"$inspection_scores\", 0] }, last: { $arrayElemAt: [\"$inspection_scores\", -1] }, size: { $type: \"$inspection_scores\" } } }])"
+  }
+]

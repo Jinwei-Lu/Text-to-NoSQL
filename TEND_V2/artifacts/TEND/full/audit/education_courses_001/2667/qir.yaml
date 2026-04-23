@@ -1,0 +1,24 @@
+{
+  "pattern_family": "percentile_approximation",
+  "primary_operator": "$percentile",
+  "input_shape": {
+    "collections": [
+      "courses"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "title",
+      "difficulty",
+      "avg_score"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "title",
+    "avg_score",
+    "difficulty",
+    "year",
+    "students"
+  ]
+}

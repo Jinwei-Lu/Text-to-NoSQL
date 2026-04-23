@@ -1,0 +1,24 @@
+{
+  "pattern_family": "time_window_aggregate",
+  "primary_operator": "$group",
+  "input_shape": {
+    "collections": [
+      "harvests"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "farm",
+      "crop",
+      "rainfall_mm"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "farm",
+    "rainfall_mm",
+    "crop",
+    "year",
+    "soil_samples"
+  ]
+}

@@ -1,0 +1,4 @@
+[
+  "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])",
+  "db.flights.aggregate([ { $match: {} }, { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])"
+]

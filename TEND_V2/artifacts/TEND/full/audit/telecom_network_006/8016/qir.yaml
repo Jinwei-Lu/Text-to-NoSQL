@@ -1,0 +1,24 @@
+{
+  "pattern_family": "top_k_by_aggregate",
+  "primary_operator": "$group",
+  "input_shape": {
+    "collections": [
+      "cells"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "tower",
+      "region",
+      "throughput_mbps"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "tower",
+    "throughput_mbps",
+    "region",
+    "year",
+    "signal_strength"
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "record_id": "retail_orders_006/6908",
+  "db_id": "retail_orders_006",
+  "si_hash": "sha256:9b60f7d649c6263d82dfd3c8018ab51a296f0d395b45dfcec3ed4c04736a4a5a",
+  "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1",
+  "split": "train",
+  "empirical_difficulty": "easy",
+  "phase_d": {
+    "v_correct": {
+      "neighborhood": {
+        "models": [
+          "mock-neighborhood"
+        ],
+        "all_candidates": [
+          {
+            "model": "mock-neighborhood",
+            "ast_pass": true,
+            "exec_equiv": true,
+            "action": "mock_accepted"
+          }
+        ]
+      },
+      "ambiguity": {
+        "attacker_model": "mock-ambiguity",
+        "si_candidates_count": 1,
+        "si_equiv_to_gold_count": 1,
+        "ambiguous": false
+      },
+      "gold_result_size": 0,
+      "pass": true
+    },
+    "v_discrim": {
+      "failure_modes": {
+        "total": 2,
+        "ex_one_count": 0,
+        "threshold": 0.02,
+        "details": [
+          {
+            "mutation_id": "wrong_operator",
+            "equivalent": false
+          },
+          {
+            "mutation_id": "tight_threshold",
+            "equivalent": false
+          }
+        ],
+        "pass": true
+      },
+      "dual_bridge": {
+        "sql_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "template_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "pass": true
+      },
+      "pass": true
+    },
+    "v_diverse": {
+      "cell": "pollution/researcher/simple_filter",
+      "axis_values": {
+        "phenomenon_class": "pollution",
+        "persona_id": "researcher",
+        "pattern_family": "simple_filter",
+        "nosql_nativeness_level": "L1",
+        "shape_policy": "preserve",
+        "difficulty_label": "unknown",
+        "collection_name": "orders",
+        "time_field_present": "yes",
+        "array_field_present": "yes",
+        "operator_count_bucket": "3-5"
+      },
+      "axis_deltas": {
+        "phenomenon_class": 0.0029,
+        "persona_id": 0.0007,
+        "pattern_family": 0.0039,
+        "nosql_nativeness_level": 0.0008,
+        "shape_policy": 0.0013,
+        "difficulty_label": 0.0002,
+        "collection_name": 0.0032,
+        "time_field_present": 0.0002,
+        "array_field_present": 0.0002,
+        "operator_count_bucket": 0.0007
+      },
+      "global_count": 5908,
+      "min_quota": 1,
+      "max_quota": 999,
+      "delta_f": 0.0002,
+      "epsilon": 0.0,
+      "under_quota": false,
+      "pass": true
+    },
+    "calibration": {
+      "target_difficulty": "easy",
+      "pr_small": 0.9,
+      "pr_medium": 0.8,
+      "pr_large": 0.7,
+      "pr_frontier": 0.6,
+      "empirical_difficulty": "easy",
+      "amplify_rounds": 0
+    }
+  },
+  "routing": {
+    "split": "train",
+    "reason": "default_train"
+  }
+}

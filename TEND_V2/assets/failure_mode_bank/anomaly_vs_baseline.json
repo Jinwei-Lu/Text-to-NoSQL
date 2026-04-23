@@ -1,0 +1,152 @@
+[
+  {
+    "mutation_id": "window_missing_multiplier",
+    "failure_type": "wrong_baseline",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", \"$moving_avg\"] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "sum_window_not_avg",
+    "failure_type": "wrong_window_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $sum: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_lt_instead_of_gt",
+    "failure_type": "predicate_flip",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $lt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_gte_boundary",
+    "failure_type": "predicate_boundary",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gte: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_min_window",
+    "failure_type": "wrong_window_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $min: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_max_window",
+    "failure_type": "wrong_window_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $max: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_wider_window",
+    "failure_type": "wrong_window_range",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-5, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_narrow_window",
+    "failure_type": "wrong_window_range",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-1, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_multiplier_too_high",
+    "failure_type": "threshold_drift",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 2.0] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_multiplier_too_low",
+    "failure_type": "threshold_drift",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.05] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_missing_window_stage",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {threshold}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_missing_match",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_missing_project",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_desc_sort",
+    "failure_type": "wrong_sort",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": -1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_sort_wrong_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{metric_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_window_wrong_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${label_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_compare_wrong_field",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${label_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_add_instead_of_multiply",
+    "failure_type": "wrong_baseline",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $add: [\"$moving_avg\", 10] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_extra_group",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $group: {{ _id: \"${category_field}\", count: {{ $sum: 1 }} }} }}, {{ $project: {{ _id: 0, {category_field}: \"$_id\", count: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_extra_sort",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $sort: {{ \"{metric_field}\": -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_include_id",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 1, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_null_handling",
+    "failure_type": "null_handling_error",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": {{ $ne: null }} }} }}, {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_wrong_window_boundary",
+    "failure_type": "wrong_window_range",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [0, 2] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_stage_order_reversed",
+    "failure_type": "wrong_stage_order",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {threshold}] }} }} }}, {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_wrong_project_alias",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, wrong_alias: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_partition_added",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ partitionBy: \"${category_field}\", sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_stddev_window",
+    "failure_type": "wrong_window_aggregate",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $stdDevPop: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_type_confusion",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${category_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_limit_results",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [-2, 0] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $limit: {top_k} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_avb_unbounded_window",
+    "failure_type": "wrong_window_range",
+    "query_template": "db.{collection}.aggregate([ {{ $setWindowFields: {{ sortBy: {{ \"{time_field}\": 1 }}, output: {{ moving_avg: {{ $avg: \"${metric_field}\", window: {{ documents: [\"unbounded\", \"current\"] }} }} }} }} }}, {{ $match: {{ $expr: {{ $gt: [\"${metric_field}\", {{ $multiply: [\"$moving_avg\", 1.25] }}] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\", moving_avg: 1 }} }} ])"
+  }
+]

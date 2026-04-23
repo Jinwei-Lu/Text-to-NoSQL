@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "db_id": "healthcare_trials_003",
+    "record_id": 4387,
+    "schema_fingerprint_hint": "patients",
+    "si_hash": "sha256:06aad5b6a0b510040151bb9066943c2c1be062c6dc00c324d627bf89388f52fe"
+  },
+  "intent": {
+    "phenomenon_id": "null_cluster@blood_pressure",
+    "phenomenon_class": "null_cluster",
+    "persona_id": "analyst",
+    "pattern_family": "facet_split",
+    "collection": "patients",
+    "metric_field": "blood_pressure",
+    "field_leaf": "blood_pressure",
+    "label_field": "name",
+    "time_field": "admission_year",
+    "category_field": "gender",
+    "array_field": "diagnoses",
+    "secondary_collection": "trials",
+    "join_field": "name"
+  },
+  "output": {
+    "keys": [
+      "name",
+      "gender",
+      "blood_pressure"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "facet_split"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$facet"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$facet",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+    ]
+  }
+}

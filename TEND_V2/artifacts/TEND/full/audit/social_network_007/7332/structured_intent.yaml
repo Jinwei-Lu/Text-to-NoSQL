@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "social_network_007",
+    "record_id": 7332,
+    "schema_fingerprint_hint": "posts",
+    "si_hash": "sha256:d90c70513be882e0c58873cb291caee9631ca771060631b9962bf094f1cc50b6"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@engagement_scores",
+    "phenomenon_class": "rare_event",
+    "persona_id": "auditor",
+    "pattern_family": "filter_then_count",
+    "collection": "posts",
+    "metric_field": "engagement_scores",
+    "field_leaf": "engagement_scores",
+    "label_field": "author",
+    "time_field": "year",
+    "category_field": "category",
+    "array_field": "engagement_scores",
+    "secondary_collection": null,
+    "join_field": "author"
+  },
+  "output": {
+    "keys": [
+      "author",
+      "category",
+      "engagement_scores"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L1",
+    "operator_family": "filter_then_count"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.posts.aggregate([ { $match: { \"engagement_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+    ]
+  }
+}

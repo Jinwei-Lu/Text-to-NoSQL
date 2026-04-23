@@ -1,0 +1,3 @@
+[
+  "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+]

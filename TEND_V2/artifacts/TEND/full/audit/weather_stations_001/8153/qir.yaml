@@ -1,0 +1,24 @@
+{
+  "pattern_family": "time_window_aggregate",
+  "primary_operator": "$group",
+  "input_shape": {
+    "collections": [
+      "readings"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "station",
+      "region",
+      "temperature"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "station",
+    "temperature",
+    "region",
+    "month",
+    "wind_speeds"
+  ]
+}

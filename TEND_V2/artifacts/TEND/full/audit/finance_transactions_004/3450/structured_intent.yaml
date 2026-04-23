@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "finance_transactions_004",
+    "record_id": 3450,
+    "schema_fingerprint_hint": "accounts",
+    "si_hash": "sha256:be1bbf2c7ea27f2f69c4f259b6e9ea03a68ffd4a439289f27f624bb56f1a51a1"
+  },
+  "intent": {
+    "phenomenon_id": "correlation@balance",
+    "phenomenon_class": "correlation",
+    "persona_id": "researcher",
+    "pattern_family": "window_function",
+    "collection": "accounts",
+    "metric_field": "balance",
+    "field_leaf": "balance",
+    "label_field": "company",
+    "time_field": "quarter",
+    "category_field": "branch",
+    "array_field": "monthly_volumes",
+    "secondary_collection": "transactions",
+    "join_field": "company"
+  },
+  "output": {
+    "keys": [
+      "company",
+      "branch",
+      "balance"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "window_function"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$project",
+      "$setWindowFields"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$project",
+      "$setWindowFields"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])"
+    ]
+  }
+}

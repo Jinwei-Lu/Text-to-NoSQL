@@ -1,0 +1,4 @@
+[
+  "db.courses.aggregate([ { $match: {} }, { $group: { _id: \"$difficulty\", p50: { $percentile: { input: \"$avg_score\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$avg_score\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, difficulty: \"$_id\", p50: 1, p95: 1 } }])",
+  "db.courses.aggregate([ { $group: { _id: \"$difficulty\", p50: { $percentile: { input: \"$avg_score\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$avg_score\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, difficulty: \"$_id\", p50: 1, p95: 1 } }])"
+]

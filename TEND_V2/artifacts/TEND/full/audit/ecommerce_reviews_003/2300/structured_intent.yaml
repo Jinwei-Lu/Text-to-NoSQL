@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "db_id": "ecommerce_reviews_003",
+    "record_id": 2300,
+    "schema_fingerprint_hint": "reviews",
+    "si_hash": "sha256:56b9882a20f1f1afe48e4724047d614083e4cb179de103ca29bc276699c6faa6"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@helpful_votes",
+    "phenomenon_class": "rare_event",
+    "persona_id": "end-user",
+    "pattern_family": "array_positional_select",
+    "collection": "reviews",
+    "metric_field": "helpful_votes",
+    "field_leaf": "helpful_votes",
+    "label_field": "title",
+    "time_field": "year",
+    "category_field": "sentiment",
+    "array_field": "helpful_votes",
+    "secondary_collection": "products",
+    "join_field": "title"
+  },
+  "output": {
+    "keys": [
+      "title",
+      "sentiment",
+      "helpful_votes"
+    ],
+    "shape_policy": "preserve"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "array_positional_select"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$arrayElemAt",
+      "$project"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.reviews.aggregate([ { $project: { _id: 0, title: 1, first: { $arrayElemAt: [\"$helpful_votes\", 0] }, last: { $arrayElemAt: [\"$helpful_votes\", -1] }, size: { $size: \"$helpful_votes\" } } }])"
+    ]
+  }
+}

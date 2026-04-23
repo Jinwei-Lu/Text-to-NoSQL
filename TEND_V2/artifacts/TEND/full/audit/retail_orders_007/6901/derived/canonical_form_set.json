@@ -1,0 +1,15 @@
+{
+  "must_contain": [
+    "$group",
+    "$percentile"
+  ],
+  "must_not_contain": [],
+  "must_contain_at_root": [
+    "$group",
+    "$project"
+  ],
+  "must_not_contain_at_root": [],
+  "known_variants": [
+    "db.orders.aggregate([ { $group: { _id: \"$segment\", p50: { $percentile: { input: \"$units\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$units\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, segment: \"$_id\", p50: 1, p95: 1 } }])"
+  ]
+}

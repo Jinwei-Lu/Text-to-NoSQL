@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "db_id": "sports_analytics_006",
+    "record_id": 7748,
+    "schema_fingerprint_hint": "matches",
+    "si_hash": "sha256:11bde418e2c41a35059288c89109cd0ad655972b71053fdbf5405bb99cc74461"
+  },
+  "intent": {
+    "phenomenon_id": "rare_event@player_ratings",
+    "phenomenon_class": "rare_event",
+    "persona_id": "end-user",
+    "pattern_family": "filter_then_aggregate",
+    "collection": "matches",
+    "metric_field": "player_ratings",
+    "field_leaf": "player_ratings",
+    "label_field": "team",
+    "time_field": "season",
+    "category_field": "stadium",
+    "array_field": "player_ratings",
+    "secondary_collection": null,
+    "join_field": "team"
+  },
+  "output": {
+    "keys": [
+      "team",
+      "stadium",
+      "player_ratings"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "filter_then_aggregate"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$match",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.matches.aggregate([ { $match: { \"player_ratings\": { $gt: 70 } } }, { $group: { _id: \"$stadium\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$player_ratings\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, stadium: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+    ]
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "db_id": "government_services_002",
+  "phenomena_seed": 76,
+  "decisions": [
+    {
+      "phenomenon_id": "temporal_trend@processing_days",
+      "collection": "requests",
+      "path": "processing_days",
+      "document_ids": [
+        "requests/1",
+        "requests/2",
+        "requests/3",
+        "requests/4",
+        "requests/5"
+      ]
+    },
+    {
+      "phenomenon_id": "outlier@budget",
+      "collection": "departments",
+      "path": "budget",
+      "document_ids": [
+        "departments/12"
+      ]
+    },
+    {
+      "phenomenon_id": "null_cluster@satisfaction",
+      "collection": "requests",
+      "path": "satisfaction",
+      "document_ids": [
+        "requests/1",
+        "requests/2",
+        "requests/3"
+      ]
+    },
+    {
+      "phenomenon_id": "rare_event@feedback_scores",
+      "collection": "requests",
+      "path": "feedback_scores",
+      "document_ids": [
+        "requests/22"
+      ]
+    },
+    {
+      "phenomenon_id": "cross_group_comparison@budget",
+      "collection": "departments",
+      "path": "budget",
+      "document_ids": [
+        "departments/1",
+        "departments/2",
+        "departments/3",
+        "departments/4",
+        "departments/5",
+        "departments/6"
+      ]
+    },
+    {
+      "phenomenon_id": "duplicate_cluster@processing_days",
+      "collection": "requests",
+      "path": "processing_days",
+      "document_ids": [
+        "requests/1",
+        "requests/2",
+        "requests/3",
+        "requests/4"
+      ]
+    }
+  ]
+}

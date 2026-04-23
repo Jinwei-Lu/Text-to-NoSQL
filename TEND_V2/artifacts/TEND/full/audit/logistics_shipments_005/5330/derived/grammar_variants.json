@@ -1,0 +1,4 @@
+[
+  "db.shipments.aggregate([ { $match: {} }, { $project: { _id: 0, warehouse: 1, first: { $arrayElemAt: [\"$inspection_scores\", 0] }, last: { $arrayElemAt: [\"$inspection_scores\", -1] }, size: { $size: \"$inspection_scores\" } } }])",
+  "db.shipments.aggregate([ { $project: { _id: 0, warehouse: 1, first: { $arrayElemAt: [\"$inspection_scores\", 0] }, last: { $arrayElemAt: [\"$inspection_scores\", -1] }, size: { $size: \"$inspection_scores\" } } }])"
+]

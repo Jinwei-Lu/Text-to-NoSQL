@@ -1,0 +1,4 @@
+[
+  "db.books.aggregate([ { $match: {} }, { $project: { _id: 0, title: 1, title: \"$title\" } }])",
+  "db.books.aggregate([ { $project: { _id: 0, title: 1, title: \"$title\" } }])"
+]

@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "library_catalog_001",
+    "record_id": 4691,
+    "schema_fingerprint_hint": "books",
+    "si_hash": "sha256:05974a63b8f0ae1cea6d155b5cd412b9b117ba6fd733357a1d17d4ff9065b097"
+  },
+  "intent": {
+    "phenomenon_id": "sparse_field@rating",
+    "phenomenon_class": "sparse_field",
+    "persona_id": "auditor",
+    "pattern_family": "coalesce_with_default",
+    "collection": "books",
+    "metric_field": "rating",
+    "field_leaf": "rating",
+    "label_field": "title",
+    "time_field": "year",
+    "category_field": "condition",
+    "array_field": "borrow_counts",
+    "secondary_collection": null,
+    "join_field": "title"
+  },
+  "output": {
+    "keys": [
+      "title",
+      "condition",
+      "rating"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "coalesce_with_default"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$ifNull",
+      "$project"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.books.aggregate([ { $project: { _id: 0, title: 1, value: { $ifNull: [\"$rating\", 0] } } }, { $sort: { value: -1 } }])"
+    ]
+  }
+}

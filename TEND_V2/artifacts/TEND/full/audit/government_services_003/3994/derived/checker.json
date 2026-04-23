@@ -1,0 +1,14 @@
+{
+  "pattern_family": "lookup_join",
+  "primary_operator": "$lookup",
+  "must_contain": [
+    "$lookup",
+    "$project"
+  ],
+  "must_contain_at_root": [
+    "$lookup",
+    "$project",
+    "$sort"
+  ],
+  "query": "db.requests.aggregate([ { $lookup: { from: \"departments\", localField: \"citizen\", foreignField: \"citizen\", as: \"joined\" } }, { $project: { _id: 0, citizen: 1, processing_days: \"$processing_days\", joined_count: { $size: \"$joined\" } } }, { $sort: { joined_count: -1 } }])"
+}

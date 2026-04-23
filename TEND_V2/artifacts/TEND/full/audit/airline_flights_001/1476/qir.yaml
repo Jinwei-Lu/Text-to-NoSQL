@@ -1,0 +1,24 @@
+{
+  "pattern_family": "top_k_by_aggregate",
+  "primary_operator": "$group",
+  "input_shape": {
+    "collections": [
+      "flights"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "airline",
+      "destination",
+      "delay_minutes"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "airline",
+    "delay_minutes",
+    "destination",
+    "year",
+    "ticket_prices"
+  ]
+}

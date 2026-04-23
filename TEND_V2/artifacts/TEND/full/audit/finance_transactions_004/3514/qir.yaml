@@ -1,0 +1,24 @@
+{
+  "pattern_family": "anomaly_vs_baseline",
+  "primary_operator": "$setWindowFields",
+  "input_shape": {
+    "collections": [
+      "transactions"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "tx_type",
+      "status",
+      "amount"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "tx_type",
+    "amount",
+    "status",
+    "year",
+    "accounts"
+  ]
+}

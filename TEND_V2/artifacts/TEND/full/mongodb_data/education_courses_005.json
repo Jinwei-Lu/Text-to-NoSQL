@@ -1,0 +1,425 @@
+{
+  "students": [
+    {
+      "_id": 1,
+      "name": " name_1 ",
+      "grade": "A",
+      "department": "CS",
+      "gpa": 8.36,
+      "enrollment_year": 2018,
+      "exam_scores": 0
+    },
+    {
+      "_id": 2,
+      "name": "name_2",
+      "grade": "B",
+      "department": "Math",
+      "gpa": 18.99,
+      "enrollment_year": 2019,
+      "exam_scores": 999
+    },
+    {
+      "_id": 3,
+      "name": "name_3",
+      "grade": "C",
+      "department": "Physics",
+      "gpa": 23.71,
+      "enrollment_year": 2020,
+      "exam_scores": 0
+    },
+    {
+      "_id": 4,
+      "name": "name_4",
+      "grade": "D",
+      "gpa": 28.15,
+      "enrollment_year": 2021,
+      "exam_scores": 999
+    },
+    {
+      "_id": 5,
+      "name": "name_5",
+      "grade": "F",
+      "department": "CS",
+      "gpa": 37.17,
+      "enrollment_year": 2022,
+      "exam_scores": [
+        81,
+        86,
+        33,
+        10,
+        66
+      ]
+    },
+    {
+      "_id": 6,
+      "name": "name_6",
+      "grade": "A",
+      "department": "Math",
+      "gpa": 44.09,
+      "enrollment_year": 2023,
+      "exam_scores": [
+        15,
+        73,
+        53,
+        21,
+        25,
+        47,
+        8,
+        4
+      ]
+    },
+    {
+      "_id": 7,
+      "name": "name_7",
+      "grade": "B",
+      "department": "Physics",
+      "gpa": 52.01,
+      "enrollment_year": 2024,
+      "exam_scores": [
+        47,
+        20,
+        48,
+        32,
+        49,
+        64
+      ]
+    },
+    {
+      "_id": 8,
+      "name": "name_8",
+      "grade": "C",
+      "department": "Biology",
+      "gpa": 61.56,
+      "enrollment_year": 2025,
+      "exam_scores": [
+        39,
+        98,
+        75,
+        24
+      ]
+    },
+    {
+      "_id": 9,
+      "name": "name_9",
+      "grade": "D",
+      "department": "CS",
+      "gpa": 66.6,
+      "enrollment_year": 2026,
+      "exam_scores": [
+        28,
+        25,
+        7
+      ]
+    },
+    {
+      "_id": 10,
+      "name": "name_10",
+      "grade": "F",
+      "department": "Math",
+      "gpa": 71.12,
+      "enrollment_year": 2027,
+      "exam_scores": [
+        88,
+        97,
+        51,
+        13,
+        63,
+        19,
+        93,
+        63
+      ]
+    },
+    {
+      "_id": 11,
+      "name": "name_11",
+      "grade": "A",
+      "department": "Physics",
+      "gpa": 80.34,
+      "enrollment_year": 2028,
+      "exam_scores": [
+        72,
+        54,
+        20,
+        85,
+        53,
+        31
+      ]
+    },
+    {
+      "_id": 12,
+      "name": "name_12",
+      "grade": "B",
+      "department": "Biology",
+      "gpa": 84.03,
+      "enrollment_year": 2029,
+      "exam_scores": [
+        29,
+        30,
+        4,
+        1,
+        55,
+        52
+      ]
+    },
+    {
+      "_id": 13,
+      "name": "name_13",
+      "grade": "C",
+      "department": "CS",
+      "gpa": 93.55,
+      "enrollment_year": 2030,
+      "exam_scores": [
+        86,
+        66,
+        64,
+        0
+      ]
+    },
+    {
+      "_id": 14,
+      "name": "name_14",
+      "grade": "D",
+      "department": "Math",
+      "gpa": 101.29,
+      "enrollment_year": 2031,
+      "exam_scores": [
+        46,
+        10,
+        28,
+        51,
+        25,
+        71,
+        13,
+        79
+      ]
+    },
+    {
+      "_id": 15,
+      "name": "name_15",
+      "grade": "F",
+      "department": "Physics",
+      "gpa": 110.69,
+      "enrollment_year": 2032,
+      "exam_scores": [
+        65,
+        77,
+        83,
+        57,
+        9
+      ]
+    },
+    {
+      "_id": 16,
+      "name": "name_16",
+      "grade": "A",
+      "department": "Biology",
+      "gpa": 117.22,
+      "enrollment_year": 2033,
+      "exam_scores": [
+        66,
+        11,
+        57,
+        64
+      ]
+    },
+    {
+      "_id": 17,
+      "name": "name_17",
+      "grade": "B",
+      "department": "CS",
+      "gpa": 120.9,
+      "enrollment_year": 2034,
+      "exam_scores": [
+        91,
+        50,
+        51,
+        97,
+        51,
+        89,
+        8,
+        42
+      ]
+    },
+    {
+      "_id": 18,
+      "name": "name_18",
+      "grade": "C",
+      "department": "Math",
+      "gpa": 126.84,
+      "enrollment_year": 2035,
+      "exam_scores": [
+        73,
+        66,
+        47,
+        67,
+        11,
+        42,
+        99
+      ]
+    },
+    {
+      "_id": 19,
+      "name": "name_19",
+      "grade": "D",
+      "department": "Physics",
+      "gpa": 135.32,
+      "enrollment_year": 2036,
+      "exam_scores": [
+        50,
+        59,
+        17,
+        94,
+        94
+      ]
+    },
+    {
+      "_id": 20,
+      "name": "name_20",
+      "grade": "F",
+      "department": "Biology",
+      "gpa": 142.32,
+      "enrollment_year": 2037,
+      "exam_scores": [
+        17,
+        38,
+        61
+      ]
+    },
+    {
+      "_id": 21,
+      "name": "name_21",
+      "grade": "A",
+      "department": "CS",
+      "gpa": 151.91,
+      "enrollment_year": 2038,
+      "exam_scores": [
+        86,
+        96,
+        19
+      ]
+    },
+    {
+      "_id": 22,
+      "name": "name_22",
+      "grade": "B",
+      "department": "Math",
+      "gpa": 156.49,
+      "enrollment_year": 2039,
+      "exam_scores": [
+        59,
+        2,
+        30
+      ]
+    }
+  ],
+  "courses": [
+    {
+      "_id": 1,
+      "title": "title_1",
+      "credits": 5,
+      "difficulty": "beginner",
+      "year": 2018
+    },
+    {
+      "_id": 2,
+      "title": "title_2",
+      "credits": 3,
+      "difficulty": "intermediate",
+      "year": 2019
+    },
+    {
+      "_id": 3,
+      "title": "title_3",
+      "credits": 3,
+      "difficulty": "advanced",
+      "avg_score": 100,
+      "year": 2020
+    },
+    {
+      "_id": 4,
+      "title": "title_4",
+      "credits": 5,
+      "difficulty": "beginner",
+      "year": 2021
+    },
+    {
+      "_id": 5,
+      "title": "title_5",
+      "credits": "3",
+      "difficulty": "intermediate",
+      "year": 2022
+    },
+    {
+      "_id": 6,
+      "title": "title_6",
+      "credits": 4,
+      "difficulty": "advanced",
+      "year": 2023,
+      "_extra_noise_field": 544
+    },
+    {
+      "_id": 7,
+      "title": "title_7",
+      "credits": 2,
+      "difficulty": "beginner",
+      "year": 2024
+    },
+    {
+      "_id": 8,
+      "title": "title_8",
+      "credits": 5,
+      "difficulty": "intermediate",
+      "year": 2025
+    },
+    {
+      "_id": 9,
+      "title": "title_9",
+      "credits": 3,
+      "difficulty": "advanced",
+      "avg_score": 100,
+      "year": 2026
+    },
+    {
+      "_id": 10,
+      "title": "title_10",
+      "credits": 3,
+      "difficulty": "beginner",
+      "year": 2027
+    },
+    {
+      "_id": 11,
+      "title": "title_11",
+      "credits": 5,
+      "difficulty": "intermediate",
+      "year": 2028
+    },
+    {
+      "_id": 12,
+      "title": "title_12",
+      "credits": 4,
+      "difficulty": "advanced",
+      "year": 2029
+    },
+    {
+      "_id": 13,
+      "title": "title_13",
+      "credits": 3,
+      "difficulty": "beginner",
+      "year": 2030
+    },
+    {
+      "_id": 14,
+      "title": "title_14",
+      "credits": 6,
+      "difficulty": "intermediate",
+      "year": 2031
+    },
+    {
+      "_id": 15,
+      "title": "title_15",
+      "credits": 2,
+      "difficulty": "advanced",
+      "year": 2032
+    }
+  ]
+}

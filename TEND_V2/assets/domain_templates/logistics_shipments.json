@@ -1,0 +1,53 @@
+{
+  "domain_id": "logistics_shipments",
+  "name": "Logistics Shipments",
+  "entities": [
+    {
+      "collection": "shipments",
+      "cardinality": 18,
+      "fields": [
+        { "name": "warehouse", "type": "TEXT", "values": ["W-North", "W-South", "W-East"], "sparse": false },
+        { "name": "route", "type": "TEXT", "values": ["R1", "R2", "R3", "R4"], "sparse": false },
+        { "name": "year", "type": "INT", "role": "time", "nullable": false },
+        { "name": "delay_hours", "type": "REAL", "range": [0.5, 40.0], "nullable": true, "null_rate": 0.08 },
+        { "name": "packages", "type": "INT", "range": [1, 80], "nullable": false },
+        { "name": "inspection_scores", "type": "ARRAY", "min_items": 2, "max_items": 5, "items": { "type": "INT", "range": [40, 100], "name": "inspection_score" } }
+      ]
+    }
+  ],
+  "relations": [],
+  "f_topology_hints": {
+    "nested_objects": false,
+    "sparse_embedded": true,
+    "time_series_ready": true
+  },
+  "distribution_priors": {
+    "default_cardinality": 18
+  },
+  "phenomenon_blueprints": [
+    {
+      "phenomenon_class": "temporal_trend",
+      "collection": "shipments",
+      "path": "delay_hours",
+      "intent_hooks": ["window", "anomaly"]
+    },
+    {
+      "phenomenon_class": "cross_group_comparison",
+      "collection": "shipments",
+      "path": "packages",
+      "intent_hooks": ["group_compare", "aggregate"]
+    },
+    {
+      "phenomenon_class": "rare_event",
+      "collection": "shipments",
+      "path": "inspection_scores",
+      "intent_hooks": ["existential"]
+    },
+    {
+      "phenomenon_class": "type_drift",
+      "collection": "shipments",
+      "path": "delay_hours",
+      "intent_hooks": ["facet", "inspect"]
+    }
+  ]
+}

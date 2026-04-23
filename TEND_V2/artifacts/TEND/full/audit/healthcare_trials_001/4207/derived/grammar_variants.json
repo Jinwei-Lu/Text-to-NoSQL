@@ -1,0 +1,3 @@
+[
+  "db.patients.aggregate([ { $match: { \"blood_pressure\": { $gt: 70 } } }, { $count: \"total\" }])"
+]

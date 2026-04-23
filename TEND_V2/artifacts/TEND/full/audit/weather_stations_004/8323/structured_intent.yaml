@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "weather_stations_004",
+    "record_id": 8323,
+    "schema_fingerprint_hint": "readings",
+    "si_hash": "sha256:aa559d133b172a580608a0d663e16374937b5c6c8c7821d029090ed344fd64f8"
+  },
+  "intent": {
+    "phenomenon_id": "periodic_pattern@temperature",
+    "phenomenon_class": "periodic_pattern",
+    "persona_id": "analyst",
+    "pattern_family": "time_window_aggregate",
+    "collection": "readings",
+    "metric_field": "temperature",
+    "field_leaf": "temperature",
+    "label_field": "station",
+    "time_field": "month",
+    "category_field": "region",
+    "array_field": "wind_speeds",
+    "secondary_collection": null,
+    "join_field": "station"
+  },
+  "output": {
+    "keys": [
+      "station",
+      "region",
+      "temperature"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "time_window_aggregate"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$sort"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.readings.aggregate([ { $sort: { \"month\": 1 } }, { $group: { _id: \"$month\", avg_value: { $avg: \"$temperature\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+    ]
+  }
+}

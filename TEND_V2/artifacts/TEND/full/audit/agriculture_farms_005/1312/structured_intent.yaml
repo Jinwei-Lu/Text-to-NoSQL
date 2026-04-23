@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "agriculture_farms_005",
+    "record_id": 1312,
+    "schema_fingerprint_hint": "harvests",
+    "si_hash": "sha256:b97f68a7a5ba247e8b072d9ce07d5ad52d2268ead2012d971c963d4fd68d0579"
+  },
+  "intent": {
+    "phenomenon_id": "boundary_value@yield_tons",
+    "phenomenon_class": "boundary_value",
+    "persona_id": "end-user",
+    "pattern_family": "simple_filter",
+    "collection": "harvests",
+    "metric_field": "yield_tons",
+    "field_leaf": "yield_tons",
+    "label_field": "farm",
+    "time_field": "year",
+    "category_field": "crop",
+    "array_field": "soil_samples",
+    "secondary_collection": null,
+    "join_field": "farm"
+  },
+  "output": {
+    "keys": [
+      "farm",
+      "crop",
+      "yield_tons"
+    ],
+    "shape_policy": "preserve"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L1",
+    "operator_family": "simple_filter"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$match",
+      "$project"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$match",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.harvests.aggregate([ { $match: { \"yield_tons\": { $gt: 70 } } }, { $project: { _id: 0, farm: 1, yield_tons: \"$yield_tons\" } }])"
+    ]
+  }
+}

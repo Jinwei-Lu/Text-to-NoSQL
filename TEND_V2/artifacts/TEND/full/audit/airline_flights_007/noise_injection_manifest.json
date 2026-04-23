@@ -1,0 +1,49 @@
+{
+  "noise_seed": 26,
+  "noise_budget": {
+    "literal": 0.15,
+    "structural": 0.1,
+    "semantic": 0.12,
+    "historical": 0.08,
+    "pollution": 0.12,
+    "type_polymorphism": 0.1
+  },
+  "applied_layers": [
+    "literal",
+    "structural",
+    "semantic",
+    "historical",
+    "pollution",
+    "type_polymorphism"
+  ],
+  "events": [
+    {
+      "layer": "semantic",
+      "type": "value_swap",
+      "field": "delay_minutes"
+    },
+    {
+      "layer": "pollution",
+      "type": "empty_string",
+      "field": "airline"
+    },
+    {
+      "layer": "pollution",
+      "type": "sentinel_value",
+      "field": "destination"
+    },
+    {
+      "layer": "type_polymorphism",
+      "type": "bool_as_string",
+      "field": "is_international"
+    }
+  ],
+  "layer_summary": {
+    "literal": 0,
+    "structural": 0,
+    "semantic": 1,
+    "historical": 0,
+    "pollution": 2,
+    "type_polymorphism": 1
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "music_events_006",
+    "record_id": 6113,
+    "schema_fingerprint_hint": "events",
+    "si_hash": "sha256:a23e09de9068cf0ead8c9b54d95ea04575b030b450cefaf12ffe418013523761"
+  },
+  "intent": {
+    "phenomenon_id": "temporal_trend@attendance",
+    "phenomenon_class": "temporal_trend",
+    "persona_id": "researcher",
+    "pattern_family": "window_function",
+    "collection": "events",
+    "metric_field": "attendance",
+    "field_leaf": "attendance",
+    "label_field": "name",
+    "time_field": "year",
+    "category_field": "city",
+    "array_field": "fan_scores",
+    "secondary_collection": null,
+    "join_field": "name"
+  },
+  "output": {
+    "keys": [
+      "name",
+      "city",
+      "attendance"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "window_function"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$project",
+      "$setWindowFields"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$project",
+      "$setWindowFields"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.events.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$attendance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, attendance: \"$attendance\", running_total: 1 } }])"
+    ]
+  }
+}

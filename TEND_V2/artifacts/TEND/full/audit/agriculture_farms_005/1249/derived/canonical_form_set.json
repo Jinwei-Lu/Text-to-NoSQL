@@ -1,0 +1,16 @@
+{
+  "must_contain": [
+    "$group",
+    "$sort"
+  ],
+  "must_not_contain": [],
+  "must_contain_at_root": [
+    "$group",
+    "$project",
+    "$sort"
+  ],
+  "must_not_contain_at_root": [],
+  "known_variants": [
+    "db.harvests.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$yield_tons\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+  ]
+}

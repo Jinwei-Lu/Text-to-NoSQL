@@ -1,0 +1,1930 @@
+{
+  "train_records": [
+    {
+      "collection": "orders",
+      "metric_field": "customer",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6653,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 segment 分组，计算 customer 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by segment and aggregate customer."
+      ],
+      "MQL": "db.orders.aggregate([ { $group: { _id: \"$segment\", avg_value: { $avg: \"$customer\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, segment: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $group: { _id: \"$segment\", avg_value: { $avg: \"$customer\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, segment: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "amount",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6657,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 year 计算 amount 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of amount."
+      ],
+      "MQL": "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, customer: 1, amount: \"$amount\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, customer: 1, amount: \"$amount\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "units",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6661,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 segment 分组，计算 units 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of units per segment."
+      ],
+      "MQL": "db.orders.aggregate([ { $group: { _id: \"$segment\", p50: { $percentile: { input: \"$units\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$units\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, segment: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $group: { _id: \"$segment\", p50: { $percentile: { input: \"$units\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$units\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, segment: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "segment",
+      "label_field": "customer",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6665,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "对 segment 为空的记录用默认值替换，然后按值排序。",
+        "空值替换后做排序。",
+        "用 ifNull 填补缺失再展示。",
+        "给缺失的字段一个默认值。",
+        "Coalesce null segment with a default value and sort."
+      ],
+      "MQL": "db.orders.aggregate([ { $project: { _id: 0, customer: 1, value: { $ifNull: [\"$segment\", 0] } } }, { $sort: { value: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$ifNull",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $project: { _id: 0, customer: 1, value: { $ifNull: [\"$segment\", 0] } } }, { $sort: { value: -1 } }])"
+        ]
+      },
+      "operator_family": "coalesce_with_default",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "basket_scores",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6669,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "统计 basket_scores 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where basket_scores exceeds 70."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "customer",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6673,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "把 customer 按阈值分成高低两组，并分别按 segment 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by customer."
+      ],
+      "MQL": "db.orders.aggregate([ { $facet: { high: [{ $match: { \"customer\": { $gt: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }], low: [{ $match: { \"customer\": { $lte: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $facet: { high: [{ $match: { \"customer\": { $gt: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }], low: [{ $match: { \"customer\": { $lte: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "amount",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6677,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "先按 year 计算 amount 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on amount."
+      ],
+      "MQL": "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, customer: 1, moving_avg: 1, category: \"$segment\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, customer: \"$kept.customer\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, customer: 1, moving_avg: 1, category: \"$segment\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, customer: \"$kept.customer\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "units",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6681,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "统计 units 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where units exceeds 70."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"units\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"units\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "segment",
+      "label_field": "customer",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6685,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "把 segment 按阈值分成高低两组，并分别按 _sparse_notes 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by segment."
+      ],
+      "MQL": "db.orders.aggregate([ { $facet: { high: [{ $match: { \"segment\": { $gt: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }], low: [{ $match: { \"segment\": { $lte: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $facet: { high: [{ $match: { \"segment\": { $gt: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }], low: [{ $match: { \"segment\": { $lte: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "basket_scores",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6689,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "统计 basket_scores 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where basket_scores exceeds 70."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "customer",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6693,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "把整条文档展开成键值对，统计每个字段出现的次数和类型。",
+        "动态展开键值做统计。",
+        "用 objectToArray 分析文档结构。",
+        "枚举文档的字段名和类型。",
+        "Expand document keys and count occurrences of each field."
+      ],
+      "MQL": "db.orders.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$objectToArray",
+          "$unwind"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "dynamic_key_expansion",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "amount",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6697,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 year 排序，计算 amount 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of amount sorted by year."
+      ],
+      "MQL": "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$amount\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, customer: 1, amount: \"$amount\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$amount\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, customer: 1, amount: \"$amount\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "units",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6701,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 customer 汇总 units，返回总量最高的前 3 项。",
+        "统计每个 customer 的总值并给我 Top 3。",
+        "聚合 units 后按 customer 排名。",
+        "用分组加排序找出最强的几项。",
+        "Return the top 3 groups by aggregated units."
+      ],
+      "MQL": "db.orders.aggregate([ { $group: { _id: \"$customer\", total_value: { $sum: \"$units\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, customer: \"$_id\", total_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$limit",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$limit",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $group: { _id: \"$customer\", total_value: { $sum: \"$units\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, customer: \"$_id\", total_value: 1 } }])"
+        ]
+      },
+      "operator_family": "top_k_by_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "segment",
+      "label_field": "customer",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6705,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "找出 segment 大于 70 的记录，并返回 customer 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 segment 超过阈值的文档并显示 customer。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by segment."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"segment\": { $gt: 70 } } }, { $project: { _id: 0, customer: 1, segment: \"$segment\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"segment\": { $gt: 70 } } }, { $project: { _id: 0, customer: 1, segment: \"$segment\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "basket_scores",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6709,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "统计 basket_scores 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where basket_scores exceeds 70."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "customer",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6713,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "只提取 customer 和 customer 两个字段。",
+        "做一次纯投影。",
+        "返回文档中的 customer 和 customer 字段。",
+        "提取选定的列。",
+        "Project only customer and customer from the collection."
+      ],
+      "MQL": "db.orders.aggregate([ { $project: { _id: 0, customer: 1, customer: \"$customer\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $project: { _id: 0, customer: 1, customer: \"$customer\" } }])"
+        ]
+      },
+      "operator_family": "project_only",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "amount",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6717,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 year 聚合 amount，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 amount 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average amount per time bucket."
+      ],
+      "MQL": "db.orders.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$amount\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$amount\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "units",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6721,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 year 计算 units 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of units."
+      ],
+      "MQL": "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$units\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$units\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, customer: 1, units: \"$units\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$units\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$units\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, customer: 1, units: \"$units\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "segment",
+      "label_field": "customer",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6725,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "区分 segment 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify segment as explicit null, missing, or has value."
+      ],
+      "MQL": "db.orders.aggregate([ { $project: { _id: 0, customer: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$segment\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$segment\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $project: { _id: 0, customer: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$segment\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$segment\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "basket_scores",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6729,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "统计 basket_scores 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where basket_scores exceeds 70."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "customer",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6733,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 segment 分组，计算 customer 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by segment and aggregate customer."
+      ],
+      "MQL": "db.orders.aggregate([ { $group: { _id: \"$segment\", avg_value: { $avg: \"$customer\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, segment: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $group: { _id: \"$segment\", avg_value: { $avg: \"$customer\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, segment: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "amount",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6737,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 year 计算 amount 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of amount."
+      ],
+      "MQL": "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, customer: 1, amount: \"$amount\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, customer: 1, amount: \"$amount\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "units",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6741,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 segment 分组，计算 units 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of units per segment."
+      ],
+      "MQL": "db.orders.aggregate([ { $group: { _id: \"$segment\", p50: { $percentile: { input: \"$units\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$units\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, segment: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $group: { _id: \"$segment\", p50: { $percentile: { input: \"$units\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$units\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, segment: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "segment",
+      "label_field": "customer",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6745,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "对 segment 为空的记录用默认值替换，然后按值排序。",
+        "空值替换后做排序。",
+        "用 ifNull 填补缺失再展示。",
+        "给缺失的字段一个默认值。",
+        "Coalesce null segment with a default value and sort."
+      ],
+      "MQL": "db.orders.aggregate([ { $project: { _id: 0, customer: 1, value: { $ifNull: [\"$segment\", 0] } } }, { $sort: { value: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$ifNull",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $project: { _id: 0, customer: 1, value: { $ifNull: [\"$segment\", 0] } } }, { $sort: { value: -1 } }])"
+        ]
+      },
+      "operator_family": "coalesce_with_default",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "basket_scores",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6748,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "统计 basket_scores 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where basket_scores exceeds 70."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "customer",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6752,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "把 customer 按阈值分成高低两组，并分别按 segment 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by customer."
+      ],
+      "MQL": "db.orders.aggregate([ { $facet: { high: [{ $match: { \"customer\": { $gt: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }], low: [{ $match: { \"customer\": { $lte: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $facet: { high: [{ $match: { \"customer\": { $gt: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }], low: [{ $match: { \"customer\": { $lte: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "amount",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6756,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "先按 year 计算 amount 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on amount."
+      ],
+      "MQL": "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, customer: 1, moving_avg: 1, category: \"$segment\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, customer: \"$kept.customer\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, customer: 1, moving_avg: 1, category: \"$segment\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, customer: \"$kept.customer\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "units",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6760,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "统计 units 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where units exceeds 70."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"units\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"units\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "segment",
+      "label_field": "customer",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6764,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "把 segment 按阈值分成高低两组，并分别按 _sparse_notes 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by segment."
+      ],
+      "MQL": "db.orders.aggregate([ { $facet: { high: [{ $match: { \"segment\": { $gt: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }], low: [{ $match: { \"segment\": { $lte: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $facet: { high: [{ $match: { \"segment\": { $gt: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }], low: [{ $match: { \"segment\": { $lte: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "basket_scores",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6769,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "统计 basket_scores 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where basket_scores exceeds 70."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "customer",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6772,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "把整条文档展开成键值对，统计每个字段出现的次数和类型。",
+        "动态展开键值做统计。",
+        "用 objectToArray 分析文档结构。",
+        "枚举文档的字段名和类型。",
+        "Expand document keys and count occurrences of each field."
+      ],
+      "MQL": "db.orders.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$objectToArray",
+          "$unwind"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "dynamic_key_expansion",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "amount",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6775,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 year 排序，计算 amount 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of amount sorted by year."
+      ],
+      "MQL": "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$amount\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, customer: 1, amount: \"$amount\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$amount\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, customer: 1, amount: \"$amount\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "units",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6779,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 customer 汇总 units，返回总量最高的前 3 项。",
+        "统计每个 customer 的总值并给我 Top 3。",
+        "聚合 units 后按 customer 排名。",
+        "用分组加排序找出最强的几项。",
+        "Return the top 3 groups by aggregated units."
+      ],
+      "MQL": "db.orders.aggregate([ { $group: { _id: \"$customer\", total_value: { $sum: \"$units\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, customer: \"$_id\", total_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$limit",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$limit",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $group: { _id: \"$customer\", total_value: { $sum: \"$units\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, customer: \"$_id\", total_value: 1 } }])"
+        ]
+      },
+      "operator_family": "top_k_by_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "segment",
+      "label_field": "customer",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6784,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "找出 segment 大于 70 的记录，并返回 customer 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 segment 超过阈值的文档并显示 customer。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by segment."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"segment\": { $gt: 70 } } }, { $project: { _id: 0, customer: 1, segment: \"$segment\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"segment\": { $gt: 70 } } }, { $project: { _id: 0, customer: 1, segment: \"$segment\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "basket_scores",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6787,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "统计 basket_scores 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where basket_scores exceeds 70."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "customer",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6793,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "只提取 customer 和 customer 两个字段。",
+        "做一次纯投影。",
+        "返回文档中的 customer 和 customer 字段。",
+        "提取选定的列。",
+        "Project only customer and customer from the collection."
+      ],
+      "MQL": "db.orders.aggregate([ { $project: { _id: 0, customer: 1, customer: \"$customer\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $project: { _id: 0, customer: 1, customer: \"$customer\" } }])"
+        ]
+      },
+      "operator_family": "project_only",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "amount",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6796,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 year 聚合 amount，返回每个时间桶的平均值。",
+        "看一下按时间分桶后的均值趋势。",
+        "给我 amount 的时间窗口平均。",
+        "按时间聚合输出平均值。",
+        "Compute the average amount per time bucket."
+      ],
+      "MQL": "db.orders.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$amount\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$sort"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$amount\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
+        ]
+      },
+      "operator_family": "time_window_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "units",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6800,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 year 计算 units 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of units."
+      ],
+      "MQL": "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$units\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$units\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, customer: 1, units: \"$units\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$units\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$units\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, customer: 1, units: \"$units\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "segment",
+      "label_field": "customer",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6803,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "区分 segment 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify segment as explicit null, missing, or has value."
+      ],
+      "MQL": "db.orders.aggregate([ { $project: { _id: 0, customer: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$segment\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$segment\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $project: { _id: 0, customer: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$segment\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$segment\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "basket_scores",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6808,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "统计 basket_scores 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where basket_scores exceeds 70."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "customer",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6812,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 segment 分组，计算 customer 的均值和样本数。",
+        "给我每个类别的平均值和记录数。",
+        "先分组再做聚合统计。",
+        "比较不同组的平均表现。",
+        "Group by segment and aggregate customer."
+      ],
+      "MQL": "db.orders.aggregate([ { $group: { _id: \"$segment\", avg_value: { $avg: \"$customer\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, segment: \"$_id\", avg_value: 1, total_docs: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $group: { _id: \"$segment\", avg_value: { $avg: \"$customer\" }, total_docs: { $sum: 1 } } }, { $sort: { avg_value: -1 } }, { $project: { _id: 0, segment: \"$_id\", avg_value: 1, total_docs: 1 } }])"
+        ]
+      },
+      "operator_family": "group_then_aggregate",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "amount",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6817,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 year 计算 amount 的滑动基线，只保留显著高于基线的异常记录。",
+        "找出超过滚动平均基线的异常点。",
+        "基于窗口平均检测异常记录。",
+        "用滑动基线筛出高于预期的记录。",
+        "Detect anomalies above the rolling baseline of amount."
+      ],
+      "MQL": "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, customer: 1, amount: \"$amount\", moving_avg: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$amount\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, customer: 1, amount: \"$amount\", moving_avg: 1 } }])"
+        ]
+      },
+      "operator_family": "anomaly_vs_baseline",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "units",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6821,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "按 segment 分组，计算 units 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of units per segment."
+      ],
+      "MQL": "db.orders.aggregate([ { $group: { _id: \"$segment\", p50: { $percentile: { input: \"$units\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$units\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, segment: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $group: { _id: \"$segment\", p50: { $percentile: { input: \"$units\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$units\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, segment: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "segment",
+      "label_field": "customer",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6826,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "对 segment 为空的记录用默认值替换，然后按值排序。",
+        "空值替换后做排序。",
+        "用 ifNull 填补缺失再展示。",
+        "给缺失的字段一个默认值。",
+        "Coalesce null segment with a default value and sort."
+      ],
+      "MQL": "db.orders.aggregate([ { $project: { _id: 0, customer: 1, value: { $ifNull: [\"$segment\", 0] } } }, { $sort: { value: -1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$ifNull",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$sort"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $project: { _id: 0, customer: 1, value: { $ifNull: [\"$segment\", 0] } } }, { $sort: { value: -1 } }])"
+        ]
+      },
+      "operator_family": "coalesce_with_default",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "basket_scores",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6830,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "统计 basket_scores 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where basket_scores exceeds 70."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "customer",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6834,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "把 customer 按阈值分成高低两组，并分别按 segment 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by customer."
+      ],
+      "MQL": "db.orders.aggregate([ { $facet: { high: [{ $match: { \"customer\": { $gt: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }], low: [{ $match: { \"customer\": { $lte: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $facet: { high: [{ $match: { \"customer\": { $gt: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }], low: [{ $match: { \"customer\": { $lte: 70 } } }, { $group: { _id: \"$segment\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "amount",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6838,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "先按 year 计算 amount 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on amount."
+      ],
+      "MQL": "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, customer: 1, moving_avg: 1, category: \"$segment\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, customer: \"$kept.customer\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$amount\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, customer: 1, moving_avg: 1, category: \"$segment\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, customer: \"$kept.customer\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "units",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6841,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "统计 units 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where units exceeds 70."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"units\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"units\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "segment",
+      "label_field": "customer",
+      "category_field": "_sparse_notes",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6846,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "把 segment 按阈值分成高低两组，并分别按 _sparse_notes 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by segment."
+      ],
+      "MQL": "db.orders.aggregate([ { $facet: { high: [{ $match: { \"segment\": { $gt: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }], low: [{ $match: { \"segment\": { $lte: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $facet: { high: [{ $match: { \"segment\": { $gt: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }], low: [{ $match: { \"segment\": { $lte: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    },
+    {
+      "collection": "orders",
+      "metric_field": "basket_scores",
+      "label_field": "customer",
+      "category_field": "segment",
+      "time_field": "year",
+      "array_field": "basket_scores",
+      "record_id": 6850,
+      "db_id": "retail_orders_004",
+      "nl_queries": [
+        "统计 basket_scores 大于 70 的记录总数。",
+        "计算满足条件的文档数量。",
+        "筛选后只返回计数。",
+        "给出通过条件的总行数。",
+        "Count documents where basket_scores exceeds 70."
+      ],
+      "MQL": "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$count",
+          "$match"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.orders.aggregate([ { $match: { \"basket_scores\": { $gt: 70 } } }, { $count: \"total\" }])"
+        ]
+      },
+      "operator_family": "filter_then_count",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+    }
+  ],
+  "test_records": [],
+  "manifest": {
+    "db_id": "retail_orders_004",
+    "domain_id": "retail_orders",
+    "record_count": 50,
+    "schema_signature": "sha256:20a0dc0e9746f76e8013d287e4b7b0d2807d2b5dd969c9968591db7696db8a00",
+    "world_signature": "sha256:3156419f766d62ef8e6e22bed020631f847501baa6998a252d80d0094d66e1b1"
+  }
+}

@@ -1,0 +1,110 @@
+{
+  "record_id": "library_catalog_008/4956",
+  "db_id": "library_catalog_008",
+  "si_hash": "sha256:1267c702d3adb4f4561ca9ac7c9e546a9c9a263d3a64f6dd8465e698f29a8553",
+  "world_signature": "sha256:e90a49ea1ca02a26f104db1b85e921390369c9bd5301eb486d6fc15846c1a2f9",
+  "split": "test",
+  "empirical_difficulty": "medium",
+  "phase_d": {
+    "v_correct": {
+      "neighborhood": {
+        "models": [
+          "mock-neighborhood"
+        ],
+        "all_candidates": [
+          {
+            "model": "mock-neighborhood",
+            "ast_pass": true,
+            "exec_equiv": true,
+            "action": "mock_accepted"
+          }
+        ]
+      },
+      "ambiguity": {
+        "attacker_model": "mock-ambiguity",
+        "si_candidates_count": 1,
+        "si_equiv_to_gold_count": 1,
+        "ambiguous": false
+      },
+      "gold_result_size": 0,
+      "pass": true
+    },
+    "v_discrim": {
+      "failure_modes": {
+        "total": 2,
+        "ex_one_count": 0,
+        "threshold": 0.02,
+        "details": [
+          {
+            "mutation_id": "wrong_default",
+            "equivalent": false
+          },
+          {
+            "mutation_id": "reverse_sort",
+            "equivalent": false
+          }
+        ],
+        "pass": true
+      },
+      "dual_bridge": {
+        "sql_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "template_bridge": {
+          "ex": 0,
+          "qim": 0
+        },
+        "pass": true
+      },
+      "pass": true
+    },
+    "v_diverse": {
+      "cell": "sparse_field/auditor/coalesce_with_default",
+      "axis_values": {
+        "phenomenon_class": "sparse_field",
+        "persona_id": "auditor",
+        "pattern_family": "coalesce_with_default",
+        "nosql_nativeness_level": "L2",
+        "shape_policy": "reshape",
+        "difficulty_label": "unknown",
+        "collection_name": "books",
+        "time_field_present": "yes",
+        "array_field_present": "yes",
+        "operator_count_bucket": "3-5"
+      },
+      "axis_deltas": {
+        "phenomenon_class": 0.0083,
+        "persona_id": 0.001,
+        "pattern_family": 0.0079,
+        "nosql_nativeness_level": 0.0007,
+        "shape_policy": 0.0003,
+        "difficulty_label": 0.0003,
+        "collection_name": 0.0028,
+        "time_field_present": 0.0003,
+        "array_field_present": 0.0003,
+        "operator_count_bucket": 0.0011
+      },
+      "global_count": 3957,
+      "min_quota": 1,
+      "max_quota": 999,
+      "delta_f": 0.0003,
+      "epsilon": 0.0,
+      "under_quota": false,
+      "pass": true
+    },
+    "calibration": {
+      "target_difficulty": "medium",
+      "pr_small": 0.6,
+      "pr_medium": 0.5,
+      "pr_large": 0.4,
+      "pr_frontier": 0.3,
+      "empirical_difficulty": "medium",
+      "amplify_rounds": 0
+    }
+  },
+  "routing": {
+    "split": "test",
+    "reason": "cross_domain_holdout_selected"
+  }
+}

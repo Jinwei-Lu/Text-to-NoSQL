@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "facet_threshold_flip",
+    "query": "db.students.aggregate([ { $facet: { high: [{ $match: { \"exam_scores\": { $lt: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }], low: [{ $match: { \"exam_scores\": { $lte: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+  },
+  {
+    "mutation_id": "drop_facet_branch",
+    "query": "db.students.aggregate([ { $facet: { high: [{ $match: { \"exam_scores\": { $gt: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }], low_disabled: [{ $match: { \"exam_scores\": { $lte: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+  }
+]

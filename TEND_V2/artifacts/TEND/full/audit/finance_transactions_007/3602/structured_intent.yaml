@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "finance_transactions_007",
+    "record_id": 3602,
+    "schema_fingerprint_hint": "transactions",
+    "si_hash": "sha256:b5c65118834de6f86f837c06df84f3030efec85d699b56bc1b2f9cabb7fd1585"
+  },
+  "intent": {
+    "phenomenon_id": "skewed_distribution@amount",
+    "phenomenon_class": "skewed_distribution",
+    "persona_id": "researcher",
+    "pattern_family": "percentile_approximation",
+    "collection": "transactions",
+    "metric_field": "amount",
+    "field_leaf": "amount",
+    "label_field": "tx_type",
+    "time_field": "year",
+    "category_field": "status",
+    "array_field": null,
+    "secondary_collection": "accounts",
+    "join_field": "tx_type"
+  },
+  "output": {
+    "keys": [
+      "tx_type",
+      "status",
+      "amount"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "percentile_approximation"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$percentile"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])"
+    ]
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "government_services_001",
+    "record_id": 3859,
+    "schema_fingerprint_hint": "departments",
+    "si_hash": "sha256:31d4d391dca709013e45e8955ec70a1720db337d0ff2d568fb6cc7850160a728"
+  },
+  "intent": {
+    "phenomenon_id": "outlier@budget",
+    "phenomenon_class": "outlier",
+    "persona_id": "auditor",
+    "pattern_family": "filter_then_count",
+    "collection": "departments",
+    "metric_field": "budget",
+    "field_leaf": "budget",
+    "label_field": "name",
+    "time_field": "year",
+    "category_field": "region",
+    "array_field": null,
+    "secondary_collection": "requests",
+    "join_field": "name"
+  },
+  "output": {
+    "keys": [
+      "name",
+      "region",
+      "budget"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L1",
+    "operator_family": "filter_then_count"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$count",
+      "$match"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.departments.aggregate([ { $match: { \"budget\": { $gt: 70 } } }, { $count: \"total\" }])"
+    ]
+  }
+}

@@ -1,0 +1,402 @@
+{
+  "products": [
+    {
+      "_id": 1,
+      "name": "name_1",
+      "category": "electronics",
+      "price": 60.91,
+      "stock": null,
+      "year": 2018
+    },
+    {
+      "_id": 2,
+      "name": "name_2",
+      "category": "clothing",
+      "price": 357.49,
+      "stock": null,
+      "year": 2019
+    },
+    {
+      "_id": 3,
+      "name": "name_3",
+      "category": "books",
+      "price": 234.73,
+      "stock": null,
+      "year": 2020
+    },
+    {
+      "_id": 4,
+      "name": "name_4",
+      "category": "home",
+      "price": 76.44,
+      "stock": 978,
+      "year": 2021
+    },
+    {
+      "_id": 5,
+      "name": "name_5",
+      "category": "toys",
+      "price": 69.9,
+      "stock": 28,
+      "year": 2022
+    },
+    {
+      "_id": 6,
+      "name": "name_6",
+      "category": "electronics",
+      "price": 206.46,
+      "stock": null,
+      "year": 2023
+    },
+    {
+      "_id": 7,
+      "name": "name_7",
+      "category": "clothing",
+      "price": 213.09,
+      "stock": 713,
+      "year": 2024
+    },
+    {
+      "_id": 8,
+      "name": "name_8",
+      "category": "books",
+      "price": 494.56,
+      "stock": 925,
+      "year": 2025
+    },
+    {
+      "_id": 9,
+      "name": "name_9",
+      "category": "home",
+      "price": 466.77,
+      "stock": 740,
+      "year": 2026
+    },
+    {
+      "_id": 10,
+      "name": "name_10",
+      "category": "toys",
+      "price": 332.8,
+      "stock": 238,
+      "year": 2027
+    },
+    {
+      "_id": 11,
+      "name": "name_11",
+      "category": "electronics",
+      "price": 459.19,
+      "stock": 204,
+      "year": 2028
+    },
+    {
+      "_id": 12,
+      "name": "name_12",
+      "category": "clothing",
+      "price": 11.55,
+      "stock": 648,
+      "year": 2029
+    },
+    {
+      "_id": 13,
+      "name": "name_13",
+      "category": "books",
+      "price": 339.41,
+      "stock": null,
+      "year": 2030
+    },
+    {
+      "_id": 14,
+      "name": "name_14",
+      "category": "home",
+      "price": 269.14,
+      "stock": 743,
+      "year": 2031
+    },
+    {
+      "_id": 15,
+      "name": "name_15",
+      "category": "toys",
+      "price": 530.32,
+      "stock": 171,
+      "year": 2032
+    }
+  ],
+  "reviews": [
+    {
+      "_id": 1,
+      "title": " title_1 ",
+      "rating": 20,
+      "sentiment": "positive",
+      "year": 2018,
+      "helpful_votes": [
+        1,
+        14,
+        12,
+        3,
+        20
+      ]
+    },
+    {
+      "_id": 2,
+      "title": "title_2",
+      "rating": 60,
+      "sentiment": "neutral",
+      "year": 2020,
+      "helpful_votes": [
+        6,
+        31,
+        9,
+        46,
+        31
+      ]
+    },
+    {
+      "_id": 3,
+      "title": "title_3",
+      "rating": 100,
+      "sentiment": "negative",
+      "year": 2019,
+      "helpful_votes": [
+        34,
+        50,
+        28
+      ]
+    },
+    {
+      "_id": 4,
+      "title": "title_4",
+      "rating": 20,
+      "sentiment": "positive",
+      "year": 2021,
+      "helpful_votes": [
+        10,
+        42,
+        26,
+        15,
+        29
+      ]
+    },
+    {
+      "_id": 5,
+      "title": "title_5",
+      "rating": 60,
+      "sentiment": "neutral",
+      "year": 2022,
+      "helpful_votes": [
+        14,
+        15,
+        2,
+        0,
+        27
+      ]
+    },
+    {
+      "_id": 6,
+      "title": "title_6",
+      "rating": 100,
+      "sentiment": "negative",
+      "year": 2023,
+      "helpful_votes": [
+        28,
+        8,
+        43,
+        33
+      ]
+    },
+    {
+      "_id": 7,
+      "title": "title_7",
+      "rating": 20,
+      "sentiment": "positive",
+      "year": 2024,
+      "helpful_votes": [
+        41,
+        29
+      ]
+    },
+    {
+      "_id": 8,
+      "title": "title_8",
+      "rating": 60,
+      "sentiment": "neutral",
+      "year": 2025,
+      "helpful_votes": [
+        5,
+        14,
+        25,
+        12
+      ]
+    },
+    {
+      "_id": 9,
+      "title": "title_9",
+      "rating": 100,
+      "sentiment": "N/A",
+      "year": 2026,
+      "helpful_votes": [
+        39,
+        8
+      ]
+    },
+    {
+      "_id": 10,
+      "title": "title_10",
+      "rating": 20,
+      "sentiment": "positive",
+      "year": 2027,
+      "helpful_votes": [
+        32,
+        38,
+        41,
+        28
+      ]
+    },
+    {
+      "_id": 11,
+      "title": "title_11",
+      "rating": 60,
+      "sentiment": "neutral",
+      "year": 2028,
+      "helpful_votes": [
+        48,
+        48,
+        12
+      ]
+    },
+    {
+      "_id": 12,
+      "title": "title_12",
+      "rating": 100,
+      "sentiment": "negative",
+      "year": 2029,
+      "helpful_votes": [
+        28,
+        32
+      ]
+    },
+    {
+      "_id": 13,
+      "title": "title_13",
+      "rating": 20,
+      "sentiment": "positive",
+      "year": 2030,
+      "helpful_votes": [
+        47,
+        50,
+        45,
+        25,
+        25
+      ]
+    },
+    {
+      "_id": 14,
+      "title": "title_14",
+      "rating": 60,
+      "sentiment": "neutral",
+      "year": 2031,
+      "helpful_votes": [
+        21,
+        15
+      ]
+    },
+    {
+      "_id": 15,
+      "title": "title_15",
+      "rating": 100,
+      "sentiment": "negative",
+      "year": 2032,
+      "helpful_votes": [
+        36,
+        36,
+        33,
+        23
+      ]
+    },
+    {
+      "_id": 16,
+      "title": "title_16",
+      "rating": 20,
+      "sentiment": "positive",
+      "year": 2033,
+      "helpful_votes": [
+        21,
+        49
+      ]
+    },
+    {
+      "_id": 17,
+      "title": "title_17",
+      "rating": 60,
+      "sentiment": "neutral",
+      "year": 2034,
+      "helpful_votes": [
+        18,
+        25,
+        29,
+        8,
+        47
+      ]
+    },
+    {
+      "_id": 18,
+      "title": "title_18",
+      "rating": 100,
+      "sentiment": "negative",
+      "year": 2035,
+      "helpful_votes": [
+        15,
+        3,
+        8,
+        19,
+        30
+      ]
+    },
+    {
+      "_id": 19,
+      "title": "title_19",
+      "rating": 20,
+      "sentiment": "positive",
+      "year": 2036,
+      "helpful_votes": [
+        43,
+        48
+      ]
+    },
+    {
+      "_id": 20,
+      "title": "title_20",
+      "rating": 60,
+      "sentiment": "neutral",
+      "year": 2037,
+      "helpful_votes": [
+        1,
+        29,
+        1,
+        15,
+        4
+      ]
+    },
+    {
+      "_id": 21,
+      "title": "title_21",
+      "rating": 100,
+      "sentiment": "negative",
+      "year": 2038,
+      "helpful_votes": [
+        2,
+        3,
+        46,
+        17,
+        30
+      ]
+    },
+    {
+      "_id": 22,
+      "title": "title_22",
+      "rating": 20,
+      "sentiment": "positive",
+      "year": 2039,
+      "helpful_votes": "rare"
+    }
+  ]
+}

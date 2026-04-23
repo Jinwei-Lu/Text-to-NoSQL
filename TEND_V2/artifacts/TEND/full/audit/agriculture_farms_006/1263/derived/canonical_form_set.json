@@ -1,0 +1,15 @@
+{
+  "must_contain": [
+    "$match",
+    "$project"
+  ],
+  "must_not_contain": [],
+  "must_contain_at_root": [
+    "$match",
+    "$project"
+  ],
+  "must_not_contain_at_root": [],
+  "known_variants": [
+    "db.harvests.aggregate([ { $match: { \"yield_tons\": { $gt: 70 } } }, { $project: { _id: 0, farm: 1, yield_tons: \"$yield_tons\" } }])"
+  ]
+}

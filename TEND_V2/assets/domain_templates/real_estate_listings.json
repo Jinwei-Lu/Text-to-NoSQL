@@ -1,0 +1,38 @@
+{
+  "domain_id": "real_estate_listings",
+  "name": "Real Estate Listings",
+  "entities": [
+    {
+      "collection": "properties",
+      "cardinality": 22,
+      "fields": [
+        { "name": "city", "type": "TEXT", "values": ["Beijing", "Shanghai", "Guangzhou", "Shenzhen", "Chengdu"] },
+        { "name": "type", "type": "TEXT", "values": ["apartment", "villa", "commercial"] },
+        { "name": "price", "type": "REAL", "range": [100000, 5000000] },
+        { "name": "area", "type": "REAL", "range": [30.0, 500.0], "nullable": true, "null_rate": 0.06 },
+        { "name": "year", "type": "INT", "role": "time", "nullable": false },
+        { "name": "rooms", "type": "INT", "range": [1, 8] },
+        { "name": "amenity_scores", "type": "ARRAY", "min_items": 2, "max_items": 6, "items": { "type": "INT", "range": [1, 10], "name": "amenity_score" } },
+        {
+          "name": "details",
+          "type": "OBJECT",
+          "fields": [
+            { "name": "floor", "type": "INT", "range": [1, 50] },
+            { "name": "has_parking", "type": "BOOL" }
+          ]
+        }
+      ]
+    }
+  ],
+  "relations": [],
+  "f_topology_hints": { "nested_objects": true, "sparse_embedded": false, "time_series_ready": true },
+  "distribution_priors": { "default_cardinality": 22 },
+  "phenomenon_blueprints": [
+    { "phenomenon_class": "skewed_distribution", "collection": "properties", "path": "price", "intent_hooks": ["percentile", "distribution"] },
+    { "phenomenon_class": "outlier", "collection": "properties", "path": "price", "intent_hooks": ["topk", "anomaly"] },
+    { "phenomenon_class": "high_cardinality", "collection": "properties", "path": "city", "intent_hooks": ["distinct", "cardinality"] },
+    { "phenomenon_class": "correlation", "collection": "properties", "path": "area", "intent_hooks": ["correlation", "regression"] },
+    { "phenomenon_class": "hierarchical_nesting", "collection": "properties", "path": "details.floor", "intent_hooks": ["unwind", "nested_access"] },
+    { "phenomenon_class": "boundary_value", "collection": "properties", "path": "rooms", "intent_hooks": ["edge_case", "boundary"] }
+  ]
+}

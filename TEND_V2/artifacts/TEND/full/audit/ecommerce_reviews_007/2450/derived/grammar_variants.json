@@ -1,0 +1,3 @@
+[
+  "db.reviews.aggregate([ { $match: { \"helpful_votes\": { $gt: 70 } } }, { $group: { _id: \"$sentiment\", matched_count: { $sum: 1 }, avg_value: { $avg: \"$helpful_votes\" } } }, { $sort: { matched_count: -1, avg_value: -1 } }, { $project: { _id: 0, sentiment: \"$_id\", matched_count: 1, avg_value: 1 } }])"
+]

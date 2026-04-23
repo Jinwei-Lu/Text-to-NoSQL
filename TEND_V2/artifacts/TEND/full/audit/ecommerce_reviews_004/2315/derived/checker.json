@@ -1,0 +1,12 @@
+{
+  "pattern_family": "array_positional_select",
+  "primary_operator": "$arrayElemAt",
+  "must_contain": [
+    "$arrayElemAt",
+    "$project"
+  ],
+  "must_contain_at_root": [
+    "$project"
+  ],
+  "query": "db.reviews.aggregate([ { $project: { _id: 0, title: 1, first: { $arrayElemAt: [\"$helpful_votes\", 0] }, last: { $arrayElemAt: [\"$helpful_votes\", -1] }, size: { $size: \"$helpful_votes\" } } }])"
+}

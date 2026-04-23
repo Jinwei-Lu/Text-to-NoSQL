@@ -1,0 +1,24 @@
+{
+  "pattern_family": "dynamic_key_expansion",
+  "primary_operator": "$objectToArray",
+  "input_shape": {
+    "collections": [
+      "properties"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "city",
+      "type",
+      "city"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "city",
+    "city",
+    "type",
+    "year",
+    "amenity_scores"
+  ]
+}

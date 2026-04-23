@@ -1,0 +1,63 @@
+{
+  "meta": {
+    "db_id": "retail_orders_002",
+    "record_id": 6635,
+    "schema_fingerprint_hint": "orders",
+    "si_hash": "sha256:f4fc1ace90c6af9dcc0b6ae6bae3ce8efad0998a1ba6aff1a0029697cc7e0438"
+  },
+  "intent": {
+    "phenomenon_id": "high_cardinality@customer",
+    "phenomenon_class": "high_cardinality",
+    "persona_id": "analyst",
+    "pattern_family": "project_only",
+    "collection": "orders",
+    "metric_field": "customer",
+    "field_leaf": "customer",
+    "label_field": "customer",
+    "time_field": "year",
+    "category_field": "segment",
+    "array_field": "basket_scores",
+    "secondary_collection": null,
+    "join_field": "customer"
+  },
+  "output": {
+    "keys": [
+      "customer",
+      "segment",
+      "customer"
+    ],
+    "shape_policy": "preserve"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L1",
+    "operator_family": "project_only"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$project"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.orders.aggregate([ { $project: { _id: 0, customer: 1, customer: \"$customer\" } }])"
+    ]
+  }
+}

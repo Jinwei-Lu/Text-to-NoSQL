@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_operator",
+    "query": "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $avg: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])"
+  },
+  {
+    "mutation_id": "wrong_limit",
+    "query": "db.flights.aggregate([ { $group: { _id: \"$airline\", total_value: { $sum: \"$delay_minutes\" } } }, { $sort: { total_value: -1 } }, { $limit: 4 }, { $project: { _id: 0, airline: \"$_id\", total_value: 1 } }])"
+  }
+]

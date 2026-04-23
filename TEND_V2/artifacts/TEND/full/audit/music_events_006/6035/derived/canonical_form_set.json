@@ -1,0 +1,15 @@
+{
+  "must_contain": [
+    "$project",
+    "$setWindowFields"
+  ],
+  "must_not_contain": [],
+  "must_contain_at_root": [
+    "$project",
+    "$setWindowFields"
+  ],
+  "must_not_contain_at_root": [],
+  "known_variants": [
+    "db.events.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { running_total: { $sum: \"$attendance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, attendance: \"$attendance\", running_total: 1 } }])"
+  ]
+}

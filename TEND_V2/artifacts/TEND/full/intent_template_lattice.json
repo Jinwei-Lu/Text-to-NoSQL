@@ -1,0 +1,202 @@
+[
+  {
+    "phenomenon_class": "temporal_trend",
+    "allowed_personas": [
+      "analyst",
+      "researcher",
+      "auditor"
+    ],
+    "pattern_families": [
+      "time_window_aggregate",
+      "anomaly_vs_baseline",
+      "window_function_with_facet_filter",
+      "window_function"
+    ]
+  },
+  {
+    "phenomenon_class": "null_cluster",
+    "allowed_personas": [
+      "ops",
+      "analyst",
+      "auditor"
+    ],
+    "pattern_families": [
+      "simple_filter",
+      "filter_then_aggregate",
+      "facet_split",
+      "null_vs_missing_disambig",
+      "coalesce_with_default",
+      "filter_then_count"
+    ]
+  },
+  {
+    "phenomenon_class": "outlier",
+    "allowed_personas": [
+      "analyst",
+      "ops",
+      "auditor"
+    ],
+    "pattern_families": [
+      "top_k_by_aggregate",
+      "anomaly_vs_baseline",
+      "percentile_approximation",
+      "filter_then_count"
+    ]
+  },
+  {
+    "phenomenon_class": "high_cardinality",
+    "allowed_personas": [
+      "researcher",
+      "analyst"
+    ],
+    "pattern_families": [
+      "group_then_aggregate",
+      "facet_split",
+      "dynamic_key_expansion",
+      "project_only"
+    ]
+  },
+  {
+    "phenomenon_class": "cross_group_comparison",
+    "allowed_personas": [
+      "analyst",
+      "researcher"
+    ],
+    "pattern_families": [
+      "group_then_aggregate",
+      "window_function_with_facet_filter",
+      "lookup_join",
+      "percentile_approximation"
+    ]
+  },
+  {
+    "phenomenon_class": "rare_event",
+    "allowed_personas": [
+      "ops",
+      "end-user",
+      "auditor"
+    ],
+    "pattern_families": [
+      "existential_quantifier",
+      "filter_then_aggregate",
+      "universal_quantifier",
+      "array_positional_select",
+      "filter_then_count"
+    ]
+  },
+  {
+    "phenomenon_class": "pollution",
+    "allowed_personas": [
+      "researcher",
+      "auditor"
+    ],
+    "pattern_families": [
+      "facet_split",
+      "simple_filter",
+      "null_vs_missing_disambig",
+      "coalesce_with_default"
+    ]
+  },
+  {
+    "phenomenon_class": "type_drift",
+    "allowed_personas": [
+      "researcher",
+      "auditor"
+    ],
+    "pattern_families": [
+      "facet_split",
+      "group_then_aggregate",
+      "polymorphic_branch",
+      "type_introspection"
+    ]
+  },
+  {
+    "phenomenon_class": "skewed_distribution",
+    "allowed_personas": [
+      "analyst",
+      "researcher"
+    ],
+    "pattern_families": [
+      "percentile_approximation",
+      "group_then_aggregate",
+      "top_k_by_aggregate"
+    ]
+  },
+  {
+    "phenomenon_class": "periodic_pattern",
+    "allowed_personas": [
+      "analyst",
+      "ops"
+    ],
+    "pattern_families": [
+      "time_window_aggregate",
+      "window_function",
+      "anomaly_vs_baseline"
+    ]
+  },
+  {
+    "phenomenon_class": "duplicate_cluster",
+    "allowed_personas": [
+      "auditor",
+      "ops"
+    ],
+    "pattern_families": [
+      "group_then_aggregate",
+      "filter_then_count",
+      "lookup_join"
+    ]
+  },
+  {
+    "phenomenon_class": "sparse_field",
+    "allowed_personas": [
+      "researcher",
+      "auditor",
+      "analyst"
+    ],
+    "pattern_families": [
+      "null_vs_missing_disambig",
+      "coalesce_with_default",
+      "type_introspection",
+      "project_only"
+    ]
+  },
+  {
+    "phenomenon_class": "correlation",
+    "allowed_personas": [
+      "analyst",
+      "researcher"
+    ],
+    "pattern_families": [
+      "group_then_aggregate",
+      "percentile_approximation",
+      "window_function"
+    ]
+  },
+  {
+    "phenomenon_class": "boundary_value",
+    "allowed_personas": [
+      "ops",
+      "auditor",
+      "end-user"
+    ],
+    "pattern_families": [
+      "simple_filter",
+      "filter_then_count",
+      "facet_split",
+      "existential_quantifier"
+    ]
+  },
+  {
+    "phenomenon_class": "hierarchical_nesting",
+    "allowed_personas": [
+      "researcher",
+      "analyst"
+    ],
+    "pattern_families": [
+      "dynamic_key_expansion",
+      "array_reshape",
+      "graph_recursive_deep",
+      "array_positional_select"
+    ]
+  }
+]

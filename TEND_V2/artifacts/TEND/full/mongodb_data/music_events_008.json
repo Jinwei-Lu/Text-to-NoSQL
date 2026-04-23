@@ -1,0 +1,167 @@
+{
+  "events": [
+    {
+      "_id": 1,
+      "name": "Aurora",
+      "city": "Paris",
+      "year": 2018,
+      "attendance": null,
+      "ticket_revenue": 20,
+      "fan_scores": [
+        12,
+        85,
+        49
+      ]
+    },
+    {
+      "_id": 2,
+      "name": "Luna",
+      "city": "Berlin",
+      "year": 2019,
+      "attendance": null,
+      "ticket_revenue": 60,
+      "fan_scores": [
+        34,
+        44,
+        66,
+        11,
+        38
+      ]
+    },
+    {
+      "_id": 3,
+      "name": "Nova",
+      "city": "Tokyo",
+      "year": 2020,
+      "attendance": null,
+      "ticket_revenue": 100,
+      "fan_scores": [
+        73,
+        63,
+        12,
+        75,
+        90
+      ]
+    },
+    {
+      "_id": 4,
+      "name": "Aurora",
+      "city": "Paris",
+      "year": 2021,
+      "attendance": 80,
+      "ticket_revenue": 20,
+      "fan_scores": [
+        14,
+        85,
+        57
+      ]
+    },
+    {
+      "_id": 5,
+      "name": "Luna",
+      "city": "Berlin",
+      "year": 2022,
+      "attendance": 90,
+      "ticket_revenue": 60,
+      "fan_scores": [
+        56,
+        82,
+        57,
+        83,
+        46
+      ]
+    },
+    {
+      "_id": 6,
+      "name": "Nova",
+      "city": "Tokyo",
+      "year": 2023,
+      "attendance": 100,
+      "ticket_revenue": 100,
+      "fan_scores": [
+        32,
+        71,
+        85,
+        67
+      ],
+      "_extra_noise_field": 228
+    },
+    {
+      "_id": 7,
+      "name": "Aurora",
+      "city": "Paris",
+      "year": 2024,
+      "attendance": 110,
+      "ticket_revenue": 20,
+      "fan_scores": [
+        78,
+        51,
+        96
+      ]
+    },
+    {
+      "_id": 8,
+      "name": "Luna",
+      "city": "Berlin",
+      "year": 2025,
+      "attendance": 120,
+      "ticket_revenue": 60,
+      "fan_scores": [
+        22,
+        64,
+        14
+      ]
+    },
+    {
+      "_id": 9,
+      "name": "Nova",
+      "city": "Tokyo",
+      "year": 2026,
+      "attendance": 130,
+      "ticket_revenue": 100,
+      "fan_scores": [
+        52,
+        23,
+        57,
+        46,
+        79
+      ]
+    },
+    {
+      "_id": 10,
+      "name": "Aurora",
+      "city": "Paris",
+      "year": 2027,
+      "attendance": 140,
+      "ticket_revenue": 20,
+      "fan_scores": [
+        43,
+        29,
+        23
+      ]
+    },
+    {
+      "_id": 11,
+      "name": "Luna",
+      "city": "Berlin",
+      "year": 2028,
+      "attendance": 150,
+      "ticket_revenue": 60,
+      "fan_scores": [
+        40,
+        52,
+        79,
+        28
+      ]
+    },
+    {
+      "_id": 12,
+      "name": "Nova",
+      "city": "Tokyo",
+      "year": 2029,
+      "attendance": 160,
+      "ticket_revenue": 100,
+      "fan_scores": "rare"
+    }
+  ]
+}

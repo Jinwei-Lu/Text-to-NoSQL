@@ -1,0 +1,152 @@
+[
+  {
+    "mutation_id": "wrong_default_value",
+    "failure_type": "incorrect_default",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", -1] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "remove_ifnull",
+    "failure_type": "missing_coalesce",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: \"${metric_field}\" }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_default_null",
+    "failure_type": "incorrect_default",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", null] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_default_string",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", \"N/A\"] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_default_empty_string",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", \"\"] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_default_large_value",
+    "failure_type": "incorrect_default",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", 999999] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_wrong_field_coalesce",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${label_field}\", 0] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_coalesce_category",
+    "failure_type": "wrong_field",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${category_field}\", 0] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_cond_instead_of_ifnull",
+    "failure_type": "wrong_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $cond: {{ if: {{ $gt: [\"${metric_field}\", 0] }}, then: \"${metric_field}\", else: 0 }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_missing_addfields",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_missing_project",
+    "failure_type": "missing_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", 0] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_extra_match",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": {{ $exists: true }} }} }}, {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", 0] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_extra_sort",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", 0] }} }} }}, {{ $sort: {{ {metric_alias}: -1 }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_extra_group",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", 0] }} }} }}, {{ $group: {{ _id: \"${label_field}\", val: {{ $first: \"${metric_alias}\" }} }} }}, {{ $project: {{ _id: 0, {label_field}: \"$_id\", {metric_alias}: \"$val\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_include_id",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", 0] }} }} }}, {{ $project: {{ _id: 1, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_wrong_alias",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ wrong_alias: {{ $ifNull: [\"${metric_field}\", 0] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, wrong_alias: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_double_ifnull",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [{{ $ifNull: [\"${metric_field}\", null] }}, 0] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_project_before_addfields",
+    "failure_type": "wrong_stage_order",
+    "query_template": "db.{collection}.aggregate([ {{ $project: {{ _id: 0, {label_field}: 1, {metric_field}: 1 }} }}, {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", 0] }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_switch_instead_of_ifnull",
+    "failure_type": "wrong_operator",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $switch: {{ branches: [{{ case: {{ $eq: [\"${metric_field}\", null] }}, then: 0 }}], default: \"${metric_field}\" }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_filter_null_instead",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $match: {{ \"{metric_field}\": {{ $ne: null }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: \"${metric_field}\" }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_set_instead_of_addfields",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $set: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", 0] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_replaceroot",
+    "failure_type": "wrong_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", 0] }} }} }}, {{ $replaceRoot: {{ newRoot: {{ {label_field}: \"${label_field}\", {metric_alias}: \"${metric_alias}\" }} }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_null_handling_reversed",
+    "failure_type": "null_handling_error",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $cond: {{ if: {{ $ne: [\"${metric_field}\", null] }}, then: 0, else: \"${metric_field}\" }} }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_limit_before_project",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", 0] }} }} }}, {{ $limit: {top_k} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_tostring_default",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [{{ $toString: \"${metric_field}\" }}, \"0\"] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_missing_label_project",
+    "failure_type": "wrong_projection",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", 0] }} }} }}, {{ $project: {{ _id: 0, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_array_default",
+    "failure_type": "type_confusion",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", []] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_unwind_after",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", 0] }} }} }}, {{ $unwind: \"${metric_alias}\" }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_sample_first",
+    "failure_type": "extra_stage",
+    "query_template": "db.{collection}.aggregate([ {{ $sample: {{ size: 50 }} }}, {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", 0] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  },
+  {
+    "mutation_id": "bank_cwd_default_negative_large",
+    "failure_type": "incorrect_default",
+    "query_template": "db.{collection}.aggregate([ {{ $addFields: {{ {metric_alias}: {{ $ifNull: [\"${metric_field}\", -999] }} }} }}, {{ $project: {{ _id: 0, {label_field}: 1, {metric_alias}: 1 }} }} ])"
+  }
+]

@@ -1,0 +1,4 @@
+[
+  "db.events.aggregate([ { $match: {} }, { $group: { _id: \"$name\", total_value: { $sum: \"$ticket_revenue\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, name: \"$_id\", total_value: 1 } }])",
+  "db.events.aggregate([ { $group: { _id: \"$name\", total_value: { $sum: \"$ticket_revenue\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, name: \"$_id\", total_value: 1 } }])"
+]

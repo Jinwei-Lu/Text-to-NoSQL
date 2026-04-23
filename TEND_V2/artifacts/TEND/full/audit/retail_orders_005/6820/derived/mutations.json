@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_operator",
+    "query": "db.orders.aggregate([ { $match: { \"segment\": { $lt: 70 } } }, { $project: { _id: 0, customer: 1, segment: \"$segment\" } }])"
+  },
+  {
+    "mutation_id": "tight_threshold",
+    "query": "db.orders.aggregate([ { $match: { \"segment\": { $gt: 90 } } }, { $project: { _id: 0, customer: 1, segment: \"$segment\" } }])"
+  }
+]

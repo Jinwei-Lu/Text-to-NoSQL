@@ -1,0 +1,25 @@
+{
+  "pattern_family": "window_function_with_facet_filter",
+  "primary_operator": "$setWindowFields",
+  "input_shape": {
+    "collections": [
+      "reviews"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "title",
+      "sentiment",
+      "rating"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "title",
+    "rating",
+    "sentiment",
+    "year",
+    "helpful_votes",
+    "products"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "pattern_family": "filter_then_count",
+  "primary_operator": "$count",
+  "input_shape": {
+    "collections": [
+      "events"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "name",
+      "city",
+      "fan_scores"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "name",
+    "fan_scores",
+    "city",
+    "year",
+    "fan_scores"
+  ]
+}

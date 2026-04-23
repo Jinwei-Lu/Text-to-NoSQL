@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_operator",
+    "query": "db.flights.aggregate([ { $match: { \"delay_minutes\": { $lt: 70 } } }, { $count: \"total\" }])"
+  },
+  {
+    "mutation_id": "drop_count",
+    "query": "db.flights.aggregate([ { $match: { \"delay_minutes\": { $gt: 70 } } }, { $group: \"total\" }])"
+  }
+]

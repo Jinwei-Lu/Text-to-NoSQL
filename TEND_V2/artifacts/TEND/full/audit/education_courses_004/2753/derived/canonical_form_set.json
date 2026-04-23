@@ -1,0 +1,15 @@
+{
+  "must_contain": [
+    "$match",
+    "$project"
+  ],
+  "must_not_contain": [],
+  "must_contain_at_root": [
+    "$match",
+    "$project"
+  ],
+  "must_not_contain_at_root": [],
+  "known_variants": [
+    "db.students.aggregate([ { $match: { \"exam_scores\": { $gt: 70 } } }, { $project: { _id: 0, name: 1, exam_scores: \"$exam_scores\" } }])"
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "db_id": "weather_stations_005",
+    "record_id": 8404,
+    "schema_fingerprint_hint": "readings",
+    "si_hash": "sha256:a07aa83d2e30487bd88912154ac6a9010d00ccf21e93104acfd61c632ff3fc77"
+  },
+  "intent": {
+    "phenomenon_id": "correlation@humidity",
+    "phenomenon_class": "correlation",
+    "persona_id": "analyst",
+    "pattern_family": "percentile_approximation",
+    "collection": "readings",
+    "metric_field": "humidity",
+    "field_leaf": "humidity",
+    "label_field": "station",
+    "time_field": "month",
+    "category_field": "region",
+    "array_field": "wind_speeds",
+    "secondary_collection": null,
+    "join_field": "station"
+  },
+  "output": {
+    "keys": [
+      "station",
+      "region",
+      "humidity"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "percentile_approximation"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$percentile"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$project"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.readings.aggregate([ { $group: { _id: \"$region\", p50: { $percentile: { input: \"$humidity\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$humidity\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, region: \"$_id\", p50: 1, p95: 1 } }])"
+    ]
+  }
+}

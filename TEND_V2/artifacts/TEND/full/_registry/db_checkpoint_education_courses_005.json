@@ -1,0 +1,1930 @@
+{
+  "train_records": [],
+  "test_records": [
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2790,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 department 分组，计算 gpa 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of gpa per department."
+      ],
+      "MQL": "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2794,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "先按 year 计算 avg_score 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on avg_score."
+      ],
+      "MQL": "db.courses.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$avg_score\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, title: 1, moving_avg: 1, category: \"$difficulty\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, title: \"$kept.title\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$avg_score\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, title: 1, moving_avg: 1, category: \"$difficulty\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, title: \"$kept.title\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "exam_scores",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2798,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "把 exam_scores 按阈值分成高低两组，并分别按 department 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by exam_scores."
+      ],
+      "MQL": "db.students.aggregate([ { $facet: { high: [{ $match: { \"exam_scores\": { $gt: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }], low: [{ $match: { \"exam_scores\": { $lte: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $facet: { high: [{ $match: { \"exam_scores\": { $gt: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }], low: [{ $match: { \"exam_scores\": { $lte: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2802,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "区分 gpa 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify gpa as explicit null, missing, or has value."
+      ],
+      "MQL": "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2805,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "区分 avg_score 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify avg_score as explicit null, missing, or has value."
+      ],
+      "MQL": "db.courses.aggregate([ { $project: { _id: 0, title: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$avg_score\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$avg_score\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $project: { _id: 0, title: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$avg_score\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$avg_score\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2809,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 enrollment_year 排序，计算 gpa 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of gpa sorted by enrollment_year."
+      ],
+      "MQL": "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2813,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 department 分组，计算 gpa 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of gpa per department."
+      ],
+      "MQL": "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2817,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 difficulty 分组，计算 avg_score 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of avg_score per difficulty."
+      ],
+      "MQL": "db.courses.aggregate([ { $group: { _id: \"$difficulty\", p50: { $percentile: { input: \"$avg_score\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$avg_score\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, difficulty: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $group: { _id: \"$difficulty\", p50: { $percentile: { input: \"$avg_score\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$avg_score\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, difficulty: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "exam_scores",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2821,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "找出 exam_scores 大于 70 的记录，并返回 name 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 exam_scores 超过阈值的文档并显示 name。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by exam_scores."
+      ],
+      "MQL": "db.students.aggregate([ { $match: { \"exam_scores\": { $gt: 70 } } }, { $project: { _id: 0, name: 1, exam_scores: \"$exam_scores\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $match: { \"exam_scores\": { $gt: 70 } } }, { $project: { _id: 0, name: 1, exam_scores: \"$exam_scores\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2825,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "区分 gpa 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify gpa as explicit null, missing, or has value."
+      ],
+      "MQL": "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2829,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "统计 avg_score 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of avg_score."
+      ],
+      "MQL": "db.courses.aggregate([ { $group: { _id: { $type: \"$avg_score\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $group: { _id: { $type: \"$avg_score\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2833,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 enrollment_year 排序，计算 gpa 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of gpa sorted by enrollment_year."
+      ],
+      "MQL": "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2836,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 department 分组，计算 gpa 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of gpa per department."
+      ],
+      "MQL": "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2840,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "先按 year 计算 avg_score 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on avg_score."
+      ],
+      "MQL": "db.courses.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$avg_score\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, title: 1, moving_avg: 1, category: \"$difficulty\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, title: \"$kept.title\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$avg_score\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, title: 1, moving_avg: 1, category: \"$difficulty\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, title: \"$kept.title\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "exam_scores",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2844,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "把 exam_scores 按阈值分成高低两组，并分别按 department 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by exam_scores."
+      ],
+      "MQL": "db.students.aggregate([ { $facet: { high: [{ $match: { \"exam_scores\": { $gt: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }], low: [{ $match: { \"exam_scores\": { $lte: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $facet: { high: [{ $match: { \"exam_scores\": { $gt: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }], low: [{ $match: { \"exam_scores\": { $lte: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2848,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "区分 gpa 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify gpa as explicit null, missing, or has value."
+      ],
+      "MQL": "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2852,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "区分 avg_score 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify avg_score as explicit null, missing, or has value."
+      ],
+      "MQL": "db.courses.aggregate([ { $project: { _id: 0, title: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$avg_score\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$avg_score\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $project: { _id: 0, title: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$avg_score\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$avg_score\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2856,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 enrollment_year 排序，计算 gpa 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of gpa sorted by enrollment_year."
+      ],
+      "MQL": "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2861,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 department 分组，计算 gpa 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of gpa per department."
+      ],
+      "MQL": "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2865,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 difficulty 分组，计算 avg_score 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of avg_score per difficulty."
+      ],
+      "MQL": "db.courses.aggregate([ { $group: { _id: \"$difficulty\", p50: { $percentile: { input: \"$avg_score\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$avg_score\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, difficulty: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $group: { _id: \"$difficulty\", p50: { $percentile: { input: \"$avg_score\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$avg_score\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, difficulty: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "exam_scores",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2868,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "找出 exam_scores 大于 70 的记录，并返回 name 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 exam_scores 超过阈值的文档并显示 name。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by exam_scores."
+      ],
+      "MQL": "db.students.aggregate([ { $match: { \"exam_scores\": { $gt: 70 } } }, { $project: { _id: 0, name: 1, exam_scores: \"$exam_scores\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $match: { \"exam_scores\": { $gt: 70 } } }, { $project: { _id: 0, name: 1, exam_scores: \"$exam_scores\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2872,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "区分 gpa 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify gpa as explicit null, missing, or has value."
+      ],
+      "MQL": "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2876,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "统计 avg_score 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of avg_score."
+      ],
+      "MQL": "db.courses.aggregate([ { $group: { _id: { $type: \"$avg_score\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $group: { _id: { $type: \"$avg_score\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2880,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 enrollment_year 排序，计算 gpa 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of gpa sorted by enrollment_year."
+      ],
+      "MQL": "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2884,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 department 分组，计算 gpa 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of gpa per department."
+      ],
+      "MQL": "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2888,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "先按 year 计算 avg_score 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on avg_score."
+      ],
+      "MQL": "db.courses.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$avg_score\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, title: 1, moving_avg: 1, category: \"$difficulty\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, title: \"$kept.title\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$avg_score\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, title: 1, moving_avg: 1, category: \"$difficulty\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, title: \"$kept.title\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "exam_scores",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2892,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "把 exam_scores 按阈值分成高低两组，并分别按 department 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by exam_scores."
+      ],
+      "MQL": "db.students.aggregate([ { $facet: { high: [{ $match: { \"exam_scores\": { $gt: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }], low: [{ $match: { \"exam_scores\": { $lte: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $facet: { high: [{ $match: { \"exam_scores\": { $gt: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }], low: [{ $match: { \"exam_scores\": { $lte: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2896,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "区分 gpa 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify gpa as explicit null, missing, or has value."
+      ],
+      "MQL": "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2900,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "区分 avg_score 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify avg_score as explicit null, missing, or has value."
+      ],
+      "MQL": "db.courses.aggregate([ { $project: { _id: 0, title: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$avg_score\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$avg_score\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $project: { _id: 0, title: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$avg_score\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$avg_score\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2904,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 enrollment_year 排序，计算 gpa 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of gpa sorted by enrollment_year."
+      ],
+      "MQL": "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2908,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 department 分组，计算 gpa 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of gpa per department."
+      ],
+      "MQL": "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2912,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 difficulty 分组，计算 avg_score 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of avg_score per difficulty."
+      ],
+      "MQL": "db.courses.aggregate([ { $group: { _id: \"$difficulty\", p50: { $percentile: { input: \"$avg_score\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$avg_score\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, difficulty: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $group: { _id: \"$difficulty\", p50: { $percentile: { input: \"$avg_score\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$avg_score\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, difficulty: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "exam_scores",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2916,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "找出 exam_scores 大于 70 的记录，并返回 name 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 exam_scores 超过阈值的文档并显示 name。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by exam_scores."
+      ],
+      "MQL": "db.students.aggregate([ { $match: { \"exam_scores\": { $gt: 70 } } }, { $project: { _id: 0, name: 1, exam_scores: \"$exam_scores\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $match: { \"exam_scores\": { $gt: 70 } } }, { $project: { _id: 0, name: 1, exam_scores: \"$exam_scores\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2920,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "区分 gpa 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify gpa as explicit null, missing, or has value."
+      ],
+      "MQL": "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2923,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "统计 avg_score 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of avg_score."
+      ],
+      "MQL": "db.courses.aggregate([ { $group: { _id: { $type: \"$avg_score\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $group: { _id: { $type: \"$avg_score\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2926,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 enrollment_year 排序，计算 gpa 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of gpa sorted by enrollment_year."
+      ],
+      "MQL": "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2930,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 department 分组，计算 gpa 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of gpa per department."
+      ],
+      "MQL": "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2934,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "先按 year 计算 avg_score 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on avg_score."
+      ],
+      "MQL": "db.courses.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$avg_score\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, title: 1, moving_avg: 1, category: \"$difficulty\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, title: \"$kept.title\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$avg_score\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, title: 1, moving_avg: 1, category: \"$difficulty\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, title: \"$kept.title\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "exam_scores",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2939,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "把 exam_scores 按阈值分成高低两组，并分别按 department 汇总。",
+        "做一个高低分面的统计视图。",
+        "按阈值拆成两个分支再统计类别分布。",
+        "用 facet 输出高值和低值的双视图。",
+        "Split into high and low facets by exam_scores."
+      ],
+      "MQL": "db.students.aggregate([ { $facet: { high: [{ $match: { \"exam_scores\": { $gt: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }], low: [{ $match: { \"exam_scores\": { $lte: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $facet: { high: [{ $match: { \"exam_scores\": { $gt: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }], low: [{ $match: { \"exam_scores\": { $lte: 70 } } }, { $group: { _id: \"$department\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+        ]
+      },
+      "operator_family": "facet_split",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2943,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "区分 gpa 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify gpa as explicit null, missing, or has value."
+      ],
+      "MQL": "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2947,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "区分 avg_score 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify avg_score as explicit null, missing, or has value."
+      ],
+      "MQL": "db.courses.aggregate([ { $project: { _id: 0, title: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$avg_score\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$avg_score\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $project: { _id: 0, title: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$avg_score\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$avg_score\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2950,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 enrollment_year 排序，计算 gpa 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of gpa sorted by enrollment_year."
+      ],
+      "MQL": "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2954,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 department 分组，计算 gpa 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of gpa per department."
+      ],
+      "MQL": "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2958,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 difficulty 分组，计算 avg_score 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of avg_score per difficulty."
+      ],
+      "MQL": "db.courses.aggregate([ { $group: { _id: \"$difficulty\", p50: { $percentile: { input: \"$avg_score\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$avg_score\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, difficulty: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $group: { _id: \"$difficulty\", p50: { $percentile: { input: \"$avg_score\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$avg_score\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, difficulty: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "exam_scores",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2962,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "找出 exam_scores 大于 70 的记录，并返回 name 和该数值。",
+        "筛出数值超过阈值的项。",
+        "筛选 exam_scores 超过阈值的文档并显示 name。",
+        "用聚合方式找出高值记录。",
+        "Identify high-value rows by exam_scores."
+      ],
+      "MQL": "db.students.aggregate([ { $match: { \"exam_scores\": { $gt: 70 } } }, { $project: { _id: 0, name: 1, exam_scores: \"$exam_scores\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$match",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $match: { \"exam_scores\": { $gt: 70 } } }, { $project: { _id: 0, name: 1, exam_scores: \"$exam_scores\" } }])"
+        ]
+      },
+      "operator_family": "simple_filter",
+      "nosql_nativeness_level": "L1",
+      "empirical_difficulty": "easy",
+      "shape_policy": "preserve",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2966,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "区分 gpa 字段是显式 null、缺失还是有值，并统计每类数量。",
+        "分辨空值和缺失字段。",
+        "检查字段的 null 与 missing 分布。",
+        "统计字段的三种存在状态。",
+        "Classify gpa as explicit null, missing, or has value."
+      ],
+      "MQL": "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$project",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $project: { _id: 0, name: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$gpa\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$gpa\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "null_vs_missing_disambig",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2970,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "统计 avg_score 字段的 BSON 类型分布。",
+        "看看字段里有几种不同类型。",
+        "分析字段的类型多样性。",
+        "给出类型内省结果。",
+        "Introspect the BSON type distribution of avg_score."
+      ],
+      "MQL": "db.courses.aggregate([ { $group: { _id: { $type: \"$avg_score\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$type"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $group: { _id: { $type: \"$avg_score\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
+        ]
+      },
+      "operator_family": "type_introspection",
+      "nosql_nativeness_level": "L2",
+      "empirical_difficulty": "medium",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2974,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 enrollment_year 排序，计算 gpa 的累计总和。",
+        "做一个运行总计的窗口计算。",
+        "用 setWindowFields 算累计值。",
+        "按时间序列做累积统计。",
+        "Compute a running total of gpa sorted by enrollment_year."
+      ],
+      "MQL": "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$project",
+          "$setWindowFields"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])"
+        ]
+      },
+      "operator_family": "window_function",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "students",
+      "metric_field": "gpa",
+      "label_field": "name",
+      "category_field": "department",
+      "time_field": "enrollment_year",
+      "array_field": "exam_scores",
+      "record_id": 2978,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "按 department 分组，计算 gpa 的 P50 和 P95 分位数。",
+        "给出各组的中位数和高分位数。",
+        "用近似分位数做统计。",
+        "计算分组的百分位数。",
+        "Compute approximate P50 and P95 of gpa per department."
+      ],
+      "MQL": "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$group",
+          "$percentile"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$group",
+          "$project"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])"
+        ]
+      },
+      "operator_family": "percentile_approximation",
+      "nosql_nativeness_level": "L3",
+      "empirical_difficulty": "hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    },
+    {
+      "collection": "courses",
+      "metric_field": "avg_score",
+      "label_field": "title",
+      "category_field": "difficulty",
+      "time_field": "year",
+      "array_field": null,
+      "record_id": 2982,
+      "db_id": "education_courses_005",
+      "nl_queries": [
+        "先按 year 计算 avg_score 的窗口平均，再用 facet 结合全局基线，只保留高于整体基线的记录。",
+        "做窗口平均并与全局基线比较，输出高于基线的结果。",
+        "窗口统计后再做双分面筛选。",
+        "利用窗口函数和 facet 找出持续高于基线的项。",
+        "Combine windowed averages with a facet baseline filter on avg_score."
+      ],
+      "MQL": "db.courses.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$avg_score\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, title: 1, moving_avg: 1, category: \"$difficulty\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, title: \"$kept.title\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])",
+      "canonical_form_set": {
+        "must_contain": [
+          "$facet",
+          "$setWindowFields"
+        ],
+        "must_not_contain": [],
+        "must_contain_at_root": [
+          "$facet",
+          "$project",
+          "$setWindowFields",
+          "$unwind"
+        ],
+        "must_not_contain_at_root": [],
+        "known_variants": [
+          "db.courses.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$avg_score\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, title: 1, moving_avg: 1, category: \"$difficulty\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, title: \"$kept.title\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+        ]
+      },
+      "operator_family": "window_function_with_facet_filter",
+      "nosql_nativeness_level": "L4",
+      "empirical_difficulty": "extra_hard",
+      "shape_policy": "reshape",
+      "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+    }
+  ],
+  "manifest": {
+    "db_id": "education_courses_005",
+    "domain_id": "education_courses",
+    "record_count": 50,
+    "schema_signature": "sha256:763a48e0fbbc200fa35d58bba1c463c9a955cf490f221985911cea4fb6bae444",
+    "world_signature": "sha256:34955571911b515f89eada0db04f29dc9a9936d3024b073d3c3cea5417508878"
+  }
+}

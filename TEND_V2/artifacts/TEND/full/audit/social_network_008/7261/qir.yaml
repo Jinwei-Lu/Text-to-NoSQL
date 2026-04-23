@@ -1,0 +1,24 @@
+{
+  "pattern_family": "group_then_aggregate",
+  "primary_operator": "$group",
+  "input_shape": {
+    "collections": [
+      "posts"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "author",
+      "category",
+      "author"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "author",
+    "author",
+    "category",
+    "year",
+    "engagement_scores"
+  ]
+}

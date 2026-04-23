@@ -1,0 +1,68 @@
+{
+  "meta": {
+    "db_id": "energy_grid_008",
+    "record_id": 3344,
+    "schema_fingerprint_hint": "meters",
+    "si_hash": "sha256:740245da3cbafcaf52078146c7b9e5a5b1f19d63baa0d6e4fe8dcf1a808bcd06"
+  },
+  "intent": {
+    "phenomenon_id": "skewed_distribution@peak_load",
+    "phenomenon_class": "skewed_distribution",
+    "persona_id": "researcher",
+    "pattern_family": "top_k_by_aggregate",
+    "collection": "meters",
+    "metric_field": "peak_load",
+    "field_leaf": "peak_load",
+    "label_field": "city",
+    "time_field": "year",
+    "category_field": "sector",
+    "array_field": "daily_readings",
+    "secondary_collection": "alerts",
+    "join_field": "city"
+  },
+  "output": {
+    "keys": [
+      "city",
+      "sector",
+      "peak_load"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L2",
+    "operator_family": "top_k_by_aggregate"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$group",
+      "$limit",
+      "$sort"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$group",
+      "$limit",
+      "$project",
+      "$sort"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.meters.aggregate([ { $group: { _id: \"$city\", total_value: { $sum: \"$peak_load\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, city: \"$_id\", total_value: 1 } }])"
+    ]
+  }
+}

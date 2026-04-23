@@ -1,0 +1,83 @@
+{
+  "students": {
+    "type": "OBJECT",
+    "fields": {
+      "name": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "grade": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "department": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "gpa": {
+        "type": "REAL",
+        "nullable": true,
+        "sparse": false
+      },
+      "enrollment_year": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "exam_scores": {
+        "type": "ARRAY",
+        "nullable": false,
+        "sparse": false,
+        "items": {
+          "type": "INT",
+          "nullable": false,
+          "sparse": false
+        }
+      },
+      "_sparse_notes": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": true
+      },
+      "_poly_field": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": false,
+        "_polymorphic_hint": true
+      }
+    }
+  },
+  "courses": {
+    "type": "OBJECT",
+    "fields": {
+      "title": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "credits": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "difficulty": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "avg_score": {
+        "type": "REAL",
+        "nullable": true,
+        "sparse": false
+      },
+      "year": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      }
+    }
+  }
+}

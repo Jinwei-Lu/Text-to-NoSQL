@@ -1,0 +1,24 @@
+{
+  "pattern_family": "window_function",
+  "primary_operator": "$setWindowFields",
+  "input_shape": {
+    "collections": [
+      "readings"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "station",
+      "region",
+      "temperature"
+    ],
+    "shape_policy": "reshape"
+  },
+  "referenced_fields": [
+    "station",
+    "temperature",
+    "region",
+    "month",
+    "wind_speeds"
+  ]
+}

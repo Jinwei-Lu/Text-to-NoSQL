@@ -1,0 +1,96 @@
+{
+  "properties": {
+    "type": "OBJECT",
+    "fields": {
+      "city": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "type": {
+        "type": "TEXT",
+        "nullable": false,
+        "sparse": false
+      },
+      "price": {
+        "type": "REAL",
+        "nullable": false,
+        "sparse": false
+      },
+      "area": {
+        "type": "REAL",
+        "nullable": true,
+        "sparse": false
+      },
+      "year": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "rooms": {
+        "type": "INT",
+        "nullable": false,
+        "sparse": false
+      },
+      "amenity_scores": {
+        "type": "ARRAY",
+        "nullable": false,
+        "sparse": false,
+        "items": {
+          "type": "INT",
+          "nullable": false,
+          "sparse": false
+        }
+      },
+      "details": {
+        "type": "OBJECT",
+        "nullable": false,
+        "sparse": false,
+        "fields": {
+          "floor": {
+            "type": "INT",
+            "nullable": false,
+            "sparse": false
+          },
+          "has_parking": {
+            "type": "BOOL",
+            "nullable": false,
+            "sparse": false
+          }
+        }
+      },
+      "_nested_meta": {
+        "type": "OBJECT",
+        "nullable": false,
+        "sparse": false,
+        "fields": {
+          "level1": {
+            "type": "OBJECT",
+            "nullable": false,
+            "sparse": false,
+            "fields": {
+              "level2": {
+                "type": "OBJECT",
+                "nullable": false,
+                "sparse": false,
+                "fields": {
+                  "deep_value": {
+                    "type": "INT",
+                    "nullable": true,
+                    "sparse": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "_poly_field": {
+        "type": "TEXT",
+        "nullable": true,
+        "sparse": false,
+        "_polymorphic_hint": true
+      }
+    }
+  }
+}

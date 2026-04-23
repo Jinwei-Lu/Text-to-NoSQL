@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "db_id": "airline_flights_006",
+    "record_id": 1666,
+    "schema_fingerprint_hint": "flights",
+    "si_hash": "sha256:c5dba0d584e72b6b15c19e291f7b72ec22401c6c26fde50e62eed377c662fe7c"
+  },
+  "intent": {
+    "phenomenon_id": "temporal_trend@passengers",
+    "phenomenon_class": "temporal_trend",
+    "persona_id": "auditor",
+    "pattern_family": "window_function_with_facet_filter",
+    "collection": "flights",
+    "metric_field": "passengers",
+    "field_leaf": "passengers",
+    "label_field": "airline",
+    "time_field": "year",
+    "category_field": "destination",
+    "array_field": "ticket_prices",
+    "secondary_collection": null,
+    "join_field": "airline"
+  },
+  "output": {
+    "keys": [
+      "airline",
+      "destination",
+      "passengers"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L4",
+    "operator_family": "window_function_with_facet_filter"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$facet",
+      "$setWindowFields"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$facet",
+      "$project",
+      "$setWindowFields",
+      "$unwind"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.flights.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$passengers\", window: { documents: [-2, 0] } } } } }, { $facet: { ranked: [{ $sort: { moving_avg: -1 } }, { $project: { _id: 0, airline: 1, moving_avg: 1, category: \"$destination\" } }], baseline: [{ $group: { _id: null, global_avg: { $avg: \"$moving_avg\" } } }] } }, { $project: { kept: { $filter: { input: \"$ranked\", as: \"row\", cond: { $gt: [\"$$row.moving_avg\", { $arrayElemAt: [\"$baseline.global_avg\", 0] }] } } } } }, { $unwind: \"$kept\" }, { $project: { _id: 0, airline: \"$kept.airline\", moving_avg: \"$kept.moving_avg\", category: \"$kept.category\" } }])"
+    ]
+  }
+}

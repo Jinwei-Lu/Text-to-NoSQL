@@ -1,0 +1,4 @@
+[
+  "db.patients.aggregate([ { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
+  "db.patients.aggregate([ { $match: {} }, { $facet: { high: [{ $match: { \"blood_pressure\": { $gt: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }], low: [{ $match: { \"blood_pressure\": { $lte: 70 } } }, { $group: { _id: \"$gender\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
+]

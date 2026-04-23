@@ -1,0 +1,240 @@
+{
+  "harvests": [
+    {
+      "_id": 1,
+      "farm": "North_Farm",
+      "crop": "wheat",
+      "year": 2018,
+      "yield_tons": "0",
+      "rainfall_mm": 50.6,
+      "soil_samples": [
+        4.36,
+        6.83,
+        7.58
+      ],
+      "is_organic": false
+    },
+    {
+      "_id": 2,
+      "farm": "South_Farm",
+      "crop": "rice",
+      "year": 2019,
+      "yield_tons": 999,
+      "rainfall_mm": 65.04,
+      "soil_samples": [
+        6.64,
+        4.21,
+        5.44
+      ],
+      "is_organic": false
+    },
+    {
+      "_id": 3,
+      "farm": "East_Farm",
+      "crop": "corn",
+      "year": 2020,
+      "yield_tons": 0,
+      "rainfall_mm": 72.68,
+      "soil_samples": [
+        4.06,
+        8.6,
+        6.12
+      ],
+      "is_organic": true
+    },
+    {
+      "_id": 4,
+      "farm": "West_Farm",
+      "crop": "soybean",
+      "year": 2021,
+      "yield_tons": 999,
+      "rainfall_mm": 82.56,
+      "soil_samples": [
+        3.08,
+        7.63,
+        6.8
+      ],
+      "is_organic": true
+    },
+    {
+      "_id": 5,
+      "farm": "North_Farm",
+      "crop": "wheat",
+      "year": 2022,
+      "yield_tons": 90,
+      "rainfall_mm": 82.04,
+      "soil_samples": [
+        7.35,
+        6.46,
+        8.32,
+        4.21
+      ],
+      "is_organic": false
+    },
+    {
+      "_id": 6,
+      "farm": "South_Farm",
+      "crop": "rice",
+      "year": 2023,
+      "yield_tons": 100,
+      "rainfall_mm": 77.9,
+      "soil_samples": [
+        5.24,
+        5.27,
+        4.55,
+        8.72
+      ],
+      "is_organic": false
+    },
+    {
+      "_id": 7,
+      "farm": "East_Farm",
+      "crop": "corn",
+      "year": 2024,
+      "yield_tons": 110,
+      "rainfall_mm": 74.58,
+      "soil_samples": [
+        7.13,
+        5.53,
+        3.19,
+        4.19,
+        8.48
+      ],
+      "is_organic": true
+    },
+    {
+      "_id": 8,
+      "farm": "West_Farm",
+      "crop": "soybean",
+      "year": 2025,
+      "yield_tons": 120,
+      "rainfall_mm": 59.62,
+      "soil_samples": [
+        5.99,
+        8.16,
+        7.36
+      ],
+      "is_organic": false
+    },
+    {
+      "_id": 9,
+      "farm": "North_Farm",
+      "crop": "wheat",
+      "year": 2026,
+      "yield_tons": 130,
+      "rainfall_mm": 46.28,
+      "soil_samples": [
+        5.5,
+        5.79,
+        8.53,
+        5.81,
+        4.42
+      ],
+      "is_organic": false
+    },
+    {
+      "_id": 10,
+      "farm": "South_Farm",
+      "crop": "rice",
+      "year": 2027,
+      "yield_tons": 140,
+      "rainfall_mm": 35.01,
+      "soil_samples": [
+        4.51,
+        3.83,
+        8.1,
+        6.13,
+        8.53
+      ],
+      "is_organic": true
+    },
+    {
+      "_id": 11,
+      "farm": "East_Farm",
+      "crop": "corn",
+      "year": 2028,
+      "yield_tons": 150,
+      "rainfall_mm": 33.48,
+      "soil_samples": [
+        6.34,
+        6.71,
+        3.71
+      ],
+      "is_organic": true
+    },
+    {
+      "_id": 12,
+      "farm": "West_Farm",
+      "crop": "soybean",
+      "year": 2029,
+      "yield_tons": 160,
+      "rainfall_mm": 24.24,
+      "soil_samples": [
+        7.56,
+        4.17,
+        7.83
+      ],
+      "is_organic": false
+    },
+    {
+      "_id": 13,
+      "farm": "North_Farm",
+      "crop": "wheat",
+      "year": 2030,
+      "yield_tons": 170,
+      "rainfall_mm": 22.88,
+      "soil_samples": [
+        8.87,
+        7.3,
+        5.41,
+        5.4,
+        7.18
+      ],
+      "is_organic": true
+    },
+    {
+      "_id": 14,
+      "farm": "South_Farm",
+      "crop": "rice",
+      "year": 2031,
+      "yield_tons": 180,
+      "rainfall_mm": 18.18,
+      "soil_samples": [
+        5.25,
+        3.53,
+        5.0,
+        8.89,
+        3.56
+      ],
+      "is_organic": true
+    },
+    {
+      "_id": 15,
+      "farm": "East_Farm",
+      "crop": "corn",
+      "year": 2032,
+      "yield_tons": 190,
+      "rainfall_mm": 31.39,
+      "soil_samples": [
+        7.41,
+        3.55,
+        4.46
+      ],
+      "is_organic": false
+    },
+    {
+      "_id": 16,
+      "farm": "West_Farm",
+      "crop": "soybean",
+      "year": 10165,
+      "yield_tons": 1600,
+      "rainfall_mm": 43.27,
+      "soil_samples": [
+        3.13,
+        7.5,
+        6.7
+      ],
+      "is_organic": true
+    }
+  ]
+}

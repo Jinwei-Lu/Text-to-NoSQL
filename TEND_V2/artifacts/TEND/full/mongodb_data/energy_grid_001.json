@@ -1,0 +1,367 @@
+{
+  "meters": [
+    {
+      "_id": 1,
+      "city": "Metro1",
+      "sector": "residential",
+      "year": 2018,
+      "consumption_kwh": 7.39,
+      "peak_load": 17,
+      "daily_readings": [
+        100.28,
+        69.09,
+        329.2,
+        179.37,
+        445.88,
+        123.55
+      ]
+    },
+    {
+      "_id": 2,
+      "city": "Metro2",
+      "sector": "commercial",
+      "year": 2019,
+      "consumption_kwh": 19.06,
+      "peak_load": 1,
+      "daily_readings": [
+        345.78,
+        462.69,
+        356.98,
+        33.74,
+        441.87,
+        298.88,
+        162.23
+      ]
+    },
+    {
+      "_id": 3,
+      "city": "Metro3",
+      "sector": "industrial",
+      "year": 2020,
+      "consumption_kwh": 21.06,
+      "peak_load": 3,
+      "daily_readings": [
+        39.97,
+        169.95,
+        174.06,
+        100.38,
+        202.66,
+        451.36,
+        436.65
+      ]
+    },
+    {
+      "_id": 4,
+      "city": "Metro1",
+      "sector": "residential",
+      "year": 2021,
+      "consumption_kwh": 31.95,
+      "peak_load": 20,
+      "daily_readings": [
+        337.08,
+        100.66,
+        34.07,
+        270.59,
+        25.81
+      ]
+    },
+    {
+      "_id": 5,
+      "city": "Metro2",
+      "sector": "commercial",
+      "year": 2022,
+      "consumption_kwh": 37.78,
+      "peak_load": 10,
+      "daily_readings": [
+        204.66,
+        462.99,
+        100.58,
+        286.0,
+        204.63,
+        22.35
+      ]
+    },
+    {
+      "_id": 6,
+      "city": "Metro3",
+      "sector": "industrial",
+      "year": 2023,
+      "consumption_kwh": 45.68,
+      "peak_load": 9,
+      "daily_readings": [
+        219.4,
+        54.38,
+        227.43,
+        58.3,
+        392.8,
+        38.45,
+        422.18
+      ]
+    },
+    {
+      "_id": 7,
+      "city": "Metro1",
+      "sector": "residential",
+      "year": 2024,
+      "consumption_kwh": 52.67,
+      "peak_load": 7,
+      "daily_readings": [
+        448.8,
+        93.98,
+        277.85,
+        181.08,
+        170.86,
+        185.03
+      ]
+    },
+    {
+      "_id": 8,
+      "city": "Metro2",
+      "sector": "commercial",
+      "year": 2025,
+      "consumption_kwh": 61.67,
+      "peak_load": 20,
+      "daily_readings": [
+        331.23,
+        59.49,
+        105.58,
+        69.78
+      ]
+    },
+    {
+      "_id": 9,
+      "city": "Metro3",
+      "sector": "industrial",
+      "year": 2026,
+      "consumption_kwh": 64.48,
+      "peak_load": 18,
+      "daily_readings": [
+        254.28,
+        266.74,
+        296.43
+      ]
+    },
+    {
+      "_id": 10,
+      "city": "Metro1",
+      "sector": "residential",
+      "year": 2027,
+      "consumption_kwh": 71.16,
+      "peak_load": 15,
+      "daily_readings": [
+        325.2,
+        183.35,
+        394.25
+      ]
+    },
+    {
+      "_id": 11,
+      "city": "Metro2",
+      "sector": "commercial",
+      "year": 2028,
+      "consumption_kwh": 80.44,
+      "peak_load": 13,
+      "daily_readings": [
+        101.55,
+        181.62,
+        41.38
+      ]
+    },
+    {
+      "_id": 12,
+      "city": "Metro3",
+      "sector": "industrial",
+      "year": 2029,
+      "consumption_kwh": 88.45,
+      "peak_load": 12,
+      "daily_readings": [
+        96.89,
+        47.45,
+        103.38,
+        342.63,
+        496.64
+      ]
+    },
+    {
+      "_id": 13,
+      "city": "Metro1",
+      "sector": "residential",
+      "year": 2030,
+      "consumption_kwh": 91.4,
+      "peak_load": 17,
+      "daily_readings": [
+        145.42,
+        57.7,
+        240.28
+      ]
+    },
+    {
+      "_id": 14,
+      "city": "Metro2",
+      "sector": "commercial",
+      "year": 2031,
+      "consumption_kwh": 98.94,
+      "peak_load": 262,
+      "daily_readings": [
+        418.73,
+        28.76,
+        195.1,
+        425.98,
+        26.16,
+        109.57,
+        250.1
+      ]
+    },
+    {
+      "_id": 15,
+      "city": "Metro3",
+      "sector": "industrial",
+      "year": 2032,
+      "consumption_kwh": 106.36,
+      "peak_load": 341,
+      "daily_readings": [
+        134.39,
+        445.75,
+        65.15,
+        462.01,
+        466.09,
+        287.38
+      ]
+    },
+    {
+      "_id": 16,
+      "city": "Metro1",
+      "sector": "residential",
+      "year": 2033,
+      "consumption_kwh": 116.98,
+      "peak_load": 491,
+      "daily_readings": [
+        254.39,
+        305.8,
+        30.7
+      ]
+    },
+    {
+      "_id": 17,
+      "city": "Metro2",
+      "sector": "commercial",
+      "year": 2034,
+      "consumption_kwh": 121.1,
+      "peak_load": 408,
+      "daily_readings": [
+        115.51,
+        407.67,
+        231.95
+      ]
+    },
+    {
+      "_id": 18,
+      "city": "Metro3",
+      "sector": "industrial",
+      "year": 2035,
+      "consumption_kwh": 129.14,
+      "peak_load": 487,
+      "daily_readings": "rare"
+    }
+  ],
+  "alerts": [
+    {
+      "_id": 1,
+      "severity": "low",
+      "resolved": true,
+      "response_hours": 0,
+      "year": 2018
+    },
+    {
+      "_id": 2,
+      "severity": "medium",
+      "resolved": false,
+      "response_hours": 999,
+      "year": 2019
+    },
+    {
+      "_id": 3,
+      "severity": "high",
+      "resolved": true,
+      "response_hours": 0,
+      "year": 2020
+    },
+    {
+      "_id": 4,
+      "resolved": false,
+      "response_hours": 999,
+      "year": 2021
+    },
+    {
+      "_id": 5,
+      "severity": "low",
+      "resolved": false,
+      "response_hours": 46,
+      "year": 2022
+    },
+    {
+      "_id": 6,
+      "severity": "medium",
+      "resolved": false,
+      "response_hours": 6,
+      "year": 2023,
+      "_extra_noise_field": 183
+    },
+    {
+      "_id": 7,
+      "severity": "high",
+      "resolved": false,
+      "response_hours": 25,
+      "year": 2024
+    },
+    {
+      "_id": 8,
+      "severity": "critical",
+      "resolved": true,
+      "response_hours": 16,
+      "year": 2025
+    },
+    {
+      "_id": 9,
+      "severity": "low",
+      "resolved": false,
+      "response_hours": 34,
+      "year": 2026
+    },
+    {
+      "_id": 10,
+      "severity": "medium",
+      "resolved": false,
+      "response_hours": 13,
+      "year": 2027
+    },
+    {
+      "_id": 11,
+      "severity": "high",
+      "resolved": true,
+      "response_hours": 39,
+      "year": 2028
+    },
+    {
+      "_id": 12,
+      "severity": "critical",
+      "resolved": false,
+      "response_hours": 34,
+      "year": 2029
+    },
+    {
+      "_id": 13,
+      "severity": "low",
+      "resolved": true,
+      "response_hours": 2,
+      "year": 2030
+    },
+    {
+      "_id": 14,
+      "severity": "medium",
+      "resolved": false,
+      "response_hours": 33,
+      "year": 2031
+    }
+  ]
+}

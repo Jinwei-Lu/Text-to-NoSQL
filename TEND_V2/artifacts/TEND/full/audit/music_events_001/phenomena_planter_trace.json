@@ -1,0 +1,57 @@
+{
+  "db_id": "music_events_001",
+  "phenomena_seed": 55,
+  "decisions": [
+    {
+      "phenomenon_id": "temporal_trend@attendance",
+      "collection": "events",
+      "path": "attendance",
+      "document_ids": [
+        "events/1",
+        "events/2",
+        "events/3",
+        "events/4",
+        "events/5"
+      ]
+    },
+    {
+      "phenomenon_id": "outlier@ticket_revenue",
+      "collection": "events",
+      "path": "ticket_revenue",
+      "document_ids": [
+        "events/12"
+      ]
+    },
+    {
+      "phenomenon_id": "null_cluster@attendance",
+      "collection": "events",
+      "path": "attendance",
+      "document_ids": [
+        "events/1",
+        "events/2",
+        "events/3"
+      ]
+    },
+    {
+      "phenomenon_id": "cross_group_comparison@ticket_revenue",
+      "collection": "events",
+      "path": "ticket_revenue",
+      "document_ids": [
+        "events/1",
+        "events/2",
+        "events/3",
+        "events/4",
+        "events/5",
+        "events/6"
+      ]
+    },
+    {
+      "phenomenon_id": "rare_event@fan_scores",
+      "collection": "events",
+      "path": "fan_scores",
+      "document_ids": [
+        "events/12"
+      ]
+    }
+  ]
+}

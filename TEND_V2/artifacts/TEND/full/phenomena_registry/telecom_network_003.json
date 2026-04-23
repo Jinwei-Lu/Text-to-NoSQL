@@ -1,0 +1,177 @@
+{
+  "db_id": "telecom_network_003",
+  "noise_seed": 26,
+  "phenomena_seed": 64,
+  "world_signature": "sha256:dc845feb12e21a35fb4bfd5a613c56a6b46d2ea0e5b93cbe5e869e2a8d597f82",
+  "phenomena": [
+    {
+      "phenomenon_id": "temporal_trend@throughput_mbps",
+      "phenomenon_class": "temporal_trend",
+      "witness_evidence": {
+        "collection": "cells",
+        "path": "throughput_mbps",
+        "document_ids": [
+          "cells/1",
+          "cells/2",
+          "cells/3",
+          "cells/4",
+          "cells/5"
+        ],
+        "summary": {
+          "seed": 64
+        }
+      },
+      "detector_signature": "sha256:125b3a2b9d98f6fb1ae79df37015b54cccbf061aa10f4c0562bfa81ca8a3d6ab",
+      "intent_hooks": [
+        "window",
+        "trend"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "outlier@dropped_calls",
+      "phenomenon_class": "outlier",
+      "witness_evidence": {
+        "collection": "cells",
+        "path": "dropped_calls",
+        "document_ids": [
+          "cells/20"
+        ],
+        "summary": {
+          "seed": 64
+        }
+      },
+      "detector_signature": "sha256:53764ec2933c3942a515473a7bcff5b862bd284789ace30bac1eeace29cf8522",
+      "intent_hooks": [
+        "topk",
+        "anomaly"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "skewed_distribution@throughput_mbps",
+      "phenomenon_class": "skewed_distribution",
+      "witness_evidence": {
+        "collection": "cells",
+        "path": "throughput_mbps",
+        "document_ids": [
+          "cells/1",
+          "cells/2",
+          "cells/3",
+          "cells/4",
+          "cells/5",
+          "cells/6",
+          "cells/7",
+          "cells/8",
+          "cells/9",
+          "cells/10",
+          "cells/11",
+          "cells/12",
+          "cells/13",
+          "cells/14",
+          "cells/15",
+          "cells/16",
+          "cells/17",
+          "cells/18",
+          "cells/19",
+          "cells/20"
+        ],
+        "summary": {
+          "seed": 64
+        }
+      },
+      "detector_signature": "sha256:b8c5c157e6fd88dfc5feb464d285ca158127a155eccc01a3b9263f1a50b0f0af",
+      "intent_hooks": [
+        "histogram",
+        "percentile"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "correlation@throughput_mbps",
+      "phenomenon_class": "correlation",
+      "witness_evidence": {
+        "collection": "cells",
+        "path": "throughput_mbps",
+        "document_ids": [
+          "cells/1",
+          "cells/2",
+          "cells/3",
+          "cells/4",
+          "cells/5",
+          "cells/6"
+        ],
+        "summary": {
+          "seed": 64
+        }
+      },
+      "detector_signature": "sha256:9a51b50c5171d3af4c407f9c4151317253bcc71434fb9b93ab987040ed86e1b0",
+      "intent_hooks": [
+        "covariance",
+        "joint"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "rare_event@signal_strength",
+      "phenomenon_class": "rare_event",
+      "witness_evidence": {
+        "collection": "cells",
+        "path": "signal_strength",
+        "document_ids": [
+          "cells/20"
+        ],
+        "summary": {
+          "seed": 64
+        }
+      },
+      "detector_signature": "sha256:820a89c57bb158f5af0f3a5508b4fb1c9260b8fbf512eeed12f6bf3ef4b3cc23",
+      "intent_hooks": [
+        "existential"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    },
+    {
+      "phenomenon_id": "high_cardinality@tower",
+      "phenomenon_class": "high_cardinality",
+      "witness_evidence": {
+        "collection": "cells",
+        "path": "tower",
+        "document_ids": [
+          "cells/1",
+          "cells/2",
+          "cells/3",
+          "cells/4",
+          "cells/5",
+          "cells/6",
+          "cells/7",
+          "cells/8"
+        ],
+        "summary": {
+          "seed": 64
+        }
+      },
+      "detector_signature": "sha256:09cd268e367ebf0e9173d75be37eb94b7f2d22916ce240b62a3b595ba878542f",
+      "intent_hooks": [
+        "distinct",
+        "groupby"
+      ],
+      "provenance": {
+        "source": "phase_a_planter"
+      }
+    }
+  ],
+  "_meta": {
+    "schema_signature": "sha256:9b0a899d6430eca15431f4a72b94b083dc3e152cdfb8e6443cff5cc579ab7558"
+  }
+}

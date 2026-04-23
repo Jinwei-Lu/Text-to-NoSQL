@@ -1,0 +1,16 @@
+{
+  "collection_count": 1,
+  "field_count": 15,
+  "object_count": 4,
+  "array_count": 1,
+  "max_depth": 4,
+  "numeric_field_count": 6,
+  "text_field_count": 3,
+  "bool_field_count": 1,
+  "nullable_field_count": 3,
+  "sparse_field_count": 0,
+  "f_topology_active": [
+    "nested_3_deep",
+    "polymorphic_value"
+  ]
+}

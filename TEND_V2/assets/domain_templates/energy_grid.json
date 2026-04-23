@@ -1,0 +1,75 @@
+{
+  "domain_id": "energy_grid",
+  "name": "Energy Grid Monitoring",
+  "entities": [
+    {
+      "collection": "meters",
+      "cardinality": 18,
+      "fields": [
+        { "name": "city", "type": "TEXT", "values": ["Metro1", "Metro2", "Metro3"], "sparse": false },
+        { "name": "sector", "type": "TEXT", "values": ["residential", "commercial", "industrial"], "sparse": false },
+        { "name": "year", "type": "INT", "role": "time", "nullable": false },
+        { "name": "consumption_kwh", "type": "REAL", "range": [100.0, 10000.0], "nullable": true, "null_rate": 0.06 },
+        { "name": "peak_load", "type": "REAL", "range": [50.0, 5000.0], "nullable": false },
+        { "name": "daily_readings", "type": "ARRAY", "min_items": 3, "max_items": 7, "items": { "type": "REAL", "range": [10.0, 500.0], "name": "reading_item" } }
+      ]
+    },
+    {
+      "collection": "alerts",
+      "cardinality": 14,
+      "fields": [
+        { "name": "severity", "type": "TEXT", "values": ["low", "medium", "high", "critical"], "sparse": false },
+        { "name": "resolved", "type": "BOOL", "nullable": false },
+        { "name": "response_hours", "type": "INT", "range": [1, 48], "nullable": false },
+        { "name": "year", "type": "INT", "role": "time", "nullable": false }
+      ]
+    }
+  ],
+  "relations": [],
+  "f_topology_hints": {
+    "nested_objects": false,
+    "sparse_embedded": true,
+    "time_series_ready": true
+  },
+  "distribution_priors": {
+    "default_cardinality": 16
+  },
+  "phenomenon_blueprints": [
+    {
+      "phenomenon_class": "temporal_trend",
+      "collection": "meters",
+      "path": "consumption_kwh",
+      "intent_hooks": ["window", "trend"]
+    },
+    {
+      "phenomenon_class": "outlier",
+      "collection": "meters",
+      "path": "peak_load",
+      "intent_hooks": ["topk", "anomaly"]
+    },
+    {
+      "phenomenon_class": "correlation",
+      "collection": "meters",
+      "path": "consumption_kwh",
+      "intent_hooks": ["covariance", "joint"]
+    },
+    {
+      "phenomenon_class": "boundary_value",
+      "collection": "alerts",
+      "path": "response_hours",
+      "intent_hooks": ["range", "edge_case"]
+    },
+    {
+      "phenomenon_class": "rare_event",
+      "collection": "meters",
+      "path": "daily_readings",
+      "intent_hooks": ["existential"]
+    },
+    {
+      "phenomenon_class": "skewed_distribution",
+      "collection": "meters",
+      "path": "peak_load",
+      "intent_hooks": ["histogram", "percentile"]
+    }
+  ]
+}

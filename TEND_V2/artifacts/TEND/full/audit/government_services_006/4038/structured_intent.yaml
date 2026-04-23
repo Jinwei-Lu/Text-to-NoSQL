@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "db_id": "government_services_006",
+    "record_id": 4038,
+    "schema_fingerprint_hint": "departments",
+    "si_hash": "sha256:c7a31fa9f518e43cce966656ae0b702a96520c8d855c45cd4567add798d5b3cc"
+  },
+  "intent": {
+    "phenomenon_id": "outlier@budget",
+    "phenomenon_class": "outlier",
+    "persona_id": "auditor",
+    "pattern_family": "anomaly_vs_baseline",
+    "collection": "departments",
+    "metric_field": "budget",
+    "field_leaf": "budget",
+    "label_field": "name",
+    "time_field": "year",
+    "category_field": "region",
+    "array_field": null,
+    "secondary_collection": "requests",
+    "join_field": "name"
+  },
+  "output": {
+    "keys": [
+      "name",
+      "region",
+      "budget"
+    ],
+    "shape_policy": "reshape"
+  },
+  "properties": {
+    "threshold": 70,
+    "top_k": 3,
+    "sort_direction": -1,
+    "window_size": 3,
+    "baseline_multiplier": 1.25,
+    "default_value": 0
+  },
+  "noise_policies": {
+    "applied_layers": [
+      "literal",
+      "semantic",
+      "pollution"
+    ]
+  },
+  "nosql_nativeness": {
+    "level": "L3",
+    "operator_family": "anomaly_vs_baseline"
+  },
+  "canonical_form_set": {
+    "must_contain": [
+      "$match",
+      "$setWindowFields"
+    ],
+    "must_not_contain": [],
+    "must_contain_at_root": [
+      "$match",
+      "$project",
+      "$setWindowFields"
+    ],
+    "must_not_contain_at_root": [],
+    "known_variants": [
+      "db.departments.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$budget\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$budget\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, name: 1, budget: \"$budget\", moving_avg: 1 } }])"
+    ]
+  }
+}

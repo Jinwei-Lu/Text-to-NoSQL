@@ -1,0 +1,15 @@
+{
+  "must_contain": [
+    "$ifNull",
+    "$project"
+  ],
+  "must_not_contain": [],
+  "must_contain_at_root": [
+    "$project",
+    "$sort"
+  ],
+  "must_not_contain_at_root": [],
+  "known_variants": [
+    "db.products.aggregate([ { $project: { _id: 0, name: 1, value: { $ifNull: [\"$stock\", 0] } } }, { $sort: { value: -1 } }])"
+  ]
+}

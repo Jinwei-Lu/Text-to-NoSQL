@@ -1,0 +1,14 @@
+{
+  "pattern_family": "existential_quantifier",
+  "primary_operator": "$match",
+  "must_contain": [
+    "$anyElementTrue",
+    "$expr",
+    "$match"
+  ],
+  "must_contain_at_root": [
+    "$match",
+    "$project"
+  ],
+  "query": "db.meters.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$daily_readings\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, city: 1, daily_readings: 1 } }])"
+}

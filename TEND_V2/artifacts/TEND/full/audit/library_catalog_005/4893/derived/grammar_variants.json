@@ -1,0 +1,4 @@
+[
+  "db.books.aggregate([ { $project: { _id: 0, title: 1, value: { $ifNull: [\"$rating\", 0] } } }, { $sort: { value: -1 } }])",
+  "db.books.aggregate([ { $match: {} }, { $project: { _id: 0, title: 1, value: { $ifNull: [\"$rating\", 0] } } }, { $sort: { value: -1 } }])"
+]

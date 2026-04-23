@@ -1,0 +1,4 @@
+[
+  "db.cells.aggregate([ { $match: {} }, { $group: { _id: \"$tower\", total_value: { $sum: \"$throughput_mbps\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, tower: \"$_id\", total_value: 1 } }])",
+  "db.cells.aggregate([ { $group: { _id: \"$tower\", total_value: { $sum: \"$throughput_mbps\" } } }, { $sort: { total_value: -1 } }, { $limit: 3 }, { $project: { _id: 0, tower: \"$_id\", total_value: 1 } }])"
+]

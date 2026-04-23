@@ -1,0 +1,10 @@
+[
+  {
+    "mutation_id": "wrong_default",
+    "query": "db.books.aggregate([ { $project: { _id: 0, title: 1, value: { $literal: [\"$rating\", 0] } } }, { $sort: { value: -1 } }])"
+  },
+  {
+    "mutation_id": "reverse_sort",
+    "query": "db.books.aggregate([ { $project: { _id: 0, title: 1, value: { $ifNull: [\"$rating\", 0] } } }, { $sort: { value: 1 } }])"
+  }
+]

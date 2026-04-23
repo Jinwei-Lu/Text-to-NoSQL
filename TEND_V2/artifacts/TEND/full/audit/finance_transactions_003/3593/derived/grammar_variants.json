@@ -1,0 +1,4 @@
+[
+  "db.transactions.aggregate([ { $match: {} }, { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])",
+  "db.transactions.aggregate([ { $group: { _id: \"$status\", p50: { $percentile: { input: \"$amount\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$amount\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, status: \"$_id\", p50: 1, p95: 1 } }])"
+]

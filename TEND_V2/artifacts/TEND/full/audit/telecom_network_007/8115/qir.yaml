@@ -1,0 +1,24 @@
+{
+  "pattern_family": "universal_quantifier",
+  "primary_operator": "$allElementsTrue",
+  "input_shape": {
+    "collections": [
+      "cells"
+    ]
+  },
+  "output_shape": {
+    "keys": [
+      "tower",
+      "region",
+      "signal_strength"
+    ],
+    "shape_policy": "preserve"
+  },
+  "referenced_fields": [
+    "tower",
+    "signal_strength",
+    "region",
+    "year",
+    "signal_strength"
+  ]
+}

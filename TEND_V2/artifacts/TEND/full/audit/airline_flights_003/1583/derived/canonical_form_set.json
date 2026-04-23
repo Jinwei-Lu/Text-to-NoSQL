@@ -1,0 +1,15 @@
+{
+  "must_contain": [
+    "$count",
+    "$match"
+  ],
+  "must_not_contain": [],
+  "must_contain_at_root": [
+    "$count",
+    "$match"
+  ],
+  "must_not_contain_at_root": [],
+  "known_variants": [
+    "db.flights.aggregate([ { $match: { \"delay_minutes\": { $gt: 70 } } }, { $count: \"total\" }])"
+  ]
+}

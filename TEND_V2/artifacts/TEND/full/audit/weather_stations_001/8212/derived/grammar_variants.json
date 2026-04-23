@@ -1,0 +1,4 @@
+[
+  "db.readings.aggregate([ { $setWindowFields: { sortBy: { \"month\": 1 }, output: { running_total: { $sum: \"$temperature\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, station: 1, temperature: \"$temperature\", running_total: 1 } }])",
+  "db.readings.aggregate([ { $match: {} }, { $setWindowFields: { sortBy: { \"month\": 1 }, output: { running_total: { $sum: \"$temperature\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, station: 1, temperature: \"$temperature\", running_total: 1 } }])"
+]
