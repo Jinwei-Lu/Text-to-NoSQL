@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tend.dev/schemas/leaderboard.schema.json",
-  "title": "TEND v2-Agent Leaderboard Submission",
+  "title": "TEND Leaderboard Submission",
   "description": "Official leaderboard envelope for a solver evaluation run on TEND test.json.",
   "type": "object",
   "additionalProperties": false,
@@ -199,7 +199,6 @@
         "evaluation_gate_digest",
         "panel_manifest_digest",
         "spider_db_catalog_digest",
-        "dual_bridge_defeat_summary",
         "diagnostics_summary"
       ],
       "properties": {
@@ -219,15 +218,6 @@
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"
         },
-        "dual_bridge_defeat_summary": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["sql_bridge_pass_rate", "template_bridge_pass_rate"],
-          "properties": {
-            "sql_bridge_pass_rate": { "type": "number", "minimum": 0, "maximum": 1 },
-            "template_bridge_pass_rate": { "type": "number", "minimum": 0, "maximum": 1 }
-          }
-        },
         "diagnostics_summary": {
           "type": "object",
           "additionalProperties": false,
@@ -235,13 +225,27 @@
             "parse_error_count",
             "timeout_hit_count",
             "oom_hit_count",
-            "forbidden_op_hit_count"
+            "forbidden_op_hit_count",
+            "functional_sql_solvable_rate",
+            "structural_sql_solvable_rate"
           ],
           "properties": {
             "parse_error_count": { "type": "integer", "minimum": 0 },
             "timeout_hit_count": { "type": "integer", "minimum": 0 },
             "oom_hit_count": { "type": "integer", "minimum": 0 },
-            "forbidden_op_hit_count": { "type": "integer", "minimum": 0 }
+            "forbidden_op_hit_count": { "type": "integer", "minimum": 0 },
+            "functional_sql_solvable_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Observation-only share of test records with NNC functional_sql_solvable=true (SQL-bridge EX=1)."
+            },
+            "structural_sql_solvable_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Observation-only share of test records with NNC structural_sql_solvable=true (SQL-bridge EX=1 ∧ QIM=1)."
+            }
           }
         }
       }

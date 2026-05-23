@@ -37,9 +37,6 @@
     "evaluation_gate_digest": "sha256:bad",
     "panel_manifest_digest": "sha256:bad",
     "spider_db_catalog_digest": "sha256:bad",
-    "dual_bridge_defeat_summary": {
-      "sql_bridge_pass_rate": 0.04
-    },
     "diagnostics_summary": {
       "parse_error_count": 128
     }

@@ -55,3 +55,10 @@ design_constraints:
   - Embed cities[] under country to avoid $lookup on AP01 path.
   - Preserve Continent and Name on country root for continent filters.
   - Population nullability must be handled in aggregate denominators.
+scenario_summary: >
+  World geography domain: countries span continents and contain many cities with
+  population figures; language usage is tracked per country. Typical business questions
+  include filtering countries by continent, counting or thresholding cities by
+  population, computing shares of large cities within a country, and comparing
+  official language percentages. Entity relationships: country → embedded cities;
+  country → language usage records.

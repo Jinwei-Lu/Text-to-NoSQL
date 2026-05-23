@@ -76,3 +76,10 @@ design_constraints:
   - Embed courses[] array from Student_Course_Registrations for cardinality filters.
   - Embed assessments[] with H1 __variants for type-conditional score paths.
   - Preserve student_id as document _id for direct lookup.
+scenario_summary: >
+  Higher-education student administration domain: students register for courses, attend
+  sessions, and complete assessments of varying formats. Typical business questions include
+  listing students enrolled in multiple courses, projecting student names and demographics,
+  comparing assessment outcomes across written oral and practical formats, and ranking
+  students by normalized composite scores. Entity relationships: student → course registrations
+  → attendance records; student → candidate → polymorphic assessment outcomes.

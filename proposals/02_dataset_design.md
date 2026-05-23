@@ -1,6 +1,6 @@
-# TEND §02 · Dataset Design (v2-Agent)
+# TEND §02 · Dataset Design
 
-> 本文件是 TEND v2-Agent **发布物 (released artifacts)** 的单一真源 (Single Source of Truth)。
+> 本文件是 TEND **发布物 (released artifacts)** 的单一真源 (Single Source of Truth)。
 > 它定义：哪些文件存在、每条 record 的字段契约、库级资产的 JSON 格式、train/test 切分规则、六轴覆盖配额。
 > 它**不定义**：任务签名 ([01](./01_task_definition.md))、Spider 锚定 DataWorld 合成 ([03](./03_spider_anchored_dataworld.md))、Agent 查询构造 ([04](./04_agent_framework.md))、评测协议 ([05](./05_evaluation_methodology.md))、解法侧 ([06](./06_solution_design.md))。
 
@@ -10,13 +10,13 @@
 
 ## TL;DR
 
-TEND v2-Agent 的发布物由 **主集 (Tier-1)** 与 **Audit 子树 (Tier-2)** 两层构成。主集包含 `train.json`、`test.json`、`TEND.json` 三条 record 数组，以及 per-db 库级资产（`mongodb_schema/`、`mongodb_data/`、`agent_design_rationale/`）和全局 `spider_db_catalog.json`。任何合规 solver 仅读取 Tier-1 即可完成 [05](./05_evaluation_methodology.md) 规定的全部评测；`audit/` 仅供研究者复现与诊断，缺失不构成数据集不完整。
+TEND 的发布物由 **主集 (Tier-1)** 与 **Audit 子树 (Tier-2)** 两层构成。主集包含 `train.json`、`test.json`、`TEND.json` 三条 record 数组，以及 per-db 库级资产（`mongodb_schema/`、`mongodb_data/`、`agent_design_rationale/`）和全局 `spider_db_catalog.json`。任何合规 solver 仅读取 Tier-1 即可完成 [05](./05_evaluation_methodology.md) 规定的全部评测；`audit/` 仅供研究者复现与诊断，缺失不构成数据集不完整。
 
-每条 record 携带 **5 项 gold 必填字段**：`record_id`、`db_id`、`nl_queries`（canonical + colloquial 二联 NLQ）、`MQL`（代表实例）、`canonical_form_set`（四元组等价类指纹）。此外每条已发布 record 必须携带扁平元数据 `difficulty`（L0–L4）、`shape_policy`、`world_signature`。Gold 判定沿用 [01](./01_task_definition.md) 的 EX 双条件：`AST_check(q_p, canonical_form_set) = pass` 且 `NormExec(q_p, D) ≡_rec NormExec(MQL, D)`。可选 `_ref` 字段指向 audit 工件；缺失时必须**省略键**，禁止 `null` 或空字符串。
+每条 record 携带 **5 项 gold 必填字段**：`record_id`、`db_id`、`nl_queries`（canonical + colloquial 二联 NLQ）、`MQL`（代表实例）、`canonical_form_set`（四元组等价类指纹）。此外每条已发布 record 必须携带扁平元数据 `difficulty`（L0–L4）、`sql_infeasibility_class`、`shape_policy`、`world_signature`。Gold 判定沿用 [01](./01_task_definition.md) 的 EX 双条件：`AST_check(q_p, canonical_form_set) = pass` 且 `NormExec(q_p, D) ≡_rec NormExec(MQL, D)`。可选 `_ref` 字段指向 audit 工件；缺失时必须**省略键**，禁止 `null` 或空字符串。
 
-数据源为 **Spider 1.0**（约 200 个 SQLite DB），由 WP/SRA/SC/DM/QRA/NNC/RA 七 Agent 流水线产出 record，不再使用 v2-original 的 105 份手写 domain template 或 Intent Template Lattice。切分采用 **cross-domain holdout**：train 与 test 的 Spider `domain_id` 集合不相交；同一 `domain_id` 下的全部 `db_id` 及其 record 整体进入 train 或 test，禁止跨集拆分单库。硬约束 **L4 ≥ 15%**（按 test record 计数）：test 集中 `difficulty = L4` 的比例不得低于 0.15，防止 benchmark 退化为 SQL 可直译题。
+数据源为 **Spider 1.0**（约 200 个 SQLite DB），作为 **数据 + 场景源** 锚定 Phase A；Phase B 由 `QPS → MS → MUT → PV → NLP → RTV → NNC → RA` 八 Agent 流水线逆向构造 NL–MQL record，**不以 Spider NL/SQL 为查询 oracle**。切分采用 **cross-domain holdout**：train 与 test 的 Spider `domain_id` 集合不相交；同一 `domain_id` 下的全部 `db_id` 及其 record 整体进入 train 或 test，禁止跨集拆分单库。
 
-覆盖目标从 v2-original 的 9+1 轴 min/max 双配额简化为 **六轴 + 单 max 配额**：`domain`（Spider 域）、`join_depth`（$lookup 深度）、`aggregation_depth`（管线阶段深度桶）、`schema_pattern`（SRA 应用的主 design pattern）、`schema_flex`（SRA Stage B 异构化类型）、`difficulty_tier`（L0–L4）。Spider 自带 138 域多样性，配额仅设上界以防高频 cell 饱和，不设 min 下界强拉（L4 比例与 schema_flex 比例除外，作为全局硬约束单独监控）。
+覆盖目标采用 **六轴 + min/max 双配额**：`domain`（Spider 域）、`join_depth`（$lookup 深度）、`aggregation_depth`（管线阶段深度桶）、`schema_pattern`（SRA 应用的主 design pattern）、`schema_flex`（SRA Stage B 异构化类型）、`difficulty_tier`（L0–L4）。Coverage Controller 对每个 (轴, cell) 维护 `{min_quota, max_quota}`，欠填 cell 强拉、饱和 cell 拒绝。发布硬约束单独监控：**test L4 ≥ 30%**、**test schema_flex ≠ none ≥ 25%**（Phase A flex 供给不足时 supply-relax）、**test L0 ≤ 5%**、**test structural_schema_flex ≥ 20%**（同步 supply-relax）。
 
 Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6 卷字节级一致（见 [CANONICAL_ANCHOR.md](./_meta/CANONICAL_ANCHOR.md) 与本卷 Part II）。
 
@@ -33,7 +33,7 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 | `mongodb_schema/<db_id>.json` | 每选中 DB 1 份 | MongoDB 结构声明 |
 | `mongodb_data/<db_id>.json` | 每选中 DB 1 份 | 冻结 witness 数据 |
 | `agent_design_rationale/<db_id>.yaml` | 每选中 DB 1 份 | SRA 设计决策与 evidence chain |
-| `spider_db_catalog.json` | 1 | Spider DB 清单、域映射、入选/拒绝原因 |
+| `spider_db_catalog.json` | 1 | Spider DB 清单、域映射、flex 供给标记、入选/拒绝原因 |
 
 **Tier-1 与 Audit 硬边界**
 
@@ -73,9 +73,20 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 | 字段 | 类型 | 取值域 |
 |---|---|---|
 | `difficulty` | string | `L0` / `L1` / `L2` / `L3` / `L4`（NNC 赋值；L4 = NoSQL-native / translation-lossy） |
+| `sql_infeasibility_class` | string | `feasible` / `semantic` / `performative` / `structural_pipeline` / `structural_schema_flex`（NNC 赋值；与 difficulty / schema_flex 相容，见 [04 §04-3](./04_agent_framework.md#04-3)） |
 | `shape_policy` | string | `preserve` / `reshape` / `reduce` |
 | `world_signature` | string | `sha256:<64 hex>`，钉住 `mongodb_data/<db_id>.json` |
 | `schema_flex` | string | `none` / `polymorphic` / `attribute_bag` / `schema_versioning` / `dynamic_key`；H1–H4 触发时必填，否则省略或 `none` |
+
+**`sql_infeasibility_class` 与 difficulty 相容性（摘要）**
+
+| 类别 | 典型 difficulty | 说明 |
+|---|---|---|
+| `feasible` | L0–L1 | SQL 完全可直译 |
+| `semantic` | L2–L3 | null/missing 语义 lossy |
+| `performative` | L3–L4 | SQL 需 CTE/window 拼装，性能/结构 lossy |
+| `structural_pipeline` | L4 | 管线结构 SQL 不可同步表达（如 `$facet + $setWindowFields`） |
+| `structural_schema_flex` | L4 | schema 形状 SQL 不可表达；`schema_flex != none` 时 NNC 必须标注此类 |
 
 #### 02-2-3 可选 `_ref` 字段
 
@@ -85,9 +96,10 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 |---|---|
 | `agent_design_rationale_ref` | SRA 输出 YAML |
 | `mutations_ref` | 同义/等价改写枚举 JSON |
-| `qra_trace_ref` | QRA 双轨生成轨迹 |
-| `nnc_verdict_ref` | NNC L 级与 dual-bridge 裁决 |
-| `dual_bridge_defeat_ref` | SQL/Template bridge 失败证据 |
+| `_diagnostic_bridge_ref` | NNC SQL/Template bridge 诊断 verdict（非发布门） |
+| `property_verification_ref` | PV 性质验证与 probe 结果 |
+| `round_trip_ref` | RTV NL→MQL 往返闭包轨迹 |
+| `nnc_verdict_ref` | NNC L 级与 graduated gate 裁决 |
 | `ra_audit_ref` | RA realism 审计 |
 | `migration_log_ref` | DM 行级迁移日志 |
 
@@ -97,13 +109,13 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 |---|---|---|
 | **C1** | 可选字段缺失以省略 key 表达 | 发布前校验拒绝 |
 | **C2** | `nl_queries` 必含且仅含 `canonical` + `colloquial` | 发布前校验拒绝 |
-| **C3** | `canonical` 为 L1 canonical（最显式、schema-naive） | QRA 生成时保证 |
+| **C3** | `canonical` 为 L1 canonical（最显式、schema-naive） | NLP + RTV 生成时保证 |
 | **C4** | `db_id` 必须在 `mongodb_schema/` + `mongodb_data/` + `agent_design_rationale/` 三目录同时存在 | 3-way 文件名校验 |
 | **C5** | `MQL` 可执行且 AST 一致 | 发布前执行 + AST 双通 |
 | **C6** | `canonical_form_set.must_contain_at_root` 非空 | 发布前校验拒绝 |
-| **C7** | `difficulty` 与 `canonical_form_set` / MQL 算子相容 | NNC 三元校验 |
+| **C7** | `difficulty`、`sql_infeasibility_class` 与 `canonical_form_set` / MQL 算子相容 | NNC 校验 |
 | **C8** | 存在的 `_ref` 路径必须可解引 | 校验器对存在字段解引 |
-| **C9** | `schema_flex != none` 时，`mongodb_schema/<db_id>.json` 对应 collection 须含匹配 `__variants`；`schema_flex = none` 时 record 不得声明非 none 值 | 3-way schema/record 一致性 |
+| **C9** | `schema_flex != none` 时，`mongodb_schema/<db_id>.json` 对应 collection 须含匹配 `__variants`；`schema_flex = none` 时 record 不得声明非 none 值；`sql_infeasibility_class = structural_schema_flex` 时 `schema_flex != none` 且 `difficulty = L4` | 3-way schema/record 一致性 |
 
 机器可读 schema：`schemas/record.schema.json`。
 
@@ -122,7 +134,7 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 | **SP4 db_id disjoint** | `set(train.db_id) ∩ set(test.db_id) = ∅`（SP3 推论） |
 | **SP5 无 audit 泄漏** | 评测时 solver 仅可访问 test 侧 `db_id` 对应库级资产 |
 
-与 v2-original 允许 ≤15% domain 跨侧不同，v2-Agent **禁止** domain 跨 train/test，以保证域外泛化评测的可解释性。
+**禁止** domain 跨 train/test，以保证域外泛化评测的可解释性。
 
 #### 02-3-2 比例目标
 
@@ -137,14 +149,14 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 ---
 
 <a id="02-4"></a>
-### 02-4 六轴覆盖与 L4 / schema_flex 硬约束
+### 02-4 六轴覆盖与 test 硬约束
 
 #### 02-4-1 六轴定义
 
 | 轴 ID | 观测字段 | 取值域（示例） | 来源 |
 |---|---|---|---|
 | `domain` | `domain_id`（record 或 catalog） | Spider ~138 domain | `spider_db_catalog.json` |
-| `join_depth` | `join_depth` | 0, 1, 2, 3+ | QRA 代表 MQL 统计 |
+| `join_depth` | `join_depth` | 0, 1, 2, 3+ | MS 代表 MQL 统计 |
 | `aggregation_depth` | `aggregation_depth` | `shallow` / `medium` / `deep` | 根管线 stage 数分桶 |
 | `schema_pattern` | `schema_pattern` | embed, extended_reference, polymorphic, bucket, computed, mixed, … | SRA `patterns_applied[0]` |
 | `schema_flex` | `schema_flex` | `none`, `polymorphic`, `attribute_bag`, `schema_versioning`, `dynamic_key` | SRA Stage B H1–H4 |
@@ -158,16 +170,17 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 | `medium` | 5–9 |
 | `deep` | ≥ 10 |
 
-#### 02-4-2 单 max 配额协议
+#### 02-4-2 min/max 双配额协议
 
-对每个 (轴, cell) 维护 `count[cell]` 与 `max_quota[cell]`：
+Coverage Controller 对每个 (轴, cell) 维护 `count[cell]` 与 `{min_quota[cell], max_quota[cell]}`：
 
-| 条件 | 动作 |
-|---|---|
-| `count[cell] < max_quota[cell]` | **Accept** — 接收候选 record |
-| `count[cell] ≥ max_quota[cell]` | **Reject** — 该 cell 饱和，拒绝新候选 |
+| 条件 | 动作 | 语义 |
+|---|---|---|
+| `count[cell] < min_quota[cell]` | **Strong-pull accept** | 无条件接收候选，直至到达 min |
+| `min_quota[cell] ≤ count[cell] < max_quota[cell]` 且 `ΔF ≥ ε` | **Marginal accept** | 仅当带来边际覆盖增益 ΔF 超过 ε 才接收 |
+| `count[cell] ≥ max_quota[cell]` | **Reject** | 该 cell 饱和，拒绝新候选 |
 
-不设 min 下界强拉（Spider 域多样性提供自然覆盖）；发布前仅审计分布是否过度坍缩。
+QPS 按 `max(0, min_quota[cell] - count[cell])` 加权采样欠填 cell。若 cell 在当前 `db_id` 上不可行（例如需要 `__variants` 但 Phase A 未触发 H1–H4），标记 `supply_constrained` 并由 Coverage Controller 将 effective min 放宽为 `min(target_min, supply_ceiling[cell])`。
 
 <a id="02-4-3"></a>
 #### 02-4-3 衍生硬约束
@@ -178,11 +191,19 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 | **H2** | train/test `domain_id` 集合不相交 | cross-domain holdout |
 | **H3** | train/test `db_id` 集合不相交 | db 级隔离 |
 | **H4** | 三库级 per-db 目录文件基名集合相等 | schema/data/rationale 3-way |
-| **H5** | `count(test, difficulty = L4) / |test| ≥ 0.15` | **L4 硬约束** |
+| **H5** | `count(test, difficulty = L4) / |test| ≥ 0.30` | **L4 硬约束** |
 | **H6** | 每个六轴 cell 在 test 侧 `count ≤ max_quota` | 覆盖上界 |
-| **H7** | `count(test, schema_flex != "none") / |test| ≥ 0.08` | **schema_flex 硬约束** |
+| **H7** | `count(test, schema_flex != "none") / |test| ≥ h7_min`；默认 `h7_min = 0.25`；当 Phase A 选中库 `flex_eligible` 比例 < 30% 时 **supply-relax**：`h7_min = max(0.15, supply_ceiling)` | **schema_flex 硬约束** |
+| **H8** | `count(test, difficulty = L0) / |test| ≤ 0.05` | **L0 上界硬约束** |
+| **H9** | `count(test, sql_infeasibility_class = "structural_schema_flex") / |test| ≥ h9_min`；默认 `h9_min = 0.20`；当 Phase A 选中库 `flex_eligible` 比例 < 30% 时 **supply-relax**：`h9_min = max(0.10, supply_ceiling × 0.8)` | **structural_schema_flex 硬约束** |
 
-违反 H1–H7 的发布候选将被拒绝。
+**supply-relax 定义**
+
+- `flex_eligible_db_ratio = |{db ∈ selected : flex_eligible}| / |selected|`，来自 `spider_db_catalog.json`（见 §02-II-2）。
+- `supply_ceiling` = 在当前 Phase A 库存下，test 侧 `schema_flex != none`（或 `structural_schema_flex`）的**可达比例上界**，由 Coverage Controller 在切分前估算。
+- 当 `flex_eligible_db_ratio < 0.30` 时，H7/H9 阈值自动降为上表 supply-relax 公式；`audit/_global/coverage_report.json` 必须记录 `supply_relax_active: true` 与实际采用的 `h7_min` / `h9_min`。
+
+违反 H1–H9 的发布候选将被拒绝。
 
 ---
 
@@ -194,7 +215,7 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 | 任务签名、NormExec、≡_rec、6 禁用算子 | [01](./01_task_definition.md) |
 | gold-as-class 语义 | [01 §3](./01_task_definition.md) |
 | WP/SRA/SC/DM Agent 契约 | [03](./03_spider_anchored_dataworld.md) |
-| QRA/NNC/RA、`canonical_form_set` 派生 | [04](./04_agent_framework.md) |
+| QPS/MS/MUT/PV/NLP/RTV/NNC/RA、`canonical_form_set` 派生 | [04](./04_agent_framework.md) |
 | 7 评测指标、EX 判定 | [05](./05_evaluation_methodology.md) |
 | SMART 求解侧边界 | [06](./06_solution_design.md) |
 
@@ -202,9 +223,9 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 
 1. C1–C9 record 级强约束全通
 2. schema / data / rationale 三方文件名一致
-3. H1–H7 切分与覆盖硬约束全通（含 L4 ≥ 15%、schema_flex ≥ 8%）
+3. H1–H9 切分与覆盖硬约束全通（含 L4 ≥ 30%、L0 ≤ 5%、schema_flex / structural_schema_flex 阈值及 supply-relax 状态）
 4. canonical anchor `orchestra/1001` 与 [CANONICAL_ANCHOR.md](./_meta/CANONICAL_ANCHOR.md) 逐字节一致
-5. 全部 record 通过 `schemas/record.schema.json` 校验（含 C9 schema_flex / `__variants` 一致性）
+5. 全部 record 通过 `schemas/record.schema.json` 校验（含 C9 schema_flex / `__variants` / `sql_infeasibility_class` 一致性）
 
 ---
 
@@ -237,9 +258,12 @@ TEND/
     │   ├── coverage_report.json
     │   └── rejected/
     └── <db_id>/<record_id>/
-        ├── qra_trace.json
+        ├── qps_trace.json
+        ├── synthesis_trace.json
+        ├── property_verification.json
+        ├── round_trip_verification.json
         ├── nnc_verdict.json
-        ├── dual_bridge_defeat.json
+        ├── diagnostic_bridge.json
         ├── mutations.json
         └── migration_log.json
 ```
@@ -252,6 +276,7 @@ TEND/
 
 ---
 
+<a id="02-ii-2"></a>
 ### 02-II-2 Spider DB 选择脚本规范
 
 **脚本路径（建议）**：`proposals/scripts/select_spider_dbs.py`
@@ -263,6 +288,7 @@ TEND/
 | `--spider-root` | path | Spider 1.0 根目录（含 `database/` 与 `train_spider.json`） |
 | `--min-tables` | int | 默认 2 |
 | `--min-queries` | int | 默认 10 |
+| `--min-flex-db-ratio` | float | 默认 0.30；选中库集合中 `flex_eligible: true` 的最低比例目标（供 SC pre-audit 与 H7/H9 supply-relax 判定） |
 | `--output` | path | 默认 `spider_db_catalog.json` |
 
 **处理步骤**
@@ -270,9 +296,25 @@ TEND/
 1. 扫描 `database/<db_id>/<db_id>.sqlite`，跳过无法打开的库
 2. 读取 `tables.json` / `columns.json` 统计 `table_count`；读取 `train_spider.json` + `dev.json` 统计每库 `query_count`
 3. 从 Spider 官方 domain 映射加载 `domain_id`（若无则回退 `db_id` 前缀聚类）
-4. 过滤：`table_count ≥ min_tables` AND `query_count ≥ min_queries` AND 每表至少 1 行数据
-5. 写入 `spider_db_catalog.json`，每条记录含 `selected: true/false` 与 `selection_reason` / `reject_reason`
-6. 输出 JSON 必须通过 `schemas/library.schema.json` 中 `spider_db_catalog` 定义
+4. 对每个候选库运行 **flex eligibility 预判**（与 [03](./03_spider_anchored_dataworld.md) SC pre-audit 同规则）：至少一条 H1–H4 触发证据 → `flex_eligible: true`，否则 `false`
+5. 过滤：`table_count ≥ min_tables` AND `query_count ≥ min_queries` AND 每表至少 1 行数据
+6. 写入 `spider_db_catalog.json`，每条记录含 `selected: true/false`、`flex_eligible: bool`、`selection_reason` / `reject_reason`
+7. 输出 JSON 必须通过 `schemas/library.schema.json` 中 `spider_db_catalog` 定义
+8. 若 `|{selected : flex_eligible}| / |selected| < --min-flex-db-ratio`，脚本 **warn**（不 fail-fast）；Coverage Controller 在发布切分时对 H7/H9 启用 supply-relax
+
+**catalog 条目示例字段**
+
+```json
+{
+  "db_id": "student_assessment",
+  "domain_id": "education",
+  "table_count": 5,
+  "query_count": 42,
+  "flex_eligible": true,
+  "selected": true,
+  "selection_reason": "meets min_tables/min_queries; H1 polymorphic trigger"
+}
+```
 
 **边界条件（至少 3 条）**
 
@@ -294,6 +336,21 @@ function cross_domain_split(catalog, records, *, test_ratio=0.20, seed=42):
     records: list of record dicts (pre-split pool)
     """
     rng = random.Random(seed)
+
+    # 0. Phase A flex supply (for H7/H9 supply-relax)
+    selected = [e for e in catalog["databases"] if e["selected"]]
+    flex_eligible_db_ratio = (
+        sum(1 for e in selected if e.get("flex_eligible", False)) / max(len(selected), 1)
+    )
+    supply_relax = flex_eligible_db_ratio < 0.30
+    supply_ceiling = estimate_schema_flex_ceiling(records, catalog)  # pre-split upper bound
+
+    if supply_relax:
+        h7_min = max(0.15, supply_ceiling)
+        h9_min = max(0.10, supply_ceiling * 0.8)
+    else:
+        h7_min = 0.25
+        h9_min = 0.20
 
     # 1. Group db_ids by domain
     domain_to_dbs = defaultdict(set)
@@ -332,24 +389,51 @@ function cross_domain_split(catalog, records, *, test_ratio=0.20, seed=42):
         else:
             train.append(r)
 
-    # 5. Hard constraint: L4 ratio in test
-    l4_ratio = sum(1 for r in test if r["difficulty"] == "L4") / max(len(test), 1)
-    if l4_ratio < 0.15:
-        raise SplitError(f"test L4 ratio {l4_ratio:.3f} < 0.15")
+    n_test = max(len(test), 1)
 
-    # 6. Hard constraint: schema_flex ratio in test
-    flex_ratio = sum(1 for r in test if r.get("schema_flex", "none") != "none") / max(len(test), 1)
-    if flex_ratio < 0.08:
-        raise SplitError(f"test schema_flex ratio {flex_ratio:.3f} < 0.08")
+    # 5. Hard constraint H5: L4 ratio in test
+    l4_ratio = sum(1 for r in test if r["difficulty"] == "L4") / n_test
+    if l4_ratio < 0.30:
+        raise SplitError(f"test L4 ratio {l4_ratio:.3f} < 0.30 (H5)")
 
-    return train, test, {"train_domains": train_domains, "test_domains": test_domains}
+    # 6. Hard constraint H7: schema_flex ratio in test (supply-relax aware)
+    flex_ratio = sum(1 for r in test if r.get("schema_flex", "none") != "none") / n_test
+    if flex_ratio < h7_min:
+        raise SplitError(
+            f"test schema_flex ratio {flex_ratio:.3f} < h7_min {h7_min:.3f} (H7)"
+            + (" [supply-relax active]" if supply_relax else "")
+        )
+
+    # 7. Hard constraint H8: L0 upper bound in test
+    l0_ratio = sum(1 for r in test if r["difficulty"] == "L0") / n_test
+    if l0_ratio > 0.05:
+        raise SplitError(f"test L0 ratio {l0_ratio:.3f} > 0.05 (H8)")
+
+    # 8. Hard constraint H9: structural_schema_flex ratio in test (supply-relax aware)
+    ssf_ratio = sum(
+        1 for r in test if r.get("sql_infeasibility_class") == "structural_schema_flex"
+    ) / n_test
+    if ssf_ratio < h9_min:
+        raise SplitError(
+            f"test structural_schema_flex ratio {ssf_ratio:.3f} < h9_min {h9_min:.3f} (H9)"
+            + (" [supply-relax active]" if supply_relax else "")
+        )
+
+    return train, test, {
+        "train_domains": train_domains,
+        "test_domains": test_domains,
+        "supply_relax_active": supply_relax,
+        "flex_eligible_db_ratio": flex_eligible_db_ratio,
+        "h7_min": h7_min,
+        "h9_min": h9_min,
+    }
 ```
 
 **错误处理**
 
 | 异常 | 触发条件 | 动作 |
 |---|---|---|
-| `SplitError` | test L4 < 15% 或 test schema_flex < 8% | 拒绝发布；回传 NNC 重新标注或调整 test domain 集合 |
+| `SplitError` | test 违反 H5 / H7 / H8 / H9 | 拒绝发布；回传 Coverage Controller 重采样或调整 test domain 集合 |
 | `KeyError` | record.db_id 不在 catalog | fail-fast |
 | 空 test 集 | 所有 domain 被分到 train | fail-fast |
 

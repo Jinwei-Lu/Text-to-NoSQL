@@ -1,6 +1,6 @@
-# TEND §05 · Evaluation Methodology (v2-Agent)
+# TEND §05 · Evaluation Methodology
 
-> 本卷是 TEND v2-Agent **评测层** 的单一真源 (SSoT)。给定 solver 在 test 窄可见面上产出 MQL `q_p`，评测管线将其映射为 7 比特指纹并聚合为可引用的 headline 与诊断分数。任务签名、NormExec、≡_rec、gold-as-class 定义见 [01](./01_task_definition.md)；record 字段与六轴覆盖见 [02](./02_dataset_design.md)；Agent 构造见 [04](./04_agent_framework.md)。
+> 本卷是 TEND **评测层** 的单一真源 (SSoT)。给定 solver 在 test 窄可见面上产出 MQL `q_p`，评测管线将其映射为 7 比特指纹并聚合为可引用的 headline 与诊断分数。任务签名、NormExec、≡_rec、gold-as-class 定义见 [01](./01_task_definition.md)；record 字段与六轴覆盖见 [02](./02_dataset_design.md)；Agent 构造见 [04](./04_agent_framework.md)。
 
 ---
 
@@ -8,19 +8,21 @@
 
 ## TL;DR
 
-TEND v2-Agent 评测层把每条 test record 上的 solver 预测 `q_p` 压缩为固定顺序的 7 比特指纹 `(EM, QSM, QFC, EX, EFM, EVM, QIM)`，再聚合为 per-record / per-slice / per-panel 三级报表。**Headline = EX**（Execution Accuracy）；其余六项均为诊断 proxy，不得替代 EX 排名。
+TEND 评测层把每条 test record 上的 solver 预测 `q_p` 压缩为固定顺序的 7 比特指纹 `(EM, QSM, QFC, EX, EFM, EVM, QIM)`，再聚合为 per-record / per-slice / per-panel 三级报表。**Headline = EX**（Execution Accuracy）；其余六项均为诊断 proxy，不得替代 EX 排名。
 
 **EX 双条件**（本架构核心承诺）：EX = 1 当且仅当 (a) `AST_check(q_p, C) = pass`，其中 `C = record.canonical_form_set`；且 (b) `NormExec(q_p, D) ≡_rec NormExec(q_g, D)`，其中 `q_g = record.MQL`、`D = mongodb_data/<db_id>.json` 冻结 witness。仅语义等价或仅结构合法均不足以得分。
 
 **QIM** 是 EX 的**结构半**：`QIM = 1 ⟺ Parse(q_p) ≠ ⊥ ∧ AST_check(q_p, C) = pass`。因此 **EX = 1 ⟹ QIM = 1** 为严格蕴含；`QIM = 0 ∧ EX = 1` 在本架构下不可能。QIM = 1 ∧ EX = 0 表示「结构合法但执行语义错误」，是训练改进的关键信号。
 
-其余指标（保留 v2-original 公式）：**EM** = canonical_text 相等；**QSM** = 结构树相等（stage 序列 + 算子多重集，字段/字面量屏蔽）；**QFC** = 引用字段路径集合相等；**EFM** = 结果序列等长且逐文档顶层键集合相等；**EVM** = 在 EFM = 1 前提下逐字段多重集相等，否则置 0。
+其余指标：**EM** = canonical_text 相等；**QSM** = 结构树相等（stage 序列 + 算子多重集，字段/字面量屏蔽）；**QFC** = 引用字段路径集合相等；**EFM** = 结果序列等长且逐文档顶层键集合相等；**EVM** = 在 EFM = 1 前提下逐字段多重集相等，否则置 0。
 
 **Solver 窄可见面**（test.json 单条 record）：仅可读 `nl_queries.canonical`、`db_id`、`mongodb_schema/<db_id>.json`、`mongodb_data/<db_id>.json`。显式禁止读取 `MQL`、`canonical_form_set`、`nl_queries.colloquial`（默认主评测）、一切 `_ref` / `_eval_` / `_audit_` 字段及整个 `audit/` 树。train.json 中 `MQL` 与 `canonical_form_set` 可读作监督信号。
 
 **六轴切片**（见 [02 §4](./02_dataset_design.md#02-4)）：`domain`（domain_id）、`join_depth`（0/1/2/3+）、`aggregation_depth`（shallow/medium/deep）、`schema_pattern`（SRA 主 pattern）、`schema_flex`（SRA Stage B H1–H4 触发轴）、`difficulty_tier`（L0–L4）。每轴对 7 指标分别求均值，形成 slice × metric 矩阵；主 headline 仍为全 test 等权 EX。
 
-**4-panel 报告（纯观测）**：构造期由 20 个冻结模型（small/medium/large/frontier 各 5）在每条 record 上产出 pr 四元组 `(pr_small, pr_medium, pr_large, pr_frontier)`，随 release 发布为 evaluator-only 元数据。**v2-Agent 删除 amplify 反馈闭环**——4-panel 仅用于难度形状观测、Solver-vs-Panel 对比视图与 `empirical_difficulty` 标签（由 pr_medium 分桶），不得反向修改 witness 或 record。
+**4-panel 报告（纯观测）**：构造期由 20 个冻结模型（small/medium/large/frontier 各 5）在每条 record 上产出 pr 四元组 `(pr_small, pr_medium, pr_large, pr_frontier)`，随 release 发布为 evaluator-only 元数据。4-panel 仅用于难度形状观测、Solver-vs-Panel 对比视图与 `empirical_difficulty` 标签（由 pr_medium 分桶），不得反向修改 witness 或 record。
+
+**SQL-bridge 诊断切片（纯观测）**：构造期 NNC 对每条 record 写入 `functional_sql_solvable`（SQL-bridge EX=1）与 `structural_sql_solvable`（SQL-bridge EX=1 ∧ QIM=1）。评测层对两布尔字段分别切片，形成 `functional_sql_solvable × 7 指标` 与 `structural_sql_solvable × 7 指标` 诊断矩阵，用于观测 SQL 捷径可解性分布；**不得**替代 EX headline 或放宽 gold-class。
 
 **强制披露**：任何公开引用 TEND 分数的提交须同时披露 7 指标三级聚合、六轴切片矩阵、4-panel pr 分布、构造/评测 disjointness 时间戳、环境 digest、Solver LLM 骨干清单、per-record 指纹 CSV 等 ≥12 项（见 [§05-4](#05-4)）。缺失任一项标记 `[DISCLOSURE_INCOMPLETE]`，不得汇入 official leaderboard。
 
@@ -71,7 +73,7 @@ $$
 
 **(b) 语义条件**：witness 上归一化执行后与 gold 逐记录等价。
 
-双条件堵死 shortcut：仅 (b) 允许 witness 巧合匹配的错误算子；仅 (a) 允许结构合法但累加器/过滤错误的查询。`canonical_form_set` 在构造期由 QRA/NNC 派生并扩宽，承担等价重写宽容度；评测期不可调整。
+双条件堵死 shortcut：仅 (b) 允许 witness 巧合匹配的错误算子；仅 (a) 允许结构合法但累加器/过滤错误的查询。`canonical_form_set` 在构造期由 MS 机械派生、NNC 确认；评测期不可调整。
 
 <a id="05-1-5"></a>
 #### 05-1-5 EFM (Execution Field Match)
@@ -174,7 +176,7 @@ pr 四元组 `(pr_small, pr_medium, pr_large, pr_frontier)`：每个 pr_X 为 pa
 | pr_large | 闭源旗舰对照 |
 | pr_frontier | 前沿饱和探测 |
 
-**v2-Agent 硬约束**：4-panel **仅观测**。删除 v2-original 的 amplify ≤3 轮 witness/persona 反馈。**禁止**用 panel 信号反向修改已发布 record 或 witness。报告提供 Solver EX vs Panel EX 四视图对比；`EX_ceiling`（难度加权 EX）为补充视图，不得替代 headline EX。
+**硬约束**：4-panel **仅观测**。**禁止**用 panel 信号反向修改已发布 record 或 witness。报告提供 Solver EX vs Panel EX 四视图对比；`EX_ceiling`（难度加权 EX）为补充视图，不得替代 headline EX。
 
 `empirical_difficulty` 分桶（pr_medium 主桶，跨 release 稳定）：
 
@@ -185,21 +187,32 @@ pr 四元组 `(pr_small, pr_medium, pr_large, pr_frontier)`：每个 pr_X 为 pa
 | hard | 0.2 ≤ pr_medium < 0.5 |
 | expert | pr_medium < 0.2 |
 
+<a id="05-2-5"></a>
+#### 05-2-5 SQL-bridge 诊断切片（functional / structural）
+
+构造期 NNC 对每条 record 计算 SQL-bridge 指纹并写入 evaluator-only 诊断字段（算法见 [04 §II-2](./04_agent_framework.md#04-ii-2)）：
+
+| 字段 | 定义 | 用途 |
+|---|---|---|
+| `functional_sql_solvable` | SQL-bridge 产物 EX=1 | 观测「语义可函数化到 SQL 再桥接」比例 |
+| `structural_sql_solvable` | SQL-bridge 产物 EX=1 ∧ QIM=1 | 观测「结构+语义均可 SQL 捷径」比例 |
+
+评测层对两字段分别切片，生成 `functional_sql_solvable × 7 指标` 与 `structural_sql_solvable × 7 指标` 矩阵；可与六轴、`sql_infeasibility_class`、`empirical_difficulty` 交叉。`functional_sql_solvable` 与 `structural_sql_solvable` **仅作诊断**，不参与 EX headline 或 leaderboard 排名。
+
 ---
 
 <a id="05-3"></a>
-### 05-3 三方 disjointness（构造 + 评测）
+### 05-3 构造–评测 disjointness
 
-v2-Agent 保留 panel 对偶，构造池映射为 QRA/NNC/RA：
+构造池与 panel 对偶如下：
 
 | 符号 | 名称 | 规模 |
 |---|---|---|
-| **A** | 构造 Agent LLM 池（QRA + NNC + RA） | release 钉死 |
+| **A** | 构造 Agent LLM 池 `{QPS, MS, MUT, PV, NLP, RTV, NNC, RA}` | release 钉死 |
 | **B** | 4-panel 冻结 20 模型 | 5 × 4 |
-| **C** | dual-bridge 池（SQL + Template） | 4 |
 | **F** | frontier 子集，`F ⊂ B` | 5 |
 
-硬条件：`A ∩ B = A ∩ C = B ∩ C = ∅`；评测期 solver 骨干 `S` 须满足 `S ∩ A = S ∩ B = S ∩ C = ∅`，否则 `disjointness_violation`，拒入 leaderboard（评测仍跑完并标记）。
+硬条件：`A ∩ B = ∅`；评测期 solver 骨干 `S` 须满足 `S ∩ A = S ∩ B = ∅`，否则 `disjointness_violation`，拒入 leaderboard（评测仍跑完并标记）。
 
 证据落盘：`audit/reference_panel/construction_gate.json`、`evaluation_gate.json`、`manifest_<release>.json`。
 
@@ -215,11 +228,11 @@ v2-Agent 保留 panel 对偶，构造池映射为 QRA/NNC/RA：
 | 1 | 7 指标三级聚合（per-record / per-slice / per-panel） | 7 张 CSV |
 | 2 | 六轴 slice × metric 矩阵 | 6 张 CSV 或 JSON |
 | 3 | 4-panel pr 四元组 + empirical_difficulty 分布 | per-record 4 float + enum |
-| 4 | NNC dual-bridge defeat 分布 | per-bridge 计数 |
-| 5 | QRA 双轨收敛率 + NNC L-tier 分布 | 百分比 + 直方图 |
+| 4 | `functional_sql_solvable` / `structural_sql_solvable` 诊断切片 | 2 张 slice × metric 矩阵 |
+| 5 | NNC L-tier + `sql_infeasibility_class` 分布 | 直方图 |
 | 6 | RA realism 审计通过率 | 百分比 |
 | 7 | 构造/评测 disjointness 时间戳 + manifest digest | 2 个 gate JSON |
-| 8 | Panel + bridge manifest digests | ≥4 SHA-256 |
+| 8 | Panel manifest digests | ≥4 SHA-256 |
 | 9 | `spider_db_catalog.json` digest | SHA-256 |
 | 10 | release `world_signature` 汇总 digest | SHA-256 |
 | 11 | mongosh + MongoDB server image digest | 见 [§05-II-3](#05-ii-3) |
@@ -254,7 +267,7 @@ Leaderboard 提交 JSON 须通过 `schemas/leaderboard.schema.json`（见 Part I
 |---|---|
 | NormExec / ≡_rec / 六禁算子 | [01](./01_task_definition.md) |
 | record 字段 / 六轴 / split | [02](./02_dataset_design.md) |
-| QRA / NNC / RA / mutations | [04](./04_agent_framework.md) |
+| Phase B Agent 框架 / NNC / RA / mutations | [04](./04_agent_framework.md) |
 | SMART solver / solver 边界 | [06](./06_solution_design.md) |
 
 **收束**：给定 `(q_p, q_g, D, C)`，本卷压缩为 7 比特指纹并聚合为 EX headline；更深语义在其它卷。

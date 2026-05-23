@@ -13,6 +13,7 @@
     "must_not_contain_at_root": []
   },
   "difficulty": "L4",
+  "sql_infeasibility_class": "structural_schema_flex",
   "shape_policy": "reshape",
   "schema_flex": "dynamic_key",
   "world_signature": "sha256:e81c7a2b3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcd",
@@ -21,5 +22,8 @@
   "aggregation_depth": "medium",
   "schema_pattern": "embed",
   "agent_design_rationale_ref": "fixtures/cre_doc_tracking_db/sra.yaml",
-  "mutations_ref": "fixtures/cre_doc_tracking_db/mutations.json"
+  "mutations_ref": "fixtures/cre_doc_tracking_db/mutations.json",
+  "_diagnostic_bridge_ref": "fixtures/cre_doc_tracking_db/nnc.yaml",
+  "property_verification_ref": "fixtures/cre_doc_tracking_db/pv.yaml",
+  "round_trip_ref": "fixtures/cre_doc_tracking_db/rtv.yaml"
 }

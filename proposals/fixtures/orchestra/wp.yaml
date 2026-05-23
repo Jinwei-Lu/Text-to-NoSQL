@@ -55,3 +55,10 @@ design_constraints:
   - Preserve Attendance on the performance access path; required for window and median queries.
   - Support per-conductor partitioning of performance sequences (Performance_ID ordering).
   - Name field accessed for projection but may be sparse in source data.
+scenario_summary: >
+  Classical performing-arts domain: conductors lead orchestras through performance seasons;
+  audience attendance is tracked per show. Typical business questions include comparing a
+  conductor's recent attendance trend against peers, ranking orchestras by historical
+  turnout, identifying conductors above or below median performance metrics, and filtering
+  performances by date or venue context. Entity relationships: conductor → orchestra →
+  performance series → attendance outcomes.

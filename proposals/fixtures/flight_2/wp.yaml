@@ -55,3 +55,9 @@ design_constraints:
   - Embed flights[] under airlines; preserve FlightNo ordering for window queries.
   - Denormalize SourceAirport and DestAirport on embedded flight subdocs.
   - Abbreviation on airline root for projection without $lookup.
+scenario_summary: >
+  Commercial aviation domain: airlines operate scheduled flights between airport
+  pairs identified by source and destination codes. Typical business questions include
+  listing flights for a given carrier ordered by flight number, counting flights per
+  route, comparing route frequency across airlines, and filtering airlines by airport
+  hub activity. Entity relationships: airline → embedded flight legs → airport endpoints.

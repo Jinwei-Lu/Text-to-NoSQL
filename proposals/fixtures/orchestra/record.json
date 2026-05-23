@@ -13,6 +13,7 @@
     "must_not_contain_at_root": []
   },
   "difficulty": "L4",
+  "sql_infeasibility_class": "structural_pipeline",
   "shape_policy": "reshape",
   "world_signature": "sha256:a47f3e8b1c2d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e90",
   "domain_id": "performance_arts",
@@ -20,5 +21,8 @@
   "aggregation_depth": "deep",
   "schema_pattern": "embed",
   "agent_design_rationale_ref": "fixtures/orchestra/sra.yaml",
-  "mutations_ref": "fixtures/orchestra/mutations.json"
+  "mutations_ref": "fixtures/orchestra/mutations.json",
+  "_diagnostic_bridge_ref": "fixtures/orchestra/nnc.yaml",
+  "property_verification_ref": "fixtures/orchestra/pv.yaml",
+  "round_trip_ref": "fixtures/orchestra/rtv.yaml"
 }

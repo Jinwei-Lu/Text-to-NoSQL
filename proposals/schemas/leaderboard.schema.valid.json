@@ -124,15 +124,13 @@
     "evaluation_gate_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "panel_manifest_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "spider_db_catalog_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-    "dual_bridge_defeat_summary": {
-      "sql_bridge_pass_rate": 0.04,
-      "template_bridge_pass_rate": 0.07
-    },
     "diagnostics_summary": {
       "parse_error_count": 128,
       "timeout_hit_count": 12,
       "oom_hit_count": 0,
-      "forbidden_op_hit_count": 3
+      "forbidden_op_hit_count": 3,
+      "functional_sql_solvable_rate": 0.041,
+      "structural_sql_solvable_rate": 0.018
     }
   },
   "artifacts": {

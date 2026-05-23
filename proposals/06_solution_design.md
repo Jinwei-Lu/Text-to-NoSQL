@@ -1,6 +1,6 @@
-# 06 · Solution Design — SMART 求解侧参考架构与硬边界 (v2-Agent)
+# 06 · Solution Design — SMART 求解侧参考架构与硬边界
 
-> 本文件是 TEND v2-Agent **求解侧** 的单一真源 (SSoT)。定义 SMART 四阶段参考求解器、阶段间接口契约、求解侧硬边界、shape-preserving target_fields 协议，以及 canonical 示例 `orchestra/1001` 的完整调用轨迹。不重复定义任务 IO、评测指标、gold 等价类、DataWorld 构造或 Agent 查询构造，这些概念的权威文档见 [§06-7 边界声明](#06-7)。
+> 本文件是 TEND **求解侧** 的单一真源 (SSoT)。定义 SMART 四阶段参考求解器、阶段间接口契约、求解侧硬边界、shape-preserving target_fields 协议，以及 canonical 示例 `orchestra/1001` 的完整调用轨迹。不重复定义任务 IO、评测指标、gold 等价类、DataWorld 构造或 Agent 查询构造，这些概念的权威文档见 [§06-7 边界声明](#06-7)。
 
 ---
 
@@ -12,7 +12,7 @@ TEND 将 Text-to-NoSQL 求解任务定义为 `f: (NLQ, S, db_id) → q^{MQL}`（
 
 **SMART 四阶段**（§06-1 / §06-2）：`Schema Prediction → Query Generation → RAG Refinement → Execution Debug`，从 `(NLQ, S, db_id)` 输出 `q_p^{(final)}`；Execution Debug 在 parse 或 dry-run 失败时唯一回路到 Query Generation。Schema Prediction 在完整 schema `S` 上预测字段子集 `Ŝ`；Query Generation 以 `(NLQ, Ŝ, db_id)` 生成首版 pipeline `q_p^{(0)}` 并立即运行 AST 过滤；RAG Refinement 以 `train.json` 检索相似示例修正 operator 与字段命名得到 `q_p^{(1)}`；Execution Debug 在求解器自持本地 MongoDB 上 dry-run，通过后产出 `q_p^{(final)}`。
 
-**求解侧硬边界**（§06-4）—— 无论架构，均须同时满足四项约束。**Audit 屏蔽**：`audit/` 整树、`test.json.{MQL, canonical_form_set, *_ref}`、`train.json.*_ref` dereference、`rejected/` 均不可读；Tier-1 可读面以 [02 §02-1](./02_dataset_design.md#02-1) 与机器可读 **allow-list** `schemas/solver_allow_list.json` 为准。**6 件禁用 operator**：`$sample`、`$rand`、`$$NOW`、`$out`、`$merge`、`$function`（语义权威 [01 §01-2-2](./01_task_definition.md#01-2-2)）；Query Generation 与 RAG Refinement 每次生成后须经 AST 过滤，命中 6 件禁用项则重采样或规则重写，不得提交。**四方 panel disjointness 求解侧对偶**：记 `S_solver` 为四阶段全部模型/服务集合，须满足 `S_solver ∩ B_frozen = ∅`（20 个 4-panel 冻结模型）且 `S_solver ∩ C_pool = ∅`（构造期 QRA/NNC/RA/dual-bridge 池）；disjointness 失败则整份评测标记不合规（构造侧四方 disjointness 见 [05 §05-4](./05_evaluation_methodology.md#05-4)）。**shape-preserving target_fields 协议**（§06-5）：当 NLQ 语义要求 preserve 原文档形态时，solver 内部以 `target_fields` meta 驱动 `$addFields` / `$map` 就地惯用法，禁止 `$unwind + $group` 反模式。
+**求解侧硬边界**（§06-4）—— 无论架构，均须同时满足四项约束。**Audit 屏蔽**：`audit/` 整树、`test.json.{MQL, canonical_form_set, *_ref}`、`train.json.*_ref` dereference、`rejected/` 均不可读；Tier-1 可读面以 [02 §02-1](./02_dataset_design.md#02-1) 与机器可读 **allow-list** `schemas/solver_allow_list.json` 为准。**6 件禁用 operator**：`$sample`、`$rand`、`$$NOW`、`$out`、`$merge`、`$function`（语义权威 [01 §01-2-2](./01_task_definition.md#01-2-2)）；Query Generation 与 RAG Refinement 每次生成后须经 AST 过滤，命中 6 件禁用项则重采样或规则重写，不得提交。**构造–panel disjointness 求解侧对偶**：记 `S_solver` 为四阶段全部模型/服务集合，须满足 `S_solver ∩ B_frozen = ∅`（20 个 4-panel 冻结模型）且 `S_solver ∩ C_pool = ∅`（构造期 Agent 池 `{QPS, MS, MUT, PV, NLP, RTV, NNC, RA}`）；disjointness 失败则整份评测标记不合规（构造侧 disjointness 见 [05 §05-3](./05_evaluation_methodology.md#05-3)）。**shape-preserving target_fields 协议**（§06-5）：当 NLQ 语义要求 preserve 原文档形态时，solver 内部以 `target_fields` meta 驱动 `$addFields` / `$map` 就地惯用法，禁止 `$unwind + $group` 反模式。
 
 **Allow-list 与披露**：各阶段可读/禁读字段的完整 allow-list 矩阵见 `schemas/solver_allow_list.json` 与 §06-3-1；求解器须在评测报告中披露 `S_solver` 全清单、witness K 限额、`R_max`、allow-list 合规自检结果与 disjointness 核验结果（[05 §05-5](./05_evaluation_methodology.md#05-5)）。AST 过滤对 6 件禁用 operator 为零容忍：任一阶段输出命中即不得进入 `q_p^{(final)}`。Canonical anchor `orchestra/1001`（L4、`reshape` shape_policy）的 SMART 轨迹见 §06-6；因 `shape_policy = reshape`，§06-5 不适用。
 
@@ -221,14 +221,14 @@ flowchart LR
 AST 过滤必须在 **Query Generation** 与 **RAG Refinement** 两阶段的每一次生成/修正后立刻运行。若命中 6 件禁用 operator，求解器必须通过重采样或规则重写替换，不得将命中项提交为 `q_p^{(final)}`。若经过 `R_max` 次重试仍命中，该条目以空 pipeline `[]` 标注为 **自我放弃**，评测按 [05 §05-1](./05_evaluation_methodology.md#05-1) 的 EX 公式记为未命中。
 
 <a id="06-4-3"></a>
-### §06-4-3 四方 panel disjointness（求解侧对偶）
+### §06-4-3 构造–panel disjointness（求解侧对偶）
 
-[05 §05-4](./05_evaluation_methodology.md#05-4) 从 **评测与构造侧** 规定了四方不相交：`A ∩ B = A ∩ C = B ∩ C = ∅`，其中 A = 被评测求解器、B = 20 个冻结参考模型（4 panels × 5）、C = 构造期 QRA/NNC/RA/dual-bridge LLM 池。
+[05 §05-3](./05_evaluation_methodology.md#05-3) 从 **评测与构造侧** 规定 `A ∩ B = ∅`，其中 A = 构造 Agent LLM 池 `{QPS, MS, MUT, PV, NLP, RTV, NNC, RA}`、B = 20 个冻结参考模型（4 panels × 5）。
 
 本节给出 **求解侧对偶**：记 `S_solver` 为当前求解器在四阶段中使用的所有模型/服务集合。求解器必须同时满足：
 
 - `S_solver ∩ B_frozen = ∅`（20 个 4-panel 冻结模型，manifest 见 `audit/reference_panel/manifest_<release>.json`）；
-- `S_solver ∩ C_pool = ∅`（构造期 Agent 池）。
+- `S_solver ∩ C_pool = ∅`（构造期 Agent 池 `{QPS, MS, MUT, PV, NLP, RTV, NNC, RA}`）。
 
 **示例检查**：若某求解器把 `claude-4-opus` 作为 Query Generation 主干，而 frontier panel 的 5 个冻结模型名单中包含 `claude-4-opus`，则 `S_solver ∩ B_frozen ≠ ∅`，disjointness 失败，整份评测结果视为不合规。
 
@@ -237,7 +237,7 @@ AST 过滤必须在 **Query Generation** 与 **RAG Refinement** 两阶段的每�
 <a id="06-4-4"></a>
 ### §06-4-4 额外边界
 
-1. **`world_signature` 不可反推** —— 求解器不得试图重建 DataWorld 构造链或反推 QRA trace；即使技术上可行也构成违规。
+1. **`world_signature` 不可反推** —— 求解器不得试图重建 DataWorld 构造链或反推 Phase B audit trace；即使技术上可行也构成违规。
 2. **`mongodb_data` 整库禁输入 Schema Prediction** —— witness 必须延后到 Query Generation 阶段以每集合 `≤ K` 条的形式引入。
 3. **`audit/rejected/` 不可读** —— 读取此目录等同于获知 failure-mode 防御表。
 4. **任何 `*_ref` dereference 均屏蔽** —— `*_ref` 不构成 "公开授权"。
@@ -381,10 +381,10 @@ AST 过滤必须在 **Query Generation** 与 **RAG Refinement** 两阶段的每�
 | 任务签名、6 件禁用 operator 语义、EX 双条件 | [01](./01_task_definition.md) |
 | 资产目录、record 字段契约、Tier-1/Audit 边界 | [02](./02_dataset_design.md) |
 | Spider 锚定 DataWorld、SRA/DM | [03](./03_spider_anchored_dataworld.md) |
-| QRA/NNC/RA、canonical_form_set 派生 | [04](./04_agent_framework.md) |
-| 7 指标、4-panel 报告、四方 disjointness（构造侧） | [05](./05_evaluation_methodology.md) |
+| QPS/MS/MUT/PV/NLP/RTV/NNC/RA、canonical_form_set 派生 | [04](./04_agent_framework.md) |
+| 7 指标、4-panel 报告、构造–panel disjointness | [05](./05_evaluation_methodology.md) |
 
-**本文档声明所有权的内容**：SMART 四阶段参考求解器、求解侧 audit 屏蔽清单、6 件禁用 operator 的 AST 过滤实现、四方 disjointness 求解侧对偶、shape-preserving target_fields 协议、canonical `orchestra/1001` SMART 轨迹、机器可读 allow-list `schemas/solver_allow_list.json`。
+**本文档声明所有权的内容**：SMART 四阶段参考求解器、求解侧 audit 屏蔽清单、6 件禁用 operator 的 AST 过滤实现、构造–panel disjointness 求解侧对偶、shape-preserving target_fields 协议、canonical `orchestra/1001` SMART 轨迹、机器可读 allow-list `schemas/solver_allow_list.json`。
 
 ---
 

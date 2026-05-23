@@ -17,9 +17,19 @@ MQL: |
         top_metric: { $arrayElemAt: ["$ranked", 0] }
     } }
   ])
-nl_queries:
-  canonical: 将每份文档的 metrics 动态键对象展开为键值对，仅保留键名为 weight 或 priority 的条目；按键分组求各键对应数值的平均值；取平均值最高的键及其均值，输出为 top_metric 对象；不要求排序除最终取最大值外。
-  colloquial: 哪些文档属性指标整体最高？
+mql_alt: |
+  db.documents.aggregate([
+    { $project: { metric_pairs: { $objectToArray: "$metrics" } } },
+    { $unwind: "$metric_pairs" },
+    { $match: { "metric_pairs.k": { $in: ["weight", "priority"] } } },
+    { $group: {
+        _id: "$metric_pairs.k",
+        avg_value: { $avg: { $toDouble: "$metric_pairs.v" } }
+    } },
+    { $sort: { avg_value: -1 } },
+    { $limit: 1 },
+    { $project: { _id: 0, top_metric: { k: "$_id", avg_value: "$avg_value" } } }
+  ])
 canonical_form_set:
   must_contain: ["$objectToArray", "$unwind", "$group"]
   must_not_contain: ["$setWindowFields"]
@@ -29,11 +39,10 @@ shape_policy: reshape
 schema_flex: dynamic_key
 join_depth: 0
 aggregation_depth: medium
-query_plan:
-  primary_pattern: dynamic_key_aggregation
-  null_missing_strategy: none
-qra_trace:
-  translate_mql: db.documents.aggregate([{ $group: { _id: "$metrics.weight", avg_value: { $avg: "$metrics.weight" } } }])
-  generate_mql: db.documents.aggregate([{ $project: { metric_pairs: { $objectToArray: "$metrics" } } }, { $unwind: "$metric_pairs" }, { $group: { _id: "$metric_pairs.k", avg_value: { $avg: { $toDouble: "$metric_pairs.v" } } } }])
+synthesis_trace:
+  primary_path: direct_compile
   converged: true
-  normexec_hash_match: true
+  normexec_equiv: true
+  ast_check_primary: true
+  ast_check_alt: true
+  gold_selection: mql_primary

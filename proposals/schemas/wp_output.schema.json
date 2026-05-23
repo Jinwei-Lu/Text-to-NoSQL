@@ -12,6 +12,7 @@
     "insufficient_workload",
     "source",
     "workload_summary",
+    "scenario_summary",
     "access_patterns",
     "hot_fields",
     "co_location_signals",
@@ -52,6 +53,11 @@
     "workload_summary": {
       "type": "string",
       "minLength": 1
+    },
+    "scenario_summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Domain semantics and ≥3 typical business question patterns; no SQL/MQL/operators; consumed by Phase B NLP."
     },
     "access_patterns": {
       "type": "array",

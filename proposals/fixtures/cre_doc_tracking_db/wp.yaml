@@ -42,3 +42,10 @@ aggregation_depth_distribution:
 design_constraints:
   - Promote Document_Attributes EAV rows to metrics dynamic-key object on document root (H4).
   - Preserve document_id as _id.
+scenario_summary: >
+  Document tracking and compliance domain: documents carry heterogeneous attribute
+  metrics stored as dynamic key-value pairs rather than fixed columns. Typical business
+  questions include aggregating attribute values by metric name across documents, comparing
+  average weight versus priority scores, identifying documents with missing attributes,
+  and ranking which metric types dominate the corpus. Entity relationships: document →
+  dynamic metrics map derived from attribute rows.

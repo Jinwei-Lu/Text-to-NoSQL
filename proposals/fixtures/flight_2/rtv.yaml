@@ -1,0 +1,32 @@
+mql_round_trip_canonical: |
+  db.airlines.aggregate([
+    { $unwind: { path: "$flights", preserveNullAndEmptyArrays: false } },
+    { $group: {
+        _id: {
+          Abbreviation: { $ifNull: ["$Abbreviation", "(unknown)"] },
+          route: { $concat: ["$flights.SourceAirport", "-", "$flights.DestAirport"] }
+        },
+        flight_count: { $sum: 1 }
+    } },
+    { $match: { flight_count: { $gt: 3 } } },
+    { $project: { _id: 0, Abbreviation: "$_id.Abbreviation", route: "$_id.route", flight_count: 1 } }
+  ])
+mql_round_trip_colloquial: |
+  db.airlines.aggregate([
+    { $unwind: { path: "$flights" } },
+    { $group: { _id: "$Abbreviation", flight_count: { $sum: 1 } } },
+    { $match: { flight_count: { $gt: 3 } } },
+    { $project: { _id: 0, Abbreviation: "$_id", flight_count: 1 } }
+  ])
+round_trip_verification:
+  canonical_pass: true
+  canonical_ex: true
+  canonical_ast_check: true
+  colloquial_pass: false
+  colloquial_ex: false
+  colloquial_ast_check: true
+  underspec_attribution: colloquial omits per-route grouping and route field in output
+rtv_pass: true
+rtv_trace:
+  retry_count: 0
+  reflux_recommendation: null

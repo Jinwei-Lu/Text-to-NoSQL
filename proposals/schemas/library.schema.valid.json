@@ -5,7 +5,8 @@
   "selection_policy": {
     "min_tables": 2,
     "min_queries": 5,
-    "require_non_empty_data": true
+    "require_non_empty_data": true,
+    "min_flex_db_ratio": 0.30
   },
   "databases": [
     {
@@ -15,6 +16,7 @@
       "table_count": 4,
       "query_count": 40,
       "selected": true,
+      "flex_eligible": false,
       "selection_reason": "canonical anchor; nested join workload"
     }
   ]

@@ -1,0 +1,12 @@
+nl_queries:
+  canonical: 将每份文档的 metrics 动态键对象展开为键值对，仅保留键名为 weight 或 priority 的条目；按键分组求各键对应数值的平均值；取平均值最高的键及其均值，输出为 top_metric 对象；不要求排序除最终取最大值外。
+  colloquial: 哪些文档属性指标整体最高？
+nlp_trace:
+  scenario_terms_used:
+    - document metrics
+    - weight
+    - priority
+    - attribute aggregation
+  colloquial_underspec:
+    - highest overall metric
+  single_intent_check: true

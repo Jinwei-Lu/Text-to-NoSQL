@@ -13,11 +13,15 @@
     "must_not_contain_at_root": ["$lookup"]
   },
   "difficulty": "L2",
+  "sql_infeasibility_class": "semantic",
   "shape_policy": "reshape",
   "world_signature": "sha256:c69a5a0d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1",
   "domain_id": "geography",
   "join_depth": 0,
   "aggregation_depth": "medium",
   "schema_pattern": "embed",
-  "agent_design_rationale_ref": "fixtures/world_1/sra.yaml"
+  "agent_design_rationale_ref": "fixtures/world_1/sra.yaml",
+  "_diagnostic_bridge_ref": "fixtures/world_1/nnc.yaml",
+  "property_verification_ref": "fixtures/world_1/pv.yaml",
+  "round_trip_ref": "fixtures/world_1/rtv.yaml"
 }

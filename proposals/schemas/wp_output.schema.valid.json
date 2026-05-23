@@ -9,6 +9,7 @@
     "query_count": 45
   },
   "workload_summary": "Most queries traverse conductor-orchestra-performance; Attendance and show metrics drive aggregates and window-style comparisons across performances.",
+  "scenario_summary": "Classical-music organization analytics: conductors lead orchestras that schedule performances tracked by attendance. Typical business questions include comparing conductor attendance trends against peer medians, ranking performances by turnout, and identifying conductors whose recent show series outperforms the cohort baseline.",
   "access_patterns": [
     {
       "pattern_id": "AP01",

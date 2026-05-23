@@ -1,0 +1,16 @@
+mutations:
+  - mutation_id: m001
+    dimension: A
+    subaxis: boundary_predicate
+    expected_reject: true
+    rationale: Uses flight_count >= 3 instead of strict > 3.
+  - mutation_id: m002
+    dimension: A
+    subaxis: drop_route_grouping
+    expected_reject: true
+    rationale: Groups by airline only; loses per-route flight_count semantics.
+mut_trace:
+  count: 2
+  seed: 11
+  dimensions_covered: [A]
+  schema_flex_stress: false

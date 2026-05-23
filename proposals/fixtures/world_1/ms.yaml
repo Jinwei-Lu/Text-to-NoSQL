@@ -1,0 +1,54 @@
+MQL: |
+  db.country.aggregate([
+    { $match: { Continent: "Europe" } },
+    { $unwind: { path: "$cities", preserveNullAndEmptyArrays: false } },
+    { $group: {
+        _id: "$_id",
+        Name: { $first: "$Name" },
+        total_cities: { $sum: { $cond: [{ $ne: ["$cities.Population", null] }, 1, 0] } },
+        big_cities: { $sum: { $cond: [{ $gt: ["$cities.Population", 1000000] }, 1, 0] } }
+    } },
+    { $project: {
+        _id: 0,
+        Name: 1,
+        pct: { $cond: [
+          { $gt: ["$total_cities", 0] },
+          { $divide: ["$big_cities", "$total_cities"] },
+          0
+        ] }
+    } },
+    { $match: { pct: { $gt: 0.3 } } }
+  ])
+mql_alt: |
+  db.country.aggregate([
+    { $match: { Continent: "Europe" } },
+    { $unwind: { path: "$cities", preserveNullAndEmptyArrays: false } },
+    { $group: {
+        _id: "$_id",
+        Name: { $first: "$Name" },
+        total_cities: { $sum: { $cond: [{ $ne: ["$cities.Population", null] }, 1, 0] } },
+        big_cities: { $sum: { $cond: [{ $gt: ["$cities.Population", 1000000] }, 1, 0] } }
+    } },
+    { $match: { total_cities: { $gt: 0 } } },
+    { $project: {
+        _id: 0,
+        Name: 1,
+        pct: { $divide: ["$big_cities", "$total_cities"] }
+    } },
+    { $match: { pct: { $gt: 0.3 } } }
+  ])
+canonical_form_set:
+  must_contain: ["$match", "$group", "$divide"]
+  must_not_contain: []
+  must_contain_at_root: ["$match"]
+  must_not_contain_at_root: ["$lookup"]
+shape_policy: reshape
+join_depth: 0
+aggregation_depth: medium
+synthesis_trace:
+  primary_path: direct_compile
+  converged: true
+  normexec_equiv: true
+  ast_check_primary: true
+  ast_check_alt: true
+  gold_selection: mql_primary

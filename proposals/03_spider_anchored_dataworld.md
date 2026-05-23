@@ -1,8 +1,8 @@
-# 03 · Spider-Anchored DataWorld (v2-Agent)
+# 03 · Spider-Anchored DataWorld
 
-> 本文件是 TEND v2-Agent **Spider 锚定数据世界** 的单一真源。
-> 它定义：Spider 1.0 workload 如何驱动 MongoDB schema 设计；WP / SRA / SC / DM 四 Agent 的角色与契约；11 种官方 design pattern 与 3 种 anti-pattern；**SRA Stage B 四触发器 H1–H4 schema 异构化**；自然涌现的数据现象与 audit-only detector 边界。
-> 它**不定义**：record 发布格式 ([02](./02_dataset_design.md))、QRA / NNC / RA 查询构造 ([04](./04_agent_framework.md))、评测协议 ([05](./05_evaluation_methodology.md))。
+> 本文件是 TEND **Spider 锚定数据世界** 的单一真源。
+> 它定义：Spider 1.0 如何作为 **数据源 + 场景源** 驱动 MongoDB schema 设计；WP / SRA / SC / DM 四 Agent 的角色与契约；11 种官方 design pattern 与 3 种 anti-pattern；**SRA Stage B 四触发器 H1–H4 schema 异构化**；自然涌现的数据现象与 audit-only detector 边界。
+> 它**不定义**：record 发布格式 ([02](./02_dataset_design.md))、Phase B 查询构造 ([04](./04_agent_framework.md))、评测协议 ([05](./05_evaluation_methodology.md))。
 
 ---
 
@@ -10,11 +10,13 @@
 
 ## TL;DR
 
-TEND v2-Agent 的 DataWorld 不再由 105 份手写 domain template 正向合成，而以 **Spider 1.0** 约 200 个 SQLite 数据库为唯一 schema / 数据 / workload 锚点。对每个入选 `db_id`，四 Agent 子流水线 **WP → SRA → SC → DM** 产出库级三元组：MongoDB schema、冻结 witness 数据、SRA 设计 rationale。查询与 NLQ 在 Phase B 由 QRA 消费此世界，03 只生产、不消费。
+TEND 的 DataWorld 以 **Spider 1.0** 约 200 个 SQLite 数据库为 **数据源 + 场景源**：提供行级实例、DDL/字段语义、域上下文与典型业务问题样态启发。**Spider 不是查询 oracle**——Phase B 不消费 Spider NL/SQL 对作为 MQL 构造金锚。
 
-**WP (Workload Profiler)** 从 Spider 的 NL + SQL 对中提取访问模式：join 路径、共现实体、聚合深度、热字段与嵌套遍历需求。**SRA (Schema Re-architect)** 分两阶段执行：**Stage A** 在 WP 信号与 MongoDB 官方 11 pattern 菜单下选定 workload-driven layout；**Stage B** 用 4 个 deterministic 触发器 H1–H4 评估是否引入 `__variants` 文档形状异构化（见 [§03-6](#03-6)）。**SC (Schema Critic)** 对抗性审查 SRA 输出：anti-pattern 命中、workload 覆盖缺口、referential 完整性风险。**DM (Data Migrator)** 按 SRA 映射（含 `__variants` 路由）将 Spider 行级实例迁入 MongoDB 集合，写入行级 migration log 并计算 `world_signature`。
+对每个入选 `db_id`，四 Agent 子流水线 **WP → SRA → SC → DM** 产出库级三元组：MongoDB schema、冻结 witness 数据、SRA 设计 rationale；WP 另产出 `scenario_summary`（域语义与业务问题样态，不含 SQL）供 Phase B NL paraphrase 取用。Phase A 与 Phase B 职责分离：03 负责 DataWorld 合成；04 负责逆向 NL–MQL 构造。
 
-设计立场从 v2-original 的「世界先于问题」保留为「**Spider workload 先于 MongoDB layout**」：layout 必须解释该库全部 Spider 查询的可执行性，但 03 不为任何单条未来 MQL 定制 schema。v2-original 的 Phenomena Planter 15 类主动注入已删除；**数据现象自然涌现**于迁移后的 witness（稀疏字段、类型漂移、outlier、cardinality 边界等），audit 层 detector 仅扫描登记，不做 minimal perturbation plant。
+**WP (Workload Profiler)** 读取 Spider NL + SQL 对以 **推断访问模式**（join 路径、共现实体、聚合深度、热字段与嵌套遍历需求），输出 workload profile 与 `scenario_summary`。**WP 输出仅喂 SRA/DM 与 Phase B 的 scenario 语境，不直接进入 query construction。** **SRA (Schema Re-architect)** 分两阶段执行：**Stage A** 在 WP 信号与 MongoDB 官方 11 pattern 菜单下选定 workload-driven layout；**Stage B** 用 4 个 deterministic 触发器 H1–H4 评估是否引入 `__variants` 文档形状异构化（见 [§03-6](#03-6)）。**SC (Schema Critic)** 对抗性审查 SRA 输出：anti-pattern 命中、workload 覆盖缺口、referential 完整性风险；并执行 **flex-DB supply pre-audit**（`min_flex_db_ratio` 配置），将 `flex_eligible` 信号反馈 Coverage Controller 以触发 H7 supply-relax（见 [02 §4](./02_dataset_design.md#02-4)）。**DM (Data Migrator)** 按 SRA 映射（含 `__variants` 路由）将 Spider 行级实例迁入 MongoDB 集合，写入行级 migration log 并计算 `world_signature`。
+
+设计立场：**Spider workload 先于 MongoDB layout**——layout 须能论证该库访问模式在 MongoDB 上的可执行性，但不为任何单条未来 MQL 定制 schema。数据现象 **自然涌现** 于迁移后的 witness（稀疏字段、类型漂移、outlier、cardinality 边界等）；audit 层 detector 仅扫描登记，不做 minimal perturbation plant。
 
 MongoDB 设计采用 **11 官方 pattern + 3 anti-pattern** 菜单（见 §03-2）。Pattern 包括 embedded、extended reference、polymorphic、attribute、bucket、computed、subset、tree、outlier、schema versioning、mixed。Anti-pattern 包括 unnecessary collections、excessive lookups、over-indexing——SC 与 publish gate 必须拒绝命中项。
 
@@ -25,29 +27,20 @@ Canonical anchor `orchestra/1001` 展示典型路径：Spider 四表（conductor
 <a id="03-0"></a>
 ## §03-0 摘要与立场
 
-**本章定位**：TEND 构造流水线的 Phase A（DataWorld），职责是在 QRA 出现之前产出可消费的二元组：
+**本章定位**：TEND 构造流水线的 **Phase A（DataWorld）**，职责是在 Phase B 出现之前产出可消费的二元组：
 
 $$
 \mathcal{W} \;=\; (\text{Schema},\ \text{WitnessData})
 $$
 
-外加 per-db **agent_design_rationale**（SRA 决策链）。v2-original 第三分量 PhenomenaRegistry 降为 **audit-only 自然现象扫描**，不再作为 Tier-1 发布物。
+外加 per-db **agent_design_rationale**（SRA 决策链）与 WP **scenario_summary**（场景语境，Tier-2 audit 路径，Phase B NLP 消费）。
 
-**立场声明 (Spider-anchored stance)**：
+**立场声明 (Spider as data + scenario source)**：
 
-1. **Spider workload 先于 layout**。Schema 设计以该 `db_id` 全部 Spider NL/SQL 对的统计访问模式为输入，而非以单条待生成 MQL 为条件。
-2. **DataWorld 是自足的**。即便从未生成任何 record，schema + witness + rationale 本身应能支撑该库 workload 的可执行性论证。
-3. **查询是消费者，不是生产者**。03 不定义 canonical_form_set、不产出 MQL、不进行 NNC / dual-bridge 裁决。这些归属 [04](./04_agent_framework.md)。
-
-**与 v2-original 的对照**
-
-| v2-original | v2-Agent 处置 |
-|---|---|
-| Domain Template Bank (105 domain) | 删除 → Spider 200 DB |
-| Schema Composer + F_topology 7 特性 | 替换 → WP workload + SRA 11 pattern |
-| Witness Data Generator + 6×36 noise | 替换 → DM 关系迁移 + ≤8 可选 stress test |
-| Phenomena Planter 主动注入 | 删除 → 自然涌现 + audit detector |
-| phenomena_registry (Tier-1) | 删除 → audit 可选 |
+1. **Spider 是数据源 + 场景源，不是查询 oracle**。Spider 提供 SQLite 行数据、DDL/字段语义、域上下文与自然问题样态启发；Phase B 的 MQL 由 query_plan 正向合成，NLQ 由 MQL/plan 逆向 paraphrase，**不**以 Spider NL/SQL 为金锚。
+2. **Spider workload 先于 layout**。Schema 设计以该 `db_id` 全部 Spider NL/SQL 对的统计访问模式为输入（经 WP 提炼），而非以单条待生成 MQL 为条件。
+3. **DataWorld 是自足的**。即便从未生成任何 record，schema + witness + rationale 本身应能支撑该库访问模式的可执行性论证。
+4. **Phase A / Phase B 分离**。03 产出 S、D、rationale、scenario_summary；04 消费上述资产构造 record。03 不定义 canonical_form_set、不产出 MQL、不进行 NNC / dual-bridge 裁决。
 
 ---
 
@@ -58,23 +51,41 @@ $$
 
 Phase A 以 **Profile → Design (2-stage) → Critique → Migrate** 四拍推进：
 
-1. **WP** 读取 Spider catalog 条目、SQLite schema、NL/SQL 对，输出 workload profile（`wp_output.yaml`）。
+1. **WP** 读取 Spider catalog 条目、SQLite schema、NL/SQL 对，输出 workload profile（`wp_output.yaml`）与 `scenario_summary`。
 2. **SRA Stage A** 读取 WP 输出 + Spider DDL，应用 11 pattern 菜单，产出 baseline layout。
 3. **SRA Stage B** 对 Stage A layout 评估 H1–H4 触发器；命中时在 `mongodb_schema` 写入 `__variants`，在 rationale 写入 `heterogenization`（见 [§03-6](#03-6)）。
-4. **SC** 对抗性审查 SRA 输出；命中 anti-pattern 或 workload 覆盖缺口则 **reject → SRA 修订**（最多 2 轮）。
+4. **SC** 对抗性审查 SRA 输出；命中 anti-pattern 或 workload 覆盖缺口则 **reject → SRA 修订**（最多 2 轮）；并行执行 flex-DB supply pre-audit，写入 catalog `flex_eligible` 与全局 supply 报告。
 5. **DM** 按 SRA 映射（含 variant 路由）迁移 Spider 行级数据 → `mongodb_data/<db_id>.json`；写入 `audit/<db_id>/migration_log.json`；计算 `world_signature`。
 6. **Audit detectors**（非 Agent）扫描 witness，登记自然涌现现象至 `audit/<db_id>/phenomena_audit.json`（Tier-2，可选）。
 
-下游 QRA / NNC / RA 在 Phase B 消费 Tier-1 库级资产；03 不回流。
+Phase B（[04](./04_agent_framework.md)）消费 Tier-1 库级资产 S、D、rationale 与 WP `scenario_summary`；**不**消费 Spider NL/SQL 对。03 不回流 Phase B 产物。
+
+```mermaid
+flowchart LR
+  spider["Spider SQLite + NL/SQL (Phase A only)"]
+  WP[WP]
+  SRA[SRA]
+  SC[SC]
+  DM[DM]
+  tier1["S + D + rationale"]
+  scenario["scenario_summary"]
+  phaseB["Phase B (04)"]
+  spider --> WP --> SRA --> SC --> DM
+  DM --> tier1
+  SRA --> tier1
+  WP --> scenario
+  tier1 --> phaseB
+  scenario --> phaseB
+```
 
 ### §03-1-2 单库主路径（以 orchestra 为例）
 
 1. **Catalog 选中**：`spider_db_catalog.json` 中 `db_id = orchestra`，`selected = true`。
-2. **WP 剖析 workload**：四表 join 链 conductor → orchestra → performance → show；62% 查询触及 performance/show 度量；38% 需 per-entity 序列聚合。
+2. **WP 剖析 workload**：四表 join 链 conductor → orchestra → performance → show；62% 查询触及 performance/show 度量；38% 需 per-entity 序列聚合。同步产出 `scenario_summary`（古典音乐机构域：指挥–乐团–演出–观众出勤等业务问题样态）。
 3. **SRA 设计 layout**：单集合 `conductor` 根文档；embed `orchestra[]`；embed `performance[]`（Attendance 来自 show 表 denormalize）；pattern 主标签 `embed` + `mixed`（show 字段折叠）。
-4. **SC 审查**：确认无 unnecessary collection（仅 1 个 Tier-1 集合）；$lookup 深度预算 0（embed 消解）；workload 热路径覆盖。
+4. **SC 审查**：确认无 unnecessary collection（仅 1 个 Tier-1 集合）；$lookup 深度预算 0（embed 消解）；workload 热路径覆盖；标记 `flex_eligible: false`（H1–H4 均未触发）。
 5. **DM 迁移**：12 行 conductor → 12 文档；嵌套 orchestra / performance 数组；migration log 逐行可追溯。
-6. **发布**：`mongodb_schema/orchestra.json`、`mongodb_data/orchestra.json`、`agent_design_rationale/orchestra.yaml` 写入 Tier-1。
+6. **发布**：`mongodb_schema/orchestra.json`、`mongodb_data/orchestra.json`、`agent_design_rationale/orchestra.yaml` 写入 Tier-1；`scenario_summary` 写入 `audit/orchestra/wp_output.yaml`（Tier-2）。
 
 ### §03-1-3 确定性与可复现性
 
@@ -156,11 +167,11 @@ DM 输入：SRA schema + rationale、Spider SQLite。输出：`mongodb_data/<db_
 
 **自然涌现现象（audit-only detectors）**
 
-v2-original 15 类 phenomenon 缩减为 **audit detector 扫描**，不写入 Tier-1。Detector 在 DM 完成后只读 witness，典型登记类包括：
+Detector 在 DM 完成后只读 witness，典型登记类包括：
 
 | _detector_ | 自然来源 | 用途 |
 |---|---|---|
-| sparse_field | 源库 NULL / 缺失列 | RA / QRA null-coalesce 提示 |
+| sparse_field | 源库 NULL / 缺失列 | null-coalesce 提示 |
 | type_drift | Spider 类型不一致 | 鲁棒解析题 |
 | outlier_value | 源库极端值或录入错误 | 稳健统计题 |
 | cardinality_boundary | embed 数组长度 0/1 | 组大小敏感聚合 |
@@ -175,9 +186,9 @@ Detector **禁止**修改 witness；若 RA 后续 augment，须 append-only 且�
 
 ### §03-6-1 第一性原理动机
 
-MongoDB 与关系数据库的根本差异之一是 **schema flexibility**：同一 collection 内文档可拥有不同字段集。v2-Agent.1 在保留 Spider workload realism 的前提下，通过 deterministic 触发器在 DataWorld 层引入此特性，使 Phase B 可构造 **schema-shape lossy** 难题（SQL 完全不可表达），而非仅依赖管线结构 lossy（`$facet + $setWindowFields`）。
+MongoDB 与关系数据库的根本差异之一是 **schema flexibility**：同一 collection 内文档可拥有不同字段集。TEND 在保留 Spider 数据 realism 的前提下，通过 deterministic 触发器在 DataWorld 层引入此特性，使 Phase B 可构造 **schema-shape lossy** 难题（SQL 完全不可表达），而非仅依赖管线结构 lossy（`$facet + $setWindowFields`）。
 
-**边界声明**：H1–H4 是 **workload-preserving layout 变换**，由 Spider 源信号触发；**不是** v2-original Phenomena Planter 的 15 类 phenomenon 分类与主动注入。Detector 仍只读登记自然涌现现象，不修改 witness。
+**边界声明**：H1–H4 是 **workload-preserving layout 变换**，由 Spider 源信号触发；**不是**主动 phenomenon 注入。Detector 仍只读登记自然涌现现象，不修改 witness。
 
 ### §03-6-2 四触发器 H1–H4
 
@@ -220,16 +231,6 @@ MongoDB 与关系数据库的根本差异之一是 **schema flexibility**：同�
 | H3 | `schema_versioning` | H3 强制 `_schema_v` 字段与代际字段缺失 |
 | H4 | *(无 Stage A 等价)* | H4 仅 Stage B；EAV 晋升不经过 11 pattern 菜单 |
 
-### §03-6-4 与 v2-original Phenomena Planter 的边界
-
-| 维度 | v2-original Phenomena Planter | v2-Agent.1 H1–H4 |
-|---|---|---|
-| 触发 | 人工分类 + feasibility matrix | Spider 源 boolean 信号 |
-| 执行者 | 独立 Planter Agent | SRA Stage B（同一 Agent） |
-| 产物 | phenomena_registry (Tier-1) | `__variants` + `heterogenization` (Tier-1 schema/rationale) |
-| witness 修改 | minimal perturbation plant | DM 保真迁移 + variant 路由（非事后注入） |
-| 查询绑定 | phenomenon × persona 格点 | workload-driven QRA 模板（[04 §4](./04_agent_framework.md#04-4)） |
-
 ---
 
 <a id="03-5"></a>
@@ -239,12 +240,41 @@ MongoDB 与关系数据库的根本差异之一是 **schema flexibility**：同�
 
 | 资产 | 路径 | 消费者 |
 |---|---|---|
-| MongoDB schema | `mongodb_schema/<db_id>.json` | QRA、solver、评测 |
+| MongoDB schema | `mongodb_schema/<db_id>.json` | Phase B MS/PV/RTV、solver、评测 |
 | Witness data | `mongodb_data/<db_id>.json` | NormExec、RA |
 | Design rationale | `agent_design_rationale/<db_id>.yaml` | 研究者、NNC 诊断 |
-| WP profile | `audit/<db_id>/wp_output.yaml` | 复现（Tier-2） |
+| WP profile + scenario | `audit/<db_id>/wp_output.yaml` | Phase B NLP（`scenario_summary`）；SRA 复现（Tier-2） |
 
-### §03-5-2 03 不负责的内容
+### §03-5-2 Phase B 消费边界
+
+Phase B（[04](./04_agent_framework.md)）**消费**：
+
+| 输入 | 来源 | 用途 |
+|---|---|---|
+| S（schema） | SRA Tier-1 | query_plan 字段路径、schema_flex 套路选择 |
+| D（witness） | DM Tier-1 | NormExec、PV 性质探测、RA realism |
+| agent_design_rationale | SRA Tier-1 | pattern 证据、heterogenization 上下文 |
+| scenario_summary | WP Tier-2 | NLP 逆向 paraphrase 域语境与业务问题样态 |
+
+Phase B **不消费** Spider NL/SQL 对、WP `access_patterns` 中的 SQL 模板、或 Spider `question_id` 作为 query oracle。
+
+### §03-5-3 flex-DB supply 联动
+
+SC 在 schema review 通过后，对每个 `db_id` 执行 flex-eligibility 判定（H1–H4 任一 would-trigger → `flex_eligible: true`），写入 `spider_db_catalog.json` 对应条目。
+
+全局 supply 报告写入 `audit/_global/flex_supply_report.json`：
+
+| 字段 | 说明 |
+|---|---|
+| `min_flex_db_ratio` | 配置阈值（默认 0.30）；选中库中 `flex_eligible` 比例须 ≥ 此值，否则触发 supply-relax |
+| `selected_flex_ratio` | 当前选中库的 `flex_eligible` 占比 |
+| `supply_ceiling` | 实际可达上限（= `selected_flex_ratio`） |
+| `h7_relaxed` | bool；若 `selected_flex_ratio < min_flex_db_ratio`，Coverage Controller 将 H7 下限放宽至 `max(0.15, supply_ceiling)` |
+| `h9_relaxed` | bool；structural_schema_flex 下限放宽至 `max(0.10, supply_ceiling × 0.8)` |
+
+Coverage Controller（[04](./04_agent_framework.md)）读取该报告，在 Phase B 采样时应用 supply-relax（详见 [02 §4](./02_dataset_design.md#02-4) H7/H9）。
+
+### §03-5-4 03 不负责的内容
 
 | 主题 | 归属 |
 |---|---|
@@ -261,9 +291,9 @@ MongoDB 与关系数据库的根本差异之一是 **schema flexibility**：同�
 
 | Agent | 输入 | 输出 | 边界（禁止） |
 |---|---|---|---|
-| **WP** | `db_id`, Spider SQLite, NL/SQL pairs, catalog metadata | `audit/<db_id>/wp_output.yaml` | 不得输出 MongoDB schema 或 MQL |
-| **SRA** | WP output, Spider DDL, pattern menu, H1–H4 trigger spec | `mongodb_schema/<db_id>.json`（含 optional `__variants`）, `agent_design_rationale/<db_id>.yaml`（含 optional `heterogenization`） | 不得读 QRA/MQL；不得 plant 现象；Stage B 仅写 layout |
-| **SC** | SRA schema + rationale, WP output, anti-pattern rules | `pass/reject` verdict + `issues[]` | 不得重写 witness；不得产出最终 schema 文件 |
+| **WP** | `db_id`, Spider SQLite, NL/SQL pairs, catalog metadata | `audit/<db_id>/wp_output.yaml`（含 `scenario_summary`） | 不得输出 MongoDB schema 或 MQL |
+| **SRA** | WP output, Spider DDL, pattern menu, H1–H4 trigger spec | `mongodb_schema/<db_id>.json`（含 optional `__variants`）, `agent_design_rationale/<db_id>.yaml`（含 optional `heterogenization`） | 不得读 Phase B 产物；不得 plant 现象；Stage B 仅写 layout |
+| **SC** | SRA schema + rationale, WP output, anti-pattern rules, `min_flex_db_ratio` config | `pass/reject` verdict + `issues[]`；per-db `flex_eligible`；`audit/_global/flex_supply_report.json` | 不得重写 witness；不得产出最终 schema 文件 |
 | **DM** | SRA schema + rationale, Spider SQLite | `mongodb_data/<db_id>.json`, `migration_log.json`, `world_signature` | 不得改 schema 字段集；按 `__variants` 路由；不得 delete 源映射行 |
 
 Prompt 文件：`agent_prompts/wp_workload_profiler.md`、`sra_schema_rearchitect.md`、`sc_schema_critic.md`、`dm_data_migrator.md`。
@@ -292,11 +322,13 @@ Prompt 文件：`agent_prompts/wp_workload_profiler.md`、`sra_schema_rearchitec
 | `co_location_signals[]` | embed 候选对的共现率 |
 | `join_depth_distribution` | 驱动 $lookup 预算 |
 | `design_constraints[]` | 传给 SRA 的硬约束句子 |
+| `scenario_summary` | 域语义、实体关系自然语言、典型业务问题样态（≥3 条 pattern 描述）；**禁止 SQL / MQL / 算子术语**；专供 Phase B NLP paraphrase |
 
 **Boundaries**
 
 - 不猜测 MongoDB layout；不输出 pattern 选型。
 - 频率统计对同一 SQL 模板去重后计数。
+- `scenario_summary` 不得引用 Spider 具体 question 文本或 SQL 片段；仅抽象业务语境。
 - 若 `query_count < 10`，输出 `insufficient_workload: true` 并建议 catalog reject。
 
 ---
@@ -343,6 +375,7 @@ Prompt 文件：`agent_prompts/wp_workload_profiler.md`、`sra_schema_rearchitec
 | SRA schema + rationale | SRA | ✓ |
 | `wp_output.yaml` | WP | ✓ |
 | `anti_pattern_rules` | §03-II-5 | ✓ |
+| `min_flex_db_ratio` | 全局配置（默认 0.30） | ✓ |
 
 **Output**
 
@@ -352,11 +385,22 @@ Prompt 文件：`agent_prompts/wp_workload_profiler.md`、`sra_schema_rearchitec
 | `issues[]` | `{rule_id, severity, message, evidence}` |
 | `coverage_gaps[]` | WP pattern 无 layout 表达 |
 | `suggested_fixes[]` | 自然语言修订建议（非自动 patch） |
+| `flex_eligible` | bool；该 `db_id` 是否满足 H1–H4 would-trigger（deterministic 预演，不要求 Stage B 已写入 `__variants`） |
+| `flex_supply_report` | 全局报告片段；所有 selected db 审查完成后汇总至 `audit/_global/flex_supply_report.json` |
+
+**Flex-DB supply pre-audit**
+
+1. 对每个 `db_id` 运行与 [§03-II-10](#03-ii-10) 相同的 H1–H4 deterministic 预演（只读 WP + Spider DDL/SQLite，不写 schema）。
+2. 任一触发器 would-fire → `flex_eligible: true`；否则 `false`。
+3. 写入 `spider_db_catalog.json` 对应条目的 `flex_eligible` 字段。
+4. 全部 selected db 审查完成后，计算 `selected_flex_ratio = count(flex_eligible) / count(selected)`。
+5. 若 `selected_flex_ratio < min_flex_db_ratio`，在 `flex_supply_report` 中设置 `h7_relaxed: true`、`h9_relaxed: true`，并写入 `supply_ceiling = selected_flex_ratio`；Coverage Controller 读取后应用 H7/H9 supply-relax（[02 §4](./02_dataset_design.md#02-4)）。
 
 **Boundaries**
 
 - 最多 2 轮 reject；仍 fail 则 catalog 标记 `schema_review_failed`。
 - 不写入 Tier-1 文件；人类或 SRA 编排器应用 fixes。
+- flex pre-audit 不得修改 SRA schema；仅只读判定 + catalog/report 写入。
 
 ---
 

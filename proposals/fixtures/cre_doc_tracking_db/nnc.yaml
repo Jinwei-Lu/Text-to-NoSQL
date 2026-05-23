@@ -1,8 +1,9 @@
 difficulty: L4
 difficulty_rationale: Dynamic-key metrics aggregation via $objectToArray; SQL cannot treat column names as values without unpivot.
 sql_infeasibility_class: structural_schema_flex
-dual_bridge_defeat:
-  pass: true
+diagnostic_bridge:
+  gate_required: true
+  gate_pass: true
   sql_bridge:
     ex: 0
     qim: 0
@@ -11,6 +12,8 @@ dual_bridge_defeat:
     ex: 0
     qim: 0
     notes: Matched flat_filter template; missing $objectToArray unfold
+  functional_sql_solvable: false
+  structural_sql_solvable: false
 ambiguity_attack:
   parse_count: 3
   equivalent_to_gold_count: 3

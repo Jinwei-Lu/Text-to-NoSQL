@@ -8,9 +8,9 @@
 |----------|-------|
 | Spider DB | `orchestra` |
 | record_id | `1001` |
-| Rationale | Spider 1.0 real DB; nested workload (conductor → orchestra → performance → show); L4 NoSQL-native query with `$setWindowFields` + `$facet` |
+| Rationale | Spider 1.0 real DB; nested embed schema (conductor → orchestra → performance); reverse-engineered L4 query with `$setWindowFields` + `$facet` + `$ifNull` on orchestra embed layout |
 
-## Canonical Record (v2-Agent form)
+## Canonical Record
 
 <!-- canonical-anchor: orchestra/1001 -->
 ```json

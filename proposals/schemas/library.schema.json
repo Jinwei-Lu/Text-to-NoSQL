@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tend.dev/schemas/library.schema.json",
-  "title": "TEND v2-Agent Library Assets",
+  "title": "TEND Library Assets",
   "description": "JSON Schemas for per-db and global library-level assets consumed by solvers and evaluators.",
   "$defs": {
     "fieldType": {
@@ -204,7 +204,8 @@
         "sqlite_path",
         "table_count",
         "query_count",
-        "selected"
+        "selected",
+        "flex_eligible"
       ],
       "additionalProperties": false,
       "properties": {
@@ -214,6 +215,10 @@
         "table_count": { "type": "integer", "minimum": 1 },
         "query_count": { "type": "integer", "minimum": 1 },
         "selected": { "type": "boolean" },
+        "flex_eligible": {
+          "type": "boolean",
+          "description": "H1–H4 would-trigger pre-audit result; contributes to selected_flex_ratio for H7/H9 supply-relax."
+        },
         "selection_reason": { "type": "string" },
         "reject_reason": { "type": "string" }
       }
@@ -231,7 +236,13 @@
           "properties": {
             "min_tables": { "type": "integer", "minimum": 1 },
             "min_queries": { "type": "integer", "minimum": 1 },
-            "require_non_empty_data": { "type": "boolean" }
+            "require_non_empty_data": { "type": "boolean" },
+            "min_flex_db_ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Minimum share of selected DBs with flex_eligible=true (default 0.30)."
+            }
           },
           "additionalProperties": false
         },
@@ -241,7 +252,7 @@
           "items": { "$ref": "#/$defs/spiderDbEntry" }
         }
       },
-      "description": "spider_db_catalog.json — global Spider DB inventory and selection verdict."
+      "description": "spider_db_catalog.json — global Spider DB inventory and selection verdict. selected_flex_ratio = count(selected ∧ flex_eligible) / count(selected); when selected_flex_ratio < min_flex_db_ratio (default 0.30), Coverage Controller applies H7/H9 supply-relax (test schema_flex ≠ none floor → max(15%, supply_ceiling); structural_schema_flex floor → max(10%, supply_ceiling × 0.8))."
     }
   },
   "oneOf": [

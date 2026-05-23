@@ -1,8 +1,9 @@
 difficulty: L4
 difficulty_rationale: Partitioned window plus facet-global median is structural translation-lossy in SQL.
 sql_infeasibility_class: structural_pipeline
-dual_bridge_defeat:
-  pass: true
+diagnostic_bridge:
+  gate_required: true
+  gate_pass: true
   sql_bridge:
     ex: 0
     qim: 0
@@ -11,6 +12,8 @@ dual_bridge_defeat:
     ex: 0
     qim: 0
     notes: Matched lookup_join template; wrong shape
+  functional_sql_solvable: false
+  structural_sql_solvable: false
 ambiguity_attack:
   parse_count: 4
   equivalent_to_gold_count: 4

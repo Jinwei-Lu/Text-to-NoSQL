@@ -55,3 +55,9 @@ design_constraints:
   - Embed concerts with singer roster under stadium for AP01+AP02 co-traversal.
   - Preserve Capacity on stadium root for filter predicates without $lookup.
   - Singer_ID deduplication required for distinct singer counts.
+scenario_summary: >
+  Live-music venue domain: stadiums host concerts that feature rotating singer
+  lineups. Typical business questions include listing large-capacity venues,
+  finding concerts at a given stadium filtered by year or theme, counting distinct
+  singers performing at a venue, and comparing singer roster size across stadiums.
+  Entity relationships: stadium → embedded concerts → singer roster entries.

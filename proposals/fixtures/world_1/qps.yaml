@@ -1,0 +1,30 @@
+query_plan:
+  primary_pattern: embed_ratio_aggregate
+  operator_graph:
+    stages: ["$match", "$unwind", "$group", "$project", "$match"]
+    dependencies:
+      - continent filter on country root
+      - unwind embedded cities array
+      - conditional sum for null-excluding denominator
+  shape_policy: reshape
+  null_missing_strategy: cond
+  target_difficulty: L2
+  schema_flex_mode: none
+  join_depth_target: 0
+  aggregation_depth_target: medium
+  target_fields:
+    - country.Continent
+    - country.Name
+    - cities.Population
+  semantic_properties:
+    - id: europe_continent_filter
+      expect: only Continent = Europe countries enter aggregation
+    - id: null_excluding_denominator
+      expect: cities with null Population excluded from numerator and denominator
+    - id: pct_threshold
+      expect: only pct > 0.3 retained
+qps_trace:
+  coverage_cell: L2|semantic|schema_flex_none
+  deficit_weight: 0.10
+  supply_constrained: false
+  pattern_rationale: scenario_summary emphasizes per-country city population ratios under embedded cities
