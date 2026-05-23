@@ -1,0 +1,45 @@
+MQL: |
+  db.stadium.aggregate([
+    { $unwind: { path: "$concerts", preserveNullAndEmptyArrays: false } },
+    { $unwind: { path: "$concerts.singers", preserveNullAndEmptyArrays: false } },
+    { $group: {
+        _id: "$_id",
+        Name: { $first: { $ifNull: ["$Name", "(unknown)"] } },
+        Capacity: { $first: "$Capacity" },
+        singer_ids: { $addToSet: "$concerts.singers.Singer_ID" }
+    } },
+    { $project: { Name: 1, Capacity: 1, singer_count: { $size: "$singer_ids" } } },
+    { $match: { Capacity: { $gt: 5000 } } },
+    { $facet: {
+        per_stadium: [ { $project: { _id: 0, Name: 1, singer_count: 1 } } ],
+        avg_singers: [ { $group: { _id: null, avg_count: { $avg: "$singer_count" } } } ]
+    } },
+    { $project: {
+        kept: { $filter: {
+          input: "$per_stadium",
+          as: "s",
+          cond: { $gt: ["$$s.singer_count", { $arrayElemAt: ["$avg_singers.avg_count", 0] }] }
+        } }
+    } },
+    { $unwind: "$kept" },
+    { $replaceRoot: { newRoot: "$kept" } }
+  ])
+nl_queries:
+  canonical: 对每个体育场，统计其举办的所有音乐会中参演的不重复歌手数量 (singer_count)。只保留 Capacity 严格大于 5000 且 singer_count 严格大于所有符合条件体育场的 singer_count 平均值的体育场，输出 Name 与 singer_count；若 Name 缺失则显示为 (unknown)；不要求排序。
+  colloquial: 哪些大场馆请到的歌手阵容特别豪华？
+canonical_form_set:
+  must_contain: ["$facet", "$addToSet", "$ifNull"]
+  must_not_contain: []
+  must_contain_at_root: ["$facet"]
+  must_not_contain_at_root: []
+shape_policy: reshape
+join_depth: 0
+aggregation_depth: medium
+query_plan:
+  primary_pattern: facet_filter_avg
+  null_missing_strategy: ifNull
+qra_trace:
+  translate_mql: db.stadium.aggregate([{ $unwind: { path: "$concerts" } }, { $group: { _id: "$_id", singer_count: { $sum: 1 } } }, { $facet: { per_stadium: [], avg_singers: [] } }])
+  generate_mql: db.stadium.aggregate([{ $unwind: { path: "$concerts", preserveNullAndEmptyArrays: false } }, { $unwind: { path: "$concerts.singers", preserveNullAndEmptyArrays: false } }, { $group: { _id: "$_id", Name: { $first: { $ifNull: ["$Name", "(unknown)"] } }, Capacity: { $first: "$Capacity" }, singer_ids: { $addToSet: "$concerts.singers.Singer_ID" } } }, { $project: { Name: 1, Capacity: 1, singer_count: { $size: "$singer_ids" } } }, { $match: { Capacity: { $gt: 5000 } } }, { $facet: { per_stadium: [ { $project: { _id: 0, Name: 1, singer_count: 1 } } ], avg_singers: [ { $group: { _id: null, avg_count: { $avg: "$singer_count" } } } ] } }, { $project: { kept: { $filter: { input: "$per_stadium", as: "s", cond: { $gt: ["$$s.singer_count", { $arrayElemAt: ["$avg_singers.avg_count", 0] }] } } } } }, { $unwind: "$kept" }, { $replaceRoot: { newRoot: "$kept" } }])
+  converged: true
+  normexec_hash_match: true

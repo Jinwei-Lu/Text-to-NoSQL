@@ -1,0 +1,12 @@
+{
+  "record_id": 1001,
+  "db_id": "orchestra",
+  "mutations": [
+    {
+      "dimension": "A",
+      "subaxis": "drop_facet",
+      "MQL": "db.conductor.aggregate([])",
+      "expected_reject": true
+    }
+  ]
+}

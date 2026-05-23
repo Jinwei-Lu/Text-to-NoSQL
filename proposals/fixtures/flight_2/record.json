@@ -1,0 +1,23 @@
+{
+  "record_id": 5001,
+  "db_id": "flight_2",
+  "nl_queries": {
+    "canonical": "对每家航空公司 (Airline)，在其每条 SourceAirport→DestAirport 航线上按 FlightNo 升序、对航线航班数计算窗口大小为 (当前, 前 2 班) 的滑动计数；取该航线最后一次窗口值作为 route_density。然后计算该航空公司所有 route_density 的中位数。最终只输出存在至少一条 route_density 严格大于该中位数的航线的航空公司 Abbreviation 与 max_route_density (取满足条件的航线中最大 route_density)；若 Abbreviation 缺失则显示为 (unknown)；不要求排序。",
+    "colloquial": "哪些航司在某些热门航线上班次特别密集？"
+  },
+  "MQL": "db.airlines.aggregate([\n  { $unwind: { path: \"$flights\", preserveNullAndEmptyArrays: false } },\n  { $setWindowFields: {\n      partitionBy: { Airline: \"$Abbreviation\", route: { $concat: [\"$flights.SourceAirport\", \"-\", \"$flights.DestAirport\"] } },\n      sortBy: { \"flights.FlightNo\": 1 },\n      output: {\n        route_density: {\n          $sum: 1,\n          window: { documents: [-2, 0] }\n        }\n      }\n  } },\n  { $group: {\n      _id: \"$_id\",\n      Abbreviation: { $first: { $ifNull: [\"$Abbreviation\", \"(unknown)\"] } },\n      route_densities: { $push: \"$route_density\" }\n  } },\n  { $project: {\n      Abbreviation: 1,\n      route_densities: 1,\n      median_density: { $arrayElemAt: [\n        { $sortArray: { input: \"$route_densities\", sortBy: 1 } },\n        { $floor: { $divide: [ { $size: \"$route_densities\" }, 2 ] } }\n      ] }\n  } },\n  { $facet: {\n      per_airline: [\n        { $project: {\n            Abbreviation: 1,\n            max_route_density: { $max: {\n              $filter: {\n                input: \"$route_densities\",\n                as: \"d\",\n                cond: { $gt: [\"$$d\", \"$median_density\"] }\n              }\n            } }\n        } },\n        { $match: { max_route_density: { $ne: null } } }\n      ]\n  } },\n  { $unwind: \"$per_airline\" },\n  { $replaceRoot: { newRoot: \"$per_airline\" } },\n  { $project: { _id: 0, Abbreviation: 1, max_route_density: 1 } }\n])",
+  "canonical_form_set": {
+    "must_contain": ["$setWindowFields", "$facet", "$ifNull"],
+    "must_not_contain": [],
+    "must_contain_at_root": ["$setWindowFields", "$facet"],
+    "must_not_contain_at_root": []
+  },
+  "difficulty": "L4",
+  "shape_policy": "reshape",
+  "world_signature": "sha256:e81c7c2f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3",
+  "domain_id": "transportation",
+  "join_depth": 0,
+  "aggregation_depth": "deep",
+  "schema_pattern": "embed",
+  "agent_design_rationale_ref": "fixtures/flight_2/sra.yaml"
+}

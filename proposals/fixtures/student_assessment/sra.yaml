@@ -1,0 +1,35 @@
+db_id: student_assessment
+source_spider_tables:
+  - Addresses
+  - People
+  - Students
+  - Courses
+  - People_Addresses
+  - Student_Course_Registrations
+  - Student_Course_Attendance
+  - Candidates
+  - Candidate_Assessments
+patterns_applied: [embed, computed]
+rationale_summary: Flat students collection with denormalized People names and embedded courses[] from registrations; assessment paths kept as extended references.
+decisions:
+  - id: D01
+    type: computed
+    parent: students
+    child: people
+    rationale: WP AP02 co_access 0.68; denormalize first_name and last_name onto student root.
+    reference: access_patterns.AP02
+  - id: D02
+    type: embed
+    parent: students
+    child: courses
+    rationale: WP AP01 frequency 0.46; course cardinality filters need courses[] on student doc.
+    reference: access_patterns.AP01
+  - id: D03
+    type: reference
+    parent: students
+    child: candidates
+    rationale: Assessment outcomes queried separately; keep candidate refs not full embed.
+    reference: access_patterns.AP01
+anti_pattern_checks:
+  pass: true
+  issues: []

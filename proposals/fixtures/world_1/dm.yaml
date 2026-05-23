@@ -1,0 +1,30 @@
+db_id: world_1
+generated_at: "2026-05-23T12:30:00Z"
+source_sqlite: database/world_1/world_1.sqlite
+target_collections: [country]
+world_signature: sha256:c69a5a0d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1
+stats:
+  source_rows: 4319
+  target_documents: 239
+  tables_migrated: 3
+entries:
+  - entry_id: M0001
+    source_table: country
+    source_pk: "ABW"
+    target_collection: country
+    target_id: "ABW"
+    operation: root_insert
+    target_path: null
+    embedded_children: [cities, languages]
+  - entry_id: M0102
+    source_table: city
+    source_pk: "1"
+    target_collection: country
+    target_id: "ABW"
+    operation: embed_push
+    target_path: cities
+    embedded_children: []
+integrity_checks:
+  referential_pass: true
+  row_count_reconciled: true
+  orphan_refs: 0

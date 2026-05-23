@@ -1,0 +1,28 @@
+MQL: |
+  db.students.aggregate([
+    { $match: { $expr: { $gt: [ { $size: "$courses" }, 2 ] } } },
+    { $project: {
+        _id: 0,
+        first_name: { $ifNull: ["$first_name", "(unknown)"] },
+        last_name: 1
+    } }
+  ])
+nl_queries:
+  canonical: 列出注册了超过 2 门不同课程的学生，输出 first_name 与 last_name 字段；若 first_name 缺失则显示为 (unknown)；不要求排序。
+  colloquial: 哪些学生报了很多课？
+canonical_form_set:
+  must_contain: ["$match", "$project", "$ifNull"]
+  must_not_contain: ["$lookup", "$setWindowFields"]
+  must_contain_at_root: ["$match"]
+  must_not_contain_at_root: ["$group"]
+shape_policy: preserve
+join_depth: 0
+aggregation_depth: shallow
+query_plan:
+  primary_pattern: array_size_filter
+  null_missing_strategy: ifNull
+qra_trace:
+  translate_mql: db.students.aggregate([{ $match: { "courses.2": { $exists: true } } }, { $project: { _id: 0, first_name: 1, last_name: 1 } }])
+  generate_mql: db.students.aggregate([{ $match: { $expr: { $gt: [ { $size: "$courses" }, 2 ] } } }, { $project: { _id: 0, first_name: { $ifNull: ["$first_name", "(unknown)"] }, last_name: 1 } }])
+  converged: true
+  normexec_hash_match: true

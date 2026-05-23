@@ -1,0 +1,57 @@
+db_id: concert_singer
+spider_version: "1.0"
+generated_at: "2026-05-23T10:15:00Z"
+insufficient_workload: false
+source:
+  sqlite_path: database/concert_singer/concert_singer.sqlite
+  tables: [stadium, singer, concert, singer_in_concert]
+  query_count: 38
+workload_summary: >
+  Stadium-centric queries dominate; concerts expand to singers via bridge table.
+  Capacity filters and singer counts appear in half the workload.
+access_patterns:
+  - pattern_id: AP01
+    type: stadium_concert_expansion
+    tables: [stadium, concert]
+    join_path: stadium.Stadium_ID = concert.Stadium_ID
+    frequency: 0.55
+    example_query_ids: [12, 45, 67]
+    nl_hints:
+      - list concerts hosted at a stadium filtered by year or theme
+    sql_operators: [JOIN, WHERE, ORDER BY]
+  - pattern_id: AP02
+    type: singer_bridge
+    tables: [concert, singer_in_concert, singer]
+    join_path: concert.concert_ID = singer_in_concert.concert_ID; singer_in_concert.Singer_ID = singer.Singer_ID
+    frequency: 0.45
+    example_query_ids: [23, 89, 102]
+    nl_hints:
+      - count distinct singers per stadium or concert
+    sql_operators: [JOIN, COUNT, DISTINCT]
+hot_fields:
+  - path: stadium.Name
+    access_count: 31
+  - path: stadium.Capacity
+    access_count: 24
+  - path: singer.Singer_ID
+    access_count: 22
+co_location_signals:
+  - entities: [concert, singer]
+    co_access_rate: 0.82
+    note: singer_in_concert bridge always pairs concert with singer
+  - entities: [stadium, concert]
+    co_access_rate: 0.71
+    note: stadium queries usually expand concerts
+join_depth_distribution:
+  "0": 0.11
+  "1": 0.34
+  "2": 0.42
+  "3+": 0.13
+aggregation_depth_distribution:
+  shallow: 0.38
+  medium: 0.47
+  deep: 0.15
+design_constraints:
+  - Embed concerts with singer roster under stadium for AP01+AP02 co-traversal.
+  - Preserve Capacity on stadium root for filter predicates without $lookup.
+  - Singer_ID deduplication required for distinct singer counts.

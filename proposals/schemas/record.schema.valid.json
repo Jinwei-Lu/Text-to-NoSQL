@@ -1,0 +1,20 @@
+{
+  "record_id": 1001,
+  "db_id": "orchestra",
+  "nl_queries": {
+    "canonical": "对每位 conductor，先在其指挥的 orchestra 的 performance 上按 Performance_ID 升序、对 Attendance 计算窗口大小为 (当前, 前 2 场) 的滑动平均；取该 conductor 的最后一次窗口平均值作为代表值 (Attendance 缺失视为 0)。然后计算所有 conductor 代表值的中位数。最终只输出代表值严格大于该中位数的 conductor，字段为 Name 与 last_window_avg；若 Name 缺失则显示为 (unknown)；不要求排序。",
+    "colloquial": "列出最近场次出勤趋势高于同行中位数的指挥。"
+  },
+  "MQL": "db.conductor.aggregate([\n  { $unwind: { path: \"$orchestra\", preserveNullAndEmptyArrays: false } },\n  { $unwind: { path: \"$orchestra.performance\", preserveNullAndEmptyArrays: false } },\n  { $setWindowFields: {\n      partitionBy: \"$_id\",\n      sortBy: { \"orchestra.performance.Performance_ID\": 1 },\n      output: {\n        moving_avg_attendance: {\n          $avg: { $ifNull: [\"$orchestra.performance.Attendance\", 0] },\n          window: { documents: [-2, 0] }\n        }\n      }\n  } },\n  { $group: {\n      _id: \"$_id\",\n      Name: { $first: { $ifNull: [\"$Name\", \"(unknown)\"] } },\n      last_window_avg: { $last: \"$moving_avg_attendance\" }\n  } },\n  { $facet: {\n      per_conductor: [ { $project: { _id: 0, Name: 1, last_window_avg: 1 } } ],\n      global_median: [\n        { $sort: { last_window_avg: 1 } },\n        { $group: { _id: null, vals: { $push: \"$last_window_avg\" } } },\n        { $project: { _id: 0, median: { $arrayElemAt: [\"$vals\", { $floor: { $divide: [{ $size: \"$vals\" }, 2] } }] } } }\n      ]\n  } },\n  { $project: {\n      kept: { $filter: {\n        input: \"$per_conductor\",\n        as: \"c\",\n        cond: { $gt: [\"$$c.last_window_avg\", { $arrayElemAt: [\"$global_median.median\", 0] }] }\n      } }\n  } },\n  { $unwind: \"$kept\" },\n  { $project: { _id: 0, Name: \"$kept.Name\", last_window_avg: \"$kept.last_window_avg\" } }\n])",
+  "canonical_form_set": {
+    "must_contain": ["$setWindowFields", "$facet", "$ifNull"],
+    "must_not_contain": [],
+    "must_contain_at_root": ["$setWindowFields", "$facet"],
+    "must_not_contain_at_root": []
+  },
+  "difficulty": "L4",
+  "shape_policy": "reshape",
+  "world_signature": "sha256:a47f3e8b1c2d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e90",
+  "agent_design_rationale_ref": "fixtures/orchestra/sra.yaml",
+  "mutations_ref": "fixtures/orchestra/mutations.json"
+}

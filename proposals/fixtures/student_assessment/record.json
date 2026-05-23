@@ -1,0 +1,23 @@
+{
+  "record_id": 4001,
+  "db_id": "student_assessment",
+  "nl_queries": {
+    "canonical": "列出注册了超过 2 门不同课程的学生，输出 first_name 与 last_name 字段；若 first_name 缺失则显示为 (unknown)；不要求排序。",
+    "colloquial": "哪些学生报了很多课？"
+  },
+  "MQL": "db.students.aggregate([\n  { $match: { $expr: { $gt: [ { $size: \"$courses\" }, 2 ] } } },\n  { $project: {\n      _id: 0,\n      first_name: { $ifNull: [\"$first_name\", \"(unknown)\"] },\n      last_name: 1\n  } }\n])",
+  "canonical_form_set": {
+    "must_contain": ["$match", "$project", "$ifNull"],
+    "must_not_contain": ["$lookup", "$setWindowFields"],
+    "must_contain_at_root": ["$match"],
+    "must_not_contain_at_root": ["$group"]
+  },
+  "difficulty": "L1",
+  "shape_policy": "preserve",
+  "world_signature": "sha256:d70b6b1e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2",
+  "domain_id": "education",
+  "join_depth": 0,
+  "aggregation_depth": "shallow",
+  "schema_pattern": "embed",
+  "agent_design_rationale_ref": "fixtures/student_assessment/sra.yaml"
+}

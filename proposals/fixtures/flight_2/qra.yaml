@@ -1,0 +1,64 @@
+MQL: |
+  db.airlines.aggregate([
+    { $unwind: { path: "$flights", preserveNullAndEmptyArrays: false } },
+    { $setWindowFields: {
+        partitionBy: { Airline: "$Abbreviation", route: { $concat: ["$flights.SourceAirport", "-", "$flights.DestAirport"] } },
+        sortBy: { "flights.FlightNo": 1 },
+        output: {
+          route_density: {
+            $sum: 1,
+            window: { documents: [-2, 0] }
+          }
+        }
+    } },
+    { $group: {
+        _id: "$_id",
+        Abbreviation: { $first: { $ifNull: ["$Abbreviation", "(unknown)"] } },
+        route_densities: { $push: "$route_density" }
+    } },
+    { $project: {
+        Abbreviation: 1,
+        route_densities: 1,
+        median_density: { $arrayElemAt: [
+          { $sortArray: { input: "$route_densities", sortBy: 1 } },
+          { $floor: { $divide: [ { $size: "$route_densities" }, 2 ] } }
+        ] }
+    } },
+    { $facet: {
+        per_airline: [
+          { $project: {
+              Abbreviation: 1,
+              max_route_density: { $max: {
+                $filter: {
+                  input: "$route_densities",
+                  as: "d",
+                  cond: { $gt: ["$$d", "$median_density"] }
+                }
+              } }
+          } },
+          { $match: { max_route_density: { $ne: null } } }
+        ]
+    } },
+    { $unwind: "$per_airline" },
+    { $replaceRoot: { newRoot: "$per_airline" } },
+    { $project: { _id: 0, Abbreviation: 1, max_route_density: 1 } }
+  ])
+nl_queries:
+  canonical: 对每家航空公司 (Airline)，在其每条 SourceAirport→DestAirport 航线上按 FlightNo 升序、对航线航班数计算窗口大小为 (当前, 前 2 班) 的滑动计数；取该航线最后一次窗口值作为 route_density。然后计算该航空公司所有 route_density 的中位数。最终只输出存在至少一条 route_density 严格大于该中位数的航线的航空公司 Abbreviation 与 max_route_density (取满足条件的航线中最大 route_density)；若 Abbreviation 缺失则显示为 (unknown)；不要求排序。
+  colloquial: 哪些航司在某些热门航线上班次特别密集？
+canonical_form_set:
+  must_contain: ["$setWindowFields", "$facet", "$ifNull"]
+  must_not_contain: []
+  must_contain_at_root: ["$setWindowFields", "$facet"]
+  must_not_contain_at_root: []
+shape_policy: reshape
+join_depth: 0
+aggregation_depth: deep
+query_plan:
+  primary_pattern: window_median_facet
+  null_missing_strategy: ifNull
+qra_trace:
+  translate_mql: db.airlines.aggregate([{ $unwind: { path: "$flights" } }, { $setWindowFields: { partitionBy: "$Abbreviation", output: { route_density: { $sum: 1, window: { documents: [-2, 0] } } } } }, { $facet: { per_airline: [] } }])
+  generate_mql: db.airlines.aggregate([{ $unwind: { path: "$flights", preserveNullAndEmptyArrays: false } }, { $setWindowFields: { partitionBy: { Airline: "$Abbreviation", route: { $concat: ["$flights.SourceAirport", "-", "$flights.DestAirport"] } }, sortBy: { "flights.FlightNo": 1 }, output: { route_density: { $sum: 1, window: { documents: [-2, 0] } } } } }, { $group: { _id: "$_id", Abbreviation: { $first: { $ifNull: ["$Abbreviation", "(unknown)"] } }, route_densities: { $push: "$route_density" } } }, { $project: { Abbreviation: 1, route_densities: 1, median_density: { $arrayElemAt: [ { $sortArray: { input: "$route_densities", sortBy: 1 } }, { $floor: { $divide: [ { $size: "$route_densities" }, 2 ] } } ] } } }, { $facet: { per_airline: [ { $project: { Abbreviation: 1, max_route_density: { $max: { $filter: { input: "$route_densities", as: "d", cond: { $gt: ["$$d", "$median_density"] } } } } } }, { $match: { max_route_density: { $ne: null } } } ] } }, { $unwind: "$per_airline" }, { $replaceRoot: { newRoot: "$per_airline" } }, { $project: { _id: 0, Abbreviation: 1, max_route_density: 1 } }])
+  converged: true
+  normexec_hash_match: true

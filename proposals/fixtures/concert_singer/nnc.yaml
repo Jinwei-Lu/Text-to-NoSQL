@@ -1,0 +1,23 @@
+difficulty: L3
+difficulty_rationale: Facet-parallel global average over deduplicated embedded arrays is awkward in flat SQL joins.
+sql_infeasibility_class: performative
+dual_bridge_defeat:
+  pass: true
+  sql_bridge:
+    ex: 0
+    qim: 1
+    notes: SQL bridge emits nested subquery but misses $addToSet dedup semantics
+  template_bridge:
+    ex: 0
+    qim: 0
+    notes: Stadium-concert template lacks facet branch for global average
+ambiguity_attack:
+  parse_count: 4
+  equivalent_to_gold_count: 4
+  pass: true
+canonical_form_set_check:
+  pass: true
+  violations: []
+nnc_verdict:
+  pass: true
+  blocking_reasons: []

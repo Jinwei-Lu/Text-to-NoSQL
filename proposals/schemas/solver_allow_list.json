@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tend.dev/schemas/solver_allow_list.json",
+  "title": "TEND solver-side allow-list",
+  "description": "Machine-readable solver boundary contract for SMART stages. Authoritative prose in proposals/06_solution_design.md.",
+  "schema_version": "2026-05-23",
+  "disabled_operators": [
+    "$sample",
+    "$rand",
+    "$out",
+    "$merge",
+    "$function"
+  ],
+  "disabled_system_vars": [
+    "$$NOW"
+  ],
+  "disabled_operator_note": "Six disabled operators per 01 §01-2-2; AST filter must reject all six plus $$NOW before submission.",
+  "tier1_forbidden_glob": [
+    "audit/**",
+    "test.json:MQL",
+    "test.json:canonical_form_set",
+    "test.json:*_ref",
+    "train.json:*_ref",
+    "rejected/**"
+  ],
+  "audit_blocklist": [
+    "audit/**",
+    "rejected/**"
+  ],
+  "test_record_forbidden_fields": [
+    "MQL",
+    "canonical_form_set",
+    "agent_design_rationale_ref",
+    "mutations_ref",
+    "qra_trace_ref",
+    "nnc_trace_ref",
+    "ra_audit_ref",
+    "ra_augment_trace_ref",
+    "world_signature_ref"
+  ],
+  "train_record_readable_fields": [
+    "record_id",
+    "db_id",
+    "nl_queries",
+    "MQL",
+    "canonical_form_set",
+    "difficulty",
+    "shape_policy",
+    "world_signature"
+  ],
+  "train_record_forbidden_suffix": "_ref",
+  "library_readable": [
+    "mongodb_schema/<db_id>.json",
+    "mongodb_data/<db_id>.json",
+    "agent_design_rationale/<db_id>.yaml",
+    "spider_db_catalog.json"
+  ],
+  "witness_sample_limit": {
+    "scope": "query_generation_only",
+    "max_per_collection": "solver_disclosed_K",
+    "forbidden_in_stage": "schema_prediction"
+  },
+  "four_party_disjointness": {
+    "construction_authority": "05 §05-4",
+    "solver_dual": "06 §06-4-3",
+    "sets": {
+      "A_evaluated": "solver under test (self)",
+      "B_frozen_panels": "20 frozen reference models (4 panels × 5)",
+      "C_construction_pool": "QRA / NNC / RA / dual-bridge LLM pool used at construction"
+    },
+    "solver_invariant": [
+      "S_solver ∩ B_frozen = ∅",
+      "S_solver ∩ C_pool = ∅"
+    ],
+    "s_solver_scope": [
+      "schema_prediction_model",
+      "query_generation_llm",
+      "rag_embedding_model",
+      "rag_rerank_model",
+      "execution_debug_aux_models"
+    ]
+  },
+  "frozen_panel_manifest_ref": "audit/reference_panel/manifest_<release>.json",
+  "frozen_panels": {
+    "small": [],
+    "medium": [],
+    "large": [],
+    "frontier": []
+  },
+  "frozen_panel_note": "Populate frozen_panels.* from audit/reference_panel/manifest_<release>.json at release time; empty arrays are placeholders until manifest is published.",
+  "stages": {
+    "schema_prediction": {
+      "inputs": ["NLQ", "S"],
+      "outputs": ["S_hat"],
+      "readable": [
+        "mongodb_schema/<db_id>.json",
+        "test.json:nl_queries.canonical",
+        "test.json:nl_queries.colloquial",
+        "test.json:db_id",
+        "test.json:difficulty",
+        "test.json:shape_policy"
+      ],
+      "forbidden": [
+        "mongodb_data/** (full load)",
+        "audit/**",
+        "test.json:MQL",
+        "test.json:canonical_form_set",
+        "test.json:*_ref"
+      ]
+    },
+    "query_generation": {
+      "inputs": ["NLQ", "S_hat", "db_id", "optional_witness_samples"],
+      "outputs": ["q_p_0"],
+      "readable": [
+        "mongodb_schema/<db_id>.json",
+        "mongodb_data/<db_id>.json (≤ K docs per collection)",
+        "agent_design_rationale/<db_id>.yaml (public summary fields only)",
+        "test.json:nl_queries",
+        "test.json:db_id",
+        "test.json:difficulty",
+        "test.json:shape_policy"
+      ],
+      "forbidden": [
+        "audit/**",
+        "test.json:MQL",
+        "test.json:canonical_form_set",
+        "test.json:*_ref",
+        "train.json:*_ref"
+      ],
+      "postprocess": ["ast_reject_disabled_operators"]
+    },
+    "rag_refinement": {
+      "inputs": ["q_p_0", "train.json corpus"],
+      "outputs": ["q_p_1"],
+      "readable": [
+        "train.json:record_id",
+        "train.json:db_id",
+        "train.json:nl_queries",
+        "train.json:MQL",
+        "train.json:canonical_form_set",
+        "train.json:difficulty",
+        "train.json:shape_policy",
+        "train.json:world_signature"
+      ],
+      "forbidden": [
+        "train.json:*_ref",
+        "audit/**"
+      ],
+      "postprocess": ["ast_reject_disabled_operators"]
+    },
+    "execution_debug": {
+      "inputs": ["q_p_1", "local_mongodb"],
+      "outputs": ["q_p_final"],
+      "readable": [
+        "test.json:db_id",
+        "mongodb_data/<db_id>.json (local replica only, not eval gold DB)"
+      ],
+      "forbidden": [
+        "test.json:MQL",
+        "test.json:canonical_form_set",
+        "evaluator_gold_runtime",
+        "audit/**"
+      ],
+      "feedback_to_query_generation": {
+        "allowed_keys": ["error_code", "stage_index", "suspect_field"],
+        "forbidden": ["raw_result_rows", "gold_answer"]
+      }
+    }
+  },
+  "shape_preserving": {
+    "shape_policy_trigger": "preserve",
+    "nlq_keywords_en": [
+      "attach",
+      "augment",
+      "add field",
+      "preserve structure",
+      "in place",
+      "decorate",
+      "annotate"
+    ],
+    "nlq_keywords_zh": [
+      "附加",
+      "增补",
+      "标注",
+      "就地计算",
+      "保持原结构"
+    ],
+    "required_idiom": ["$addFields", "$set", "$map", "$reduce", "$filter"],
+    "anti_patterns": ["$unwind + $group to rebuild arrays"]
+  }
+}

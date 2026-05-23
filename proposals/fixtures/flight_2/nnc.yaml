@@ -1,0 +1,23 @@
+difficulty: L4
+difficulty_rationale: Multi-partition window over embedded routes plus facet-filtered median exceeds SQL window frame expressibility.
+sql_infeasibility_class: structural
+dual_bridge_defeat:
+  pass: true
+  sql_bridge:
+    ex: 0
+    qim: 0
+    notes: SQL bridge cannot partition window by composite route key in one pipeline
+  template_bridge:
+    ex: 0
+    qim: 0
+    notes: Airline-flight template lacks $setWindowFields and facet median branch
+ambiguity_attack:
+  parse_count: 4
+  equivalent_to_gold_count: 4
+  pass: true
+canonical_form_set_check:
+  pass: true
+  violations: []
+nnc_verdict:
+  pass: true
+  blocking_reasons: []

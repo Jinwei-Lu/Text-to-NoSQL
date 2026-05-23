@@ -1,0 +1,23 @@
+{
+  "record_id": 2001,
+  "db_id": "concert_singer",
+  "nl_queries": {
+    "canonical": "对每个体育场，统计其举办的所有音乐会中参演的不重复歌手数量 (singer_count)。只保留 Capacity 严格大于 5000 且 singer_count 严格大于所有符合条件体育场的 singer_count 平均值的体育场，输出 Name 与 singer_count；若 Name 缺失则显示为 (unknown)；不要求排序。",
+    "colloquial": "哪些大场馆请到的歌手阵容特别豪华？"
+  },
+  "MQL": "db.stadium.aggregate([\n  { $unwind: { path: \"$concerts\", preserveNullAndEmptyArrays: false } },\n  { $unwind: { path: \"$concerts.singers\", preserveNullAndEmptyArrays: false } },\n  { $group: {\n      _id: \"$_id\",\n      Name: { $first: { $ifNull: [\"$Name\", \"(unknown)\"] } },\n      Capacity: { $first: \"$Capacity\" },\n      singer_ids: { $addToSet: \"$concerts.singers.Singer_ID\" }\n  } },\n  { $project: { Name: 1, Capacity: 1, singer_count: { $size: \"$singer_ids\" } } },\n  { $match: { Capacity: { $gt: 5000 } } },\n  { $facet: {\n      per_stadium: [ { $project: { _id: 0, Name: 1, singer_count: 1 } } ],\n      avg_singers: [\n        { $group: { _id: null, avg_count: { $avg: \"$singer_count\" } } }\n      ]\n  } },\n  { $project: {\n      kept: { $filter: {\n        input: \"$per_stadium\",\n        as: \"s\",\n        cond: { $gt: [\"$$s.singer_count\", { $arrayElemAt: [\"$avg_singers.avg_count\", 0] }] }\n      } }\n  } },\n  { $unwind: \"$kept\" },\n  { $replaceRoot: { newRoot: \"$kept\" } }\n])",
+  "canonical_form_set": {
+    "must_contain": ["$facet", "$addToSet", "$ifNull"],
+    "must_not_contain": [],
+    "must_contain_at_root": ["$facet"],
+    "must_not_contain_at_root": []
+  },
+  "difficulty": "L3",
+  "shape_policy": "reshape",
+  "world_signature": "sha256:b58a4f9c2d3e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f1a2",
+  "domain_id": "entertainment",
+  "join_depth": 0,
+  "aggregation_depth": "medium",
+  "schema_pattern": "embed",
+  "agent_design_rationale_ref": "fixtures/concert_singer/sra.yaml"
+}

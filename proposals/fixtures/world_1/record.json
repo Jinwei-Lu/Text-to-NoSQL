@@ -1,0 +1,23 @@
+{
+  "record_id": 3001,
+  "db_id": "world_1",
+  "nl_queries": {
+    "canonical": "在欧洲 (Continent = Europe) 的国家中，统计每个国家城市人口 (Population) 超过 100 万的城市占比 pct (分母为该国城市总数，分子为超百万城市数；Population 缺失的城市不计入分子分母)。只输出 pct 严格大于 0.3 的国家 Name 与 pct；不要求排序。",
+    "colloquial": "哪些欧洲国家的大城市特别集中？"
+  },
+  "MQL": "db.country.aggregate([\n  { $match: { Continent: \"Europe\" } },\n  { $unwind: { path: \"$cities\", preserveNullAndEmptyArrays: false } },\n  { $group: {\n      _id: \"$_id\",\n      Name: { $first: \"$Name\" },\n      total_cities: { $sum: { $cond: [{ $ne: [\"$cities.Population\", null] }, 1, 0] } },\n      big_cities: { $sum: { $cond: [{ $gt: [\"$cities.Population\", 1000000] }, 1, 0] } }\n  } },\n  { $project: {\n      _id: 0,\n      Name: 1,\n      pct: { $cond: [\n        { $gt: [\"$total_cities\", 0] },\n        { $divide: [\"$big_cities\", \"$total_cities\"] },\n        0\n      ] }\n  } },\n  { $match: { pct: { $gt: 0.3 } } }\n])",
+  "canonical_form_set": {
+    "must_contain": ["$match", "$group", "$divide"],
+    "must_not_contain": [],
+    "must_contain_at_root": ["$match"],
+    "must_not_contain_at_root": ["$lookup"]
+  },
+  "difficulty": "L2",
+  "shape_policy": "reshape",
+  "world_signature": "sha256:c69a5a0d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1",
+  "domain_id": "geography",
+  "join_depth": 0,
+  "aggregation_depth": "medium",
+  "schema_pattern": "embed",
+  "agent_design_rationale_ref": "fixtures/world_1/sra.yaml"
+}
