@@ -18,7 +18,7 @@ TEND v2-Agent 的发布物由 **主集 (Tier-1)** 与 **Audit 子树 (Tier-2)** 
 
 覆盖目标从 v2-original 的 9+1 轴 min/max 双配额简化为 **五轴 + 单 max 配额**：`domain`（Spider 域）、`join_depth`（$lookup 深度）、`aggregation_depth`（管线阶段深度桶）、`schema_pattern`（SRA 应用的主 design pattern）、`difficulty_tier`（L0–L4）。Spider 自带 138 域多样性，配额仅设上界以防高频 cell 饱和，不设 min 下界强拉（L4 比例除外，作为全局硬约束单独监控）。
 
-Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6 卷字节级一致（见 [CANONICAL_ANCHOR.md](./CANONICAL_ANCHOR.md) 与本卷 Part II）。
+Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6 卷字节级一致（见 [CANONICAL_ANCHOR.md](./_meta/CANONICAL_ANCHOR.md) 与本卷 Part II）。
 
 ---
 
@@ -199,7 +199,7 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 1. C1–C8 record 级强约束全通
 2. schema / data / rationale 三方文件名一致
 3. H1–H6 切分与覆盖硬约束全通（含 L4 ≥ 15%）
-4. canonical anchor `orchestra/1001` 与 [CANONICAL_ANCHOR.md](./CANONICAL_ANCHOR.md) 逐字节一致
+4. canonical anchor `orchestra/1001` 与 [CANONICAL_ANCHOR.md](./_meta/CANONICAL_ANCHOR.md) 逐字节一致
 5. 全部 record 通过 `schemas/record.schema.json` 校验
 
 ---

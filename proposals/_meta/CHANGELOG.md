@@ -11,7 +11,7 @@
 - `proposals/agent_prompts/` — 7 agent prompt files with 4-piece structure
 - `proposals/schemas/` — machine-readable JSON Schemas
 - `proposals/fixtures/` — 5 Spider DB end-to-end fixtures
-- `proposals/GLOSSARY.md`, `CANONICAL_ANCHOR.md`, `CHANGELOG.md`
+- `proposals/_meta/{GLOSSARY,CANONICAL_ANCHOR,CHANGELOG}.md`
 - Workload-driven MongoDB design (11 official patterns + 3 anti-patterns)
 
 ### Removed (from v2-original)

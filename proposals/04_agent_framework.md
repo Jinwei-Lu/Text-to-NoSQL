@@ -22,7 +22,7 @@ TEND v2-Agent 在 Spider 锚定数据世界上，用 **QRA / NNC / RA** 三 Agen
 
 **mutations**：每条 record **5–8 条** plausible wrong 变体（较 v2-original 35 条缩减），覆盖算子缺失、参数错位、shape 错标、null 策略丢弃等子轴；全部须 EX fail（P3）。典型错解示例：缺 $ifNull、用全局 $avg 替代窗口、median 索引未 $floor。
 
-Canonical anchor **orchestra/1001**：L4、reshape、$setWindowFields + $facet + $ifNull；dual-bridge 须拒绝纯 SQL 翻译与 lookup 模板捷径。完整 JSON 见 [CANONICAL_ANCHOR.md](./CANONICAL_ANCHOR.md) 与本卷 §04-6。
+Canonical anchor **orchestra/1001**：L4、reshape、$setWindowFields + $facet + $ifNull；dual-bridge 须拒绝纯 SQL 翻译与 lookup 模板捷径。完整 JSON 见 [CANONICAL_ANCHOR.md](./_meta/CANONICAL_ANCHOR.md) 与本卷 §04-6。
 
 ---
 

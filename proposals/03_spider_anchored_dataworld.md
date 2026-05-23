@@ -446,4 +446,4 @@ jsonschema --schema proposals/schemas/wp_output.schema.json \
 }
 ```
 
-Spider 四表 DDL 见 [phase0_spider_verify_report.md](./phase0_spider_verify_report.md)。
+Spider 四表 DDL 见 [phase0_spider_verify_report.md](../audit/phase0_spider_verify_report.md)。

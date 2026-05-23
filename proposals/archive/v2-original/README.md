@@ -21,4 +21,4 @@ These files are **no longer maintained**. The active version is the **v2-Agent**
 - **v2-original**: Rule-based synthesis with SI DSL, domain templates (this archive)
 - **v2-Agent**: Spider-anchored LLM Agent framework (active)
 
-See `proposals/CHANGELOG.md` for detailed diff.
+See `proposals/_meta/CHANGELOG.md` for detailed diff.

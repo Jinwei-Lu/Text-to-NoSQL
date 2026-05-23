@@ -57,13 +57,13 @@
 | Artifact | Path | Status |
 |----------|------|--------|
 | 6 volumes (Part I + II) | `proposals/0[1-6]_*.md` | ✓ |
-| Global docs | `GLOSSARY.md`, `CHANGELOG.md`, `CANONICAL_ANCHOR.md` | ✓ |
+| Global docs | `proposals/_meta/{GLOSSARY,CHANGELOG,CANONICAL_ANCHOR}.md` | ✓ |
 | v2 archive | `archive/v2-original/` (6 + README) | ✓ |
 | Agent prompts | `agent_prompts/` (7 files) | ✓ |
 | JSON Schemas | `schemas/` (24 files) | ✓ |
 | Fixtures | `fixtures/` (5 DBs × 6–7 files) | ✓ |
 | Link checker | `scripts/check_links.py` | ✓ |
-| Spider verify | `phase0_spider_verify_report.md` | ✓ (MISSING verdict) |
+| Spider verify | `audit/phase0_spider_verify_report.md` | ✓ (MISSING verdict) |
 
 ---
 

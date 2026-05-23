@@ -148,7 +148,7 @@ Leaderboard 以 EX 为准（[05 §4](./05_evaluation_methodology.md#05-4)）。�
 - must_contain_at_root：pipeline 顶层 stage 须包含的 operator 集合
 - must_not_contain_at_root：顶层禁止的 operator 集合
 
-派生算法由 [04 §4](./04_agent_framework.md#04-4) 的 QRA + NNC 负责；Glossary 别名见 [GLOSSARY](./GLOSSARY.md#canonical_form_set)。
+派生算法由 [04 §4](./04_agent_framework.md#04-4) 的 QRA + NNC 负责；Glossary 别名见 [GLOSSARY](./_meta/GLOSSARY.md#canonical_form_set)。
 
 **gold-class 成员判定**（EX 双条件）：
 
