@@ -1,0 +1,49 @@
+{
+  "students": {
+    "_id": "INT",
+    "student_id": "INT",
+    "first_name": "TEXT",
+    "last_name": "TEXT",
+    "courses": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "fields": {
+          "course_id": "INT",
+          "course_name": "TEXT"
+        }
+      }
+    },
+    "assessments": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "fields": {
+          "__type": "TEXT",
+          "assessment_id": "INT",
+          "score": "REAL"
+        }
+      }
+    },
+    "__variants": [
+      {
+        "discriminator": { "__type": "written" },
+        "fields": { "written_score": "REAL", "word_count": "INT" },
+        "coverage": 0.42,
+        "source_signal": "H1: Candidate_Assessments.assessment_type=written"
+      },
+      {
+        "discriminator": { "__type": "oral" },
+        "fields": { "oral_score": "REAL", "duration_minutes": "INT" },
+        "coverage": 0.35,
+        "source_signal": "H1: Candidate_Assessments.assessment_type=oral"
+      },
+      {
+        "discriminator": { "__type": "practical" },
+        "fields": { "lab_score": "REAL", "equipment_id": "INT" },
+        "coverage": 0.23,
+        "source_signal": "H1: Candidate_Assessments.assessment_type=practical"
+      }
+    ]
+  }
+}

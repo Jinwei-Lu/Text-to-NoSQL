@@ -66,11 +66,50 @@
       "type": "object",
       "minProperties": 1,
       "additionalProperties": {
-        "type": "object",
-        "minProperties": 1,
-        "additionalProperties": { "$ref": "#/$defs/fieldType" }
+        "$ref": "#/$defs/collectionSchema"
       },
       "description": "mongodb_schema/<db_id>.json — collection name → field declaration tree."
+    },
+    "shapeVariant": {
+      "type": "object",
+      "required": ["discriminator", "fields"],
+      "additionalProperties": false,
+      "properties": {
+        "discriminator": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string" }
+        },
+        "fields": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/nestedType" }
+        },
+        "coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "source_signal": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "collectionSchema": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "__variants": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/shapeVariant" }
+        }
+      },
+      "patternProperties": {
+        "^(?!__variants$)[A-Za-z_][A-Za-z0-9_]*$": { "$ref": "#/$defs/fieldType" }
+      },
+      "additionalProperties": false
     },
     "mongodb_data": {
       "type": "object",

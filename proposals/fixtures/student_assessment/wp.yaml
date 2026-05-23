@@ -17,7 +17,7 @@ source:
   query_count: 28
 workload_summary: >
   Student registration and course enrollment dominate; assessment outcomes
-  appear in secondary join paths through Candidates.
+  appear in secondary join paths through Candidates with type-conditional branches.
 access_patterns:
   - pattern_id: AP01
     type: student_course_registration
@@ -37,11 +37,22 @@ access_patterns:
     nl_hints:
       - project student first and last names
     sql_operators: [JOIN, SELECT]
+  - pattern_id: AP03
+    type: assessment_type_conditional
+    tables: [Students, Candidates, Candidate_Assessments]
+    join_path: Students.student_id = Candidates.student_id; Candidates.candidate_id = Candidate_Assessments.candidate_id
+    frequency: 0.36
+    example_query_ids: [15, 22, 26]
+    nl_hints:
+      - score normalization differs by assessment_type (written/oral/practical)
+    sql_operators: [JOIN, CASE, GROUP BY]
 hot_fields:
   - path: Students.student_id
     access_count: 26
   - path: People.first_name
     access_count: 18
+  - path: Candidate_Assessments.assessment_type
+    access_count: 14
   - path: Student_Course_Registrations.course_id
     access_count: 16
 co_location_signals:
@@ -63,4 +74,5 @@ aggregation_depth_distribution:
 design_constraints:
   - Denormalize People first_name and last_name onto student documents.
   - Embed courses[] array from Student_Course_Registrations for cardinality filters.
+  - Embed assessments[] with H1 __variants for type-conditional score paths.
   - Preserve student_id as document _id for direct lookup.

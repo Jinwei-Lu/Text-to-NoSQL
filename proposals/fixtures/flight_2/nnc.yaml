@@ -1,6 +1,6 @@
 difficulty: L4
 difficulty_rationale: Multi-partition window over embedded routes plus facet-filtered median exceeds SQL window frame expressibility.
-sql_infeasibility_class: structural
+sql_infeasibility_class: structural_pipeline
 dual_bridge_defeat:
   pass: true
   sql_bridge:

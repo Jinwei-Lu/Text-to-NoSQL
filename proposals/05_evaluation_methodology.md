@@ -1,6 +1,6 @@
 # TEND §05 · Evaluation Methodology (v2-Agent)
 
-> 本卷是 TEND v2-Agent **评测层** 的单一真源 (SSoT)。给定 solver 在 test 窄可见面上产出 MQL `q_p`，评测管线将其映射为 7 比特指纹并聚合为可引用的 headline 与诊断分数。任务签名、NormExec、≡_rec、gold-as-class 定义见 [01](./01_task_definition.md)；record 字段与五轴覆盖见 [02](./02_dataset_design.md)；Agent 构造见 [04](./04_agent_framework.md)。
+> 本卷是 TEND v2-Agent **评测层** 的单一真源 (SSoT)。给定 solver 在 test 窄可见面上产出 MQL `q_p`，评测管线将其映射为 7 比特指纹并聚合为可引用的 headline 与诊断分数。任务签名、NormExec、≡_rec、gold-as-class 定义见 [01](./01_task_definition.md)；record 字段与六轴覆盖见 [02](./02_dataset_design.md)；Agent 构造见 [04](./04_agent_framework.md)。
 
 ---
 
@@ -18,11 +18,11 @@ TEND v2-Agent 评测层把每条 test record 上的 solver 预测 `q_p` 压缩�
 
 **Solver 窄可见面**（test.json 单条 record）：仅可读 `nl_queries.canonical`、`db_id`、`mongodb_schema/<db_id>.json`、`mongodb_data/<db_id>.json`。显式禁止读取 `MQL`、`canonical_form_set`、`nl_queries.colloquial`（默认主评测）、一切 `_ref` / `_eval_` / `_audit_` 字段及整个 `audit/` 树。train.json 中 `MQL` 与 `canonical_form_set` 可读作监督信号。
 
-**五轴切片**（见 [02 §4](./02_dataset_design.md#02-4)）：`domain`（domain_id）、`join_depth`（0/1/2/3+）、`aggregation_depth`（shallow/medium/deep）、`schema_pattern`（SRA 主 pattern）、`difficulty_tier`（L0–L4）。每轴对 7 指标分别求均值，形成 slice × metric 矩阵；主 headline 仍为全 test 等权 EX。
+**六轴切片**（见 [02 §4](./02_dataset_design.md#02-4)）：`domain`（domain_id）、`join_depth`（0/1/2/3+）、`aggregation_depth`（shallow/medium/deep）、`schema_pattern`（SRA 主 pattern）、`schema_flex`（SRA Stage B H1–H4 触发轴）、`difficulty_tier`（L0–L4）。每轴对 7 指标分别求均值，形成 slice × metric 矩阵；主 headline 仍为全 test 等权 EX。
 
 **4-panel 报告（纯观测）**：构造期由 20 个冻结模型（small/medium/large/frontier 各 5）在每条 record 上产出 pr 四元组 `(pr_small, pr_medium, pr_large, pr_frontier)`，随 release 发布为 evaluator-only 元数据。**v2-Agent 删除 amplify 反馈闭环**——4-panel 仅用于难度形状观测、Solver-vs-Panel 对比视图与 `empirical_difficulty` 标签（由 pr_medium 分桶），不得反向修改 witness 或 record。
 
-**强制披露**：任何公开引用 TEND 分数的提交须同时披露 7 指标三级聚合、五轴切片矩阵、4-panel pr 分布、构造/评测 disjointness 时间戳、环境 digest、Solver LLM 骨干清单、per-record 指纹 CSV 等 ≥12 项（见 [§05-4](#05-4)）。缺失任一项标记 `[DISCLOSURE_INCOMPLETE]`，不得汇入 official leaderboard。
+**强制披露**：任何公开引用 TEND 分数的提交须同时披露 7 指标三级聚合、六轴切片矩阵、4-panel pr 分布、构造/评测 disjointness 时间戳、环境 digest、Solver LLM 骨干清单、per-record 指纹 CSV 等 ≥12 项（见 [§05-4](#05-4)）。缺失任一项标记 `[DISCLOSURE_INCOMPLETE]`，不得汇入 official leaderboard。
 
 Canonical anchor **orchestra/1001** 的评测实例见 [§05-5](#05-5)；字节级 JSON 见 Part II。
 
@@ -149,7 +149,7 @@ Solver 对单条 test record **仅**读入四字段：
 **禁止读取**：`MQL`、`canonical_form_set`、`nl_queries.colloquial`（主评测）、任意 `_ref` / `_eval_` / `_audit_` 前缀字段、`audit/` 全树。违反窄面视为作弊提交，整次评测拒入 leaderboard。
 
 <a id="05-2-3"></a>
-#### 05-2-3 五轴切片维度
+#### 05-2-3 六轴切片维度
 
 | 轴 ID | 观测字段 | 取值域 |
 |---|---|---|
@@ -157,6 +157,7 @@ Solver 对单条 test record **仅**读入四字段：
 | `join_depth` | `join_depth` | 0, 1, 2, 3+ |
 | `aggregation_depth` | `aggregation_depth` | shallow / medium / deep |
 | `schema_pattern` | `schema_pattern` | embed, bucket, mixed, … |
+| `schema_flex` | `schema_flex` | none, polymorphic, attribute_bag, schema_versioning, dynamic_key |
 | `difficulty_tier` | `difficulty` | L0–L4 |
 
 每轴生成 `|values| × 7` 指标矩阵；须与 headline EX 一并披露。
@@ -212,7 +213,7 @@ v2-Agent 保留 panel 对偶，构造池映射为 QRA/NNC/RA：
 | # | 披露项 | 格式 |
 |---|---|---|
 | 1 | 7 指标三级聚合（per-record / per-slice / per-panel） | 7 张 CSV |
-| 2 | 五轴 slice × metric 矩阵 | 5 张 CSV 或 JSON |
+| 2 | 六轴 slice × metric 矩阵 | 6 张 CSV 或 JSON |
 | 3 | 4-panel pr 四元组 + empirical_difficulty 分布 | per-record 4 float + enum |
 | 4 | NNC dual-bridge defeat 分布 | per-bridge 计数 |
 | 5 | QRA 双轨收敛率 + NNC L-tier 分布 | 百分比 + 直方图 |
@@ -252,7 +253,7 @@ Leaderboard 提交 JSON 须通过 `schemas/leaderboard.schema.json`（见 Part I
 | 不在本卷 | 去向 |
 |---|---|
 | NormExec / ≡_rec / 六禁算子 | [01](./01_task_definition.md) |
-| record 字段 / 五轴 / split | [02](./02_dataset_design.md) |
+| record 字段 / 六轴 / split | [02](./02_dataset_design.md) |
 | QRA / NNC / RA / mutations | [04](./04_agent_framework.md) |
 | SMART solver / solver 边界 | [06](./06_solution_design.md) |
 
@@ -419,16 +420,17 @@ def execution_value_match(R_p, R_g) -> bool:
 ---
 
 <a id="05-ii-4"></a>
-### 05-II-4 五轴切片聚合
+### 05-II-4 六轴切片聚合
 
 # uses: collections, statistics
 
 ```
-FIVE_AXES = {
+SIX_AXES = {
     "domain":            lambda r: r.get("domain_id", catalog_domain(r["db_id"])),
     "join_depth":        lambda r: bucket_join_depth(r.get("join_depth", 0)),
     "aggregation_depth": lambda r: r["aggregation_depth"],
     "schema_pattern":    lambda r: r["schema_pattern"],
+    "schema_flex":       lambda r: r.get("schema_flex", "none"),
     "difficulty_tier":   lambda r: r["difficulty"],
 }
 
@@ -444,7 +446,7 @@ def aggregate_slices(fingerprints: list[dict], records: list[dict]) -> dict:
     """
     out = {}
     rec_by_id = {r["record_id"]: r for r in records}
-    for axis, key_fn in FIVE_AXES.items():
+    for axis, key_fn in SIX_AXES.items():
         buckets = defaultdict(list)
         for row in fingerprints:
             r = rec_by_id[row["record_id"]]

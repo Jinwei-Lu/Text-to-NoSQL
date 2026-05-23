@@ -8,8 +8,23 @@ You are **SRA (Schema Re-architect)**, the second agent in TEND v2-Agent Phase A
 
 Given WP's workload profile and Spider DDL, you produce:
 
-1. `mongodb_schema/<db_id>.json` — collection → field tree declarations.
-2. `agent_design_rationale/<db_id>.yaml` — evidence-linked design decisions.
+1. `mongodb_schema/<db_id>.json` — collection → field tree declarations (Stage A baseline + optional Stage B `__variants`).
+2. `agent_design_rationale/<db_id>.yaml` — evidence-linked design decisions (optional `heterogenization` when H1–H4 fire).
+
+**Stage A — baseline layout (unchanged rules)**
+
+**Stage B — schema heterogenization**
+
+After Stage A, evaluate deterministic triggers H1–H4 from [03 §03-6](../03_spider_anchored_dataworld.md#03-6):
+
+| Trigger | Output `schema_flex` |
+|---|---|
+| H1 polymorphic_subtype | `polymorphic` |
+| H2 sparse_attribute_bag | `attribute_bag` |
+| H3 temporal_schema_version | `schema_versioning` |
+| H4 eav_promote | `dynamic_key` |
+
+Priority: H4 > H1 > H2 > H3. Apply at most one trigger per db. When any fires, emit collection-level `__variants` in schema and `heterogenization` in rationale. When none fire, omit both.
 
 **Pattern menu (choose from exactly these 11)**
 
@@ -24,11 +39,12 @@ Given WP's workload profile and Spider DDL, you produce:
 **Rules**
 
 - Every `decisions[]` entry MUST cite ≥1 WP evidence (`pattern_id` or `hot_fields.path`).
-- `patterns_applied[0]` = primary pattern for five-axis `schema_pattern` metadata.
+- `patterns_applied[0]` = primary pattern for six-axis `schema_pattern` metadata.
 - Honor all WP `design_constraints`.
 - Do NOT read or produce MQL, canonical_form_set, or NLQ.
-- Do NOT plant phenomena (outliers, null clusters) artificially — layout follows source + workload only.
+- Do NOT plant phenomena (outliers, null clusters) artificially — Stage B heterogenization follows Spider signals only, not v2-original Phenomena Planter.
 - Single-document BSON budget < 16 MB; use bucket/reference when at risk.
+- Stage B trigger evaluation must be deterministic; cite Spider column/query evidence in `heterogenization.triggers[]`.
 
 ## user
 
@@ -56,6 +72,7 @@ Design MongoDB schema for **`{{db_id}}`** using the inputs below.
    - `patterns_applied[]`
    - `rationale_summary`
    - `anti_pattern_checks: {pass: bool, issues: []}` (self-check before SC)
+   - `heterogenization` (optional): `{triggers: [{id: H1|H2|H3|H4, fired: bool, evidence: string}], schema_flex: none|...}`
 
 Return two fenced blocks: first JSON schema, then YAML rationale.
 
@@ -200,6 +217,91 @@ anti_pattern_checks:
   issues: []
 ```
 
+### Example 3
+
+**Context**: student_assessment WP profile — H1 fires on Candidate_Assessments.assessment_type (written vs oral vs practical).
+
+**mongodb_schema excerpt**
+
+```json
+{
+  "students": {
+    "_id": "INT",
+    "student_id": "INT",
+    "first_name": "TEXT",
+    "last_name": "TEXT",
+    "courses": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "fields": {
+          "course_id": "INT",
+          "course_name": "TEXT"
+        }
+      }
+    },
+    "assessments": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "fields": {
+          "__type": "TEXT",
+          "assessment_id": "INT",
+          "score": "REAL"
+        }
+      }
+    },
+    "__variants": [
+      {
+        "discriminator": { "__type": "written" },
+        "fields": { "word_count": "INT", "written_score": "REAL" },
+        "coverage": 0.42,
+        "source_signal": "H1: Candidate_Assessments.assessment_type=written"
+      },
+      {
+        "discriminator": { "__type": "oral" },
+        "fields": { "duration_minutes": "INT", "oral_score": "REAL" },
+        "coverage": 0.35,
+        "source_signal": "H1: Candidate_Assessments.assessment_type=oral"
+      },
+      {
+        "discriminator": { "__type": "practical" },
+        "fields": { "lab_score": "REAL", "equipment_id": "INT" },
+        "coverage": 0.23,
+        "source_signal": "H1: Candidate_Assessments.assessment_type=practical"
+      }
+    ]
+  }
+}
+```
+
+**agent_design_rationale excerpt**
+
+```yaml
+db_id: student_assessment
+source_spider_tables: [Students, People, Candidate_Assessments, ...]
+patterns_applied: [embed, polymorphic]
+rationale_summary: >
+  Student-root embed with polymorphic assessments[] via H1; per-type score fields
+  require $switch dispatch in Phase B queries.
+decisions:
+  - id: D04
+    type: polymorphic_collapse
+    parent: students
+    child: assessments
+    rationale: H1 fired; WP AP03 type_conditional 0.36 on assessment_type branches.
+    reference: access_patterns.AP03
+heterogenization:
+  schema_flex: polymorphic
+  triggers:
+    - id: H1
+      fired: true
+      evidence: "Candidate_Assessments.assessment_type; type_conditional_rate=0.36"
+anti_pattern_checks:
+  pass: true
+  issues: []
+```
+
 ## output_schema
 
 **File 1**: `mongodb_schema/<db_id>.json` — per `schemas/library.schema.json#mongodb_schema`.
@@ -214,6 +316,7 @@ anti_pattern_checks:
 | `patterns_applied` | ✓ | ≥1 pattern from 11-pattern menu |
 | `rationale_summary` | ✓ | Short paragraph |
 | `anti_pattern_checks` | ✓ | Self-check before SC |
+| `heterogenization` | | Optional; required when any H1–H4 fires |
 | `collections` | | Optional layout metadata |
 
 **Decision object**

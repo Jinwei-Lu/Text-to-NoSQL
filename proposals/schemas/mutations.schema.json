@@ -36,7 +36,7 @@
           },
           "dimension": {
             "type": "string",
-            "enum": ["A", "B", "C", "D"]
+            "enum": ["A", "B", "C", "D", "E"]
           },
           "subaxis": {
             "type": "string",

@@ -1,19 +1,19 @@
-difficulty: L1
-difficulty_rationale: Array-size filter on embedded courses is directly SQL-translatable via HAVING COUNT.
-sql_infeasibility_class: feasible
+difficulty: L4
+difficulty_rationale: Per-assessment-type score normalization requires $switch on __type; SQL lacks per-row schema branch on variant field sets.
+sql_infeasibility_class: structural_schema_flex
 dual_bridge_defeat:
   pass: true
   sql_bridge:
-    ex: 1
+    ex: 0
     qim: 0
-    notes: SQL bridge missing $ifNull on first_name projection
+    notes: SQL assumes uniform Candidate_Assessments columns; cannot branch on assessment_type field sets
   template_bridge:
-    ex: 1
+    ex: 0
     qim: 0
-    notes: Student-course template uses EXISTS not strict >2 cardinality
+    notes: Matched group_aggregate template; missing $switch dispatch on __type
 ambiguity_attack:
-  parse_count: 3
-  equivalent_to_gold_count: 3
+  parse_count: 4
+  equivalent_to_gold_count: 4
   pass: true
 canonical_form_set_check:
   pass: true

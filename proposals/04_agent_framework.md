@@ -16,7 +16,7 @@ TEND v2-Agent 在 Spider 锚定数据世界上，用 **QRA / NNC / RA** 三 Agen
 
 **RA (Realism Auditor)** 审计 witness 与 gold 的 **生产 realism**：字段覆盖率、null/missing 共现、嵌套深度与 SRA pattern 一致、结果基数非平凡（P4）。必要时做 **targeted augment**（append-only、最小 doc 集、可追溯日志），并重算 world_signature。
 
-**L0–L4 配额**：L0 ≤ 10%，L1 ≈ 20%，L2 ≈ 25%，L3 ≈ 25%，L4 ≥ 20%（全库分布目标）；**test 集 L4 ≥ 15%** 为发布硬约束（[02 §4](./02_dataset_design.md#02-4)）。L4 = translation-lossy / NoSQL-native（如 $setWindowFields + $facet 组合在 SQL 需多次 self-join）。
+**L0–L4 配额**：L0 ≤ 10%，L1 ≈ 20%，L2 ≈ 25%，L3 ≈ 25%，L4 ≥ 20%（全库分布目标）；**test 集 L4 ≥ 15%** 为发布硬约束（[02 §4](./02_dataset_design.md#02-4)）。L4 含两类 translation-lossy 子类：**structural_pipeline**（如 `$setWindowFields + $facet`）与 **structural_schema_flex**（如 `$switch by __type`、`$objectToArray` 动态键聚合）；后者 SQL 完全不可表达。
 
 **canonical_form_set** 由 QRA 从 operator_graph + shape_policy + null/missing 策略 **机械派生** 四元组（must_contain / must_not_contain / must_contain_at_root / must_not_contain_at_root）；六件禁用 operator 恒入 must_not_contain。gold representative 存 record.MQL；等价 grammar 变体仅用于构造期自检，不对外暴露。
 
@@ -139,7 +139,7 @@ QRA 内部维护结构化 query_plan（非 SI DSL）：primary_pattern、stage_s
 | **L1** | light aggregation | $group、$sort、$limit | 可直译 |
 | **L2** | multi-stage | $lookup、$unwind、嵌套 $group | 多数可直译 |
 | **L3** | window / branch | $setWindowFields、$switch、$graphLookup 浅层 | 部分 lossy |
-| **L4** | NoSQL-native | $facet + window、$objectToArray、深 $graphLookup | structural lossy |
+| **L4** | NoSQL-native | $facet + window、$objectToArray、深 $graphLookup、**$switch by __type** | `structural_pipeline` / `structural_schema_flex` |
 
 **分布目标（全库）**
 
@@ -153,6 +153,18 @@ QRA 内部维护结构化 query_plan（非 SI DSL）：primary_pattern、stage_s
 
 **发布硬约束**：test 集 `difficulty = L4` 比例 ≥ 15%（[02 H5](./02_dataset_design.md#02-4-3)）。NNC 赋值须与 canonical_form_set / MQL 算子相容（record C7）。
 
+**`sql_infeasibility_class` 枚举**（NNC 必填，见 `nnc_nosql_nativeness_critic.md`）：
+
+| 类别 | 含义 | 典型 record |
+|---|---|---|
+| `feasible` | SQL 完全可直译 | L0–L1 |
+| `semantic` | SQL 可表达但 null/missing 语义 lossy | L2–L3 with `$ifNull` |
+| `performative` | SQL 需 CTE/window 拼装，性能/结构 lossy | L3–L4 pipeline |
+| `structural_pipeline` | 管线结构 SQL 不可同步表达 | L4 `$facet + $setWindowFields` |
+| `structural_schema_flex` | **schema 形状 SQL 不可表达** | L4 `$switch by __type`、`$objectToArray` |
+
+当 `schema_flex != none` 且 MQL 含 schema-flex 算子作用于 `__variants` 字段时，NNC **必须**标注 `structural_schema_flex` 且 `difficulty = L4`。
+
 <a id="04-3-2"></a>
 #### 04-3-2 dual-bridge defeat
 
@@ -164,6 +176,8 @@ QRA 内部维护结构化 query_plan（非 SI DSL）：primary_pattern、stage_s
 | **Template-bridge** | canonical NLQ → 关键词 → 外部 MQL 模板库 → mql_template_bridge | 同上 |
 
 **通过判据**：两桥均不得同时 EX = 1 ∧ QIM = 1。
+
+**schema-flex record 的天然优势**：当 gold MQL 依赖 `$switch` / `$objectToArray` / 跨 variant `$type` 分派时，SQL-bridge 因强 schema 前提无法生成等价 AST → 通常 EX = 0 ∧ QIM = 0，dual-bridge defeat 自动满足。NNC 须标注 `sql_infeasibility_class = structural_schema_flex`（见 §04-3-1）。
 
 orchestra/1001 预期：
 - SQL-bridge：SQL 无法同步表达 facet + 分区窗口 → 翻译失败或 AST fail → EX = 0
@@ -199,10 +213,20 @@ NNC 在赋 difficulty 前执行：
 **must_contain**
 
 - primary_pattern 核心算子（如 window+f facet → {$setWindowFields, $facet}）
+- **schema-flex primary_pattern** 核心算子（见下表）
 - null/missing 策略算子（ifNull → {$ifNull}；type → {$type}；cond → {$cond}）
 - aggregations 用到的 accumulator（mean → {$avg}；median → {$median} 或手动百分位集合）
 
-**must_contain_at_root**
+**schema-flex primary_pattern → must_contain**
+
+| primary_pattern | must_contain（至少） | must_contain_at_root（至少） |
+|---|---|---|
+| `polymorphic_dispatch` | `$switch` 或 `$type` | `$addFields` 或 `$project`（含 dispatch stage） |
+| `dynamic_key_aggregation` | `$objectToArray`, `$unwind`, `$arrayToObject` | `$unwind` |
+| `attribute_bag_unfold` | `$arrayToObject` 或 `$reduce` | `$addFields` |
+| `schema_version_fallback` | `$ifNull`（≥2 处引用） | `$addFields` 或 `$project` |
+
+**must_contain_at_root**（通用）
 
 - primary stage 算子（$setWindowFields、$facet、$graphLookup、$lookup 等按 pattern）
 - shape_policy = reduce 时 $group 须在 root
@@ -230,6 +254,7 @@ mutations 是 **plausible wrong** 变体库，评测期与构造期 P3 共用。
 | **B shape / output** | shape_policy 邻接错标、缺 output key、错误 dtype | 1–2 |
 | **C null / missing** | 丢弃 $ifNull、错误 disambig | 1–2 |
 | **D canonical_form_set stress** | 移除 must_contain 算子、加入禁用 operator | 1 |
+| **E schema_flex_stress** | 忽略 `__type` 分支、假设统一 schema、丢弃 `$ifNull` fallback、错误 dispatch | 1 |
 
 **总量**：5 ≤ |mutations| ≤ 8。序列化至 audit 或 fixtures `mutations.json`（见 schemas/mutations.schema.json）。
 
@@ -468,6 +493,10 @@ PATTERN_CORE_OPS = {
     "window_facet_filter": {"$setWindowFields", "$facet"},
     "simple_filter": set(),
     "lookup_join": {"$lookup"},
+    "polymorphic_dispatch": {"$switch", "$type"},
+    "dynamic_key_aggregation": {"$objectToArray", "$unwind", "$arrayToObject"},
+    "attribute_bag_unfold": {"$arrayToObject", "$reduce"},
+    "schema_version_fallback": {"$ifNull"},
     # ... full table in implementation
 }
 
@@ -508,6 +537,7 @@ MUTATION_SUBAXES = {
     "B": ["shape_policy_swap", "drop_output_key"],
     "C": ["drop_ifNull", "wrong_disambig"],
     "D": ["inject_disabled_op", "remove_root_op"],
+    "E": ["ignore_variants", "assume_uniform_schema", "drop_ifNull_fallback", "wrong_dispatch"],
 }
 
 def generate_mutations(query_plan, gold_mql, canonical_form_set, *, seed=0, min_n=5, max_n=8):
@@ -542,7 +572,10 @@ def validate_mutations(muts, record, snapshot):
 
 def qra_dual_track(spider_nl, spider_sql, schema, snapshot, sra_rationale) -> dict:
     plan_t = sql_to_query_plan(spider_sql, schema, sra_rationale)
-    plan_g = generate_query_plan(schema, snapshot, sra_rationale, hint=spider_nl)
+    plan_g = generate_query_plan(
+        schema, snapshot, sra_rationale, hint=spider_nl,
+        prefer_schema_flex=has_variants(schema),
+    )
     mql_t = compile_query_plan(plan_t, schema)
     mql_g = compile_query_plan(plan_g, schema)
     cfs = derive_canonical_form_set(reconcile_plans(plan_t, plan_g))

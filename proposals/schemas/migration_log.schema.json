@@ -91,7 +91,7 @@
         },
         "operation": {
           "type": "string",
-          "enum": ["root_insert", "embed_push", "field_denorm", "ref_link"]
+          "enum": ["root_insert", "embed_push", "field_denorm", "ref_link", "variant_route"]
         },
         "target_path": {
           "oneOf": [
@@ -102,6 +102,11 @@
         "embedded_children": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "variant": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": true
         }
       }
     }

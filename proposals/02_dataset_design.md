@@ -1,7 +1,7 @@
 # TEND §02 · Dataset Design (v2-Agent)
 
 > 本文件是 TEND v2-Agent **发布物 (released artifacts)** 的单一真源 (Single Source of Truth)。
-> 它定义：哪些文件存在、每条 record 的字段契约、库级资产的 JSON 格式、train/test 切分规则、五轴覆盖配额。
+> 它定义：哪些文件存在、每条 record 的字段契约、库级资产的 JSON 格式、train/test 切分规则、六轴覆盖配额。
 > 它**不定义**：任务签名 ([01](./01_task_definition.md))、Spider 锚定 DataWorld 合成 ([03](./03_spider_anchored_dataworld.md))、Agent 查询构造 ([04](./04_agent_framework.md))、评测协议 ([05](./05_evaluation_methodology.md))、解法侧 ([06](./06_solution_design.md))。
 
 ---
@@ -16,7 +16,7 @@ TEND v2-Agent 的发布物由 **主集 (Tier-1)** 与 **Audit 子树 (Tier-2)** 
 
 数据源为 **Spider 1.0**（约 200 个 SQLite DB），由 WP/SRA/SC/DM/QRA/NNC/RA 七 Agent 流水线产出 record，不再使用 v2-original 的 105 份手写 domain template 或 Intent Template Lattice。切分采用 **cross-domain holdout**：train 与 test 的 Spider `domain_id` 集合不相交；同一 `domain_id` 下的全部 `db_id` 及其 record 整体进入 train 或 test，禁止跨集拆分单库。硬约束 **L4 ≥ 15%**（按 test record 计数）：test 集中 `difficulty = L4` 的比例不得低于 0.15，防止 benchmark 退化为 SQL 可直译题。
 
-覆盖目标从 v2-original 的 9+1 轴 min/max 双配额简化为 **五轴 + 单 max 配额**：`domain`（Spider 域）、`join_depth`（$lookup 深度）、`aggregation_depth`（管线阶段深度桶）、`schema_pattern`（SRA 应用的主 design pattern）、`difficulty_tier`（L0–L4）。Spider 自带 138 域多样性，配额仅设上界以防高频 cell 饱和，不设 min 下界强拉（L4 比例除外，作为全局硬约束单独监控）。
+覆盖目标从 v2-original 的 9+1 轴 min/max 双配额简化为 **六轴 + 单 max 配额**：`domain`（Spider 域）、`join_depth`（$lookup 深度）、`aggregation_depth`（管线阶段深度桶）、`schema_pattern`（SRA 应用的主 design pattern）、`schema_flex`（SRA Stage B 异构化类型）、`difficulty_tier`（L0–L4）。Spider 自带 138 域多样性，配额仅设上界以防高频 cell 饱和，不设 min 下界强拉（L4 比例与 schema_flex 比例除外，作为全局硬约束单独监控）。
 
 Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6 卷字节级一致（见 [CANONICAL_ANCHOR.md](./_meta/CANONICAL_ANCHOR.md) 与本卷 Part II）。
 
@@ -75,6 +75,7 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 | `difficulty` | string | `L0` / `L1` / `L2` / `L3` / `L4`（NNC 赋值；L4 = NoSQL-native / translation-lossy） |
 | `shape_policy` | string | `preserve` / `reshape` / `reduce` |
 | `world_signature` | string | `sha256:<64 hex>`，钉住 `mongodb_data/<db_id>.json` |
+| `schema_flex` | string | `none` / `polymorphic` / `attribute_bag` / `schema_versioning` / `dynamic_key`；H1–H4 触发时必填，否则省略或 `none` |
 
 #### 02-2-3 可选 `_ref` 字段
 
@@ -90,7 +91,7 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 | `ra_audit_ref` | RA realism 审计 |
 | `migration_log_ref` | DM 行级迁移日志 |
 
-#### 02-2-4 强约束 C1–C8
+#### 02-2-4 强约束 C1–C9
 
 | ID | 约束 | 违约动作 |
 |---|---|---|
@@ -102,6 +103,7 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 | **C6** | `canonical_form_set.must_contain_at_root` 非空 | 发布前校验拒绝 |
 | **C7** | `difficulty` 与 `canonical_form_set` / MQL 算子相容 | NNC 三元校验 |
 | **C8** | 存在的 `_ref` 路径必须可解引 | 校验器对存在字段解引 |
+| **C9** | `schema_flex != none` 时，`mongodb_schema/<db_id>.json` 对应 collection 须含匹配 `__variants`；`schema_flex = none` 时 record 不得声明非 none 值 | 3-way schema/record 一致性 |
 
 机器可读 schema：`schemas/record.schema.json`。
 
@@ -135,9 +137,9 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 ---
 
 <a id="02-4"></a>
-### 02-4 五轴覆盖与 L4 硬约束
+### 02-4 六轴覆盖与 L4 / schema_flex 硬约束
 
-#### 02-4-1 五轴定义
+#### 02-4-1 六轴定义
 
 | 轴 ID | 观测字段 | 取值域（示例） | 来源 |
 |---|---|---|---|
@@ -145,6 +147,7 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 | `join_depth` | `join_depth` | 0, 1, 2, 3+ | QRA 代表 MQL 统计 |
 | `aggregation_depth` | `aggregation_depth` | `shallow` / `medium` / `deep` | 根管线 stage 数分桶 |
 | `schema_pattern` | `schema_pattern` | embed, extended_reference, polymorphic, bucket, computed, mixed, … | SRA `patterns_applied[0]` |
+| `schema_flex` | `schema_flex` | `none`, `polymorphic`, `attribute_bag`, `schema_versioning`, `dynamic_key` | SRA Stage B H1–H4 |
 | `difficulty_tier` | `difficulty` | L0–L4 | NNC |
 
 **分桶规则（aggregation_depth）**
@@ -176,9 +179,10 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 | **H3** | train/test `db_id` 集合不相交 | db 级隔离 |
 | **H4** | 三库级 per-db 目录文件基名集合相等 | schema/data/rationale 3-way |
 | **H5** | `count(test, difficulty = L4) / |test| ≥ 0.15` | **L4 硬约束** |
-| **H6** | 每个五轴 cell 在 test 侧 `count ≤ max_quota` | 覆盖上界 |
+| **H6** | 每个六轴 cell 在 test 侧 `count ≤ max_quota` | 覆盖上界 |
+| **H7** | `count(test, schema_flex != "none") / |test| ≥ 0.08` | **schema_flex 硬约束** |
 
-违反 H1–H6 的发布候选将被拒绝。
+违反 H1–H7 的发布候选将被拒绝。
 
 ---
 
@@ -196,11 +200,11 @@ Canonical anchor 为 Spider 真实 DB `orchestra` 的 `record_id = 1001`，跨 6
 
 **发布前校验清单（本卷负责）**
 
-1. C1–C8 record 级强约束全通
+1. C1–C9 record 级强约束全通
 2. schema / data / rationale 三方文件名一致
-3. H1–H6 切分与覆盖硬约束全通（含 L4 ≥ 15%）
+3. H1–H7 切分与覆盖硬约束全通（含 L4 ≥ 15%、schema_flex ≥ 8%）
 4. canonical anchor `orchestra/1001` 与 [CANONICAL_ANCHOR.md](./_meta/CANONICAL_ANCHOR.md) 逐字节一致
-5. 全部 record 通过 `schemas/record.schema.json` 校验
+5. 全部 record 通过 `schemas/record.schema.json` 校验（含 C9 schema_flex / `__variants` 一致性）
 
 ---
 
@@ -333,6 +337,11 @@ function cross_domain_split(catalog, records, *, test_ratio=0.20, seed=42):
     if l4_ratio < 0.15:
         raise SplitError(f"test L4 ratio {l4_ratio:.3f} < 0.15")
 
+    # 6. Hard constraint: schema_flex ratio in test
+    flex_ratio = sum(1 for r in test if r.get("schema_flex", "none") != "none") / max(len(test), 1)
+    if flex_ratio < 0.08:
+        raise SplitError(f"test schema_flex ratio {flex_ratio:.3f} < 0.08")
+
     return train, test, {"train_domains": train_domains, "test_domains": test_domains}
 ```
 
@@ -340,7 +349,7 @@ function cross_domain_split(catalog, records, *, test_ratio=0.20, seed=42):
 
 | 异常 | 触发条件 | 动作 |
 |---|---|---|
-| `SplitError` | test L4 < 15% | 拒绝发布；回传 NNC 重新标注或调整 test domain 集合 |
+| `SplitError` | test L4 < 15% 或 test schema_flex < 8% | 拒绝发布；回传 NNC 重新标注或调整 test domain 集合 |
 | `KeyError` | record.db_id 不在 catalog | fail-fast |
 | 空 test 集 | 所有 domain 被分到 train | fail-fast |
 

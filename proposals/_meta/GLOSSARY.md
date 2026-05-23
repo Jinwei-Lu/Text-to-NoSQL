@@ -70,8 +70,8 @@
 **Owner**: [03 §03-4](../03_spider_anchored_dataworld.md#03-4)
 
 ## SRA (Schema Re-architect)
-**Definition**: Agent redesigning relational Spider schema into workload-driven MongoDB-native layout.  
-**Owner**: [03 §03-4](../03_spider_anchored_dataworld.md#03-4)
+**Definition**: Agent redesigning relational Spider schema into workload-driven MongoDB-native layout via Stage A (11 pattern menu) + Stage B (H1–H4 schema heterogenization).  
+**Owner**: [03 §03-3](../03_spider_anchored_dataworld.md#03-3), [03 §03-6](../03_spider_anchored_dataworld.md#03-6)
 
 ## SC (Schema Critic)
 **Definition**: Agent adversarially reviewing SRA output for anti-patterns and missing workload coverage.  
@@ -100,9 +100,50 @@
 **Owner**: [02 §02-3](../02_dataset_design.md#02-3)
 
 ## L0–L4
-**Definition**: NoSQL nativeness difficulty tiers; L4 = highly NoSQL-native; dataset hard constraint L4 ≥ 15%.  
+**Definition**: NoSQL nativeness difficulty tiers; L4 = highly NoSQL-native; dataset hard constraints L4 ≥ 15% and schema_flex ≠ none ≥ 8% on test.  
 **Owner**: [04 §04-3](../04_agent_framework.md#04-3), [02 §02-4](../02_dataset_design.md#02-4)
 
-## five-axis coverage
-**Definition**: Simplified coverage axes replacing v2 9+1: domain, join_depth, aggregation_depth, schema_pattern, difficulty_tier.  
+## six-axis coverage
+**Definition**: Coverage axes: domain, join_depth, aggregation_depth, schema_pattern, schema_flex, difficulty_tier.  
 **Owner**: [02 §02-4](../02_dataset_design.md#02-4)
+
+## schema_flex
+**Definition**: Record/db metadata for SRA Stage B heterogenization type: `none`, `polymorphic`, `attribute_bag`, `schema_versioning`, or `dynamic_key`.  
+**Owner**: [02 §02-2](../02_dataset_design.md#02-2), [03 §03-6](../03_spider_anchored_dataworld.md#03-6)
+
+<a id="__variants"></a>
+## __variants
+**Definition**: Optional collection-level array in `mongodb_schema/<db_id>.json` declaring document shape variants with `discriminator`, `fields`, `coverage`, and `source_signal`.  
+**Owner**: [03 §03-6](../03_spider_anchored_dataworld.md#03-6)
+
+## heterogenization
+**Definition**: Optional block in `agent_design_rationale/<db_id>.yaml` recording which H1–H4 triggers fired and Spider evidence.  
+**Owner**: [03 §03-6](../03_spider_anchored_dataworld.md#03-6)
+
+## H1–H4 (schema-flex triggers)
+**Definition**: Deterministic Stage B triggers — H1 polymorphic_subtype, H2 sparse_attribute_bag, H3 temporal_schema_version, H4 eav_promote. Priority H4 > H1 > H2 > H3.  
+**Owner**: [03 §03-6](../03_spider_anchored_dataworld.md#03-6)
+
+## structural_schema_flex
+**Definition**: NNC `sql_infeasibility_class` for queries requiring schema-shape operators (`$switch`, `$objectToArray`, cross-variant `$type`) that SQL cannot express.  
+**Owner**: [04 §04-3](../04_agent_framework.md#04-3)
+
+## structural_pipeline
+**Definition**: NNC `sql_infeasibility_class` for pipeline-structure lossy queries (e.g. `$facet + $setWindowFields`).  
+**Owner**: [04 §04-3](../04_agent_framework.md#04-3)
+
+## polymorphic_dispatch
+**Definition**: QRA primary_pattern requiring `$switch` or `$type` dispatch across `__variants` document shapes.  
+**Owner**: [04 §04-4](../04_agent_framework.md#04-4)
+
+## dynamic_key_aggregation
+**Definition**: QRA primary_pattern requiring `$objectToArray` / `$arrayToObject` on dynamic-key documents (H4).  
+**Owner**: [04 §04-4](../04_agent_framework.md#04-4)
+
+## attribute_bag_unfold
+**Definition**: QRA primary_pattern requiring `$arrayToObject` or `$reduce` on sparse attribute bags (H2).  
+**Owner**: [04 §04-4](../04_agent_framework.md#04-4)
+
+## schema_version_fallback
+**Definition**: QRA primary_pattern requiring multi-layer `$ifNull` chains across schema version fields (H3).  
+**Owner**: [04 §04-4](../04_agent_framework.md#04-4)

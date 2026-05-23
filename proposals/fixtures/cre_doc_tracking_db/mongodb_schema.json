@@ -1,0 +1,22 @@
+{
+  "documents": {
+    "_id": "INT",
+    "document_id": "INT",
+    "title": "TEXT",
+    "metrics": "OBJECT",
+    "__variants": [
+      {
+        "discriminator": { "layout": "dynamic_key" },
+        "fields": { "metrics": "OBJECT" },
+        "coverage": 0.85,
+        "source_signal": "H4: Document_Attributes.attribute_name/value promoted to metrics.<key>"
+      },
+      {
+        "discriminator": { "layout": "flat_legacy" },
+        "fields": { "weight": "REAL", "priority": "REAL" },
+        "coverage": 0.15,
+        "source_signal": "H4: legacy flat columns coexisting during migration"
+      }
+    ]
+  }
+}

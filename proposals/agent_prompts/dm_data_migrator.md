@@ -17,13 +17,14 @@ Given SRA schema + rationale and Spider SQLite, you produce:
 - Map Spider PK → MongoDB `_id` (type preserved).
 - Spider NULL → **field absent** (not JSON null).
 - Follow SRA `decisions[]` embed/denorm paths exactly.
-- Every source row → ≥1 migration log entry.
+- When SRA schema declares `__variants`, route each source row to the matching variant by `discriminator` (e.g. `assessment_type` → `__type`).
+- Every source row → ≥1 migration log entry; variant routing uses `operation: variant_route`.
 - FK integrity: `integrity_checks.orphan_refs` must be 0 to pass.
 
 **Hard boundaries**
 
-- Do NOT add/remove fields beyond SRA schema declaration.
-- Do NOT plant synthetic outliers, null clusters, or noise layers.
+- Do NOT add/remove fields beyond SRA schema declaration (including variant-specific fields).
+- Do NOT plant synthetic outliers, null clusters, or noise layers — heterogenization is SRA Stage B layout, not DM injection.
 - Do NOT produce MQL, NLQ, or phenomena registry.
 - Do NOT modify schema or rationale files.
 
@@ -240,6 +241,46 @@ Return two fenced blocks: witness JSON, then migration log JSON.
 }
 ```
 
+### Example 3
+
+**Context**: student_assessment H1 — assessments embedded with `__type` variant routing.
+
+**mongodb_data excerpt**
+
+```json
+{
+  "students": [
+    {
+      "_id": 1,
+      "student_id": 1,
+      "first_name": "Alice",
+      "last_name": "Ng",
+      "courses": [{"course_id": 101, "course_name": "Calculus"}],
+      "assessments": [
+        {"__type": "written", "assessment_id": 501, "written_score": 88, "word_count": 1200},
+        {"__type": "oral", "assessment_id": 502, "oral_score": 91, "duration_minutes": 15}
+      ]
+    }
+  ]
+}
+```
+
+**migration_log excerpt**
+
+```json
+{
+  "entry_id": "M0101",
+  "source_table": "Candidate_Assessments",
+  "source_pk": "501",
+  "target_collection": "students",
+  "target_id": 1,
+  "operation": "variant_route",
+  "target_path": "assessments",
+  "embedded_children": [],
+  "variant": {"__type": "written"}
+}
+```
+
 ## output_schema
 
 **File 1**: `mongodb_data/<db_id>.json` — per `schemas/library.schema.json#mongodb_data`.
@@ -257,4 +298,4 @@ Return two fenced blocks: witness JSON, then migration log JSON.
 | `entries` | ✓ | ≥1 migration entries |
 | `integrity_checks` | ✓ | Referential audit |
 
-**Entry `operation` enum**: `root_insert` | `embed_push` | `field_denorm` | `ref_link`
+**Entry `operation` enum**: `root_insert` | `embed_push` | `field_denorm` | `ref_link` | `variant_route`

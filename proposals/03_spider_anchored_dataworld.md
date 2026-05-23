@@ -1,7 +1,7 @@
 # 03 · Spider-Anchored DataWorld (v2-Agent)
 
 > 本文件是 TEND v2-Agent **Spider 锚定数据世界** 的单一真源。
-> 它定义：Spider 1.0 workload 如何驱动 MongoDB schema 设计；WP / SRA / SC / DM 四 Agent 的角色与契约；11 种官方 design pattern 与 3 种 anti-pattern；自然涌现的数据现象与 audit-only detector 边界。
+> 它定义：Spider 1.0 workload 如何驱动 MongoDB schema 设计；WP / SRA / SC / DM 四 Agent 的角色与契约；11 种官方 design pattern 与 3 种 anti-pattern；**SRA Stage B 四触发器 H1–H4 schema 异构化**；自然涌现的数据现象与 audit-only detector 边界。
 > 它**不定义**：record 发布格式 ([02](./02_dataset_design.md))、QRA / NNC / RA 查询构造 ([04](./04_agent_framework.md))、评测协议 ([05](./05_evaluation_methodology.md))。
 
 ---
@@ -12,7 +12,7 @@
 
 TEND v2-Agent 的 DataWorld 不再由 105 份手写 domain template 正向合成，而以 **Spider 1.0** 约 200 个 SQLite 数据库为唯一 schema / 数据 / workload 锚点。对每个入选 `db_id`，四 Agent 子流水线 **WP → SRA → SC → DM** 产出库级三元组：MongoDB schema、冻结 witness 数据、SRA 设计 rationale。查询与 NLQ 在 Phase B 由 QRA 消费此世界，03 只生产、不消费。
 
-**WP (Workload Profiler)** 从 Spider 的 NL + SQL 对中提取访问模式：join 路径、共现实体、聚合深度、热字段与嵌套遍历需求。**SRA (Schema Re-architect)** 在 WP 信号与 MongoDB 官方 11 pattern 菜单下，将关系 schema 重设计为 workload-driven 文档布局。**SC (Schema Critic)** 对抗性审查 SRA 输出：anti-pattern 命中、workload 覆盖缺口、referential 完整性风险。**DM (Data Migrator)** 按 SRA 映射将 Spider 行级实例迁入 MongoDB 集合，写入行级 migration log 并计算 `world_signature`。
+**WP (Workload Profiler)** 从 Spider 的 NL + SQL 对中提取访问模式：join 路径、共现实体、聚合深度、热字段与嵌套遍历需求。**SRA (Schema Re-architect)** 分两阶段执行：**Stage A** 在 WP 信号与 MongoDB 官方 11 pattern 菜单下选定 workload-driven layout；**Stage B** 用 4 个 deterministic 触发器 H1–H4 评估是否引入 `__variants` 文档形状异构化（见 [§03-6](#03-6)）。**SC (Schema Critic)** 对抗性审查 SRA 输出：anti-pattern 命中、workload 覆盖缺口、referential 完整性风险。**DM (Data Migrator)** 按 SRA 映射（含 `__variants` 路由）将 Spider 行级实例迁入 MongoDB 集合，写入行级 migration log 并计算 `world_signature`。
 
 设计立场从 v2-original 的「世界先于问题」保留为「**Spider workload 先于 MongoDB layout**」：layout 必须解释该库全部 Spider 查询的可执行性，但 03 不为任何单条未来 MQL 定制 schema。v2-original 的 Phenomena Planter 15 类主动注入已删除；**数据现象自然涌现**于迁移后的 witness（稀疏字段、类型漂移、outlier、cardinality 边界等），audit 层 detector 仅扫描登记，不做 minimal perturbation plant。
 
@@ -56,13 +56,14 @@ $$
 
 ### §03-1-1 整体架构
 
-Phase A 以 **Profile → Design → Critique → Migrate** 四拍推进：
+Phase A 以 **Profile → Design (2-stage) → Critique → Migrate** 四拍推进：
 
 1. **WP** 读取 Spider catalog 条目、SQLite schema、NL/SQL 对，输出 workload profile（`wp_output.yaml`）。
-2. **SRA** 读取 WP 输出 + Spider DDL，应用 11 pattern 菜单，输出 MongoDB schema + `agent_design_rationale/<db_id>.yaml`。
-3. **SC** 对抗性审查 SRA 输出；命中 anti-pattern 或 workload 覆盖缺口则 **reject → SRA 修订**（最多 2 轮）。
-4. **DM** 按 SRA 映射迁移 Spider 行级数据 → `mongodb_data/<db_id>.json`；写入 `audit/<db_id>/migration_log.json`；计算 `world_signature`。
-5. **Audit detectors**（非 Agent）扫描 witness，登记自然涌现现象至 `audit/<db_id>/phenomena_audit.json`（Tier-2，可选）。
+2. **SRA Stage A** 读取 WP 输出 + Spider DDL，应用 11 pattern 菜单，产出 baseline layout。
+3. **SRA Stage B** 对 Stage A layout 评估 H1–H4 触发器；命中时在 `mongodb_schema` 写入 `__variants`，在 rationale 写入 `heterogenization`（见 [§03-6](#03-6)）。
+4. **SC** 对抗性审查 SRA 输出；命中 anti-pattern 或 workload 覆盖缺口则 **reject → SRA 修订**（最多 2 轮）。
+5. **DM** 按 SRA 映射（含 variant 路由）迁移 Spider 行级数据 → `mongodb_data/<db_id>.json`；写入 `audit/<db_id>/migration_log.json`；计算 `world_signature`。
+6. **Audit detectors**（非 Agent）扫描 witness，登记自然涌现现象至 `audit/<db_id>/phenomena_audit.json`（Tier-2，可选）。
 
 下游 QRA / NNC / RA 在 Phase B 消费 Tier-1 库级资产；03 不回流。
 
@@ -84,21 +85,22 @@ Phase A 以 **Profile → Design → Critique → Migrate** 四拍推进：
 <a id="03-2"></a>
 ## §03-2 MongoDB Design Pattern 菜单
 
-SRA 只允许从下列 **11 官方 pattern** 组合选型；`patterns_applied[0]` 写入 record 的 `schema_pattern` 字段（五轴覆盖轴，见 [02 §4](./02_dataset_design.md#02-4)）。
+SRA Stage A 只允许从下列 **11 官方 pattern** 组合选型；`patterns_applied[0]` 写入 record 的 `schema_pattern` 字段（六轴覆盖轴，见 [02 §4](./02_dataset_design.md#02-4)）。**Stage B 触发器 H1–H4** 在 Stage A layout 上叠加 schema 异构化（见 [§03-6](#03-6)）。
 
-| # | Pattern ID | 含义 | 典型触发（WP 信号） |
-|---|---|---|---|
-| 1 | `embed` | 1:N 子文档嵌入父文档数组/对象 | 共现率 ≥ 0.7；子实体无独立查询 |
-| 2 | `extended_reference` | 冗余常用字段到引用侧，避免二次 fetch | 热字段跨集合重复读取 |
-| 3 | `polymorphic` | 单集合多形状，以判别字段区分 | Spider 多表同构子类型 |
-| 4 | `attribute` | 稀疏列折叠为键值或嵌套属性包 | 宽表大量 NULL 列 |
-| 5 | `bucket` | 按时间/哈希分桶子文档，控制文档大小 | 高基数时间序列或日志 |
-| 6 | `computed` | 预计算派生字段服务热聚合 | WP 标记重复 aggregate 表达式 |
-| 7 | `subset` | 仅嵌入满足谓词的子集 | 查询始终带同一 filter |
-| 8 | `tree` | 物化路径 / 父指针表达层级 | Spider 自引用 FK 或 closure 表 |
-| 9 | `outlier` | 极端值单独子文档或标记字段 | 分布长尾；稳健统计查询 |
-| 10 | `schema_versioning` | 文档带 schema 版本号，多代字段共存 | Spider 历史列并存 |
-| 11 | `mixed` | 同一实体部分 embed、部分 reference | WP 共现率分裂（0.3–0.7） |
+| # | Pattern ID | 含义 | 典型触发（WP 信号） | Stage B 关联 |
+|---|---|---|---|---|
+| 1 | `embed` | 1:N 子文档嵌入父文档数组/对象 | 共现率 ≥ 0.7；子实体无独立查询 | — |
+| 2 | `extended_reference` | 冗余常用字段到引用侧，避免二次 fetch | 热字段跨集合重复读取 | — |
+| 3 | `polymorphic` | 单集合多形状，以判别字段区分 | Spider 多表同构子类型 | **H1** |
+| 4 | `attribute` | 稀疏列折叠为键值或嵌套属性包 | 宽表大量 NULL 列 | **H2** |
+| 5 | `bucket` | 按时间/哈希分桶子文档，控制文档大小 | 高基数时间序列或日志 | — |
+| 6 | `computed` | 预计算派生字段服务热聚合 | WP 标记重复 aggregate 表达式 | — |
+| 7 | `subset` | 仅嵌入满足谓词的子集 | 查询始终带同一 filter | — |
+| 8 | `tree` | 物化路径 / 父指针表达层级 | Spider 自引用 FK 或 closure 表 | — |
+| 9 | `outlier` | 极端值单独子文档或标记字段 | 分布长尾；稳健统计查询 | — |
+| 10 | `schema_versioning` | 文档带 schema 版本号，多代字段共存 | Spider 历史列并存 | **H3** |
+| 11 | `mixed` | 同一实体部分 embed、部分 reference | WP 共现率分裂（0.3–0.7） | — |
+| — | *(Stage B only)* | EAV 表晋升为动态键文档 | Spider attribute_name/value 列对 | **H4** |
 
 **3 Anti-Pattern（SC 必须拒绝）**
 
@@ -117,13 +119,19 @@ Pattern 选取须写进 `agent_design_rationale` 的 `decisions[]`，每条含 `
 
 SRA 输入：WP `wp_output.yaml`、Spider `tables.json` / `columns.json`、可选 SQLite 采样行。输出：`mongodb_schema/<db_id>.json` 与 `agent_design_rationale/<db_id>.yaml`（schema 见 `schemas/agent_design_rationale.schema.json`）。
 
-**设计规则**
+**Stage A — baseline layout**
 
 1. **Workload coverage**：WP 标记的 top-10 access pattern 必须能在 SRA layout 上表达为 ≤2 次 `$unwind` 或可避免的 `$lookup`。
 2. **Referential sanity**：每个 Spider FK 在 MongoDB 中必须有 embed 路径或 `_id` 引用目标；DM 不得产生 dangling ref。
 3. **Document size budget**：单文档 BSON < 16 MB；超限时 SRA 须切换 bucket 或 reference，并在 rationale 中记录。
 4. **Primary pattern 标签**：`patterns_applied[0]` 取对 workload 覆盖贡献最大的 pattern；其余模式写入 `patterns_applied[1:]`。
 5. **No phenomena planting**：SRA 不为「未来现象」人工注入 outlier / null cluster；稀疏与异常来自 Spider 源数据与 DM 保真迁移。
+
+**Stage B — schema heterogenization**
+
+6. 对 Stage A layout 运行 H1–H4 触发器（[§03-6-2](#03-6-2)）；任一命中则写入 collection-level `__variants` 与 rationale `heterogenization`。
+7. 异构化是 **layout 设计决策**，不是 DM 事后注入；DM 仅按 variant 路由填充值。
+8. 不触发时 `__variants` 省略，`schema_flex = none`（见 [02 §2](./02_dataset_design.md#02-2)）。
 
 **Canonical orchestra 决策摘要**
 
@@ -162,6 +170,68 @@ Detector **禁止**修改 witness；若 RA 后续 augment，须 append-only 且�
 
 ---
 
+<a id="03-6"></a>
+## §03-6 Schema Heterogenization Layer (SRA Stage B)
+
+### §03-6-1 第一性原理动机
+
+MongoDB 与关系数据库的根本差异之一是 **schema flexibility**：同一 collection 内文档可拥有不同字段集。v2-Agent.1 在保留 Spider workload realism 的前提下，通过 deterministic 触发器在 DataWorld 层引入此特性，使 Phase B 可构造 **schema-shape lossy** 难题（SQL 完全不可表达），而非仅依赖管线结构 lossy（`$facet + $setWindowFields`）。
+
+**边界声明**：H1–H4 是 **workload-preserving layout 变换**，由 Spider 源信号触发；**不是** v2-original Phenomena Planter 的 15 类 phenomenon 分类与主动注入。Detector 仍只读登记自然涌现现象，不修改 witness。
+
+### §03-6-2 四触发器 H1–H4
+
+| ID | 检测条件（deterministic） | 异构化输出 | record `schema_flex` | 典型 NoSQL 算子 |
+|---|---|---|---|---|
+| **H1** | WP 对同表 type-conditional 分支查询占比 ≥ 0.30，且 Spider 存在区分列（`type` / `category` / `assessment_type` 等） | `__variants[]`：`discriminator.__type` + per-type 字段集 | `polymorphic` | `$switch`, `$type` |
+| **H2** | Spider 某表 NULL 率 > 0.50 的列数 ≥ 3 | 稀疏列折叠为 `attrs: [{k, v}]` | `attribute_bag` | `$arrayToObject`, `$filter` |
+| **H3** | 表含时间字段 + Spider 列名存在 rename/add 轨迹（同语义两列并存） | 老文档缺新字段 + `_schema_v: N` | `schema_versioning` | `$ifNull` 多层链 |
+| **H4** | Spider 表为 EAV 结构（≥3 行共享 entity_id，列对为 attribute_name + attribute_value） | 动态键文档 `metrics: { <key>: value }` | `dynamic_key` | `$objectToArray`, `$arrayToObject`, `$unwind` |
+
+**触发器优先级**（同库多命中时）：H4 > H1 > H2 > H3。仅应用最高优先级命中项，避免过度异构化。
+
+**`__variants` 结构**（collection-level，optional）：
+
+```json
+"__variants": [
+  {
+    "discriminator": { "__type": "written" },
+    "fields": { "written_score": "REAL", "word_count": "INT" },
+    "coverage": 0.55,
+    "source_signal": "H1: Candidate_Assessments.assessment_type"
+  },
+  {
+    "discriminator": { "__type": "oral" },
+    "fields": { "oral_score": "REAL", "duration_minutes": "INT" },
+    "coverage": 0.45,
+    "source_signal": "H1: Candidate_Assessments.assessment_type"
+  }
+]
+```
+
+`coverage` 为 witness 中该 variant 文档占比估计；DM 按 discriminator 路由 source row。
+
+### §03-6-3 与 11 pattern 菜单的关系
+
+| Stage B 触发器 | 扩展的 Stage A pattern | 关系 |
+|---|---|---|
+| H1 | `polymorphic` | H1 是 polymorphic 的 deterministic 子协议；不触发 H1 时 polymorphic 仍可来自 Spider 多表合并 |
+| H2 | `attribute` | H2 强制 attribute bag 折叠；比 Stage A 单独选 attribute 更严格 |
+| H3 | `schema_versioning` | H3 强制 `_schema_v` 字段与代际字段缺失 |
+| H4 | *(无 Stage A 等价)* | H4 仅 Stage B；EAV 晋升不经过 11 pattern 菜单 |
+
+### §03-6-4 与 v2-original Phenomena Planter 的边界
+
+| 维度 | v2-original Phenomena Planter | v2-Agent.1 H1–H4 |
+|---|---|---|
+| 触发 | 人工分类 + feasibility matrix | Spider 源 boolean 信号 |
+| 执行者 | 独立 Planter Agent | SRA Stage B（同一 Agent） |
+| 产物 | phenomena_registry (Tier-1) | `__variants` + `heterogenization` (Tier-1 schema/rationale) |
+| witness 修改 | minimal perturbation plant | DM 保真迁移 + variant 路由（非事后注入） |
+| 查询绑定 | phenomenon × persona 格点 | workload-driven QRA 模板（[04 §4](./04_agent_framework.md#04-4)） |
+
+---
+
 <a id="03-5"></a>
 ## §03-5 与下游的接口契约
 
@@ -192,9 +262,9 @@ Detector **禁止**修改 witness；若 RA 后续 augment，须 append-only 且�
 | Agent | 输入 | 输出 | 边界（禁止） |
 |---|---|---|---|
 | **WP** | `db_id`, Spider SQLite, NL/SQL pairs, catalog metadata | `audit/<db_id>/wp_output.yaml` | 不得输出 MongoDB schema 或 MQL |
-| **SRA** | WP output, Spider DDL, pattern menu | `mongodb_schema/<db_id>.json`, `agent_design_rationale/<db_id>.yaml` | 不得读 QRA/MQL；不得 plant 现象 |
+| **SRA** | WP output, Spider DDL, pattern menu, H1–H4 trigger spec | `mongodb_schema/<db_id>.json`（含 optional `__variants`）, `agent_design_rationale/<db_id>.yaml`（含 optional `heterogenization`） | 不得读 QRA/MQL；不得 plant 现象；Stage B 仅写 layout |
 | **SC** | SRA schema + rationale, WP output, anti-pattern rules | `pass/reject` verdict + `issues[]` | 不得重写 witness；不得产出最终 schema 文件 |
-| **DM** | SRA schema + rationale, Spider SQLite | `mongodb_data/<db_id>.json`, `migration_log.json`, `world_signature` | 不得改 schema 字段集；不得 delete 源映射行 |
+| **DM** | SRA schema + rationale, Spider SQLite | `mongodb_data/<db_id>.json`, `migration_log.json`, `world_signature` | 不得改 schema 字段集；按 `__variants` 路由；不得 delete 源映射行 |
 
 Prompt 文件：`agent_prompts/wp_workload_profiler.md`、`sra_schema_rearchitect.md`、`sc_schema_critic.md`、`dm_data_migrator.md`。
 
@@ -248,11 +318,19 @@ Prompt 文件：`agent_prompts/wp_workload_profiler.md`、`sra_schema_rearchitec
 | `mongodb_schema/<db_id>.json` | `schemas/library.schema.json#mongodb_schema` |
 | `agent_design_rationale/<db_id>.yaml` | `schemas/agent_design_rationale.schema.json` |
 
+**Stage B 附加输出**（任一 H1–H4 命中时）
+
+| 字段 | 位置 | 说明 |
+|---|---|---|
+| `__variants` | `mongodb_schema` collection 节点 | variant 形状声明 |
+| `heterogenization` | rationale YAML | 命中触发器、Spider 信号、variant 参数 |
+
 **Boundaries**
 
 - 每个 `decisions[]` 必须引用 ≥1 条 WP 证据（`access_pattern` id 或 `hot_field` path）。
 - 不得创建 anti-pattern 命中布局。
 - SC reject 后仅修订 rationale 与 schema，不得调用 DM。
+- Stage B 触发器评估须 deterministic（见 [§03-II-10](#03-ii-10)）；不得用 LLM 判断是否异构化。
 
 ---
 
@@ -321,7 +399,8 @@ Prompt 文件：`agent_prompts/wp_workload_profiler.md`、`sra_schema_rearchitec
 **Boundaries**
 
 - 不得增删 schema 声明字段；仅填充值。
-- 每条 source row 至少一条 migration log entry。
+- 若 SRA 声明 `__variants`，按 `discriminator` 路由 source row 到对应 variant 形状。
+- 每条 source row 至少一条 migration log entry；variant 路由须记入 `operation: variant_route`。
 - FK 违反写入 `integrity_checks.orphan_refs`；>0 则 DM fail。
 
 ---
@@ -351,7 +430,7 @@ Prompt 文件：`agent_prompts/wp_workload_profiler.md`、`sra_schema_rearchitec
 | `source_pk` | string | 主键字符串化 |
 | `target_collection` | string | MongoDB 集合 |
 | `target_id` | string \| number | 目标 `_id` |
-| `operation` | enum | `root_insert` / `embed_push` / `field_denorm` / `ref_link` |
+| `operation` | enum | `root_insert` / `embed_push` / `field_denorm` / `ref_link` / `variant_route` |
 | `target_path` | string | 点路径；根插入时为 null |
 | `embedded_children` | string[] | 嵌套表名列表 |
 
@@ -364,9 +443,13 @@ jsonschema --schema proposals/schemas/migration_log.schema.json \
 jsonschema --schema proposals/schemas/agent_design_rationale.schema.json \
   --instance proposals/schemas/agent_design_rationale.schema.valid.json
 
-jsonschema --schema proposals/schemas/wp_output.schema.json \
-  --instance proposals/audit/orchestra/wp_output.yaml
-# WP YAML 实例需先 yq -o=json 转换
+# mongodb_schema with __variants (validate against library.schema.json oneOf)
+jsonschema --schema proposals/schemas/library.schema.json \
+  --instance proposals/schemas/mongodb_schema.variants.valid.json
+
+jsonschema --schema proposals/schemas/library.schema.json \
+  --instance proposals/schemas/mongodb_schema.variants.invalid.json
+# 期望：非零退出码
 ```
 
 ---
@@ -382,6 +465,84 @@ jsonschema --schema proposals/schemas/wp_output.schema.json \
 | `schemas/migration_log.schema.json` | DM migration log |
 | `schemas/migration_log.schema.valid.json` | valid 示例 |
 | `schemas/migration_log.schema.invalid.json` | invalid 示例 |
+| `schemas/mongodb_schema.variants.valid.json` | mongodb_schema with `__variants` (valid) |
+| `schemas/mongodb_schema.variants.invalid.json` | mongodb_schema with `__variants` (invalid) |
+
+---
+
+<a id="03-ii-10"></a>
+### §03-II-10 Schema-Flex 触发器伪代码
+
+# uses: collections, re, sqlite3
+
+```
+TYPE_DISCRIMINATOR_COLS = {"type", "category", "assessment_type", "kind", "variant"}
+
+def eval_h1_polymorphic(wp, spider_columns, spider_queries) -> bool:
+    """H1: type-conditional branch queries >= 30% on a table with discriminator col."""
+    for table, cols in spider_columns.items():
+        disc = [c for c in cols if c.lower() in TYPE_DISCRIMINATOR_COLS]
+        if not disc:
+            continue
+        type_cond = count_type_conditional_queries(spider_queries, table, disc[0])
+        if type_cond / max(len(spider_queries), 1) >= 0.30:
+            return True
+    return False
+
+def eval_h2_sparse_bag(sqlite_conn, table) -> bool:
+    """H2: >=3 columns with NULL rate > 0.50."""
+    null_rates = column_null_rates(sqlite_conn, table)
+    return sum(1 for r in null_rates.values() if r > 0.50) >= 3
+
+def eval_h3_schema_version(spider_columns, table) -> bool:
+    """H3: time column + rename/add column pair (same semantic prefix)."""
+    cols = spider_columns.get(table, [])
+    has_time = any("date" in c.lower() or "time" in c.lower() for c in cols)
+    has_rename = detect_column_rename_pair(cols)  # e.g. old_name + new_name
+    return has_time and has_rename
+
+def eval_h4_eav(sqlite_conn, table) -> bool:
+    """H4: entity-attribute-value table shape."""
+    cols = table_columns(sqlite_conn, table)
+    name_col = find_col(cols, suffixes=["attribute_name", "attr_name", "property_name"])
+    val_col = find_col(cols, suffixes=["attribute_value", "attr_value", "property_value"])
+    if not (name_col and val_col):
+        return False
+    rows = sqlite_conn.execute(f"SELECT COUNT(DISTINCT entity_id) FROM {table}").fetchone()[0]
+    return rows >= 3
+
+def select_trigger(wp, spider_meta, sqlite_conn) -> str | None:
+    """Priority: H4 > H1 > H2 > H3. Return trigger id or None."""
+    if eval_h4_eav(sqlite_conn, any_eav_table(spider_meta)):
+        return "H4"
+    if eval_h1_polymorphic(wp, spider_meta.columns, spider_meta.queries):
+        return "H1"
+    if eval_h2_sparse_bag(sqlite_conn, widest_table(spider_meta)):
+        return "H2"
+    if eval_h3_schema_version(spider_meta.columns, main_entity_table(spider_meta)):
+        return "H3"
+    return None
+
+def apply_h1_variants(stage_a_schema, table, discriminator_col, subtype_values):
+    """Emit __variants with __type discriminator."""
+    variants = []
+    for val in subtype_values:
+        variants.append({
+            "discriminator": {"__type": val},
+            "fields": fields_for_subtype(table, val),
+            "coverage": estimate_coverage(val),
+            "source_signal": f"H1: {table}.{discriminator_col}",
+        })
+    return attach_variants(stage_a_schema, collection=root_collection(table), variants=variants)
+```
+
+**错误处理**
+
+| 异常 | 触发条件 | 动作 |
+|---|---|---|
+| `TriggerAmbiguityError` | H4 与 H1 同命中且 priority 未决 | 应用 H4（priority 表） |
+| `VariantCoverageError` | 某 variant coverage < 0.05 | 合并到 nearest variant 或 skip H1 |
+| `EmptyVariantError` | H1 仅 1 distinct subtype | 不触发 H1 |
 
 ---
 

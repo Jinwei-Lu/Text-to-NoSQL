@@ -63,6 +63,32 @@
           "items": { "type": "string" }
         }
       }
+    },
+    "heterogenization": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_flex": {
+          "type": "string",
+          "enum": ["none", "polymorphic", "attribute_bag", "schema_versioning", "dynamic_key"]
+        },
+        "triggers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "fired"],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "enum": ["H1", "H2", "H3", "H4"]
+              },
+              "fired": { "type": "boolean" },
+              "evidence": { "type": "string" }
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {

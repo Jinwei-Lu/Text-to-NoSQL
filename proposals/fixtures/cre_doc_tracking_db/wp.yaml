@@ -1,0 +1,44 @@
+db_id: cre_doc_tracking_db
+spider_version: "1.0"
+generated_at: "2026-05-23T11:00:00Z"
+insufficient_workload: false
+source:
+  sqlite_path: database/cre_doc_tracking_db/cre_doc_tracking_db.sqlite
+  tables:
+    - Documents
+    - Document_Attributes
+  query_count: 18
+workload_summary: >
+  Document attribute lookups dominate; EAV attribute_name/value pairs require dynamic key aggregation.
+access_patterns:
+  - pattern_id: AP01
+    type: eav_attribute_lookup
+    tables: [Documents, Document_Attributes]
+    join_path: Documents.document_id = Document_Attributes.document_id
+    frequency: 0.61
+    example_query_ids: [2, 8, 14]
+    nl_hints:
+      - aggregate attribute values by attribute name across documents
+    sql_operators: [JOIN, GROUP BY, PIVOT-like CASE]
+hot_fields:
+  - path: Document_Attributes.attribute_name
+    access_count: 22
+  - path: Document_Attributes.attribute_value
+    access_count: 22
+  - path: Documents.document_id
+    access_count: 18
+co_location_signals:
+  - entities: [Documents, Document_Attributes]
+    co_access_rate: 0.88
+    note: attribute queries always join document with EAV rows
+join_depth_distribution:
+  "0": 0.22
+  "1": 0.56
+  "2": 0.22
+aggregation_depth_distribution:
+  shallow: 0.44
+  medium: 0.39
+  deep: 0.17
+design_constraints:
+  - Promote Document_Attributes EAV rows to metrics dynamic-key object on document root (H4).
+  - Preserve document_id as _id.

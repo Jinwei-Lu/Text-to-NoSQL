@@ -1,6 +1,33 @@
 # TEND Proposals Changelog
 
-## v2-Agent (2026-05) — Active
+## v2-Agent.1 (2026-05) — Active
+
+**Focus**: Schema flexibility via SRA Stage B deterministic triggers (minimal revision; no new Agent).
+
+### Added
+- SRA **Stage B** schema heterogenization: 4 deterministic triggers **H1–H4** ([03 §03-6](../03_spider_anchored_dataworld.md#03-6))
+- Collection-level **`__variants`** in `mongodb_schema/<db_id>.json` + rationale **`heterogenization`**
+- Record field **`schema_flex`** (`none` / `polymorphic` / `attribute_bag` / `schema_versioning` / `dynamic_key`)
+- **Six-axis** coverage (added `schema_flex` axis); hard constraint **H7**: test `schema_flex ≠ none` ≥ 8%
+- NNC **`sql_infeasibility_class`** split: `structural_pipeline` + `structural_schema_flex`
+- QRA schema-flex **primary_pattern** set: `polymorphic_dispatch`, `dynamic_key_aggregation`, `attribute_bag_unfold`, `schema_version_fallback`
+- Mutations **dimension E** (`schema_flex_stress`)
+- DM **`variant_route`** migration operation
+- Fixtures: `student_assessment` (H1 polymorphic), `cre_doc_tracking_db` (H4 dynamic_key)
+- Schema examples: `mongodb_schema.variants.valid.json` / `.invalid.json`
+
+### Retained (from v2-Agent)
+- 7 Agent pipeline (no SDA / no new Agent)
+- Spider 1.0 anchoring, gold-as-class, EX dual-condition, dual-bridge defeat
+- cross-domain holdout, L4 ≥ 15%, P1–P4, NormExec, ≡_rec
+- Canonical anchor `orchestra/1001` byte-stable
+
+### Boundary
+- H1–H4 deterministic triggers **≠** v2-original Phenomena Planter (no phenomenon registry, no persona lattice, no minimal perturbation plant)
+
+---
+
+## v2-Agent (2026-05)
 
 **Paradigm shift**: Spider-anchored LLM Agent framework replaces rule-based synthesis.
 

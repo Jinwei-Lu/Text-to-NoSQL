@@ -94,7 +94,7 @@
     },
     "domain_id": {
       "type": "string",
-      "description": "Spider domain label for cross-domain holdout and five-axis coverage."
+      "description": "Spider domain label for cross-domain holdout and six-axis coverage."
     },
     "join_depth": {
       "type": "integer",
@@ -105,7 +105,7 @@
     "aggregation_depth": {
       "type": "string",
       "enum": ["shallow", "medium", "deep"],
-      "description": "Root pipeline stage-count bucket for five-axis coverage."
+      "description": "Root pipeline stage-count bucket for six-axis coverage."
     },
     "schema_pattern": {
       "type": "string",
@@ -123,6 +123,11 @@
         "mixed"
       ],
       "description": "Primary MongoDB design pattern applied by SRA for this db_id."
+    },
+    "schema_flex": {
+      "type": "string",
+      "enum": ["none", "polymorphic", "attribute_bag", "schema_versioning", "dynamic_key"],
+      "description": "SRA Stage B heterogenization type; omit or none when H1-H4 do not fire."
     },
     "agent_design_rationale_ref": {
       "type": "string",

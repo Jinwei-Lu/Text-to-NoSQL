@@ -1,0 +1,25 @@
+{
+  "record_id": 5001,
+  "db_id": "cre_doc_tracking_db",
+  "nl_queries": {
+    "canonical": "将每份文档的 metrics 动态键对象展开为键值对，仅保留键名为 weight 或 priority 的条目；按键分组求各键对应数值的平均值；取平均值最高的键及其均值，输出为 top_metric 对象；不要求排序除最终取最大值外。",
+    "colloquial": "哪些文档属性指标整体最高？"
+  },
+  "MQL": "db.documents.aggregate([\n  { $project: { _id: 0, document_id: 1, title: 1, metric_pairs: { $objectToArray: \"$metrics\" } } },\n  { $unwind: \"$metric_pairs\" },\n  { $match: { \"metric_pairs.k\": { $in: [\"weight\", \"priority\"] } } },\n  { $group: {\n      _id: \"$metric_pairs.k\",\n      avg_value: { $avg: { $toDouble: \"$metric_pairs.v\" } }\n  } },\n  { $sort: { avg_value: -1 } },\n  { $group: {\n      _id: null,\n      ranked: { $push: { k: \"$_id\", avg_value: \"$avg_value\" } }\n  } },\n  { $project: {\n      _id: 0,\n      top_metric: { $arrayElemAt: [\"$ranked\", 0] }\n  } }\n])",
+  "canonical_form_set": {
+    "must_contain": ["$objectToArray", "$unwind", "$group"],
+    "must_not_contain": ["$setWindowFields"],
+    "must_contain_at_root": ["$project"],
+    "must_not_contain_at_root": []
+  },
+  "difficulty": "L4",
+  "shape_policy": "reshape",
+  "schema_flex": "dynamic_key",
+  "world_signature": "sha256:e81c7a2b3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcd",
+  "domain_id": "tracking",
+  "join_depth": 0,
+  "aggregation_depth": "medium",
+  "schema_pattern": "embed",
+  "agent_design_rationale_ref": "fixtures/cre_doc_tracking_db/sra.yaml",
+  "mutations_ref": "fixtures/cre_doc_tracking_db/mutations.json"
+}
