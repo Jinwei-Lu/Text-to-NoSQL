@@ -49,7 +49,7 @@ $$
 | Spider 锚定 schema / 数据迁移 / SRA 设计 | [03 §3](./03_spider_anchored_dataworld.md#03-3) |
 | Phase B Agent 框架、canonical_form_set 派生、mutations | [04 §4](./04_agent_framework.md#04-4) |
 | 七指标公式、4-panel 报表 | [05 §2](./05_evaluation_methodology.md#05-2) |
-| SMART 四阶段解法 | [06 §1](./06_solution_design.md#06-1) |
+| SMART schema-less agentic 双智能体 / 四阶段解法 | [06 §1](./06_solution_design.md#06-1) |
 
 <a id="01-1"></a>
 ## §01-1 任务签名

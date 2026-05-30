@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tend.dev/schemas/solver_allow_list.json",
   "title": "TEND solver-side allow-list",
-  "description": "Machine-readable solver boundary contract for SMART stages. Authoritative prose in proposals/06_solution_design.md.",
-  "schema_version": "2026-05-23",
+  "description": "Machine-readable solver boundary contract for SMART schema-less agentic stages (2 agents / 4 stages + cross-cutting Agentic RAG). Authoritative prose in proposals/06_solution_design.md.",
+  "schema_version": "2026-05-30",
   "disabled_operators": [
     "$sample",
     "$rand",
@@ -19,6 +19,7 @@
     "audit/**",
     "test.json:MQL",
     "test.json:canonical_form_set",
+    "test.json:shape_policy",
     "test.json:*_ref",
     "train.json:*_ref",
     "rejected/**"
@@ -30,6 +31,7 @@
   "test_record_forbidden_fields": [
     "MQL",
     "canonical_form_set",
+    "shape_policy",
     "agent_design_rationale_ref",
     "mutations_ref",
     "_diagnostic_bridge_ref",
@@ -57,9 +59,10 @@
     "spider_db_catalog.json"
   ],
   "witness_sample_limit": {
-    "scope": "query_generation_only",
+    "scope": "heterogeneity_planning_and_query_realization",
     "max_per_collection": "solver_disclosed_K",
-    "forbidden_in_stage": "schema_prediction"
+    "forbidden_in_stage": "shape_comprehension",
+    "note": "≤ K docs/collection may enter any prompt; the query_realization executor may run on the solver's full LOCAL replica (variant-stratified sampling for cross-variant debug) — the K limit caps prompt-injected samples, not local execution data volume."
   },
   "four_party_disjointness": {
     "construction_authority": "05 §05-4",
@@ -75,11 +78,10 @@
       "S_solver ∩ C_construction_pool = ∅"
     ],
     "s_solver_scope": [
-      "schema_prediction_model",
-      "query_generation_llm",
-      "rag_embedding_model",
-      "rag_rerank_model",
-      "execution_debug_aux_models"
+      "shape_comprehension_slm_agent_backbone",
+      "cognition_llm_agent_backbone",
+      "example_retrieval_embedding_model",
+      "auxiliary_models"
     ]
   },
   "frozen_panel_manifest_ref": "audit/reference_panel/manifest_<release>.json",
@@ -91,49 +93,102 @@
   },
   "frozen_panel_note": "Populate frozen_panels.* from audit/reference_panel/manifest_<release>.json at release time; empty arrays are placeholders until manifest is published.",
   "stages": {
-    "schema_prediction": {
-      "inputs": ["NLQ", "S"],
-      "outputs": ["S_hat"],
+    "shape_comprehension": {
+      "owner_agent": "SLM Agent (concurrent map-reduce probes)",
+      "inputs": ["NLQ", "S (incl __variants)"],
+      "outputs": ["S_hat (shape_model: field_locus, variants, coverage_gaps, shape_flex_signature)"],
       "readable": [
-        "mongodb_schema/<db_id>.json",
+        "mongodb_schema/<db_id>.json (incl __variants)",
         "test.json:nl_queries.canonical",
         "test.json:nl_queries.colloquial",
         "test.json:db_id",
-        "test.json:difficulty",
-        "test.json:shape_policy"
+        "test.json:difficulty"
       ],
       "forbidden": [
-        "mongodb_data/** (full load)",
+        "mongodb_data/** (ANY load — schema-only stage, §06-4-4.2)",
         "audit/**",
         "test.json:MQL",
         "test.json:canonical_form_set",
+        "test.json:shape_policy",
         "test.json:*_ref"
-      ]
+      ],
+      "note": "__variants is the authoritative shape contract; no data sampling here. Undeclared real-data shapes are caught downstream via the query_realization → shape_comprehension loop."
     },
-    "query_generation": {
-      "inputs": ["NLQ", "S_hat", "db_id", "optional_witness_samples"],
-      "outputs": ["q_p_0"],
+    "intent_formalization": {
+      "owner_agent": "LLM Agent",
+      "inputs": ["NLQ", "S_hat"],
+      "outputs": ["logical_spec (paradigm-neutral; includes self-inferred shape_policy + target_fields)"],
       "readable": [
-        "mongodb_schema/<db_id>.json",
-        "mongodb_data/<db_id>.json (≤ K docs per collection)",
-        "agent_design_rationale/<db_id>.yaml (public summary fields only)",
         "test.json:nl_queries",
         "test.json:db_id",
-        "test.json:difficulty",
-        "test.json:shape_policy"
+        "test.json:difficulty"
       ],
       "forbidden": [
         "audit/**",
         "test.json:MQL",
         "test.json:canonical_form_set",
+        "test.json:shape_policy",
         "test.json:*_ref",
         "train.json:*_ref"
       ],
-      "postprocess": ["ast_reject_disabled_operators"]
+      "postprocess": ["slm_clause_coverage_check"]
     },
-    "rag_refinement": {
-      "inputs": ["q_p_0", "train.json corpus"],
-      "outputs": ["q_p_1"],
+    "heterogeneity_planning": {
+      "owner_agent": "LLM Agent (crux ★)",
+      "inputs": ["logical_spec", "S_hat"],
+      "outputs": ["physical_plan (Mongo pipeline skeleton + variant_handling)"],
+      "readable": [
+        "mongodb_schema/<db_id>.json",
+        "mongodb_data/<db_id>.json (≤ K docs per collection into prompt)",
+        "agent_design_rationale/<db_id>.yaml (public summary fields only)",
+        "test.json:nl_queries",
+        "test.json:db_id"
+      ],
+      "forbidden": [
+        "audit/**",
+        "test.json:MQL",
+        "test.json:canonical_form_set",
+        "test.json:shape_policy",
+        "test.json:*_ref",
+        "train.json:*_ref"
+      ]
+    },
+    "query_realization": {
+      "owner_agent": "LLM Agent (generation + self-debug fused; executor is an inline tool)",
+      "inputs": ["physical_plan", "S_hat", "local_mongodb"],
+      "outputs": ["q_p_final"],
+      "readable": [
+        "mongodb_schema/<db_id>.json",
+        "mongodb_data/<db_id>.json (local replica; variant-stratified execution; ≤ K docs/collection into prompt)",
+        "test.json:nl_queries",
+        "test.json:db_id"
+      ],
+      "forbidden": [
+        "test.json:MQL",
+        "test.json:canonical_form_set",
+        "test.json:shape_policy",
+        "test.json:*_ref",
+        "evaluator_gold_runtime",
+        "audit/**"
+      ],
+      "postprocess": ["ast_reject_disabled_operators"],
+      "feedback_routing": {
+        "allowed_keys": ["error_code", "stage_index", "suspect_field", "failing_variant"],
+        "loop_back_to": ["heterogeneity_planning", "intent_formalization", "shape_comprehension"],
+        "forbidden": ["raw_result_rows", "gold_answer"]
+      }
+    }
+  },
+  "tools": {
+    "example_retrieval": {
+      "description": "Agentic RAG: a cross-cutting example-retrieval tool (NOT a stage, NOT an agent) exposing two methods that match similar train examples — by regex or by embedding similarity. Authoritative prose in 06 §06-2-5.",
+      "methods": ["regex_example_retriever", "embedding_example_retriever"],
+      "method_match": {
+        "regex_example_retriever": "operator fingerprint (canonical_form_set.must_contain), stage skeleton, shape_flex signature",
+        "embedding_example_retriever": "embedding similarity on de-domained intent vector / draft-MQL vector / S_hat field-path signature"
+      },
+      "callable_by_stages": ["shape_comprehension", "intent_formalization", "heterogeneity_planning", "query_realization"],
+      "retrieval_principle": "cross-domain holdout (02 §02-3) ⇒ key on ABSTRACT STRUCTURE (operator fingerprint, shape_flex signature, de-domained intent vector), NOT surface NL/field names; surface similarity retrieves non-existent same-domain neighbours.",
       "readable": [
         "train.json:record_id",
         "train.json:db_id",
@@ -148,25 +203,10 @@
         "train.json:*_ref",
         "audit/**"
       ],
-      "postprocess": ["ast_reject_disabled_operators"]
-    },
-    "execution_debug": {
-      "inputs": ["q_p_1", "local_mongodb"],
-      "outputs": ["q_p_final"],
-      "readable": [
-        "test.json:db_id",
-        "mongodb_data/<db_id>.json (local replica only, not eval gold DB)"
-      ],
-      "forbidden": [
-        "test.json:MQL",
-        "test.json:canonical_form_set",
-        "evaluator_gold_runtime",
-        "audit/**"
-      ],
-      "feedback_to_query_generation": {
-        "allowed_keys": ["error_code", "stage_index", "suspect_field"],
-        "forbidden": ["raw_result_rows", "gold_answer"]
-      }
+      "embedding_model_in_s_solver": true,
+      "offline_index_only_no_training": true,
+      "call_budget": "solver_disclosed_R_retr",
+      "postprocess_on_rewrite": ["ast_reject_disabled_operators"]
     }
   },
   "shape_preserving": {

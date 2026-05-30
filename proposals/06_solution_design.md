@@ -1,6 +1,8 @@
 # 06 · Solution Design — SMART 求解侧参考架构与硬边界
 
-> 本文件是 TEND **求解侧** 的单一真源 (SSoT)。定义 SMART 四阶段参考求解器、阶段间接口契约、求解侧硬边界、shape-preserving target_fields 协议，以及 canonical 示例 `orchestra/1001` 的完整调用轨迹。不重复定义任务 IO、评测指标、gold 等价类、DataWorld 构造或 Agent 查询构造，这些概念的权威文档见 [§06-7 边界声明](#06-7)。
+> 本文件是 TEND **求解侧** 的单一真源 (SSoT)。定义 SMART **schema-less agentic 参考求解器**(2 智能体 / 4 阶段 + 横切 Agentic RAG)、阶段间接口契约、求解侧硬边界、shape-preserving target_fields 协议,以及 canonical 示例 `orchestra/1001` 的完整调用轨迹。不重复定义任务 IO、评测指标、gold 等价类、DataWorld 构造或 Agent 查询构造,这些概念的权威文档见 [§06-7 边界声明](#06-7)。
+>
+> **v3 设计立场**:MongoDB 是 **schema-less** 的——同一 collection 内每条 document 结构可不同。求解器的核心难点不是"从固定 schema 挑字段",而是 **把 NL 意图调和到「每条 document 形状都可能不同」的数据上**;谁绕过它谁就退化成 SQL 直译。SMART 为此设计为:**SLM 感知层**(高并发扫清整库异质结构)+ **LLM 认知层**(沿"意图 → Mongo 策略 → 落地"深推理)+ **横切 Agentic RAG**(按抽象结构跨域迁移 NoSQL 惯用法)。**全程零训练**,两类智能体权重冻结。求解侧硬边界与本架构 **正交**,逐字保留。
 
 ---
 
@@ -8,127 +10,171 @@
 
 ## TL;DR
 
-TEND 将 Text-to-NoSQL 求解任务定义为 `f: (NLQ, S, db_id) → q^{MQL}`（权威形式见 [01 §01-1](./01_task_definition.md#01-1)）。本文档给出一个 **参考求解器架构 SMART**，并规定 **任意求解器** 提交到 TEND 时必须遵守的 **求解侧硬边界**。SMART 本身并非评测必需，但其四阶段与硬边界是**互相正交**的两层。
+TEND 将 Text-to-NoSQL 求解任务定义为 `f: (NLQ, S, db_id) → q^{MQL}`(权威形式见 [01 §01-1](./01_task_definition.md#01-1))。本文档给出一个 **schema-less agentic 参考求解器 SMART**,并规定 **任意求解器** 提交到 TEND 时必须遵守的 **求解侧硬边界**。SMART 本身并非评测必需,但其智能体架构与硬边界是**互相正交**的两层。
 
-**SMART 四阶段**（§06-1 / §06-2）：`Schema Prediction → Query Generation → RAG Refinement → Execution Debug`，从 `(NLQ, S, db_id)` 输出 `q_p^{(final)}`；Execution Debug 在 parse 或 dry-run 失败时唯一回路到 Query Generation。Schema Prediction 在完整 schema `S` 上预测字段子集 `Ŝ`；Query Generation 以 `(NLQ, Ŝ, db_id)` 生成首版 pipeline `q_p^{(0)}` 并立即运行 AST 过滤；RAG Refinement 以 `train.json` 检索相似示例修正 operator 与字段命名得到 `q_p^{(1)}`；Execution Debug 在求解器自持本地 MongoDB 上 dry-run，通过后产出 `q_p^{(final)}`。
+**两智能体**:**SLM Agent(感知层)** 独占阶段 ①;**LLM Agent(认知层)** 独占阶段 ②③④。SLM 的强项是**高并发**——以 map-reduce 探针群并发探索整库异质结构;LLM 的强项是**深推理**——沿表示链串行求解。
 
-**求解侧硬边界**（§06-4）—— 无论架构，均须同时满足四项约束。**Audit 屏蔽**：`audit/` 整树、`test.json.{MQL, canonical_form_set, *_ref}`、`train.json.*_ref` dereference、`rejected/` 均不可读；Tier-1 可读面以 [02 §02-1](./02_dataset_design.md#02-1) 与机器可读 **allow-list** `schemas/solver_allow_list.json` 为准。**6 件禁用 operator**：`$sample`、`$rand`、`$$NOW`、`$out`、`$merge`、`$function`（语义权威 [01 §01-2-2](./01_task_definition.md#01-2-2)）；Query Generation 与 RAG Refinement 每次生成后须经 AST 过滤，命中 6 件禁用项则重采样或规则重写，不得提交。**构造–panel disjointness 求解侧对偶**：记 `S_solver` 为四阶段全部模型/服务集合，须满足 `S_solver ∩ B_frozen = ∅`（20 个 4-panel 冻结模型）且 `S_solver ∩ C_pool = ∅`（构造期 Agent 池 `{QPS, MS, MUT, PV, NLP, RTV, NNC, RA}`）；disjointness 失败则整份评测标记不合规（构造侧 disjointness 见 [05 §05-3](./05_evaluation_methodology.md#05-3)）。**shape-preserving target_fields 协议**（§06-5）：当 NLQ 语义要求 preserve 原文档形态时，solver 内部以 `target_fields` meta 驱动 `$addFields` / `$map` 就地惯用法，禁止 `$unwind + $group` 反模式。
+**四阶段(按「输出表示类型」切边界)**:`① Shape Comprehension → ② Intent Formalization → ③ Heterogeneity Reconciliation & NoSQL Planning → ④ Query Realization & Self-Debug`。① 产出**形状模型 Ŝ**(字段×变体定位图);② 产出**逻辑规约**(范式中立);③ 产出**物理 plan**(含显式变体处理);④ 产出 `q_p^{(final)}`。**②→③ 这条边正是 Text-to-SQL 停下、TEND 真正难点开始的地方**:② 之前 SQL 也能表达,③ 起才是 schema-less 下 SQL 表达不出来的部分。"同一阶段 = 同一种产物上的不同操作"——所以生成与执行调试同属 ④(只差一个 executor 工具),不再拆开。
 
-**Allow-list 与披露**：各阶段可读/禁读字段的完整 allow-list 矩阵见 `schemas/solver_allow_list.json` 与 §06-3-1；求解器须在评测报告中披露 `S_solver` 全清单、witness K 限额、`R_max`、allow-list 合规自检结果与 disjointness 核验结果（[05 §05-5](./05_evaluation_methodology.md#05-5)）。AST 过滤对 6 件禁用 operator 为零容忍：任一阶段输出命中即不得进入 `q_p^{(final)}`。Canonical anchor `orchestra/1001`（L4、`reshape` shape_policy）的 SMART 轨迹见 §06-6；因 `shape_policy = reshape`，§06-5 不适用。
+**Agentic RAG = 横切共享检索工具,不是阶段**(§06-2-5):单一 `structural_example_retriever`,暴露两个匹配方法——`regex_example_retriever`(按算子指纹 / shape_flex 签名 / stage 骨架正则匹配相似 examples)与 `embedding_example_retriever`(按去域化意图向量的 embedding 相似度匹配相似 examples)。各阶段按需调用、按阶段换键。**cross-domain holdout 下 surface 检索全是噪声,只迁移 NoSQL-native 结构/惯用法**——这是检索设计的命门。
+
+**求解侧硬边界**(§06-4)—— 无论架构均须同时满足。**Audit 屏蔽**:`audit/` 整树、`test.json.{MQL, canonical_form_set, shape_policy, *_ref}`、`train.json.*_ref`、`rejected/` 均不可读(Tier-1 可读面以 [02 §02-1](./02_dataset_design.md#02-1) 与 `schemas/solver_allow_list.json` 为准)。**6 件禁用 operator**:`$sample`、`$rand`、`$$NOW`、`$out`、`$merge`、`$function`(语义权威 [01 §01-2-2](./01_task_definition.md#01-2-2));④ 出口零容忍。**构造–panel disjointness 求解侧对偶**:`S_solver`(SLM backbone + LLM backbone + 检索 embedding 模型)须与 20 个 4-panel 冻结模型及构造期 Agent 池 `{QPS, MS, MUT, PV, NLP, RTV, NNC, RA}` 双重不相交。**shape-preserving target_fields 协议**(§06-5):`preserve` 语义时强制 `$addFields` / `$map` 就地惯用法。
+
+**Allow-list 与披露**:完整 allow-list 矩阵见 `schemas/solver_allow_list.json` 与 §06-3-1;求解器须披露 `S_solver` 全清单、witness K 限额、`R_max`(回退上限)、`R_retr`(检索调用上限)、allow-list 合规自检与 disjointness 核验结果([05 §05-5](./05_evaluation_methodology.md#05-5))。Canonical anchor `orchestra/1001`(L4、`reshape`、嵌套 embed、无 schema_flex)的 SMART 轨迹见 §06-6;因 `shape_policy = reshape`,§06-5 不适用。
 
 ---
 
 <a id="06-1"></a>
-## §06-1 SMART 四阶段总览
+## §06-1 SMART 两智能体 / 四阶段总览
 
 <a id="06-1-1"></a>
 ### §06-1-1 架构图
 
 ```mermaid
-flowchart LR
-  input["输入<br/>(NLQ, S, db_id)"]
-  schemaPred["Schema Prediction<br/>(NLQ, S) → Ŝ"]
-  queryGen["Query Generation<br/>(NLQ, Ŝ, db_id) → q_p(0)"]
-  ragRefine["RAG Refinement<br/>(q_p(0), trainCorpus) → q_p(1)"]
-  execDebug["Execution Debug<br/>(q_p(1), localMongo) → q_p(final)"]
-  output["输出<br/>q_p(final)"]
+flowchart TB
+  input["输入 (NLQ, S 含 __variants, db_id)"]
 
-  input --> schemaPred
-  schemaPred --> queryGen
-  queryGen --> ragRefine
-  ragRefine --> execDebug
-  execDebug --> output
-  execDebug -. "parse/exec fail" .-> queryGen
+  subgraph slm["SLM Agent · 感知层（高并发）"]
+    s1["① Shape Comprehension<br/>map-reduce 探针群 → 形状模型 Ŝ"]
+  end
+
+  subgraph llm["LLM Agent · 认知层（深推理链）"]
+    s2["② Intent Formalization → 逻辑规约（范式中立）"]
+    s3["③ Heterogeneity Reconciliation & NoSQL Planning → 物理 plan ★"]
+    s4["④ Query Realization & Self-Debug → q_p(final)"]
+  end
+
+  subgraph rag["横切 Agentic RAG（检索工具，非阶段）"]
+    r1["structural_example_retriever<br/>regex / embedding 匹配相似 examples"]
+  end
+
+  input --> s1 --> s2 --> s3 --> s4 --> out["q_p(final)"]
+  s4 -. "变体处理错" .-> s3
+  s4 -. "意图读错" .-> s2
+  s4 -. "撞未声明形状" .-> s1
+  s2 -. "SLM 子句覆盖检查不过" .-> s2
+
+  s1 -. 调用 .-> rag
+  s2 -. 调用 .-> rag
+  s3 -. 调用 .-> rag
+  s4 -. 调用 .-> rag
 ```
 
-反馈回路唯一：`Execution Debug` 检测到 parse 或 dry-run 执行失败时回跳至 `Query Generation`，`RAG Refinement` 缓存的检索结果允许复用但必须重新调用生成。最大重试次数由求解器自定义，并在评测报告中按 [05 §05-5](./05_evaluation_methodology.md#05-5) 的要求强制披露。
+**"②→③ 边 = SQL/NoSQL 分水岭"**:② 的逻辑规约是范式中立的(可映射到 SQL 窗口函数,也可映射到 Mongo);③ 才决定在 schema-less Mongo 里**按形状原生表达**,这是 SQL 直译必死之处。
+
+**回路按"哪个表示错了"分流**(§06-2-4):`④→③`(变体处理错)/ `④→②`(意图读错)/ `④→①`(执行撞到未声明形状);`②` 出口加廉价 **SLM 子句覆盖检查**。`R_max`(总回退)与 `R_retr`(检索调用)由求解器披露([05 §05-5](./05_evaluation_methodology.md#05-5))。
 
 <a id="06-1-2"></a>
-### §06-1-2 各阶段职责简述
+### §06-1-2 各阶段 / 智能体职责简述
 
-| 阶段 | 一句话职责 |
-| :-- | :-- |
-| Schema Prediction | 在完整 schema `S` 上根据 NLQ 预测与任务相关的字段子集 `Ŝ ⊆ S`，避免在生成阶段塞入整张 schema。 |
-| Query Generation | 以 `(NLQ, Ŝ, db_id)` 为输入生成首版 MongoDB aggregation pipeline `q_p^{(0)}`，并通过 AST 过滤拒绝 6 件禁用 operator。 |
-| RAG Refinement | 以 `q_p^{(0)}` 为种子，从 `train.json` 可读字段检索相似示例，对 operator 选型、字段命名、窗口/分组键进行就地修正得到 `q_p^{(1)}`。 |
-| Execution Debug | 在求解器自持的本地 MongoDB 上对 `q_p^{(1)}` 做干跑；语法/运行失败回路到 Query Generation；通过后产出 `q_p^{(final)}`。 |
+| 阶段 | 智能体 | 输出表示 | 一句话职责 |
+| :-- | :-- | :-- | :-- |
+| ① Shape Comprehension | **SLM Agent** | 形状模型 `Ŝ` | 并发探针扫整库异质结构:有哪些变体、判别键、同一逻辑字段散落各形状的定位图(`field_locus`)。无权重更新。 |
+| ② Intent Formalization | **LLM Agent** | 逻辑规约 | 把 NLQ 解析成范式中立的逻辑规约(谓词/分组/窗口/聚合/输出形态/`shape_policy`);出口经 SLM 子句覆盖检查。 |
+| ③ Heterogeneity Reconciliation & NoSQL Planning ★ | **LLM Agent** | 物理 plan | 把逻辑意图调和到 `Ŝ` 的异质形状上,选 NoSQL-native 访问策略并产出含 `variant_handling` 的 pipeline 骨架。命门。 |
+| ④ Query Realization & Self-Debug | **LLM Agent** | `q_p^{(final)}` | 按 plan 落地 MQL;`mongo_executor` 在按变体分层的本地样本上跑;失败自纠正并分流回路;`ast_filter` 出口零容忍。 |
+
+> 分工本质:**SLM = 感知(广度并行扫结构,重召回)** vs **LLM = 认知(深度串行推理,重精度)**。
 
 <a id="06-1-3"></a>
-### §06-1-3 四阶段数据流接口契约
+### §06-1-3 接口契约与工具访问
 
-阶段间 **只允许** 通过下表中列出的显式输入/输出进行通信。禁止任何侧信道（全局变量、文件系统缓存跨阶段共享、隐藏字段等）。机器可读 allow-list 见 `schemas/solver_allow_list.json`。
+阶段间 **只允许** 通过下表显式输入/输出通信;智能体的自治(探针 fan-out、检索、自纠正 turn)受限于本契约:禁止侧信道(全局变量、跨阶段文件缓存、隐藏字段、跨阶段隐式 agent memory)。机器可读 allow-list 见 `schemas/solver_allow_list.json`。
 
-| 阶段 | 显式输入 | 显式输出 | 允许的外部访问 | 禁止访问（节选） |
+| 阶段 / 智能体 | 显式输入 | 显式输出 | 允许的外部访问 | 禁止访问(节选) |
 | :-- | :-- | :-- | :-- | :-- |
-| Schema Prediction | `NLQ`、`S`（JSON Schema 序列化） | `Ŝ`（字段路径集合） | schema 公开字段名、SRA rationale 摘要 | `mongodb_data` 整库加载、`test.json.MQL`、`audit/*` |
-| Query Generation | `NLQ`、`Ŝ`、`db_id`、可选 witness 样本（每集合 ≤ K 条） | `q_p^{(0)}`（MQL pipeline 字符串） | `agent_design_rationale` 公开摘要、≤ K witness | `test.json.{MQL, canonical_form_set, *_ref}` |
-| RAG Refinement | `q_p^{(0)}`、`train.json` 检索语料 | `q_p^{(1)}` | `train.json.{nl_queries, MQL, canonical_form_set, record_id, db_id}` | `train.json.*_ref` dereferences、`audit/*` |
-| Execution Debug | `q_p^{(1)}`、本地 MongoDB 实例 | `q_p^{(final)}` | 求解器自持数据库的执行 API | 评测用 test 数据库的 gold 答案 |
+| ① / SLM Agent | `NLQ`、`S`(含 `__variants`) | `Ŝ`(形状模型) | schema 公开字段、`__variants`、检索工具 | `mongodb_data` 任意载入、`test.json.MQL/shape_policy`、`audit/*` |
+| ② / LLM Agent | `NLQ`、`Ŝ` | 逻辑规约 | 检索工具 | `test.json.{MQL, canonical_form_set, shape_policy, *_ref}` |
+| ③ / LLM Agent | 逻辑规约、`Ŝ` | 物理 plan | `agent_design_rationale` 公开摘要、检索工具 | `test.json.{MQL, canonical_form_set, shape_policy, *_ref}` |
+| ④ / LLM Agent | 物理 plan、本地 MongoDB | `q_p^{(final)}` | 本地库执行 API、≤ K witness(入 prompt)、`ast_filter`、检索工具 | 评测 gold 库、`test.json.MQL` |
 
-> 契约要点：`Ŝ` 作为 Query Generation 唯一来源的 schema 视图；witness 样本 **只在 Query Generation 阶段以 K-sample 限额允许引入**，禁止在 Schema Prediction 阶段全库载入（见 [§06-4-4](#06-4-4)）。
+> 契约要点:`Ŝ` 是下游唯一的 schema 视图;**① 严守 schema-only,禁任何 data 载入**(`__variants` 即形状权威契约,§06-4-4);witness ≤ K **入 prompt** 只在 ③/④ 允许,而 ④ 的 executor 可在**本地副本全量/分层样本**上执行(用于跨变体调试,§06-2-4)。
 
 ---
 
 <a id="06-2"></a>
-## §06-2 各阶段细节
+## §06-2 各阶段与共享工具细节
+
+<a id="06-2-0"></a>
+### §06-2-0 无训练原则
+
+**求解全程不训练、不微调任何模型。** SLM Agent 与 LLM Agent 权重冻结;一切任务适配靠 in-context、检索增强与工具调用。早期 SMART(v1)的 SFT 路线(如 `SMART/get_SLM_precidtion.py` 加载离线微调预测)被 **推理期 SLM 探针群** 取代(映射见 Part II §06-II-4)。`train.json` 仅作**检索 examples**(few-shot / 相似样例),不作训练标签,且受 [§06-3-1](#06-3-1) allow-list 约束。检索工具的向量索引为**离线索引**,不动权重。求解器须在报告中声明「无权重更新」并披露 `S_solver`。
 
 <a id="06-2-1"></a>
-### §06-2-1 Schema Prediction
+### §06-2-1 ① Shape Comprehension(SLM Agent · 高并发)
 
-- **输入**：`(NLQ, S)`，`S` 为 db_id 对应的 `mongodb_schema/<db_id>.json`（结构由 [02 §02-1](./02_dataset_design.md#02-1) 给出）。
-- **输出**：`Ŝ ⊆ S`，以字段路径集合形式表示（例 `conductor._id`、`conductor.orchestra[].performance[].Attendance`）。
-- **允许操作**：字段级裁剪、嵌套路径推导、外键关联追踪。
-- **禁用操作**：加载 `mongodb_data` 整库、读取 `audit/*`、跨 db_id 聚合。
-- **训练信号**：弱监督来自 `train.json` 中 `NLQ → MQL` 的字段引用抽取（MQL AST 中出现的字段集合即 `Ŝ_gold^{train}`）。求解器自行选择训练/推理策略（规则、微调、提示词等），本文档不约束具体方法。
-- **常见失败模式**：
-  1. 过度裁剪 → 在 Query Generation 阶段补不回必需字段，触发 Execution Debug 回路；
-  2. 过度保留 → 相当于 no-op，增加下游 prompt 噪声，降低 EX。
+schema-less 下"理解结构"不是读一张固定 schema,而是**并发扫清一个异质形状空间**。单个 agent 串行决定"看哪儿"易 tunnel-vision、漏变体;漏一个形状,③ 的调和就会错。故 ① 以 **map-reduce 探针群** 完成,超额发探针以冗余换召回。
+
+- **输入**:`(NLQ, S)`,`S` 含 `__variants`(结构由 [02 §02-1](./02_dataset_design.md#02-1) / [03 §03-6](./03_spider_anchored_dataworld.md#03-6) 给出)。
+- **fan-out(并发探针,互相盲视)**:
+  - 每 collection 一个探针:变体集合、判别键(discriminator)、覆盖率;
+  - 每变体分支一个探针:字段/类型/嵌套;
+  - 每个 NLQ 概念字段一个探针:**它散落在哪些变体、路径、类型、present/sparse/missing**;
+  - 每个动态键/属性袋子树一个探针。
+  - 每个探针可调 `structural_example_retriever` 找"类似变体形状别人怎么查"。
+- **fan-in(reduce)**:**确定性代码**做 union / 去重 / 按规范化路径归并(不让聚合器幻觉造字段);仅"同一逻辑字段出现在多处是不是一回事"这类**语义冲突**交一个 SLM 归约探针裁定;标注 `coverage_gaps`。
+- **输出 `Ŝ`(形状模型)**:核心是 `field_locus`——逻辑字段 × 变体的定位图(结构定义见 [§06-II-1](#06-ii-1))。
+- **硬边界**:**schema-only**,禁任何 `mongodb_data` 载入(§06-4-4.2);`__variants` 为形状权威。真实数据若有未声明形状,留给 ④ 兜底并经 `④→①` 回路。
 
 <a id="06-2-2"></a>
-### §06-2-2 Query Generation
+### §06-2-2 ② Intent Formalization(LLM Agent)
 
-- **输入**：`(NLQ, Ŝ, db_id)`；可选加入每集合 ≤ K 条 witness 样本用于辅助字段语义推断（K 由求解器披露）。
-- **Prompt 可含内容**：
-  - `Ŝ` 的 schema 序列化；
-  - 可选 witness 样本（受 K 限额）；
-  - 可选 `agent_design_rationale/<db_id>.yaml` 的公开摘要字段；
-  - 求解器 **自己的** NLQ → schema 关联推断。
-- **不可含内容**：
-  - 任何 `test.json.MQL` / `test.json.canonical_form_set` 及其 `*_ref`；
-  - `audit/*`。
-- **输出**：`q_p^{(0)}`，MongoDB aggregation pipeline 的 JSON 字符串。
-- **强制后处理**：AST 过滤（见 [§06-4-2](#06-4-2)），若命中 6 件禁用 operator，则回调重采样或规则重写。
+- **输入**:`(NLQ, Ŝ)`。
+- **输出**:**逻辑规约**——范式中立地刻画"算什么":实体、谓词、分组键、窗口/聚合语义(含 missing 处理意图)、输出字段与缺失占位、排序语义、`shape_policy`(从 NLQ 自推断,§06-5)。**此刻不决定任何 Mongo 算子**。
+- **消歧**:canonical NLQ 为精确锚;colloquial 作交叉核对(二者应指向同一意图)。
+- **RAG 键**:`embedding_example_retriever` 用**去域化意图向量**(剥掉领域名词)找逻辑近邻。
+- **出口检查**:廉价 **SLM 子句覆盖检查**——逐条核对 NLQ 的每个子句是否在逻辑规约中有落点;漏读则回 ② 修正(`②→②`)。意图漏读是"执行查不出来的灾难性错误",故在此设廉价闸。
+- **②→③ 边**:逻辑规约里 SQL 可表达的部分到此为止;下一步进入 SQL 表达不出来的 Mongo 异质性调和。
 
 <a id="06-2-3"></a>
-### §06-2-3 RAG Refinement
+### §06-2-3 ③ Heterogeneity Reconciliation & NoSQL Planning(LLM Agent · 命门 ★)
 
-- **输入**：`q_p^{(0)}` 与 `train.json` 检索语料。
-- **检索键**：
-  1. `NLQ` 向量表示（求解器自选 embedding 模型，需披露）；
-  2. MQL operator 指纹（`q_p^{(0)}` 使用的 stage 顺序 + operator 集合）；
-  3. Schema signature（`Ŝ` 的字段路径哈希）。
-- **可读字段**（`train.json` 每条记录）：
-  - `record_id`、`db_id`、`nl_queries`、`MQL`、`canonical_form_set`（作为分类训练信号）、`difficulty`、`shape_policy`、`world_signature`。
-- **屏蔽字段**（`train.json`）：所有 `*_ref` dereferences，即使 schema 里存在该字段，求解器也不得通过这些引用回溯 audit 侧资产。
-- **输出**：`q_p^{(1)}`。
-- **典型修正**：
-  - 字段名大小写对齐（schema 里 `Performance_ID` 而非 `Performance_Id`）；
-  - 窗口函数的 `sortBy` 字段纠正；
-  - `$facet` 分支命名与下游 `$project` 的一致性；
-  - operator 选型（例如 `$bucket` vs `$bucketAuto`）。
-- **AST 过滤**：与 Query Generation 同一份过滤器，在 `q_p^{(1)}` 生效。
+把逻辑意图调和到 `Ŝ` 的异质形状上,决定 **NoSQL-native 访问策略**并产出物理 plan。
+
+- **输入**:逻辑规约、`Ŝ`(尤其 `field_locus`)。
+- **输出**:**物理 plan**——Mongo pipeline 骨架(有序 stage + 算子选型)+ **`variant_handling`**(显式记录跨形状访问策略)。
+- **典型 native 策略**(SQL 表达不出来,对应 `structural_schema_flex`):
+  - 多态 document → `$switch` / `$type` 按判别键分派;
+  - 动态键 → `$objectToArray` / `$arrayToObject`;
+  - schema 版本演进 → 多层 `$ifNull` 链;
+  - 稀疏属性袋 → `$reduce` / `$arrayToObject`;
+  - null-vs-missing 严格区分(Norm 第三层,[01 §01-4-3](./01_task_definition.md#01-4-3));
+  - 数组就地计算 → `$map` / `$reduce` / `$filter`。
+- **RAG 键**(最高价值):`structural_example_retriever` 按算子指纹正则(`canonical_form_set.must_contain` 在 train 可读)+ shape_flex 签名匹配"用了同一 native 惯用法的相似 examples"。
+- 这是跨域迁移真正起作用的地方:**域内容不迁移,native 惯用法迁移**。
 
 <a id="06-2-4"></a>
-### §06-2-4 Execution Debug
+### §06-2-4 ④ Query Realization & Self-Debug(LLM Agent + 工具)
 
-- **输入**：`q_p^{(1)}` 与求解器自持的本地 MongoDB 实例（与评测库 **不** 同源）。
-- **动作**：
-  1. MongoDB 驱动解析 `q_p^{(1)}`，捕获 parse 错误；
-  2. 在本地副本数据上 dry-run，捕获运行时错误（字段不存在、类型不匹配、窗口语义错误等）；
-  3. 若失败，反馈信息（error code、失败 stage index、疑似字段）送回 Query Generation。
-- **反馈回路**：反馈只能以文本形式追加到 Query Generation 的 prompt 末尾；**不允许** 跨阶段共享隐式状态。
-- **最大重试**：`R_max` 由求解器指定；评测报告需披露 `R_max`、平均重试次数、单记录最长重试、本地 debug 数据与评测库的差异说明（见 [05 §05-5](./05_evaluation_methodology.md#05-5)）。
-- **输出**：通过 dry-run 的 `q_p^{(final)}`。不得将 test 数据库的执行结果用作调试目标。
+生成与执行调试同属本阶段(只差一个 executor 工具,不拆)。
+
+- **输入**:物理 plan、求解器自持的本地 MongoDB(与评测库 **不** 同源)。
+- **动作**:
+  1. 按 plan 落地成具体 MQL;可调检索工具取同骨架 MQL 片段;
+  2. `mongo_executor` 解析 + dry-run;**必须在「按变体分层的本地样本」上跑**——每个相关变体 ≥ 1 条 + null/missing/空数组/动态键边界,否则"变体 A 通过 ≠ 变体 C 不出错"必漏;
+  3. `ast_filter` 扫 6 件禁用 operator,命中则重写;
+  4. 失败时按错误**分流回路**:变体处理错 → ③;意图读错 → ②;撞到 `Ŝ` 未声明的形状 → ①。
+- **反馈纯度**:回路信息裁剪为 `{error_code, stage_index, suspect_field, failing_variant}` 结构化摘要;executor 原始结果留在 agent 上下文是合法工作记忆,但 **`q_p^{(final)}` 不得内嵌原始执行行或任何 gold 派生内容**。
+- **预算**:`R_max`(总回退)+ `R_retr`(检索调用)须披露;`R_max` 次内仍失败则以 `[]` 自我放弃,EX 记未命中。
+- **输出**:通过 dry-run 并经最后一次 AST 过滤的 `q_p^{(final)}`。不得将评测 gold 库执行结果用作调试目标。
+
+<a id="06-2-5"></a>
+### §06-2-5 Agentic RAG —— 横切共享工具(跨域迁移结构)
+
+**定位**:Agentic RAG **不是阶段、不是 agent**,而是暴露给两类 agent 的**检索工具**——`structural_example_retriever`,提供两个**匹配相似 examples** 的方法:
+
+| 方法 | 匹配方式 | 典型用途 |
+| :-- | :-- | :-- |
+| `regex_example_retriever` | 正则(算子指纹 `canonical_form_set.must_contain`、stage 骨架、shape_flex 签名) | 找同型变体 / 同骨架 / 同 native 惯用法的 examples |
+| `embedding_example_retriever` | embedding 相似度(去域化意图向量、草稿 MQL 向量、`Ŝ` 字段路径签名) | 找逻辑意图近邻的 examples |
+
+**核心约束**:TEND 是 **cross-domain holdout**([02 §02-3](./02_dataset_design.md#02-3))——test 域在 train 不存在。按 surface NL / 字段名检索只会捞回不存在的同域邻居,全是噪声。**能跨域迁移的只有 NoSQL-native 结构 / 惯用法**,故两个方法的键一律打在**抽象结构**上,而非领域内容。
+
+- **可调阶段**:①②③④ 均可按需调用、按阶段换键。
+- **可读语料**(`train.json` 每条):`record_id`、`db_id`、`nl_queries`、`MQL`、`canonical_form_set`、`difficulty`、`shape_policy`、`world_signature`。**`canonical_form_set.must_contain` 可读 = 白送每个例子的算子签名**,正则键好打;`shape_policy`/`difficulty` 可读 = 直接做检索过滤(注意:这是 **train** 的 `shape_policy`,可读;**test** 记录的 `shape_policy` 不可读,§06-4-1)。
+- **屏蔽**:所有 `train.json.*_ref`、`audit/*`。
+- **embedding 模型**计入 `S_solver`(§06-4-3);正则匹配无模型。向量索引为离线索引,不动权重。
+- **为什么必须 agentic**:有用的检索键随阶段变(② 意图向量、③ 算子指纹、④ 错误模式);一次性 RAG 开局取死一批就废。检索预算 `R_retr` 须披露。
 
 ---
 
@@ -138,52 +184,55 @@ flowchart LR
 <a id="06-3-1"></a>
 ### §06-3-1 各阶段可读字段
 
-完整 allow-list 以 `schemas/solver_allow_list.json` 为准。下表为摘要：
+完整 allow-list 以 `schemas/solver_allow_list.json` 为准。下表为摘要(列名按阶段;最后一列为共享检索工具可读面):
 
-| 资产 / 字段 | Schema Pred. | Query Gen. | RAG Refine | Exec Debug |
-| :-- | :--: | :--: | :--: | :--: |
-| `S` = `mongodb_schema/<db_id>.json` | 读 | 读（经 `Ŝ` 裁剪） | 读（用于 signature 检索） | — |
-| `mongodb_data`（样本受限） | 禁 | 读（每集合 ≤ K） | 禁 | 本地副本用于 dry-run |
-| `agent_design_rationale/<db_id>.yaml` | 可选 | 可选 | 可选 | — |
-| `test.json.nl_queries` | 读 | 读 | 读 | — |
-| `test.json.db_id` | 读 | 读 | 读 | 读 |
-| `test.json.MQL` | 禁 | 禁 | 禁 | 禁 |
-| `test.json.canonical_form_set` | 禁 | 禁 | 禁 | 禁 |
-| `test.json.*_ref`（所有后缀） | 禁 | 禁 | 禁 | 禁 |
-| `train.json.nl_queries[*]` | — | — | 读 | — |
-| `train.json.MQL` | — | — | 读（训练信号） | — |
-| `train.json.canonical_form_set` | — | — | 读（类成员训练信号） | — |
-| `train.json.*_ref` | — | — | 禁 | — |
-| `audit/*`（整棵树） | 禁 | 禁 | 禁 | 禁 |
+| 资产 / 字段 | ① Shape<br/>(SLM) | ② Intent<br/>(LLM) | ③ Plan<br/>(LLM) | ④ Realize<br/>(LLM) | RAG 工具 |
+| :-- | :--: | :--: | :--: | :--: | :--: |
+| `mongodb_schema/<db_id>.json`(含 `__variants`) | 读 | 读 | 读 | 读 | — |
+| `mongodb_data`(样本受限) | 禁 | 禁 | ≤ K 入 prompt | 本地副本执行 + ≤ K 入 prompt | — |
+| `agent_design_rationale/<db_id>.yaml` | 可选 | — | 可选 | 可选 | — |
+| `test.json.nl_queries` | 读 | 读 | 读 | — | — |
+| `test.json.db_id` | 读 | 读 | 读 | 读 | — |
+| `test.json.difficulty` | 读 | 读 | — | — | — |
+| `test.json.MQL` / `canonical_form_set` | 禁 | 禁 | 禁 | 禁 | 禁 |
+| **`test.json.shape_policy`** | 禁 | 禁 | 禁 | 禁 | 禁 |
+| `test.json.*_ref`(所有后缀) | 禁 | 禁 | 禁 | 禁 | 禁 |
+| `train.json.{nl_queries, MQL, canonical_form_set, difficulty, shape_policy, …}` | 经检索工具 | 经检索工具 | 经检索工具 | 经检索工具 | 读 |
+| `train.json.*_ref` | 禁 | 禁 | 禁 | 禁 | 禁 |
+| `audit/*`(整棵树) | 禁 | 禁 | 禁 | 禁 | 禁 |
+
+> 要点:**test 记录的 `shape_policy` 不可读**(§06-5 要求 solver 从 NLQ 自推断,故不作 gold 提示);**train 记录的 `shape_policy` 可读**(检索过滤)。`train.json` 可读字段统一**经检索工具承载**,agent 不直接遍历 `train.json`。
 
 <a id="06-3-2"></a>
-### §06-3-2 不可读字段（不完全列表）
+### §06-3-2 不可读字段(不完全列表)
 
-- `audit/` 整棵树（展开列表见 [§06-4-1](#06-4-1)）；
-- `test.json` 记录中：`MQL`、`canonical_form_set` 及任何以 `_ref` 结尾的字段；
-- `train.json` 中任何 `*_ref` dereference；
-- `rejected/` 目录（被拒记录的失效原因会泄露 failure-mode 防御策略）。
+- `audit/` 整棵树(展开见 [§06-4-1](#06-4-1));
+- `test.json` 中:`MQL`、`canonical_form_set`、`shape_policy`,及任何 `*_ref`;
+- `train.json` 中任何 `*_ref`(检索工具同样屏蔽);
+- `rejected/` 目录。
 
 <a id="06-3-3"></a>
 ### §06-3-3 状态共享规则
 
-1. **只通过显式输出传递状态**：阶段间传递的信息必须出现在本阶段的显式 output 上，或作为下一阶段的显式 input。
-2. **禁止跨阶段隐藏上下文**：禁止把 Schema Prediction 的 prompt、RAG Refinement 的检索结果或 Execution Debug 的错误日志 **原文** 注入到评测输出 `q_p^{(final)}` 里。
-3. **禁止外部服务污染**：求解器不得在四阶段任一环节将求解数据外发至评测方控制外的第三方持久化存储。
-4. **回路信息的纯度**：Execution Debug 的反馈必须被裁剪为 `{error_code, stage_index, suspect_field}` 的结构化摘要。
+1. **只通过显式输出传递状态**:阶段间信息须出现在显式 output 或下一阶段显式 input;探针 scratchpad / 检索结果 / 中间表示不得作为跨阶段隐式状态(除非作为显式产物 `Ŝ` / 逻辑规约 / 物理 plan 传递)。
+2. **禁止跨阶段隐藏上下文**:不得把探针 prompt、检索 examples 或执行日志 **原文** 注入 `q_p^{(final)}`。
+3. **禁止外部服务污染**:不得将求解数据外发至评测方控制外的第三方持久化存储。
+4. **回路信息纯度**:见 §06-2-4。
 
 ---
 
 <a id="06-4"></a>
 ## §06-4 求解侧硬边界
 
+> 本节四项约束 **架构无关**:无论 SMART 是 fixed workflow 还是 schema-less agentic,均逐字适用。
+
 <a id="06-4-1"></a>
 ### §06-4-1 audit 屏蔽清单
 
-**原则**：凡出现在 `audit/` 下的任何资产，求解器均不可读；`test.json` 的 gold 字段与任何 `*_ref` 字段均不可读。违反即构成 **评测无效**。机器可读枚举见 `schemas/solver_allow_list.json` 的 `audit_blocklist` 与 `tier1_forbidden_glob`。
+**原则**:凡 `audit/` 下任何资产求解器均不可读;`test.json` 的 gold 字段(含 `MQL`、`canonical_form_set`、`shape_policy`)与任何 `*_ref` 不可读。违反即 **评测无效**。机器可读枚举见 `solver_allow_list.json` 的 `audit_blocklist` 与 `tier1_forbidden_glob`。
 
 <details>
-<summary><strong>audit/ 子树（完整屏蔽清单）</strong></summary>
+<summary><strong>audit/ 子树(完整屏蔽清单)</strong></summary>
 
 - `audit/<db_id>/wp_output.yaml`
 - `audit/<db_id>/migration_log.json`
@@ -197,50 +246,44 @@ flowchart LR
 
 </details>
 
-**额外屏蔽**：
-
-- `test.json.MQL` —— gold 答案；
-- `test.json.canonical_form_set` —— gold 等价类；
-- `test.json.<任何 *_ref 字段>` —— 以引用方式承载 gold 推导链；
-- `train.json.<任何 *_ref 字段>` —— `train.json` 仅允许读 [§06-3-1](#06-3-1) 列出的字段子集。
+**额外屏蔽**:`test.json.MQL`(gold 答案)、`test.json.canonical_form_set`(gold 等价类)、`test.json.shape_policy`(gold 提示,§06-5 要求自推断)、`test.json.<任何 *_ref>`、`train.json.<任何 *_ref>`。
 
 <a id="06-4-2"></a>
 ### §06-4-2 6 件禁用 operator 的生成约束
 
-权威语义定义见 [01 §01-2-2](./01_task_definition.md#01-2-2)。求解侧 **AST 过滤实现约束** 见 Part II §06-II-2；6 件禁用 operator 为：`$sample`、`$rand`、`$$NOW`、`$out`、`$merge`、`$function`。
+权威语义见 [01 §01-2-2](./01_task_definition.md#01-2-2);AST 过滤实现见 Part II §06-II-2。6 件:`$sample`、`$rand`、`$$NOW`、`$out`、`$merge`、`$function`。
 
-| # | operator / token | 禁用原因（摘要） |
+| # | operator / token | 禁用原因(摘要) |
 | :-- | :-- | :-- |
-| 1 | `$sample` | 随机采样，破坏确定性评测 |
-| 2 | `$rand` | 纯随机数，破坏 P_det |
-| 3 | `$$NOW` | 墙钟时间，破坏 P_det |
-| 4 | `$out` | 写操作，破坏只读不可变性 |
-| 5 | `$merge` | 写操作，破坏只读不可变性 |
-| 6 | `$function` | 服务器端 JS 逃逸，破坏可分析性与确定性 |
+| 1 | `$sample` | 随机采样,破坏确定性评测 |
+| 2 | `$rand` | 纯随机数,破坏 P_det |
+| 3 | `$$NOW` | 墙钟时间,破坏 P_det |
+| 4 | `$out` | 写操作,破坏只读不可变性 |
+| 5 | `$merge` | 写操作,破坏只读不可变性 |
+| 6 | `$function` | 服务器端 JS 逃逸,破坏可分析性与确定性 |
 
-AST 过滤必须在 **Query Generation** 与 **RAG Refinement** 两阶段的每一次生成/修正后立刻运行。若命中 6 件禁用 operator，求解器必须通过重采样或规则重写替换，不得将命中项提交为 `q_p^{(final)}`。若经过 `R_max` 次重试仍命中，该条目以空 pipeline `[]` 标注为 **自我放弃**，评测按 [05 §05-1](./05_evaluation_methodology.md#05-1) 的 EX 公式记为未命中。
+`ast_filter` 工具须在 **每次 query 生成/重写后**(④ 落地、检索驱动的重写、自纠正修复)立刻运行,命中则重采样或规则重写;`R_max` 次内仍命中则以 `[]` 自我放弃([05 §05-1](./05_evaluation_methodology.md#05-1))。
 
 <a id="06-4-3"></a>
-### §06-4-3 构造–panel disjointness（求解侧对偶）
+### §06-4-3 构造–panel disjointness(求解侧对偶)
 
-[05 §05-3](./05_evaluation_methodology.md#05-3) 从 **评测与构造侧** 规定 `A ∩ B = ∅`，其中 A = 构造 Agent LLM 池 `{QPS, MS, MUT, PV, NLP, RTV, NNC, RA}`、B = 20 个冻结参考模型（4 panels × 5）。
+[05 §05-3](./05_evaluation_methodology.md#05-3) 规定 `A ∩ B = ∅`(A = 构造 Agent 池 `{QPS, MS, MUT, PV, NLP, RTV, NNC, RA}`,B = 20 个冻结参考模型)。
 
-本节给出 **求解侧对偶**：记 `S_solver` 为当前求解器在四阶段中使用的所有模型/服务集合。求解器必须同时满足：
+**求解侧对偶**:`S_solver` = **SLM Agent backbone** + **LLM Agent backbone** + **检索 embedding 模型**(`structural_example_retriever`)+ 任何辅助模型(正则匹配与确定性 reduce 无模型,不计)。须同时满足:
 
-- `S_solver ∩ B_frozen = ∅`（20 个 4-panel 冻结模型，manifest 见 `audit/reference_panel/manifest_<release>.json`）；
-- `S_solver ∩ C_pool = ∅`（构造期 Agent 池 `{QPS, MS, MUT, PV, NLP, RTV, NNC, RA}`）。
+- `S_solver ∩ B_frozen = ∅`(20 个 4-panel 冻结模型,manifest 见 `audit/reference_panel/manifest_<release>.json`);
+- `S_solver ∩ C_pool = ∅`(构造期 Agent 池)。
 
-**示例检查**：若某求解器把 `claude-4-opus` 作为 Query Generation 主干，而 frontier panel 的 5 个冻结模型名单中包含 `claude-4-opus`，则 `S_solver ∩ B_frozen ≠ ∅`，disjointness 失败，整份评测结果视为不合规。
-
-求解器需在评测报告 [05 §05-5](./05_evaluation_methodology.md#05-5) 的披露段落中列出 `S_solver` 全部条目，评测方据此核验双重不相交。`schemas/solver_allow_list.json` 的 `four_party_disjointness` 节提供机器可读 invariant。
+**示例**:若 LLM Agent backbone = `claude-4-opus` 且它在 frontier panel 冻结名单内,则 disjointness 失败,整份评测不合规。求解器须在 [05 §05-5](./05_evaluation_methodology.md#05-5) 披露 `S_solver` 全清单;`solver_allow_list.json` 的 `four_party_disjointness` 提供机器可读 invariant。
 
 <a id="06-4-4"></a>
 ### §06-4-4 额外边界
 
-1. **`world_signature` 不可反推** —— 求解器不得试图重建 DataWorld 构造链或反推 Phase B audit trace；即使技术上可行也构成违规。
-2. **`mongodb_data` 整库禁输入 Schema Prediction** —— witness 必须延后到 Query Generation 阶段以每集合 `≤ K` 条的形式引入。
-3. **`audit/rejected/` 不可读** —— 读取此目录等同于获知 failure-mode 防御表。
-4. **任何 `*_ref` dereference 均屏蔽** —— `*_ref` 不构成 "公开授权"。
+1. **`world_signature` 不可反推** —— 不得重建 DataWorld 构造链或反推 Phase B audit trace。
+2. **① 严守 schema-only** —— `mongodb_data` 禁任何载入进 ① Shape Comprehension;witness ≤ K **入 prompt** 推迟到 ③/④;④ 的 executor 在本地副本上执行(用于跨变体调试)不受 K 限(K 限的是入 prompt 的样本数,不是本地执行的数据量)。
+3. **`audit/rejected/` 不可读**。
+4. **任何 `*_ref` dereference 均屏蔽**;检索工具同样不得返回 `*_ref`。
+5. **智能体工具调用受 allow-list 约束** —— 任何探针/agent 的任何工具调用(含检索、executor)所读路径,必须落在其所属阶段 allow-list 与该工具可读面内;agent 自治不豁免硬边界。
 
 ---
 
@@ -250,41 +293,36 @@ AST 过滤必须在 **Query Generation** 与 **RAG Refinement** 两阶段的每�
 <a id="06-5-1"></a>
 ### §06-5-1 协议触发条件
 
-当 NLQ 出现以下关键词/语义时，solver 内部 `shape_policy` 推断为 `preserve`，触发本协议：
+当 NLQ 出现以下语义时,solver 内部 `shape_policy` 推断为 `preserve`:
 
-- 英文关键词：`attach`、`augment`、`add field`、`preserve structure`、`in place`、`decorate`、`annotate`（不限于）；
-- 中文语义：`为每个 X 附加 / 增补 / 标注 / 就地计算`、`保持原结构` 等；
-- 语义形式：NLQ 要求返回的每个顶层文档 **一一对应** 输入集合的每个文档，且只是在原文档上 **新增字段**，不改变文档数与嵌套层次。
+- 英文关键词:`attach`、`augment`、`add field`、`preserve structure`、`in place`、`decorate`、`annotate`(不限于);
+- 中文语义:`为每个 X 附加 / 增补 / 标注 / 就地计算`、`保持原结构` 等;
+- 语义形式:返回的每个顶层文档 **一一对应** 输入集合的每个文档,只在原文档上 **新增字段**,不改文档数与嵌套层次。
 
-非触发情况：`shape_policy = reshape`（改变文档数、展平、透视、分组）或 `reduce`（聚合到更少文档/标量）。record 上的 `shape_policy` 真值对求解器 **不可读**（test.json 不发布该字段给 solver 作 gold 提示）；本节协议让求解器 **从 NLQ 侧自检**。
+非触发:`reshape`(改变文档数、展平、透视、分组)或 `reduce`(聚合到更少文档/标量)。**record 上的 `shape_policy` 真值对求解器不可读**(§06-4-1);求解器在 **② Intent Formalization** 阶段由 LLM Agent **从 NLQ 自推断**,SLM ① 提供的 `field_locus` 辅助判断"是否一一对应原文档"。
 
 <a id="06-5-2"></a>
 ### §06-5-2 生成惯用法
 
-触发协议后，Query Generation 必须采用 **就地惯用法**：以 `$addFields`（或 `$set`）叠加新字段，内部用 `$map`、`$reduce`、`$filter` 等表达式级算子完成计算。**反模式**：使用 `$unwind + $group` 重建数组——在 preserve 语义下会导致 NormExec 后 BSON 排序不等价，`≡_rec` 判定失败，EX=0。
+触发后,④ Query Realization 必须用 **就地惯用法**:`$addFields`(或 `$set`)叠加新字段,内部用 `$map`、`$reduce`、`$filter` 等表达式级算子。**反模式**:`$unwind + $group` 重建数组——preserve 语义下导致 NormExec 后 BSON 排序不等价,`≡_rec` 失败,EX=0。
 
 <a id="06-5-3"></a>
 ### §06-5-3 solver 内部 meta 约定
 
-求解器可在内部 prompt 中显式注入如下 meta（**仅作为提示词辅助**，**不进入评测输出**）：
-
-- `shape_policy: preserve`
-- `target_fields`: 本次补齐后新增的顶层字段名数组
-
-`target_fields` 供 Query Generation 决定 `$addFields` vs `$project` 的语义选择；评测 `q_p^{(final)}` **不** 包含 meta 条目。SMART 参考实现中 `target_fields` 由 Schema Prediction 阶段（SLM）预测并贯穿 RAG / Debug（见 Part II §06-II-4）。
+求解器可在内部 prompt 注入(**仅提示词辅助,不进评测输出**):`shape_policy: preserve`、`target_fields`(新增顶层字段名数组)。`target_fields` 由 **② Intent Formalization** 写入逻辑规约(借 ① 的 `field_locus`),贯穿 ③④;评测 `q_p^{(final)}` **不**含 meta。
 
 <a id="06-5-4"></a>
 ### §06-5-4 不适用场景
 
-- **`reshape`**：NLQ 明显要求重塑文档形态时，按标准 pipeline 流程自由选型（canonical `orchestra/1001` 即属此类）。
-- **`reduce`**：NLQ 要求聚合到更少文档或单一标量时，按标准 pipeline 流程自由选型。
+- **`reshape`**:NLQ 明显要求重塑形态时按标准 pipeline 自由选型(canonical `orchestra/1001` 即属此类)。
+- **`reduce`**:NLQ 要求聚合到更少文档或单一标量时自由选型。
 
 ---
 
 <a id="06-6"></a>
 ## §06-6 canonical 示例 `orchestra/1001` 的 SMART 调用轨迹
 
-以下轨迹对应基准中的 canonical 样本。因 `shape_policy = reshape`，**[§06-5](#06-5) 不适用**。
+本样本为嵌套 embed、`reshape`、**无 schema_flex** 的 L4 题;因 `shape_policy = reshape`,**[§06-5](#06-5) 不适用**,`variant_handling` 为空(其异质性机制由 schema_flex 类 record 行使,非本例)。
 
 <a id="06-6-1"></a>
 ### §06-6-1 Canonical Anchor Record
@@ -349,27 +387,29 @@ AST 过滤必须在 **Query Generation** 与 **RAG Refinement** 两阶段的每�
 ```
 
 <a id="06-6-2"></a>
-### §06-6-2 Schema Prediction 输出 `Ŝ`
+### §06-6-2 ① Shape Comprehension(SLM)输出 `Ŝ`
 
 ```text
-Ŝ = {
-  conductor._id,
-  conductor.Name,
-  conductor.orchestra,
-  conductor.orchestra[].performance,
-  conductor.orchestra[].performance[].Performance_ID,
-  conductor.orchestra[].performance[].Attendance
+Ŝ.collections.conductor.variants = [ {id: "v0", coverage: 1.0} ]   # 无 schema_flex，单一形状
+Ŝ.field_locus = {
+  _id:               [ {variant: v0, path: "_id"} ],
+  Name:              [ {variant: v0, path: "Name", presence: "sometimes"} ],   # 可缺失 → ④ 关注
+  performance.Pid:   [ {variant: v0, path: "orchestra[].performance[].Performance_ID"} ],
+  performance.Att:   [ {variant: v0, path: "orchestra[].performance[].Attendance", presence: "sparse"} ]
 }
+Ŝ.coverage_gaps = []
+Ŝ.shape_flex_signature = []        # 本例无变体；命门 ③ 退化为常规 pipeline 规划
 ```
 
-<a id="06-6-3"></a>
-### §06-6-3 Query Generation → RAG → Execution Debug（摘要）
+并发探针:`conductor` 集合探针 + `orchestra/performance` 嵌套探针 + `Name/Performance_ID/Attendance` 三个字段定位探针;reduce 确定性合并,无语义冲突。
 
-- **Operator 选型**：3-performance moving average → `$setWindowFields`；global median → `$facet`；nested performances → `$unwind` × 2；per conductor → `$group`。
-- **AST 过滤**：通过（未命中 6 件禁用 operator）。
-- **RAG 修正**：`Performance_Id` → `Performance_ID`（字段名对齐）；`$facet` 分支命名与 `$project` 路径一致性。
-- **Execution Debug**：首次 dry-run 可能因字段拼写失败；反馈 `{error_code: "FIELD_PATH", stage_index: 3, suspect_field: "Performance_Id"}` 回传 Query Generation；修正后通过并提交 `q_p^{(final)}`。
-- **评测**：NormExec 输出是否属于 gold `canonical_form_set` 等价类；`≡_rec` 成立 ⇒ EX=1。
+<a id="06-6-3"></a>
+### §06-6-3 ②→③→④ 摘要
+
+- **② Intent(LLM)**:逻辑规约 = {per: conductor;compute: last_window_avg = window_avg(Attendance, 当前+前2, sortBy Performance_ID, missing→0, take last);aggregate: median(last_window_avg, global);filter: last_window_avg > median(strict);output: {Name(missing→"(unknown)"), last_window_avg}, order: none;shape_policy: reshape}。SLM 子句覆盖检查通过(窗口/中位数/缺失/排序四子句均有落点)。
+- **③ Plan(LLM)**:`$unwind`×2 → `$setWindowFields`(window[-2,0]) → `$group`(last) → `$facet`(per_conductor + global_median via sort+arrayElemAt+floor) → `$project/$filter`($gt) → `$unwind` → `$project`;`variant_handling = []`(无 flex)。RAG 命中"窗口+facet 中位数"骨架。
+- **④ Realize+Debug(LLM)**:落地后 `mongo_executor` 在本地样本(含 Attendance 缺失、Name 缺失边界)跑;首跑因 `Performance_Id` 拼写失败,收 `{error_code: FIELD_PATH, stage_index: 3, suspect_field: Performance_Id}` 自纠正;`ast_filter` 通过(无 6 禁用算子);提交 `q_p^{(final)}`。
+- **评测**:NormExec ≡_rec gold ⇒ EX=1。
 
 ---
 
@@ -380,63 +420,79 @@ AST 过滤必须在 **Query Generation** 与 **RAG Refinement** 两阶段的每�
 | :-- | :-- |
 | 任务签名、6 件禁用 operator 语义、EX 双条件 | [01](./01_task_definition.md) |
 | 资产目录、record 字段契约、Tier-1/Audit 边界 | [02](./02_dataset_design.md) |
-| Spider 锚定 DataWorld、SRA/DM | [03](./03_spider_anchored_dataworld.md) |
+| Spider 锚定 DataWorld、SRA/DM、`__variants` | [03](./03_spider_anchored_dataworld.md) |
 | QPS/MS/MUT/PV/NLP/RTV/NNC/RA、canonical_form_set 派生 | [04](./04_agent_framework.md) |
 | 7 指标、4-panel 报告、构造–panel disjointness | [05](./05_evaluation_methodology.md) |
 
-**本文档声明所有权的内容**：SMART 四阶段参考求解器、求解侧 audit 屏蔽清单、6 件禁用 operator 的 AST 过滤实现、构造–panel disjointness 求解侧对偶、shape-preserving target_fields 协议、canonical `orchestra/1001` SMART 轨迹、机器可读 allow-list `schemas/solver_allow_list.json`。
+**本文档声明所有权的内容**:SMART schema-less agentic 双智能体 / 四阶段参考求解器(SLM 感知层 + LLM 认知层,无训练)、Agentic RAG 共享检索工具(structural_example_retriever:regex + embedding 匹配相似 examples)、三个中间表示(Ŝ / 逻辑规约 / 物理 plan)、求解侧 audit 屏蔽清单、6 件禁用 operator 的 AST 过滤、构造–panel disjointness 求解侧对偶、shape-preserving target_fields 协议、canonical `orchestra/1001` SMART 轨迹、机器可读 allow-list `solver_allow_list.json`。
 
 ---
 
 ## Part II
 
 <a id="06-ii-1"></a>
-### §06-II-1 四阶段接口契约（Typed）
+### §06-II-1 接口契约与三个中间表示(Typed)
 
 # uses: typing
 
 ```
-# Stage I/O types (pseudocode)
+# 两类冻结权重智能体（prompt + 工具驱动；无微调）
+slm_agent = SLMAgent(tools=[schema_browser, fk_path_tracer, structural_example_retriever])  # 高并发探针
+llm_agent = LLMAgent(tools=[structural_example_retriever,
+                            ast_filter, mongo_executor, witness_sampler])
+# structural_example_retriever 提供两个匹配方法: regex_example_retriever, embedding_example_retriever
 
-StageInput = {
-  "schema_prediction": {"NLQ": str, "S": dict},
-  "query_generation": {"NLQ": str, "S_hat": set[str], "db_id": str, "witness": dict | None},
-  "rag_refinement": {"q_p_0": str, "train_corpus": list[dict], "S_hat": set[str], "NLQ": str},
-  "execution_debug": {"q_p_1": str, "db_id": str, "local_mongo_uri": str},
+# ---- 三个中间表示（阶段边界 = 表示类型改变）----
+ShapeModel = {                      # ① 输出
+  "collections": {str: {
+      "variants": [{"id": str, "discriminator": dict, "coverage": float, "fields": dict}],
+      "field_locus": {str: [        # 逻辑字段 → 它散落各变体的定位
+          {"variant": str, "path": str, "type": str, "presence": str}  # presence: always|sometimes|sparse
+      ]}
+  }},
+  "coverage_gaps": [str],
+  "shape_flex_signature": [str],    # e.g. ["polymorphic","dynamic_key"]
 }
-
-StageOutput = {
-  "schema_prediction": {"S_hat": set[str]},
-  "query_generation": {"q_p_0": str},
-  "rag_refinement": {"q_p_1": str},
-  "execution_debug": {"q_p_final": str, "debug_trace": list[dict]},
+LogicalSpec = {                     # ② 输出（范式中立）
+  "entity": str, "per": str,
+  "compute":   [{"name": str, "op": str, "over": str, "window": str|None,
+                 "order": str|None, "missing": object}],
+  "aggregate": [{"name": str, "op": str, "of": str, "scope": str}],
+  "filter":    [{"keep": str}],
+  "output":    {"fields": [str], "missing": dict, "order": str},
+  "shape_policy": str,              # 自 NLQ 推断：preserve|reshape|reduce
+}
+PhysicalPlan = {                    # ③ 输出（Mongo 专属）
+  "collection": str,
+  "stages": [{"op": str, "note": str}],
+  "variant_handling": [{"strategy": str, "on": str}],  # $switch|$objectToArray|$ifNull_chain|...
 }
 
 def smart_solve(NLQ: str, S: dict, db_id: str) -> str:
-    S_hat = schema_prediction(NLQ, S)
-    q, r_max, retries = None, R_MAX, 0
-    rag_cache = None
-    while retries <= r_max:
-        q = query_generation(NLQ, S_hat, db_id)
-        q = ast_reject_or_rewrite(q)          # §06-II-2
-        q = rag_refinement(q, train_corpus(), S_hat, NLQ, cache=rag_cache)
-        q = ast_reject_or_rewrite(q)
-        ok, feedback = execution_debug(q, db_id)
+    S_hat: ShapeModel = slm_agent.comprehend_shapes(NLQ, S)        # ① 并发探针 → Ŝ
+    retries, feedback = 0, None
+    while retries <= R_MAX:
+        spec: LogicalSpec = llm_agent.formalize_intent(NLQ, S_hat, feedback=feedback)  # ②
+        if not slm_clause_coverage_ok(spec, NLQ):                  # ② 出口廉价 SLM 检查
+            feedback = {"to": "intent", "miss": clause_gap(spec, NLQ)}; retries += 1; continue
+        plan: PhysicalPlan = llm_agent.plan_nosql(spec, S_hat)     # ③ 命门
+        q = llm_agent.realize_and_debug(plan, S_hat, db_id)        # ④ 生成+executor+自纠正
+        q = ast_reject_or_rewrite(q)                               # §06-II-2
+        ok, feedback = llm_agent.verify_executable(q, db_id)       # 跨变体本地 dry-run
         if ok:
             return q
-        q = query_generation(NLQ, S_hat, db_id, feedback=feedback)
-        retries += 1
-    return "[]"  # self-abstain after R_max
+        retries += 1                                              # feedback.to ∈ {shape, intent, plan}
+    return "[]"  # 自我放弃
 ```
 
-契约校验：各 stage 入口须调用 `assert_allow_list(stage, paths_read)`，对照 `schemas/solver_allow_list.json` 的 `stages.<name>.readable` / `forbidden`。
+契约校验:每次工具调用(含探针检索、executor)经 `assert_allow_list(stage, paths_read)`,对照 `solver_allow_list.json` 的 `stages.*` 与 `tools.*`;agent 自治不豁免 allow-list(§06-4-4.5)。
 
 ---
 
 <a id="06-ii-2"></a>
-### §06-II-2 AST 过滤实现伪代码
+### §06-II-2 AST 过滤工具实现伪代码
 
-与 [01 §01-II-5](./01_task_definition.md#01-ii-5) `disabled_operator_scanner` 对齐；6 件禁用 operator 必须在 pipeline 任意深度被拒绝。
+与 [01 §01-II-5](./01_task_definition.md#01-ii-5) `disabled_operator_scanner` 对齐;6 件禁用 operator 须在 pipeline 任意深度被拒。④ 每次 query 生成/重写后调用。
 
 # uses: typing
 ```
@@ -465,25 +521,24 @@ def ast_reject_or_rewrite(q_mql: str) -> str:
     ok, hits = ast_reject(pipeline)
     if ok and not any(v in q_mql for v in DISABLED_SYSTEM_VARS):
         return q_mql
-    return resample_or_rule_rewrite(q_mql, hits)  # solver-specific
+    return resample_or_rule_rewrite(q_mql, hits)  # agent-specific
 ```
-
-**调用点**：Query Generation 与 RAG Refinement 每次 LLM 输出后立即调用；Execution Debug 提交前最后一次扫描。
 
 ---
 
 <a id="06-ii-3"></a>
 ### §06-II-3 机器可读 allow-list JSON
 
-权威文件：`proposals/schemas/solver_allow_list.json`
+权威文件:`proposals/schemas/solver_allow_list.json`
 
 | 键 | 用途 |
 | :-- | :-- |
 | `disabled_operators` / `disabled_system_vars` | 6 件禁用 operator + `$$NOW` |
-| `stages.*.readable` / `forbidden` | 四阶段字段 allow-list |
-| `audit_blocklist` / `tier1_forbidden_glob` | audit 屏蔽 glob |
-| `four_party_disjointness` | disjointness invariant 与 `S_solver` 范围 |
-| `frozen_panels` | 4-panel 冻结模型占位（release 时自 manifest 填充） |
+| `stages.*.readable` / `forbidden` | 四阶段字段 allow-list(`shape_comprehension`(SLM)/ `intent_formalization` / `heterogeneity_planning` / `query_realization`(LLM)) |
+| `tools.example_retrieval` | 共享检索工具(regex + embedding 匹配相似 examples)的可读面、可调阶段、跨域检索原则 |
+| `audit_blocklist` / `tier1_forbidden_glob` | audit 屏蔽 glob(含 `test.json:shape_policy`) |
+| `four_party_disjointness` | disjointness invariant 与 `S_solver` 范围(SLM + LLM backbone + 检索 embedding) |
+| `frozen_panels` | 4-panel 冻结模型占位 |
 | `shape_preserving` | preserve 语义触发词与 required idiom |
 
 **校验命令**
@@ -497,69 +552,63 @@ python -m json.tool proposals/schemas/solver_allow_list.json > /dev/null
 ---
 
 <a id="06-ii-4"></a>
-### §06-II-4 SMART Pilot 骨架（映射现有 `/SMART/` 代码）
+### §06-II-4 SMART Pilot 骨架(映射现有 `/SMART/` 代码,agentic 重构 · 无训练)
 
-仓库内 `SMART/` 目录提供可运行的四阶段 pilot，映射关系如下：
+现有模块被 **包装为智能体的工具或能力**,**权重一律冻结、不再 SFT**:
 
-| SMART 阶段 | 现有模块 | 职责 |
-| :-- | :-- | :-- |
-| Schema Prediction | `SMART/get_SLM_precidtion.py` | SLM 预测 `query_collection`、`fields_db`、`alias_fields`、`target_fields`、`text2nosql` |
-| Query Generation | `SMART/LLM_debugger.py` | 首版 MQL 生成与字段/debug 微调 |
-| RAG Refinement | `SMART/rag_by_nlq_pref.py` + `SMART/LLM_Optimizer.py` | 多键向量检索 + 执行结果对齐修正 |
-| Execution Debug | `SMART/utils/mongosh_exec.py` | `MongoShellExecutor.execute_query` dry-run |
+| 智能体 / 工具 | 阶段 | 复用模块 | agentic 重构要点 |
+| :-- | :-- | :-- | :-- |
+| **SLM Agent** | ① Shape Comprehension | `SMART/get_SLM_precidtion.py` | 离线 SFT 预测加载 → **推理期 SLM 探针群**,并发产出形状/字段定位 hint,无权重更新 |
+| **LLM Agent** | ②③④ | `SMART/LLM_debugger.py`、`SMART/LLM_Optimizer.py`、`SMART/utils/mongosh_exec.py` | 生成 + 检索驱动改写 + `MongoShellExecutor` dry-run,组成 ②→③→④ 的串行推理 + 自纠正回路 |
+| **structural_example_retriever** | ①②③④ | `SMART/rag_by_nlq_pref.py`、`SMART/build_vec_lib.py` | 包装为两个匹配方法:`embedding_example_retriever`(向量库)+ `regex_example_retriever`(算子指纹正则);按阶段换键,匹配相似 examples |
 
 **Pilot 编排骨架**
 
-# uses: SMART.* (pseudocode orchestrator — new file SMART/smart_pilot.py)
+# uses: SMART.* (pseudocode orchestrator — new file SMART/smart_agentic_pilot.py)
 ```
 
-from SMART.get_SLM_precidtion import load_slm_predictions   # Schema Prediction hints
-from SMART.LLM_debugger import query_debug                  # Query Generation
-from SMART.rag_by_nlq_pref import rag_by_nlq_pref           # RAG retrieval
-from SMART.LLM_Optimizer import prompt_maker, generate_reply  # RAG rewrite
-from SMART.utils.mongosh_exec import MongoShellExecutor
-from proposals.schemas.solver_allow_list import ast_reject_or_rewrite  # wrap §06-II-2
+from SMART.get_SLM_precidtion import slm_probe                    # ① SLM 探针（inference, no SFT）
+from SMART.LLM_debugger import query_debug                        # ②③④ LLM 生成
+from SMART.LLM_Optimizer import rag_optimize                      # ③④ 检索驱动改写
+from SMART.rag_by_nlq_pref import rag_by_nlq_pref                 # → structural_example_retriever
+from SMART.utils.mongosh_exec import MongoShellExecutor           # ④ executor 工具
+from proposals.schemas.solver_allow_list import ast_reject_or_rewrite  # §06-II-2
 
 executor = MongoShellExecutor()
 
+def shape_comprehension(NLQ, S):                  # ① 并发探针 → Ŝ（map-reduce）
+    probes = fan_out_probes(NLQ, S)               # per-collection / per-variant / per-field / per-dynamic-key
+    parts  = parallel_map(slm_probe, probes)      # 高并发；每个探针可调检索工具
+    return deterministic_reduce(parts)            # union/dedup + 仅语义冲突交 SLM 裁定 → ShapeModel
+
 def run_record(record: dict) -> str:
-    NLQ = record["nl_queries"]["canonical"]
-    db_id = record["db_id"]
-    hints = load_slm_predictions(record)  # S_hat, target_fields, cols, fields_db, fields_alias
-    rag_examples = rag_by_nlq_pref(
-        nlq_emb=embed(NLQ),
-        rough_mql_emb=embed(hints["text2nosql_pred"]),
-        fields_db_emb=embed(hints["fields_db_pred"]),
-        fields_alias_emb=embed(hints["alias_fields_pred"]),
-        target_fields_emb=embed(hints["target_fields_pred"]),
-        collection_emb=embed(hints["query_collection_pred"]),
-        k=20,
-    )
-    q = query_debug(
-        NLQ, hints["text2nosql_pred"], db_id,
-        hints["query_collection_pred"], hints["fields_db_pred"],
-        hints["alias_fields_pred"], hints["target_fields_pred"],
-        rag_examples,
-    )
-    q = ast_reject_or_rewrite(q)
-    # RAG Refinement pass (LLM_Optimizer-style)
-    q = rag_optimize(NLQ, db_id, hints["target_fields_pred"], rag_examples, q)
-    q = ast_reject_or_rewrite(q)
-    for attempt in range(R_MAX):
-        result = executor.execute_query(q, db_name=db_id, get_str=True)
-        if not isinstance(result, str):  # success
-            return q
-        q = query_debug(NLQ, q, db_id, ..., feedback=parse_exec_error(result))
+    NLQ, db_id = record["nl_queries"]["canonical"], record["db_id"]
+    S = load_schema(db_id)                        # 含 __variants；① 不读 mongodb_data
+    S_hat = shape_comprehension(NLQ, S)           # ①
+    feedback = None
+    for _ in range(R_MAX):
+        spec = formalize_intent(NLQ, S_hat, feedback)         # ②（LLM）
+        if not slm_clause_coverage_ok(spec, NLQ):             # ② 出口 SLM 检查
+            feedback = {"to": "intent"}; continue
+        plan = plan_nosql(spec, S_hat)                        # ③（LLM，命门）
+        q = query_debug(NLQ, spec, plan, S_hat, db_id)        # ④ 落地
+        q = rag_optimize(NLQ, db_id, plan, q)                 # ④ 检索驱动改写
         q = ast_reject_or_rewrite(q)
+        result = executor.execute_query(q, db_name=db_id, get_str=True,
+                                        sample="variant_stratified")  # ④ 跨变体本地 dry-run
+        if not isinstance(result, str):                       # 通过
+            return q
+        feedback = route_feedback(parse_exec_error(result))   # {to: shape|intent|plan}
     return "[]"
 ```
 
-**TEND 合规改造清单**（pilot → 正式 solver）：
+**TEND 合规改造清单**(pilot → 正式 solver):
 
-1. 接入 `solver_allow_list.json` gate，禁止读取 `test.json.MQL` / `audit/*`。
-2. 在 `query_debug` / `rag_optimize` 出口挂载 §06-II-2 AST 过滤（6 件禁用 operator）。
-3. 披露 `S_solver` 并运行 disjointness 检查（`four_party_disjointness.solver_invariant`）。
-4. `target_fields` 仅作内部 meta；preserve 语义时强制 `$addFields` / `$map` 惯用法（§06-5）。
-5. Execution Debug 仅使用本地 MongoDB 副本，不得连接评测 gold 库。
+1. 接入 `solver_allow_list.json` gate,对 **每次工具调用(含探针检索、executor)** 校验;禁读 `test.json.{MQL, canonical_form_set, shape_policy}` / `*_ref` / `audit/*`。
+2. ④ 每次 query 生成/重写出口挂 §06-II-2 AST 过滤(6 件禁用 operator)。
+3. 披露 `S_solver`(SLM + LLM backbone + 检索 embedding)并运行 disjointness 检查;声明「无权重更新」。
+4. `target_fields` / `shape_policy` 由 ② 从 NLQ 自推断(test 的 `shape_policy` 不可读);preserve 时强制 `$addFields`/`$map`(§06-5)。
+5. ④ 仅用本地 MongoDB 副本,且 executor 在**按变体分层样本**上跑;不得连接评测 gold 库。
+6. ① 严守 schema-only;披露 `R_max`、`R_retr`、检索 embedding 模型。
 
-> **本卷职责结束于：** 规定求解侧 SMART 参考架构、硬边界、allow-list 与 pilot 映射。评测期 7 指标、4-panel 报告与 disjointness gate 由 [05](./05_evaluation_methodology.md) 负责。
+> **本卷职责结束于:** 规定求解侧 SMART schema-less agentic 参考架构、硬边界、allow-list 与 pilot 映射。评测期 7 指标、4-panel 报告与 disjointness gate 由 [05](./05_evaluation_methodology.md) 负责。
