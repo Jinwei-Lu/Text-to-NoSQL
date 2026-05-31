@@ -1,0 +1,5 @@
+primary_pattern: graph_traversal
+description: Recursive graph expansion via $graphLookup.
+required_stages:
+  - $graphLookup
+  - $project

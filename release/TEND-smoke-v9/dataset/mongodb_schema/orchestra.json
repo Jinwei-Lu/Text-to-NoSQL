@@ -1,0 +1,37 @@
+{
+  "conductor": {
+    "_id": "INT",
+    "Name": "TEXT",
+    "Age": "INT",
+    "Nationality": "TEXT",
+    "Year_of_Work": "INT",
+    "orchestra": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "fields": {
+          "Orchestra_ID": "INT",
+          "Orchestra": "TEXT",
+          "Record_Company": "TEXT",
+          "Year_of_Founded": "REAL",
+          "Major_Record_Format": "TEXT",
+          "performance": {
+            "type": "ARRAY",
+            "items": {
+              "type": "OBJECT",
+              "fields": {
+                "Performance_ID": "INT",
+                "Type": "TEXT",
+                "Date": "TEXT",
+                "Official_ratings_(millions)": "REAL",
+                "Weekly_rank": "TEXT",
+                "Share": "TEXT",
+                "Attendance": "REAL"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

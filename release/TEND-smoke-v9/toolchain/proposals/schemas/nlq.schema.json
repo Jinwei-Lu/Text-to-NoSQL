@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tend.dev/schemas/nlq.schema.json",
+  "title": "TEND nl_queries pair",
+  "description": "Dual NLQ endpoints: L1 canonical and L0 colloquial.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["canonical", "colloquial"],
+  "properties": {
+    "canonical": {
+      "type": "string",
+      "minLength": 12,
+      "maxLength": 2000,
+      "description": "L1 canonical NLQ: explicit intent, schema-naive, no NoSQL operator jargon."
+    },
+    "colloquial": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 500,
+      "description": "L0 colloquial NLQ: underspecified, no schema field names, same intent."
+    }
+  }
+}

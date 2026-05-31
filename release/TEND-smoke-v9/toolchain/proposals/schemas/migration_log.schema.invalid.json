@@ -1,0 +1,16 @@
+{
+  "db_id": "orchestra",
+  "generated_at": "2026-05-23T12:00:00Z",
+  "source_sqlite": "database/orchestra/orchestra.sqlite",
+  "target_collections": ["conductor"],
+  "world_signature": "not-a-hash",
+  "stats": {
+    "source_rows": 847,
+    "target_documents": 12
+  },
+  "entries": [],
+  "integrity_checks": {
+    "referential_pass": true,
+    "orphan_refs": 0
+  }
+}

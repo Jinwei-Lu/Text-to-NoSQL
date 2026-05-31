@@ -1,0 +1,11 @@
+{
+  "db_id": "orchestra",
+  "patterns_applied": ["embed"],
+  "decisions": [
+    {
+      "id": "bad-id",
+      "type": "not_a_pattern",
+      "rationale": ""
+    }
+  ]
+}

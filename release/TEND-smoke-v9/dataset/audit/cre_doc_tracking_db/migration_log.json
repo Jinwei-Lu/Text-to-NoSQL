@@ -1,0 +1,171 @@
+{
+  "db_id": "cre_doc_tracking_db",
+  "generated_at": "2026-05-30T14:12:34Z",
+  "source_sqlite": "database/cre_Doc_Tracking_DB/cre_Doc_Tracking_DB.sqlite",
+  "target_collections": [
+    "All_Documents"
+  ],
+  "world_signature": "sha256:924e82b954e618fc3734c3cc4b6c6129f0e428f52bac761bfa473cd251881a8e",
+  "stats": {
+    "source_rows": 15,
+    "target_documents": 15,
+    "tables_migrated": 1
+  },
+  "entries": [
+    {
+      "entry_id": "M0001",
+      "source_table": "All_Documents",
+      "source_pk": "7",
+      "target_collection": "All_Documents",
+      "target_id": 7,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0002",
+      "source_table": "All_Documents",
+      "source_pk": "11",
+      "target_collection": "All_Documents",
+      "target_id": 11,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0003",
+      "source_table": "All_Documents",
+      "source_pk": "25",
+      "target_collection": "All_Documents",
+      "target_id": 25,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0004",
+      "source_table": "All_Documents",
+      "source_pk": "39",
+      "target_collection": "All_Documents",
+      "target_id": 39,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0005",
+      "source_table": "All_Documents",
+      "source_pk": "72",
+      "target_collection": "All_Documents",
+      "target_id": 72,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0006",
+      "source_table": "All_Documents",
+      "source_pk": "81",
+      "target_collection": "All_Documents",
+      "target_id": 81,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0007",
+      "source_table": "All_Documents",
+      "source_pk": "99",
+      "target_collection": "All_Documents",
+      "target_id": 99,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0008",
+      "source_table": "All_Documents",
+      "source_pk": "111",
+      "target_collection": "All_Documents",
+      "target_id": 111,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0009",
+      "source_table": "All_Documents",
+      "source_pk": "119",
+      "target_collection": "All_Documents",
+      "target_id": 119,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0010",
+      "source_table": "All_Documents",
+      "source_pk": "120",
+      "target_collection": "All_Documents",
+      "target_id": 120,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0011",
+      "source_table": "All_Documents",
+      "source_pk": "166",
+      "target_collection": "All_Documents",
+      "target_id": 166,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0012",
+      "source_table": "All_Documents",
+      "source_pk": "170",
+      "target_collection": "All_Documents",
+      "target_id": 170,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0013",
+      "source_table": "All_Documents",
+      "source_pk": "230",
+      "target_collection": "All_Documents",
+      "target_id": 230,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0014",
+      "source_table": "All_Documents",
+      "source_pk": "252",
+      "target_collection": "All_Documents",
+      "target_id": 252,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0015",
+      "source_table": "All_Documents",
+      "source_pk": "260",
+      "target_collection": "All_Documents",
+      "target_id": 260,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    }
+  ],
+  "integrity_checks": {
+    "referential_pass": true,
+    "row_count_reconciled": true,
+    "orphan_refs": 0
+  }
+}

@@ -1,0 +1,16 @@
+mutations:
+  - mutation_id: m001
+    dimension: A
+    subaxis: avg_substitution
+    expected_reject: true
+    rationale: Replaces conditional sum ratio with $avg; wrong null-excluding denominator.
+  - mutation_id: m002
+    dimension: A
+    subaxis: boundary_predicate
+    expected_reject: true
+    rationale: Uses pct >= 0.3 instead of strict > 0.3.
+mut_trace:
+  count: 2
+  seed: 5
+  dimensions_covered: [A]
+  schema_flex_stress: false

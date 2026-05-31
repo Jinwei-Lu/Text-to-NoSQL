@@ -1,0 +1,26 @@
+difficulty: L2
+difficulty_rationale: Embedded ratio with null-excluding denominator is SQL-feasible but loses shape without nested document unwind.
+sql_infeasibility_class: semantic
+diagnostic_bridge:
+  gate_required: true
+  gate_pass: true
+  sql_bridge:
+    ex: 1
+    qim: 0
+    notes: SQL bridge uses COUNT CASE but misses null-exclusion in denominator
+  template_bridge:
+    ex: 1
+    qim: 0
+    notes: Country-city template approximates ratio with AVG not conditional sum
+  functional_sql_solvable: true
+  structural_sql_solvable: false
+ambiguity_attack:
+  parse_count: 3
+  equivalent_to_gold_count: 3
+  pass: true
+canonical_form_set_check:
+  pass: true
+  violations: []
+nnc_verdict:
+  pass: true
+  blocking_reasons: []

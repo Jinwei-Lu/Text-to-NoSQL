@@ -1,0 +1,324 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tend.dev/schemas/leaderboard.schema.json",
+  "title": "TEND Leaderboard Submission",
+  "description": "Official leaderboard envelope for a solver evaluation run on TEND test.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "submission_id",
+    "solver_id",
+    "release_tag",
+    "evaluated_at",
+    "disclosure_complete",
+    "environment",
+    "solver_llm_backbones",
+    "scores",
+    "slice_aggregates",
+    "panel_report",
+    "disclosures",
+    "artifacts"
+  ],
+  "properties": {
+    "submission_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{2,127}$",
+      "description": "Globally unique submission identifier."
+    },
+    "solver_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "release_tag": {
+      "type": "string",
+      "pattern": "^tend-release-[a-z0-9._-]+$",
+      "description": "Pinned TEND dataset release tag."
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "disclosure_complete": {
+      "type": "boolean",
+      "const": true,
+      "description": "Must be true for official leaderboard; false submissions are audit-only."
+    },
+    "disjointness_status": {
+      "type": "string",
+      "enum": ["passed", "violation", "not_checked"],
+      "default": "passed"
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mongodb_server_image",
+        "mongosh_image_digest",
+        "query_timeout_seconds",
+        "memory_limit_gb"
+      ],
+      "properties": {
+        "mongodb_server_image": {
+          "type": "string",
+          "pattern": "^mongodb/mongodb-community-server:7\\.0\\.14-ubuntu2204@sha256:[0-9a-f]{64}$"
+        },
+        "mongosh_image_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "query_timeout_seconds": {
+          "type": "integer",
+          "const": 30
+        },
+        "memory_limit_gb": {
+          "type": "integer",
+          "const": 8
+        },
+        "network_policy": {
+          "type": "string",
+          "const": "none"
+        },
+        "collation": {
+          "type": "string",
+          "const": "simple"
+        }
+      }
+    },
+    "solver_llm_backbones": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/llmBackbone" }
+    },
+    "scores": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ex_unweighted",
+        "em",
+        "qsm",
+        "qfc",
+        "efm",
+        "evm",
+        "qim",
+        "record_count"
+      ],
+      "properties": {
+        "ex_unweighted": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Headline metric: mean EX over test records."
+        },
+        "ex_ceiling_weighted": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Supplemental difficulty-weighted EX; must be disclosed alongside ex_unweighted."
+        },
+        "em": { "$ref": "#/$defs/metricScore" },
+        "qsm": { "$ref": "#/$defs/metricScore" },
+        "qfc": { "$ref": "#/$defs/metricScore" },
+        "efm": { "$ref": "#/$defs/metricScore" },
+        "evm": { "$ref": "#/$defs/metricScore" },
+        "qim": { "$ref": "#/$defs/metricScore" },
+        "record_count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "slice_aggregates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain",
+        "join_depth",
+        "aggregation_depth",
+        "schema_pattern",
+        "difficulty_tier"
+      ],
+      "properties": {
+        "domain": { "$ref": "#/$defs/sliceAxis" },
+        "join_depth": { "$ref": "#/$defs/sliceAxis" },
+        "aggregation_depth": { "$ref": "#/$defs/sliceAxis" },
+        "schema_pattern": { "$ref": "#/$defs/sliceAxis" },
+        "difficulty_tier": { "$ref": "#/$defs/sliceAxis" }
+      }
+    },
+    "panel_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observation_only", "solver_ex_by_panel", "pr_distribution"],
+      "properties": {
+        "observation_only": {
+          "type": "boolean",
+          "const": true,
+          "description": "4-panel is observation-only; no amplify feedback."
+        },
+        "solver_ex_by_panel": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["small", "medium", "large", "frontier"],
+          "properties": {
+            "small": { "$ref": "#/$defs/metricScore" },
+            "medium": { "$ref": "#/$defs/metricScore" },
+            "large": { "$ref": "#/$defs/metricScore" },
+            "frontier": { "$ref": "#/$defs/metricScore" }
+          }
+        },
+        "pr_distribution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pr_small", "pr_medium", "pr_large", "pr_frontier", "empirical_difficulty"],
+          "properties": {
+            "pr_small": { "$ref": "#/$defs/metricScore" },
+            "pr_medium": { "$ref": "#/$defs/metricScore" },
+            "pr_large": { "$ref": "#/$defs/metricScore" },
+            "pr_frontier": { "$ref": "#/$defs/metricScore" },
+            "empirical_difficulty": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["easy", "medium", "hard", "expert"],
+              "properties": {
+                "easy": { "type": "number", "minimum": 0, "maximum": 1 },
+                "medium": { "type": "number", "minimum": 0, "maximum": 1 },
+                "hard": { "type": "number", "minimum": 0, "maximum": 1 },
+                "expert": { "type": "number", "minimum": 0, "maximum": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "disclosures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "construction_gate_digest",
+        "evaluation_gate_digest",
+        "panel_manifest_digest",
+        "spider_db_catalog_digest",
+        "diagnostics_summary"
+      ],
+      "properties": {
+        "construction_gate_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "evaluation_gate_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "panel_manifest_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "spider_db_catalog_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "diagnostics_summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "parse_error_count",
+            "timeout_hit_count",
+            "oom_hit_count",
+            "forbidden_op_hit_count",
+            "functional_sql_solvable_rate",
+            "structural_sql_solvable_rate"
+          ],
+          "properties": {
+            "parse_error_count": { "type": "integer", "minimum": 0 },
+            "timeout_hit_count": { "type": "integer", "minimum": 0 },
+            "oom_hit_count": { "type": "integer", "minimum": 0 },
+            "forbidden_op_hit_count": { "type": "integer", "minimum": 0 },
+            "functional_sql_solvable_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Observation-only share of test records with NNC functional_sql_solvable=true (SQL-bridge EX=1)."
+            },
+            "structural_sql_solvable_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Observation-only share of test records with NNC structural_sql_solvable=true (SQL-bridge EX=1 ∧ QIM=1)."
+            }
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fingerprint_csv",
+        "per_record_metrics_csv",
+        "per_slice_metrics_dir"
+      ],
+      "properties": {
+        "fingerprint_csv": {
+          "type": "string",
+          "pattern": "^[^\\s]+\\.csv$"
+        },
+        "per_record_metrics_csv": {
+          "type": "string",
+          "pattern": "^[^\\s]+\\.csv$"
+        },
+        "per_slice_metrics_dir": {
+          "type": "string",
+          "pattern": "^[^\\s]+/$"
+        },
+        "construction_gate_json": {
+          "type": "string",
+          "pattern": "^audit/reference_panel/construction_gate\\.json$"
+        },
+        "evaluation_gate_json": {
+          "type": "string",
+          "pattern": "^audit/reference_panel/evaluation_gate\\.json$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "metricScore": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "metricVector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["EM", "QSM", "QFC", "EX", "EFM", "EVM", "QIM"],
+      "properties": {
+        "EM": { "$ref": "#/$defs/metricScore" },
+        "QSM": { "$ref": "#/$defs/metricScore" },
+        "QFC": { "$ref": "#/$defs/metricScore" },
+        "EX": { "$ref": "#/$defs/metricScore" },
+        "EFM": { "$ref": "#/$defs/metricScore" },
+        "EVM": { "$ref": "#/$defs/metricScore" },
+        "QIM": { "$ref": "#/$defs/metricScore" }
+      }
+    },
+    "sliceAxis": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/metricVector"
+      }
+    },
+    "llmBackbone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_id", "vendor", "version_pin"],
+      "properties": {
+        "model_id": { "type": "string", "minLength": 1 },
+        "vendor": { "type": "string", "minLength": 1 },
+        "version_pin": { "type": "string", "minLength": 1 },
+        "param_count_or_api_tag": { "type": "string" }
+      }
+    }
+  }
+}

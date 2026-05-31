@@ -1,0 +1,48 @@
+MQL: |
+  db.documents.aggregate([
+    { $project: { _id: 0, document_id: 1, title: 1, metric_pairs: { $objectToArray: "$metrics" } } },
+    { $unwind: "$metric_pairs" },
+    { $match: { "metric_pairs.k": { $in: ["weight", "priority"] } } },
+    { $group: {
+        _id: "$metric_pairs.k",
+        avg_value: { $avg: { $toDouble: "$metric_pairs.v" } }
+    } },
+    { $sort: { avg_value: -1 } },
+    { $group: {
+        _id: null,
+        ranked: { $push: { k: "$_id", avg_value: "$avg_value" } }
+    } },
+    { $project: {
+        _id: 0,
+        top_metric: { $arrayElemAt: ["$ranked", 0] }
+    } }
+  ])
+mql_alt: |
+  db.documents.aggregate([
+    { $project: { metric_pairs: { $objectToArray: "$metrics" } } },
+    { $unwind: "$metric_pairs" },
+    { $match: { "metric_pairs.k": { $in: ["weight", "priority"] } } },
+    { $group: {
+        _id: "$metric_pairs.k",
+        avg_value: { $avg: { $toDouble: "$metric_pairs.v" } }
+    } },
+    { $sort: { avg_value: -1 } },
+    { $limit: 1 },
+    { $project: { _id: 0, top_metric: { k: "$_id", avg_value: "$avg_value" } } }
+  ])
+canonical_form_set:
+  must_contain: ["$objectToArray", "$unwind", "$group"]
+  must_not_contain: ["$setWindowFields"]
+  must_contain_at_root: ["$project"]
+  must_not_contain_at_root: []
+shape_policy: reshape
+schema_flex: dynamic_key
+join_depth: 0
+aggregation_depth: medium
+synthesis_trace:
+  primary_path: direct_compile
+  converged: true
+  normexec_equiv: true
+  ast_check_primary: true
+  ast_check_alt: true
+  gold_selection: mql_primary

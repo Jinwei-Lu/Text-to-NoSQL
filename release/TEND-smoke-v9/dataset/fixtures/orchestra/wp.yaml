@@ -1,0 +1,64 @@
+db_id: orchestra
+spider_version: "1.0"
+generated_at: "2026-05-23T10:00:00Z"
+insufficient_workload: false
+source:
+  sqlite_path: database/orchestra/orchestra.sqlite
+  tables: [conductor, orchestra, performance, show]
+  query_count: 45
+workload_summary: >
+  Most queries traverse conductor-orchestra-performance; Attendance and show
+  metrics drive aggregates and window-style comparisons across performances.
+access_patterns:
+  - pattern_id: AP01
+    type: nested_traversal
+    tables: [conductor, orchestra, performance]
+    join_path: conductor.Conductor_ID = orchestra.Conductor_ID; orchestra.Orchestra_ID = performance.Orchestra_ID
+    frequency: 0.62
+    example_query_ids: [101, 205, 312]
+    nl_hints:
+      - per-conductor performance series ordered by Performance_ID
+    sql_operators: [JOIN, ORDER BY, GROUP BY]
+  - pattern_id: AP02
+    type: metric_aggregate
+    tables: [show, performance, orchestra]
+    join_path: show.Performance_ID = performance.Performance_ID
+    frequency: 0.38
+    example_query_ids: [88, 144]
+    nl_hints:
+      - attendance totals and comparisons across performances
+    sql_operators: [JOIN, SUM, AVG]
+hot_fields:
+  - path: conductor.Name
+    access_count: 38
+  - path: show.Attendance
+    access_count: 29
+  - path: performance.Performance_ID
+    access_count: 27
+co_location_signals:
+  - entities: [orchestra, performance]
+    co_access_rate: 0.89
+    note: almost always accessed together; embed candidate for SRA
+  - entities: [performance, show]
+    co_access_rate: 0.76
+    note: Attendance always with performance context
+join_depth_distribution:
+  "0": 0.09
+  "1": 0.27
+  "2": 0.49
+  "3+": 0.15
+aggregation_depth_distribution:
+  shallow: 0.42
+  medium: 0.36
+  deep: 0.22
+design_constraints:
+  - Preserve Attendance on the performance access path; required for window and median queries.
+  - Support per-conductor partitioning of performance sequences (Performance_ID ordering).
+  - Name field accessed for projection but may be sparse in source data.
+scenario_summary: >
+  Classical performing-arts domain: conductors lead orchestras through performance seasons;
+  audience attendance is tracked per show. Typical business questions include comparing a
+  conductor's recent attendance trend against peers, ranking orchestras by historical
+  turnout, identifying conductors above or below median performance metrics, and filtering
+  performances by date or venue context. Entity relationships: conductor → orchestra →
+  performance series → attendance outcomes.

@@ -1,0 +1,16 @@
+mutations:
+  - mutation_id: m001
+    dimension: A
+    subaxis: boundary_predicate
+    expected_reject: true
+    rationale: Uses Capacity >= 5000 instead of strict > 5000.
+  - mutation_id: m002
+    dimension: B
+    subaxis: drop_output_key
+    expected_reject: true
+    rationale: Drops Capacity from final projection despite NLQ requirement.
+mut_trace:
+  count: 2
+  seed: 8
+  dimensions_covered: [A, B]
+  schema_flex_stress: false

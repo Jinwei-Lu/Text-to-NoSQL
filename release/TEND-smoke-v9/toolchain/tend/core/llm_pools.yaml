@@ -1,0 +1,18 @@
+A_construct:
+  - deepseek-v4-flash
+B_rtv:
+  - deepseek-v4-flash
+C_nnc_attack:
+  - deepseek-v4-flash
+D_bridge:
+  - deepseek-v4-flash
+B_panel:
+  small:
+    - deepseek-v4-flash
+  medium:
+    - deepseek-v4-flash
+  large:
+    - deepseek-v4-flash
+  frontier:
+    - deepseek-v4-flash
+S_solver: []

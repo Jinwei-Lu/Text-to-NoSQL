@@ -1,0 +1,38 @@
+db_id: cre_doc_tracking_db
+source_spider_tables:
+  - Documents
+  - Document_Attributes
+patterns_applied: [embed]
+rationale_summary: >
+  Single documents collection with H4 dynamic-key metrics object promoted from EAV attribute rows.
+decisions:
+  - id: D01
+    type: embed
+    parent: documents
+    child: metrics
+    rationale: WP AP01 eav_attribute_lookup 0.61; fold attribute_name/value into metrics map.
+    reference: access_patterns.AP01
+  - id: D02
+    type: attribute
+    parent: documents
+    child: metrics
+    rationale: H4 eav_promote; Document_Attributes rows become dynamic keys under metrics.
+    reference: heterogenization.triggers.H4
+heterogenization:
+  schema_flex: dynamic_key
+  triggers:
+    - id: H4
+      fired: true
+      evidence: Document_Attributes EAV shape; entity_id=document_id; name/value columns
+    - id: H1
+      fired: false
+      evidence: no type_conditional_rate >= 0.30
+    - id: H2
+      fired: false
+      evidence: sparse_null_cols=0
+    - id: H3
+      fired: false
+      evidence: no temporal rename pair
+anti_pattern_checks:
+  pass: true
+  issues: []

@@ -1,0 +1,358 @@
+{
+  "db_id": "cre_doc_tracking_db",
+  "record_id": 1005,
+  "status": "ok",
+  "ok": true,
+  "gate_pass": true,
+  "nlp": {
+    "nl_queries": {
+      "canonical": "For each document in All_Documents, retrieve the value from the payload field by selecting the first non‑null value among 'payload.v2', 'payload.v1', and 'payload.legacy' in that order; if all are null, return null. Output only that value.",
+      "colloquial": "Get the latest available content for each document."
+    },
+    "nlp_trace": {
+      "canonical_no_dollar_ops": true,
+      "colloquial_no_field_names": true,
+      "single_intent_check": true
+    }
+  },
+  "rtv": {
+    "mql_round_trip_canonical": "db.All_Documents.aggregate([\n  {\n    \"$addFields\": {\n      \"value\": {\n        \"$ifNull\": [\n          \"$payload.v2\",\n          {\n            \"$ifNull\": [\n              \"$payload.v1\",\n              \"$payload.legacy\"\n            ]\n          }\n        ]\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"value\": 1\n    }\n  }\n])",
+    "mql_round_trip_colloquial": "db.All_Documents.find({})",
+    "round_trip_verification": {
+      "canonical_pass": true,
+      "canonical_ex": true,
+      "canonical_ast_check": true,
+      "colloquial_pass": false,
+      "colloquial_ex": false,
+      "colloquial_ast_check": false,
+      "underspec_attribution": "colloquial omits window size, median filter, and ifNull coalesce detail"
+    },
+    "rtv_pass": true,
+    "rtv_trace": {
+      "retry_count": 0,
+      "reflux_recommendation": null
+    }
+  },
+  "nnc": {
+    "difficulty": "L4",
+    "difficulty_rationale": "Aligned with query_plan.target_difficulty=L4.",
+    "sql_infeasibility_class": "performative",
+    "diagnostic_bridge": {
+      "sql_bridge": {
+        "ex": 0,
+        "qim": 0,
+        "notes": "d_bridge_llm"
+      },
+      "template_bridge": {
+        "ex": 0,
+        "qim": 0,
+        "notes": "Matched sort_limit template"
+      },
+      "gate_required": true,
+      "gate_pass": true,
+      "functional_sql_solvable": false,
+      "structural_sql_solvable": false
+    },
+    "functional_sql_solvable": false,
+    "structural_sql_solvable": false,
+    "ambiguity_attack": {
+      "parse_count": 3,
+      "equivalent_to_gold_count": 0,
+      "pass": true,
+      "inconclusive": true,
+      "models": [
+        "deepseek-v4-flash",
+        "deepseek-v4-flash",
+        "deepseek-v4-flash"
+      ],
+      "parses": [
+        {
+          "equivalent_to_gold": false,
+          "model": "deepseek-v4-flash",
+          "parse_failed": true
+        },
+        {
+          "equivalent_to_gold": false,
+          "model": "deepseek-v4-flash",
+          "parse_failed": true
+        },
+        {
+          "equivalent_to_gold": false,
+          "model": "deepseek-v4-flash",
+          "parse_failed": true
+        }
+      ]
+    },
+    "canonical_form_set_check": {
+      "pass": true,
+      "violations": []
+    },
+    "nnc_verdict": {
+      "pass": true,
+      "blocking_reasons": []
+    }
+  },
+  "ra": {
+    "p1_execution": {
+      "pass": true,
+      "normexec_non_bot": true
+    },
+    "p4_nontriviality": {
+      "pass": true,
+      "result_count": 16,
+      "gaps": []
+    },
+    "realism_checks": {
+      "field_observability": true,
+      "null_missing_coverage": true,
+      "result_cardinality": true,
+      "embed_depth_matches_sra": true,
+      "type_sanity": true
+    },
+    "augment_plan": {
+      "required": true,
+      "append_only": true,
+      "injections": [
+        {
+          "gap_type": "flex_payload_sample",
+          "collection": "All_Documents",
+          "doc_sketch": {
+            "payload": {
+              "v1": {
+                "x": 1
+              },
+              "v2": {
+                "x": 2
+              },
+              "legacy": {
+                "x": "1"
+              }
+            }
+          },
+          "reason": "Activate schema_version payload branches"
+        }
+      ]
+    },
+    "ra_audit": {
+      "pass": true,
+      "pending_augment": false,
+      "recommendations": []
+    },
+    "snapshot": {
+      "All_Documents": [
+        {
+          "_id": 7,
+          "Date_Stored": "1976-06-15 03:40:06",
+          "Document_Type_Code": "CV",
+          "Document_Name": "Robin CV",
+          "payload": {
+            "Date_Stored": "1976-06-15 03:40:06",
+            "Document_Type_Code": "CV",
+            "Document_Name": "Robin CV"
+          },
+          "__type": "variant_a",
+          "field_a": "field_a_0"
+        },
+        {
+          "_id": 11,
+          "Date_Stored": "1986-10-14 17:53:39",
+          "Document_Type_Code": "CV",
+          "Document_Name": "Marry CV",
+          "payload": {
+            "Date_Stored": "1986-10-14 17:53:39",
+            "Document_Type_Code": "CV",
+            "Document_Name": "Marry CV"
+          },
+          "__type": "variant_b",
+          "field_b": "field_b_1"
+        },
+        {
+          "_id": 25,
+          "Date_Stored": "2008-06-08 12:45:38",
+          "Document_Type_Code": "BK",
+          "Document_Name": "One hundred years of solitude",
+          "payload": {
+            "Date_Stored": "2008-06-08 12:45:38",
+            "Document_Type_Code": "BK",
+            "Document_Name": "One hundred years of solitude"
+          },
+          "__type": "variant_a",
+          "field_a": "field_a_2"
+        },
+        {
+          "_id": 39,
+          "Date_Stored": "2012-07-03 09:48:46",
+          "Document_Type_Code": "BK",
+          "Document_Name": "How to read a book",
+          "payload": {
+            "Date_Stored": "2012-07-03 09:48:46",
+            "Document_Type_Code": "BK",
+            "Document_Name": "How to read a book"
+          },
+          "__type": "variant_b",
+          "field_b": "field_b_3"
+        },
+        {
+          "_id": 72,
+          "Date_Stored": "2012-07-03 09:48:46",
+          "Document_Type_Code": "CV",
+          "Document_Name": "Alan CV",
+          "payload": {
+            "Date_Stored": "2012-07-03 09:48:46",
+            "Document_Type_Code": "CV",
+            "Document_Name": "Alan CV"
+          },
+          "__type": "variant_a",
+          "field_a": "field_a_4"
+        },
+        {
+          "_id": 81,
+          "Date_Stored": "1995-01-01 03:52:11",
+          "Document_Type_Code": "BK",
+          "Document_Name": "Hua Mulan",
+          "payload": {
+            "Date_Stored": "1995-01-01 03:52:11",
+            "Document_Type_Code": "BK",
+            "Document_Name": "Hua Mulan"
+          },
+          "__type": "variant_b",
+          "field_b": "field_b_5"
+        },
+        {
+          "_id": 99,
+          "Date_Stored": "2008-06-08 12:45:38",
+          "Document_Type_Code": "CV",
+          "Document_Name": "Leon CV",
+          "payload": {
+            "Date_Stored": "2008-06-08 12:45:38",
+            "Document_Type_Code": "CV",
+            "Document_Name": "Leon CV"
+          },
+          "__type": "variant_a",
+          "field_a": "field_a_6"
+        },
+        {
+          "_id": 111,
+          "Date_Stored": "1987-11-05 06:11:22",
+          "Document_Type_Code": "PR",
+          "Document_Name": "Learning features of CNN",
+          "payload": {
+            "Date_Stored": "1987-11-05 06:11:22",
+            "Document_Type_Code": "PR",
+            "Document_Name": "Learning features of CNN"
+          },
+          "__type": "variant_b",
+          "field_b": "field_b_7"
+        },
+        {
+          "_id": 119,
+          "Date_Stored": "2008-06-08 12:45:38",
+          "Document_Type_Code": "RV",
+          "Document_Name": "Marriage and population",
+          "payload": {
+            "Date_Stored": "2008-06-08 12:45:38",
+            "Document_Type_Code": "RV",
+            "Document_Name": "Marriage and population"
+          },
+          "__type": "variant_a",
+          "field_a": "field_a_8"
+        },
+        {
+          "_id": 120,
+          "Date_Stored": "1997-03-10 15:24:00",
+          "Document_Type_Code": "RV",
+          "Document_Name": "Society and tax",
+          "payload": {
+            "Date_Stored": "1997-03-10 15:24:00",
+            "Document_Type_Code": "RV",
+            "Document_Name": "Society and tax"
+          },
+          "__type": "variant_b",
+          "field_b": "field_b_9"
+        },
+        {
+          "_id": 166,
+          "Date_Stored": "1997-03-10 15:24:00",
+          "Document_Type_Code": "PR",
+          "Document_Name": "Are you talking to a machine",
+          "payload": {
+            "Date_Stored": "1997-03-10 15:24:00",
+            "Document_Type_Code": "PR",
+            "Document_Name": "Are you talking to a machine"
+          },
+          "__type": "variant_a",
+          "field_a": "field_a_10"
+        },
+        {
+          "_id": 170,
+          "Date_Stored": "2009-08-18 03:29:08",
+          "Document_Type_Code": "RV",
+          "Document_Name": "Population",
+          "payload": {
+            "Date_Stored": "2009-08-18 03:29:08",
+            "Document_Type_Code": "RV",
+            "Document_Name": "Population"
+          },
+          "__type": "variant_b",
+          "field_b": "field_b_11"
+        },
+        {
+          "_id": 230,
+          "Date_Stored": "1976-06-15 03:40:06",
+          "Document_Type_Code": "CV",
+          "Document_Name": "Martin CV",
+          "payload": {
+            "Date_Stored": "1976-06-15 03:40:06",
+            "Document_Type_Code": "CV",
+            "Document_Name": "Martin CV"
+          },
+          "__type": "variant_a",
+          "field_a": "field_a_12"
+        },
+        {
+          "_id": 252,
+          "Date_Stored": "1976-06-15 03:40:06",
+          "Document_Type_Code": "BK",
+          "Document_Name": "Summer",
+          "payload": {
+            "Date_Stored": "1976-06-15 03:40:06",
+            "Document_Type_Code": "BK",
+            "Document_Name": "Summer"
+          },
+          "__type": "variant_b",
+          "field_b": "field_b_13"
+        },
+        {
+          "_id": 260,
+          "Date_Stored": "1997-03-10 15:24:00",
+          "Document_Type_Code": "BK",
+          "Document_Name": "Cats and me",
+          "payload": {
+            "Date_Stored": "1997-03-10 15:24:00",
+            "Document_Type_Code": "BK",
+            "Document_Name": "Cats and me"
+          },
+          "__type": "variant_a",
+          "field_a": "field_a_14"
+        },
+        {
+          "payload": {
+            "v1": {
+              "x": 1
+            },
+            "v2": {
+              "x": 2
+            },
+            "legacy": {
+              "x": "1"
+            }
+          },
+          "_id": 261
+        }
+      ]
+    },
+    "world_signature": "sha256:ca55472c802838a5ef29dea87438cd6a5e7e7fae272c4443b959b7b17a3cb4ec",
+    "augment_pass": 1
+  },
+  "audit_dir": "C:\\Users\\LuJiaWei\\Desktop\\Text-to-NoSQL\\out\\audit\\cre_doc_tracking_db\\1005"
+}

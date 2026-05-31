@@ -1,0 +1,41 @@
+db_id: cre_doc_tracking_db
+source_spider_tables:
+- All_Documents
+- Document_Locations
+- Documents_to_be_Destroyed
+- Employees
+- Ref_Calendar
+- Ref_Document_Types
+- Ref_Locations
+- Roles
+patterns_applied:
+- embed
+rationale_summary: Baseline embed layout for cre_doc_tracking_db (revision 0).
+decisions:
+- id: D01
+  type: embed
+  parent: All_Documents
+  child: Document_Locations
+  rationale: Primary WP access pattern embed candidate.
+  reference: access_patterns.AP01
+heterogenization:
+  schema_flex: polymorphic
+  triggers:
+  - id: H1
+    fired: false
+    evidence: no discriminator column with type-conditional queries >= 30%
+  - id: H2
+    fired: false
+    evidence: sparse_null_cols=2
+  - id: H3
+    fired: false
+    evidence: no column rename pair detected
+  - id: H4
+    fired: false
+    evidence: no EAV table shape
+  - id: H0
+    fired: true
+    evidence: 'build_policy: force_document_flex (no natural H1-H4)'
+anti_pattern_checks:
+  pass: true
+  issues: []

@@ -1,0 +1,64 @@
+db_id: world_1
+spider_version: "1.0"
+generated_at: "2026-05-23T10:30:00Z"
+insufficient_workload: false
+source:
+  sqlite_path: database/world_1/world_1.sqlite
+  tables: [city, country, countrylanguage]
+  query_count: 52
+workload_summary: >
+  Country filters on Continent dominate; city population aggregates and
+  language percentages drive secondary patterns.
+access_patterns:
+  - pattern_id: AP01
+    type: country_city_aggregate
+    tables: [country, city]
+    join_path: city.CountryCode = country.Code
+    frequency: 0.58
+    example_query_ids: [5, 18, 33]
+    nl_hints:
+      - per-country city counts or population thresholds
+    sql_operators: [JOIN, GROUP BY, HAVING]
+  - pattern_id: AP02
+    type: language_share
+    tables: [country, countrylanguage]
+    join_path: countrylanguage.CountryCode = country.Code
+    frequency: 0.31
+    example_query_ids: [41, 55]
+    nl_hints:
+      - official language percentages by country
+    sql_operators: [JOIN, WHERE, ORDER BY]
+hot_fields:
+  - path: country.Continent
+    access_count: 44
+  - path: city.Population
+    access_count: 36
+  - path: country.Name
+    access_count: 29
+co_location_signals:
+  - entities: [country, city]
+    co_access_rate: 0.85
+    note: city almost always accessed via country filter
+  - entities: [country, countrylanguage]
+    co_access_rate: 0.62
+    note: language queries scoped to country
+join_depth_distribution:
+  "0": 0.08
+  "1": 0.52
+  "2": 0.31
+  "3+": 0.09
+aggregation_depth_distribution:
+  shallow: 0.35
+  medium: 0.48
+  deep: 0.17
+design_constraints:
+  - Embed cities[] under country to avoid $lookup on AP01 path.
+  - Preserve Continent and Name on country root for continent filters.
+  - Population nullability must be handled in aggregate denominators.
+scenario_summary: >
+  World geography domain: countries span continents and contain many cities with
+  population figures; language usage is tracked per country. Typical business questions
+  include filtering countries by continent, counting or thresholding cities by
+  population, computing shares of large cities within a country, and comparing
+  official language percentages. Entity relationships: country → embedded cities;
+  country → language usage records.

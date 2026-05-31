@@ -1,0 +1,34 @@
+query_plan:
+  primary_pattern: polymorphic_dispatch
+  operator_graph:
+    stages: ["$unwind", "$addFields", "$group", "$project"]
+    dependencies:
+      - $switch on assessments.__type
+      - per-type score normalization branches
+  shape_policy: reshape
+  null_missing_strategy: ifNull
+  target_difficulty: L4
+  schema_flex_mode: polymorphic
+  join_depth_target: 0
+  aggregation_depth_target: medium
+  target_fields:
+    - first_name
+    - assessments.__type
+    - assessments.written_score
+    - assessments.word_count
+    - assessments.oral_score
+    - assessments.lab_score
+  semantic_properties:
+    - id: written_score_per_word
+      expect: written branch divides score by word_count capped at 1
+    - id: max_across_assessment_types
+      expect: final_score is max of normalized per-type scores
+    - id: ifNull_first_name
+      expect: missing first_name coalesced to (unknown)
+    - id: polymorphic_branch_coverage
+      expect: all three __type branches reachable on witness D
+qps_trace:
+  coverage_cell: L4|structural_schema_flex|schema_flex_polymorphic
+  deficit_weight: 0.22
+  supply_constrained: false
+  pattern_rationale: scenario_summary emphasizes type-conditional assessment scoring; H1 __variants on assessments

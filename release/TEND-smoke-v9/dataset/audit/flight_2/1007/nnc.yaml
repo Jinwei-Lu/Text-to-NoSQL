@@ -1,0 +1,67 @@
+{
+  "difficulty": "L1",
+  "difficulty_rationale": "Aligned with query_plan.target_difficulty=L1.",
+  "sql_infeasibility_class": "feasible",
+  "diagnostic_bridge": {
+    "sql_bridge": {
+      "ex": 0,
+      "qim": 1,
+      "notes": "d_bridge_llm"
+    },
+    "template_bridge": {
+      "ex": 0,
+      "qim": 1,
+      "notes": "Matched simple_filter_projection template"
+    },
+    "gate_required": false,
+    "gate_pass": true,
+    "functional_sql_solvable": false,
+    "structural_sql_solvable": false
+  },
+  "functional_sql_solvable": false,
+  "structural_sql_solvable": false,
+  "ambiguity_attack": {
+    "parse_count": 3,
+    "equivalent_to_gold_count": 1,
+    "pass": true,
+    "inconclusive": false,
+    "models": [
+      "deepseek-v4-flash",
+      "deepseek-v4-flash",
+      "deepseek-v4-flash"
+    ],
+    "parses": [
+      {
+        "equivalent_to_gold": false,
+        "model": "deepseek-v4-flash",
+        "parse_failed": true
+      },
+      {
+        "equivalent_to_gold": false,
+        "model": "deepseek-v4-flash",
+        "parse_failed": true
+      },
+      {
+        "collection": "airlines",
+        "operation": "find",
+        "filter": {
+          "attribute": {
+            "$exists": true
+          }
+        },
+        "projection": {
+          "attribute": 1,
+          "_id": 0
+        }
+      }
+    ]
+  },
+  "canonical_form_set_check": {
+    "pass": true,
+    "violations": []
+  },
+  "nnc_verdict": {
+    "pass": true,
+    "blocking_reasons": []
+  }
+}

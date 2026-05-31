@@ -1,0 +1,38 @@
+db_id: flight_2
+generated_at: "2026-05-23T13:00:00Z"
+source_sqlite: database/flight_2/flight_2.sqlite
+target_collections: [airlines, airports]
+world_signature: sha256:e81c7c2f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3
+stats:
+  source_rows: 1200
+  target_documents: 14
+  tables_migrated: 3
+entries:
+  - entry_id: M0001
+    source_table: airlines
+    source_pk: "1"
+    target_collection: airlines
+    target_id: 1
+    operation: root_insert
+    target_path: null
+    embedded_children: [flights]
+  - entry_id: M0055
+    source_table: flights
+    source_pk: "AA100"
+    target_collection: airlines
+    target_id: 1
+    operation: embed_push
+    target_path: flights
+    embedded_children: []
+  - entry_id: M0100
+    source_table: airports
+    source_pk: "ATL"
+    target_collection: airports
+    target_id: "ATL"
+    operation: root_insert
+    target_path: null
+    embedded_children: []
+integrity_checks:
+  referential_pass: true
+  row_count_reconciled: true
+  orphan_refs: 0

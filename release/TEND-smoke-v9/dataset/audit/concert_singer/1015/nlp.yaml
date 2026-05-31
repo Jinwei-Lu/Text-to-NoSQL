@@ -1,0 +1,11 @@
+{
+  "nl_queries": {
+    "canonical": "For each concert, convert its attributes array into an object where each attribute name becomes a key and its corresponding value becomes the value, returning only that object.",
+    "colloquial": "Turn the attribute list into a dictionary."
+  },
+  "nlp_trace": {
+    "canonical_no_dollar_ops": true,
+    "colloquial_no_field_names": true,
+    "single_intent_check": true
+  }
+}

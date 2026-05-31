@@ -1,0 +1,57 @@
+MQL: "db.Addresses.aggregate([\n  {\n    \"$addFields\": {\n      \"resolved\": {\n\
+  \        \"$switch\": {\n          \"branches\": [\n            {\n            \
+  \  \"case\": {\n                \"$eq\": [\n                  {\n              \
+  \      \"$type\": \"$payload\"\n                  },\n                  \"object\"\
+  \n                ]\n              },\n              \"then\": \"$payload\"\n  \
+  \          }\n          ],\n          \"default\": \"$payload\"\n        }\n   \
+  \   }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"resolved\"\
+  : 1\n    }\n  }\n])"
+mql_alt: "db.Addresses.aggregate([\n  {\n    \"$addFields\": {\n      \"resolved\"\
+  : {\n        \"$switch\": {\n          \"branches\": [\n            {\n        \
+  \      \"case\": {\n                \"$eq\": [\n                  {\n          \
+  \          \"$type\": \"$payload\"\n                  },\n                  \"object\"\
+  \n                ]\n              },\n              \"then\": \"$payload\"\n  \
+  \          }\n          ],\n          \"default\": \"$payload\"\n        }\n   \
+  \   }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"resolved\"\
+  : 1\n    }\n  }\n])"
+canonical_form_set:
+  must_contain:
+  - $switch
+  - $type
+  must_not_contain:
+  - $function
+  - $merge
+  - $out
+  - $rand
+  - $sample
+  must_contain_at_root:
+  - $addFields
+  - $project
+  must_not_contain_at_root: []
+shape_policy: reshape
+join_depth: 0
+aggregation_depth: medium
+synthesis_trace:
+  primary_path: direct_compile
+  mql_primary: "db.Addresses.aggregate([\n  {\n    \"$addFields\": {\n      \"resolved\"\
+    : {\n        \"$switch\": {\n          \"branches\": [\n            {\n      \
+    \        \"case\": {\n                \"$eq\": [\n                  {\n      \
+    \              \"$type\": \"$payload\"\n                  },\n               \
+    \   \"object\"\n                ]\n              },\n              \"then\": \"\
+    $payload\"\n            }\n          ],\n          \"default\": \"$payload\"\n\
+    \        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n\
+    \      \"resolved\": 1\n    }\n  }\n])"
+  mql_alt: "db.Addresses.aggregate([\n  {\n    \"$addFields\": {\n      \"resolved\"\
+    : {\n        \"$switch\": {\n          \"branches\": [\n            {\n      \
+    \        \"case\": {\n                \"$eq\": [\n                  {\n      \
+    \              \"$type\": \"$payload\"\n                  },\n               \
+    \   \"object\"\n                ]\n              },\n              \"then\": \"\
+    $payload\"\n            }\n          ],\n          \"default\": \"$payload\"\n\
+    \        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n\
+    \      \"resolved\": 1\n    }\n  }\n])"
+  converged: true
+  llm_rewrite: false
+  normexec_equiv: true
+  ast_check_primary: true
+  ast_check_alt: true
+  gold_selection: mql_primary

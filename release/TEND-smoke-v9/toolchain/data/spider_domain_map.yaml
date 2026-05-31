@@ -1,0 +1,9 @@
+domains:
+  orchestra: performance_arts
+  concert_singer: entertainment
+  cre_doc_tracking_db: tracking
+  cre_Doc_Tracking_DB: tracking
+  flight_2: transportation
+  student_assessment: education
+  world_1: geography
+# SA-2 curates Spider domain -> db_id mappings; fixtures above are Pilot-B anchors.

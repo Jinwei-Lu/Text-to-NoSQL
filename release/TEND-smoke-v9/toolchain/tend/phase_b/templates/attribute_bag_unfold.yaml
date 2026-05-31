@@ -1,0 +1,5 @@
+primary_pattern: attribute_bag_unfold
+description: Attribute bag normalization into a map via arrayToObject.
+required_stages:
+  - $addFields
+  - $project

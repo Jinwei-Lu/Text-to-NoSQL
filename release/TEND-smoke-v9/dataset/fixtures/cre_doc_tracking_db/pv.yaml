@@ -1,0 +1,25 @@
+property_verification:
+  gold_ex: true
+  gold_normexec_non_bot: true
+  mql_alt_ex_equiv: true
+  ast_check_gold: true
+  ast_check_alt: true
+  semantic_properties:
+    - id: key_filter_weight_priority
+      pass: true
+    - id: top_metric_singleton
+      pass: true
+    - id: objectToArray_required
+      pass: true
+  mutations_ex_all_reject: true
+  mutation_results:
+    - mutation_id: m001
+      ex: false
+      ast_check: false
+    - mutation_id: m002
+      ex: false
+      ast_check: true
+pv_pass: true
+pv_trace:
+  blocking_failures: []
+  reflux_target: null

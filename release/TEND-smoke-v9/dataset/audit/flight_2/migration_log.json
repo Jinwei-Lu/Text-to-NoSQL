@@ -1,0 +1,141 @@
+{
+  "db_id": "flight_2",
+  "generated_at": "2026-05-30T14:12:42Z",
+  "source_sqlite": "database/flight_2/flight_2.sqlite",
+  "target_collections": [
+    "airlines"
+  ],
+  "world_signature": "sha256:d3f519dec062eb698ea254bb613a9de02522dca73b4e5c82309ae4c108c24efb",
+  "stats": {
+    "source_rows": 12,
+    "target_documents": 12,
+    "tables_migrated": 1
+  },
+  "entries": [
+    {
+      "entry_id": "M0001",
+      "source_table": "airlines",
+      "source_pk": "1",
+      "target_collection": "airlines",
+      "target_id": 1,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0002",
+      "source_table": "airlines",
+      "source_pk": "2",
+      "target_collection": "airlines",
+      "target_id": 2,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0003",
+      "source_table": "airlines",
+      "source_pk": "3",
+      "target_collection": "airlines",
+      "target_id": 3,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0004",
+      "source_table": "airlines",
+      "source_pk": "4",
+      "target_collection": "airlines",
+      "target_id": 4,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0005",
+      "source_table": "airlines",
+      "source_pk": "5",
+      "target_collection": "airlines",
+      "target_id": 5,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0006",
+      "source_table": "airlines",
+      "source_pk": "6",
+      "target_collection": "airlines",
+      "target_id": 6,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0007",
+      "source_table": "airlines",
+      "source_pk": "7",
+      "target_collection": "airlines",
+      "target_id": 7,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0008",
+      "source_table": "airlines",
+      "source_pk": "8",
+      "target_collection": "airlines",
+      "target_id": 8,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0009",
+      "source_table": "airlines",
+      "source_pk": "9",
+      "target_collection": "airlines",
+      "target_id": 9,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0010",
+      "source_table": "airlines",
+      "source_pk": "10",
+      "target_collection": "airlines",
+      "target_id": 10,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0011",
+      "source_table": "airlines",
+      "source_pk": "11",
+      "target_collection": "airlines",
+      "target_id": 11,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0012",
+      "source_table": "airlines",
+      "source_pk": "12",
+      "target_collection": "airlines",
+      "target_id": 12,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    }
+  ],
+  "integrity_checks": {
+    "referential_pass": true,
+    "row_count_reconciled": true,
+    "orphan_refs": 0
+  }
+}

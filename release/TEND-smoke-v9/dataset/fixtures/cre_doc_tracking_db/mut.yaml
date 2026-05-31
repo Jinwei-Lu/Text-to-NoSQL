@@ -1,0 +1,17 @@
+mutations:
+  - mutation_id: m001
+    dimension: A
+    subaxis: drop_must_contain_op
+    expected_reject: true
+    rationale: Static $avg on metrics.weight; omits $objectToArray dynamic-key unfold.
+  - mutation_id: m002
+    dimension: A
+    subaxis: key_filter_drop
+    expected_reject: true
+    rationale: Removes key filter; includes unrelated metric keys in average.
+mut_trace:
+  count: 2
+  seed: 31
+  dimensions_covered: [A]
+  schema_flex_stress: true
+  mutations_ref: fixtures/cre_doc_tracking_db/mutations.json

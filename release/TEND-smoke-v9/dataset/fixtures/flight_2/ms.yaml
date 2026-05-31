@@ -1,0 +1,46 @@
+MQL: |
+  db.airlines.aggregate([
+    { $unwind: { path: "$flights", preserveNullAndEmptyArrays: false } },
+    { $group: {
+        _id: {
+          Abbreviation: { $ifNull: ["$Abbreviation", "(unknown)"] },
+          route: { $concat: ["$flights.SourceAirport", "-", "$flights.DestAirport"] }
+        },
+        flight_count: { $sum: 1 }
+    } },
+    { $match: { flight_count: { $gt: 3 } } },
+    { $project: {
+        _id: 0,
+        Abbreviation: "$_id.Abbreviation",
+        route: "$_id.route",
+        flight_count: 1
+    } }
+  ])
+mql_alt: |
+  db.airlines.aggregate([
+    { $unwind: { path: "$flights", preserveNullAndEmptyArrays: false } },
+    { $group: {
+        _id: {
+          route: { $concat: ["$flights.SourceAirport", "-", "$flights.DestAirport"] },
+          Abbreviation: { $ifNull: ["$Abbreviation", "(unknown)"] }
+        },
+        flight_count: { $sum: 1 }
+    } },
+    { $match: { flight_count: { $gt: 3 } } },
+    { $project: { _id: 0, Abbreviation: "$_id.Abbreviation", route: "$_id.route", flight_count: 1 } }
+  ])
+canonical_form_set:
+  must_contain: ["$unwind", "$group", "$ifNull"]
+  must_not_contain: ["$setWindowFields", "$facet"]
+  must_contain_at_root: ["$unwind"]
+  must_not_contain_at_root: ["$lookup"]
+shape_policy: reshape
+join_depth: 0
+aggregation_depth: medium
+synthesis_trace:
+  primary_path: direct_compile
+  converged: true
+  normexec_equiv: true
+  ast_check_primary: true
+  ast_check_alt: true
+  gold_selection: mql_primary

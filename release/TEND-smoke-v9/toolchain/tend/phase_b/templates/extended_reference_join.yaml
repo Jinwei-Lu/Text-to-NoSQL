@@ -1,0 +1,6 @@
+primary_pattern: extended_reference_join
+description: Lookup followed by unwind for extended reference materialization.
+required_stages:
+  - $lookup
+  - $unwind
+  - $project

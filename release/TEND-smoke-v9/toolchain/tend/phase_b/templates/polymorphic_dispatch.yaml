@@ -1,0 +1,5 @@
+primary_pattern: polymorphic_dispatch
+description: Type-driven dispatch via $switch on heterogeneous payload shapes.
+required_stages:
+  - $addFields
+  - $project

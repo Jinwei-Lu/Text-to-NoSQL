@@ -1,0 +1,5 @@
+primary_pattern: set_window
+description: Partitioned rolling window aggregate without facet branch.
+required_stages:
+  - $setWindowFields
+  - $project

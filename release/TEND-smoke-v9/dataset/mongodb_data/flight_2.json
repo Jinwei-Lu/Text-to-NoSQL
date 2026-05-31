@@ -1,0 +1,160 @@
+{
+  "airlines": [
+    {
+      "_id": 1,
+      "Airline": "United Airlines",
+      "Abbreviation": "UAL",
+      "Country": "USA",
+      "payload": {
+        "Airline": "United Airlines",
+        "Abbreviation": "UAL",
+        "Country": "USA"
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_0"
+    },
+    {
+      "_id": 2,
+      "Airline": "US Airways",
+      "Abbreviation": "USAir",
+      "Country": "USA",
+      "payload": {
+        "Airline": "US Airways",
+        "Abbreviation": "USAir",
+        "Country": "USA"
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_1"
+    },
+    {
+      "_id": 3,
+      "Airline": "Delta Airlines",
+      "Abbreviation": "Delta",
+      "Country": "USA",
+      "payload": {
+        "Airline": "Delta Airlines",
+        "Abbreviation": "Delta",
+        "Country": "USA"
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_2"
+    },
+    {
+      "_id": 4,
+      "Airline": "Southwest Airlines",
+      "Abbreviation": "Southwest",
+      "Country": "USA",
+      "payload": {
+        "Airline": "Southwest Airlines",
+        "Abbreviation": "Southwest",
+        "Country": "USA"
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_3"
+    },
+    {
+      "_id": 5,
+      "Airline": "American Airlines",
+      "Abbreviation": "American",
+      "Country": "USA",
+      "payload": {
+        "Airline": "American Airlines",
+        "Abbreviation": "American",
+        "Country": "USA"
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_4"
+    },
+    {
+      "_id": 6,
+      "Airline": "Northwest Airlines",
+      "Abbreviation": "Northwest",
+      "Country": "USA",
+      "payload": {
+        "Airline": "Northwest Airlines",
+        "Abbreviation": "Northwest",
+        "Country": "USA"
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_5"
+    },
+    {
+      "_id": 7,
+      "Airline": "Continental Airlines",
+      "Abbreviation": "Continental",
+      "Country": "USA",
+      "payload": {
+        "Airline": "Continental Airlines",
+        "Abbreviation": "Continental",
+        "Country": "USA"
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_6"
+    },
+    {
+      "_id": 8,
+      "Airline": "JetBlue Airways",
+      "Abbreviation": "JetBlue",
+      "Country": "USA",
+      "payload": {
+        "Airline": "JetBlue Airways",
+        "Abbreviation": "JetBlue",
+        "Country": "USA"
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_7"
+    },
+    {
+      "_id": 9,
+      "Airline": "Frontier Airlines",
+      "Abbreviation": "Frontier",
+      "Country": "USA",
+      "payload": {
+        "Airline": "Frontier Airlines",
+        "Abbreviation": "Frontier",
+        "Country": "USA"
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_8"
+    },
+    {
+      "_id": 10,
+      "Airline": "AirTran Airways",
+      "Abbreviation": "AirTran",
+      "Country": "USA",
+      "payload": {
+        "Airline": "AirTran Airways",
+        "Abbreviation": "AirTran",
+        "Country": "USA"
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_9"
+    },
+    {
+      "_id": 11,
+      "Airline": "Allegiant Air",
+      "Abbreviation": "Allegiant",
+      "Country": "USA",
+      "payload": {
+        "Airline": "Allegiant Air",
+        "Abbreviation": "Allegiant",
+        "Country": "USA"
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_10"
+    },
+    {
+      "_id": 12,
+      "Airline": "Virgin America",
+      "Abbreviation": "Virgin",
+      "Country": "USA",
+      "payload": {
+        "Airline": "Virgin America",
+        "Abbreviation": "Virgin",
+        "Country": "USA"
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_11"
+    }
+  ]
+}

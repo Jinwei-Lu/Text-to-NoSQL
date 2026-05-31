@@ -1,0 +1,642 @@
+[
+  {
+    "db_id": "academic",
+    "warning": "domain fallback used: academic"
+  },
+  {
+    "db_id": "activity_1",
+    "warning": "domain fallback used: activity"
+  },
+  {
+    "db_id": "aircraft",
+    "warning": "domain fallback used: aircraft"
+  },
+  {
+    "db_id": "allergy_1",
+    "warning": "domain fallback used: allergy"
+  },
+  {
+    "db_id": "apartment_rentals",
+    "warning": "domain fallback used: apartment"
+  },
+  {
+    "db_id": "architecture",
+    "warning": "domain fallback used: architecture"
+  },
+  {
+    "db_id": "assets_maintenance",
+    "warning": "domain fallback used: assets"
+  },
+  {
+    "db_id": "baseball_1",
+    "warning": "domain fallback used: baseball"
+  },
+  {
+    "db_id": "battle_death",
+    "warning": "domain fallback used: battle"
+  },
+  {
+    "db_id": "behavior_monitoring",
+    "warning": "domain fallback used: behavior"
+  },
+  {
+    "db_id": "bike_1",
+    "warning": "domain fallback used: bike"
+  },
+  {
+    "db_id": "body_builder",
+    "warning": "domain fallback used: body"
+  },
+  {
+    "db_id": "book_2",
+    "warning": "domain fallback used: book"
+  },
+  {
+    "db_id": "browser_web",
+    "warning": "domain fallback used: browser"
+  },
+  {
+    "db_id": "candidate_poll",
+    "warning": "domain fallback used: candidate"
+  },
+  {
+    "db_id": "car_1",
+    "warning": "domain fallback used: car"
+  },
+  {
+    "db_id": "chinook_1",
+    "warning": "domain fallback used: chinook"
+  },
+  {
+    "db_id": "cinema",
+    "warning": "domain fallback used: cinema"
+  },
+  {
+    "db_id": "city_record",
+    "warning": "domain fallback used: city"
+  },
+  {
+    "db_id": "climbing",
+    "warning": "domain fallback used: climbing"
+  },
+  {
+    "db_id": "club_1",
+    "warning": "domain fallback used: club"
+  },
+  {
+    "db_id": "coffee_shop",
+    "warning": "domain fallback used: coffee"
+  },
+  {
+    "db_id": "college_1",
+    "warning": "domain fallback used: college"
+  },
+  {
+    "db_id": "college_2",
+    "warning": "domain fallback used: college"
+  },
+  {
+    "db_id": "college_3",
+    "warning": "domain fallback used: college"
+  },
+  {
+    "db_id": "company_1",
+    "warning": "domain fallback used: company"
+  },
+  {
+    "db_id": "company_employee",
+    "warning": "domain fallback used: company"
+  },
+  {
+    "db_id": "company_office",
+    "warning": "domain fallback used: company"
+  },
+  {
+    "db_id": "county_public_safety",
+    "warning": "domain fallback used: county"
+  },
+  {
+    "db_id": "course_teach",
+    "warning": "domain fallback used: course"
+  },
+  {
+    "db_id": "cre_doc_control_systems",
+    "warning": "domain fallback used: cre"
+  },
+  {
+    "db_id": "cre_doc_template_mgt",
+    "warning": "domain fallback used: cre"
+  },
+  {
+    "db_id": "cre_docs_and_epenses",
+    "warning": "domain fallback used: cre"
+  },
+  {
+    "db_id": "cre_drama_workshop_groups",
+    "warning": "domain fallback used: cre"
+  },
+  {
+    "db_id": "cre_theme_park",
+    "warning": "domain fallback used: cre"
+  },
+  {
+    "db_id": "csu_1",
+    "warning": "domain fallback used: csu"
+  },
+  {
+    "db_id": "culture_company",
+    "warning": "domain fallback used: culture"
+  },
+  {
+    "db_id": "customer_complaints",
+    "warning": "domain fallback used: customer"
+  },
+  {
+    "db_id": "customer_deliveries",
+    "warning": "domain fallback used: customer"
+  },
+  {
+    "db_id": "customers_and_addresses",
+    "warning": "domain fallback used: customers"
+  },
+  {
+    "db_id": "customers_and_invoices",
+    "warning": "domain fallback used: customers"
+  },
+  {
+    "db_id": "customers_and_products_contacts",
+    "warning": "domain fallback used: customers"
+  },
+  {
+    "db_id": "customers_campaigns_ecommerce",
+    "warning": "domain fallback used: customers"
+  },
+  {
+    "db_id": "customers_card_transactions",
+    "warning": "domain fallback used: customers"
+  },
+  {
+    "db_id": "debate",
+    "warning": "domain fallback used: debate"
+  },
+  {
+    "db_id": "decoration_competition",
+    "warning": "domain fallback used: decoration"
+  },
+  {
+    "db_id": "department_management",
+    "warning": "domain fallback used: department"
+  },
+  {
+    "db_id": "department_store",
+    "warning": "domain fallback used: department"
+  },
+  {
+    "db_id": "device",
+    "warning": "domain fallback used: device"
+  },
+  {
+    "db_id": "document_management",
+    "warning": "domain fallback used: document"
+  },
+  {
+    "db_id": "dog_kennels",
+    "warning": "domain fallback used: dog"
+  },
+  {
+    "db_id": "dorm_1",
+    "warning": "domain fallback used: dorm"
+  },
+  {
+    "db_id": "driving_school",
+    "warning": "domain fallback used: driving"
+  },
+  {
+    "db_id": "e_government",
+    "warning": "domain fallback used: e"
+  },
+  {
+    "db_id": "e_learning",
+    "warning": "domain fallback used: e"
+  },
+  {
+    "db_id": "election",
+    "warning": "domain fallback used: election"
+  },
+  {
+    "db_id": "election_representative",
+    "warning": "domain fallback used: election"
+  },
+  {
+    "db_id": "employee_hire_evaluation",
+    "warning": "domain fallback used: employee"
+  },
+  {
+    "db_id": "entertainment_awards",
+    "warning": "domain fallback used: entertainment"
+  },
+  {
+    "db_id": "entrepreneur",
+    "warning": "domain fallback used: entrepreneur"
+  },
+  {
+    "db_id": "epinions_1",
+    "warning": "domain fallback used: epinions"
+  },
+  {
+    "db_id": "farm",
+    "warning": "domain fallback used: farm"
+  },
+  {
+    "db_id": "film_rank",
+    "warning": "domain fallback used: film"
+  },
+  {
+    "db_id": "flight_1",
+    "warning": "domain fallback used: flight"
+  },
+  {
+    "db_id": "flight_4",
+    "warning": "domain fallback used: flight"
+  },
+  {
+    "db_id": "flight_company",
+    "warning": "domain fallback used: flight"
+  },
+  {
+    "db_id": "formula_1",
+    "warning": "domain fallback used: formula"
+  },
+  {
+    "db_id": "game_1",
+    "warning": "domain fallback used: game"
+  },
+  {
+    "db_id": "game_injury",
+    "warning": "domain fallback used: game"
+  },
+  {
+    "db_id": "gas_company",
+    "warning": "domain fallback used: gas"
+  },
+  {
+    "db_id": "geo",
+    "warning": "domain fallback used: geo"
+  },
+  {
+    "db_id": "gymnast",
+    "warning": "domain fallback used: gymnast"
+  },
+  {
+    "db_id": "hospital_1",
+    "warning": "domain fallback used: hospital"
+  },
+  {
+    "db_id": "hr_1",
+    "warning": "domain fallback used: hr"
+  },
+  {
+    "db_id": "icfp_1",
+    "warning": "domain fallback used: icfp"
+  },
+  {
+    "db_id": "imdb",
+    "warning": "domain fallback used: imdb"
+  },
+  {
+    "db_id": "inn_1",
+    "warning": "domain fallback used: inn"
+  },
+  {
+    "db_id": "insurance_and_eclaims",
+    "warning": "domain fallback used: insurance"
+  },
+  {
+    "db_id": "insurance_fnol",
+    "warning": "domain fallback used: insurance"
+  },
+  {
+    "db_id": "insurance_policies",
+    "warning": "domain fallback used: insurance"
+  },
+  {
+    "db_id": "journal_committee",
+    "warning": "domain fallback used: journal"
+  },
+  {
+    "db_id": "loan_1",
+    "warning": "domain fallback used: loan"
+  },
+  {
+    "db_id": "local_govt_and_lot",
+    "warning": "domain fallback used: local"
+  },
+  {
+    "db_id": "local_govt_in_alabama",
+    "warning": "domain fallback used: local"
+  },
+  {
+    "db_id": "local_govt_mdm",
+    "warning": "domain fallback used: local"
+  },
+  {
+    "db_id": "machine_repair",
+    "warning": "domain fallback used: machine"
+  },
+  {
+    "db_id": "manufactory_1",
+    "warning": "domain fallback used: manufactory"
+  },
+  {
+    "db_id": "manufacturer",
+    "warning": "domain fallback used: manufacturer"
+  },
+  {
+    "db_id": "match_season",
+    "warning": "domain fallback used: match"
+  },
+  {
+    "db_id": "medicine_enzyme_interaction",
+    "warning": "domain fallback used: medicine"
+  },
+  {
+    "db_id": "mountain_photos",
+    "warning": "domain fallback used: mountain"
+  },
+  {
+    "db_id": "movie_1",
+    "warning": "domain fallback used: movie"
+  },
+  {
+    "db_id": "museum_visit",
+    "warning": "domain fallback used: museum"
+  },
+  {
+    "db_id": "music_1",
+    "warning": "domain fallback used: music"
+  },
+  {
+    "db_id": "music_2",
+    "warning": "domain fallback used: music"
+  },
+  {
+    "db_id": "music_4",
+    "warning": "domain fallback used: music"
+  },
+  {
+    "db_id": "musical",
+    "warning": "domain fallback used: musical"
+  },
+  {
+    "db_id": "network_1",
+    "warning": "domain fallback used: network"
+  },
+  {
+    "db_id": "network_2",
+    "warning": "domain fallback used: network"
+  },
+  {
+    "db_id": "news_report",
+    "warning": "domain fallback used: news"
+  },
+  {
+    "db_id": "party_host",
+    "warning": "domain fallback used: party"
+  },
+  {
+    "db_id": "party_people",
+    "warning": "domain fallback used: party"
+  },
+  {
+    "db_id": "performance_attendance",
+    "warning": "domain fallback used: performance"
+  },
+  {
+    "db_id": "perpetrator",
+    "warning": "domain fallback used: perpetrator"
+  },
+  {
+    "db_id": "pets_1",
+    "warning": "domain fallback used: pets"
+  },
+  {
+    "db_id": "phone_1",
+    "warning": "domain fallback used: phone"
+  },
+  {
+    "db_id": "phone_market",
+    "warning": "domain fallback used: phone"
+  },
+  {
+    "db_id": "pilot_record",
+    "warning": "domain fallback used: pilot"
+  },
+  {
+    "db_id": "poker_player",
+    "warning": "domain fallback used: poker"
+  },
+  {
+    "db_id": "product_catalog",
+    "warning": "domain fallback used: product"
+  },
+  {
+    "db_id": "products_for_hire",
+    "warning": "domain fallback used: products"
+  },
+  {
+    "db_id": "products_gen_characteristics",
+    "warning": "domain fallback used: products"
+  },
+  {
+    "db_id": "program_share",
+    "warning": "domain fallback used: program"
+  },
+  {
+    "db_id": "protein_institute",
+    "warning": "domain fallback used: protein"
+  },
+  {
+    "db_id": "race_track",
+    "warning": "domain fallback used: race"
+  },
+  {
+    "db_id": "railway",
+    "warning": "domain fallback used: railway"
+  },
+  {
+    "db_id": "real_estate_properties",
+    "warning": "domain fallback used: real"
+  },
+  {
+    "db_id": "restaurant_1",
+    "warning": "domain fallback used: restaurant"
+  },
+  {
+    "db_id": "restaurants",
+    "warning": "domain fallback used: restaurants"
+  },
+  {
+    "db_id": "riding_club",
+    "warning": "domain fallback used: riding"
+  },
+  {
+    "db_id": "roller_coaster",
+    "warning": "domain fallback used: roller"
+  },
+  {
+    "db_id": "sakila_1",
+    "warning": "domain fallback used: sakila"
+  },
+  {
+    "db_id": "scholar",
+    "warning": "domain fallback used: scholar"
+  },
+  {
+    "db_id": "school_bus",
+    "warning": "domain fallback used: school"
+  },
+  {
+    "db_id": "school_finance",
+    "warning": "domain fallback used: school"
+  },
+  {
+    "db_id": "school_player",
+    "warning": "domain fallback used: school"
+  },
+  {
+    "db_id": "scientist_1",
+    "warning": "domain fallback used: scientist"
+  },
+  {
+    "db_id": "ship_1",
+    "warning": "domain fallback used: ship"
+  },
+  {
+    "db_id": "ship_mission",
+    "warning": "domain fallback used: ship"
+  },
+  {
+    "db_id": "shop_membership",
+    "warning": "domain fallback used: shop"
+  },
+  {
+    "db_id": "singer",
+    "warning": "domain fallback used: singer"
+  },
+  {
+    "db_id": "small_bank_1",
+    "warning": "domain fallback used: small"
+  },
+  {
+    "db_id": "soccer_1",
+    "warning": "domain fallback used: soccer"
+  },
+  {
+    "db_id": "soccer_2",
+    "warning": "domain fallback used: soccer"
+  },
+  {
+    "db_id": "solvency_ii",
+    "warning": "domain fallback used: solvency"
+  },
+  {
+    "db_id": "sports_competition",
+    "warning": "domain fallback used: sports"
+  },
+  {
+    "db_id": "station_weather",
+    "warning": "domain fallback used: station"
+  },
+  {
+    "db_id": "store_1",
+    "warning": "domain fallback used: store"
+  },
+  {
+    "db_id": "store_product",
+    "warning": "domain fallback used: store"
+  },
+  {
+    "db_id": "storm_record",
+    "warning": "domain fallback used: storm"
+  },
+  {
+    "db_id": "student_1",
+    "warning": "domain fallback used: student"
+  },
+  {
+    "db_id": "student_transcripts_tracking",
+    "warning": "domain fallback used: student"
+  },
+  {
+    "db_id": "swimming",
+    "warning": "domain fallback used: swimming"
+  },
+  {
+    "db_id": "theme_gallery",
+    "warning": "domain fallback used: theme"
+  },
+  {
+    "db_id": "tracking_grants_for_research",
+    "warning": "domain fallback used: tracking"
+  },
+  {
+    "db_id": "tracking_orders",
+    "warning": "domain fallback used: tracking"
+  },
+  {
+    "db_id": "tracking_share_transactions",
+    "warning": "domain fallback used: tracking"
+  },
+  {
+    "db_id": "tracking_software_problems",
+    "warning": "domain fallback used: tracking"
+  },
+  {
+    "db_id": "train_station",
+    "warning": "domain fallback used: train"
+  },
+  {
+    "db_id": "tvshow",
+    "warning": "domain fallback used: tvshow"
+  },
+  {
+    "db_id": "twitter_1",
+    "warning": "domain fallback used: twitter"
+  },
+  {
+    "db_id": "university_basketball",
+    "warning": "domain fallback used: university"
+  },
+  {
+    "db_id": "voter_1",
+    "warning": "domain fallback used: voter"
+  },
+  {
+    "db_id": "voter_2",
+    "warning": "domain fallback used: voter"
+  },
+  {
+    "db_id": "wedding",
+    "warning": "domain fallback used: wedding"
+  },
+  {
+    "db_id": "wine_1",
+    "warning": "domain fallback used: wine"
+  },
+  {
+    "db_id": "workshop_paper",
+    "warning": "domain fallback used: workshop"
+  },
+  {
+    "db_id": "wrestler",
+    "warning": "domain fallback used: wrestler"
+  },
+  {
+    "db_id": "wta_1",
+    "warning": "domain fallback used: wta"
+  },
+  {
+    "db_id": "yelp",
+    "warning": "domain fallback used: yelp"
+  }
+]

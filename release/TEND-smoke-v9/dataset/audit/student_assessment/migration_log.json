@@ -1,0 +1,171 @@
+{
+  "db_id": "student_assessment",
+  "generated_at": "2026-05-30T14:12:41Z",
+  "source_sqlite": "database/student_assessment/student_assessment.sqlite",
+  "target_collections": [
+    "Addresses"
+  ],
+  "world_signature": "sha256:050e2ab1826873df1e0476c8a1e25aaba4d5435f40e7b0c528fa5818bebd1718",
+  "stats": {
+    "source_rows": 15,
+    "target_documents": 15,
+    "tables_migrated": 1
+  },
+  "entries": [
+    {
+      "entry_id": "M0001",
+      "source_table": "Addresses",
+      "source_pk": "5",
+      "target_collection": "Addresses",
+      "target_id": 5,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0002",
+      "source_table": "Addresses",
+      "source_pk": "9",
+      "target_collection": "Addresses",
+      "target_id": 9,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0003",
+      "source_table": "Addresses",
+      "source_pk": "29",
+      "target_collection": "Addresses",
+      "target_id": 29,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0004",
+      "source_table": "Addresses",
+      "source_pk": "30",
+      "target_collection": "Addresses",
+      "target_id": 30,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0005",
+      "source_table": "Addresses",
+      "source_pk": "43",
+      "target_collection": "Addresses",
+      "target_id": 43,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0006",
+      "source_table": "Addresses",
+      "source_pk": "45",
+      "target_collection": "Addresses",
+      "target_id": 45,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0007",
+      "source_table": "Addresses",
+      "source_pk": "55",
+      "target_collection": "Addresses",
+      "target_id": 55,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0008",
+      "source_table": "Addresses",
+      "source_pk": "63",
+      "target_collection": "Addresses",
+      "target_id": 63,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0009",
+      "source_table": "Addresses",
+      "source_pk": "68",
+      "target_collection": "Addresses",
+      "target_id": 68,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0010",
+      "source_table": "Addresses",
+      "source_pk": "73",
+      "target_collection": "Addresses",
+      "target_id": 73,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0011",
+      "source_table": "Addresses",
+      "source_pk": "82",
+      "target_collection": "Addresses",
+      "target_id": 82,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0012",
+      "source_table": "Addresses",
+      "source_pk": "88",
+      "target_collection": "Addresses",
+      "target_id": 88,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0013",
+      "source_table": "Addresses",
+      "source_pk": "92",
+      "target_collection": "Addresses",
+      "target_id": 92,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0014",
+      "source_table": "Addresses",
+      "source_pk": "94",
+      "target_collection": "Addresses",
+      "target_id": 94,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0015",
+      "source_table": "Addresses",
+      "source_pk": "99",
+      "target_collection": "Addresses",
+      "target_id": 99,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    }
+  ],
+  "integrity_checks": {
+    "referential_pass": true,
+    "row_count_reconciled": true,
+    "orphan_refs": 0
+  }
+}

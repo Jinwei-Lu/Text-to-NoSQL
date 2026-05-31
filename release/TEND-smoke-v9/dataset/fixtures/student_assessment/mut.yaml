@@ -1,0 +1,22 @@
+mutations:
+  - mutation_id: m001
+    dimension: A
+    subaxis: drop_must_contain_op
+    expected_reject: true
+    rationale: Replace $switch with uniform $max on raw score field; misses type-specific normalization.
+  - mutation_id: m002
+    dimension: C
+    subaxis: drop_ifNull
+    expected_reject: true
+    rationale: Remove $ifNull on written_score; null breaks written branch divide.
+  - mutation_id: m003
+    dimension: A
+    subaxis: branch_swap
+    expected_reject: true
+    rationale: Swap oral and practical branch cases; misroutes lab_score to oral type.
+mut_trace:
+  count: 3
+  seed: 17
+  dimensions_covered: [A, C]
+  schema_flex_stress: true
+  mutations_ref: fixtures/student_assessment/mutations.json

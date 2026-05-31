@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tend.dev/schemas/agent_design_rationale.schema.json",
+  "title": "TEND SRA Agent Design Rationale",
+  "description": "Evidence-linked MongoDB design decisions produced by SRA (Schema Re-architect).",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["db_id", "decisions", "patterns_applied"],
+  "properties": {
+    "db_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "source_spider_tables": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "collections": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/designDecision" }
+    },
+    "patterns_applied": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": [
+          "embed",
+          "extended_reference",
+          "polymorphic",
+          "attribute",
+          "bucket",
+          "computed",
+          "subset",
+          "tree",
+          "outlier",
+          "schema_versioning",
+          "mixed"
+        ]
+      }
+    },
+    "rationale_summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "anti_pattern_checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "issues"],
+      "properties": {
+        "pass": { "type": "boolean" },
+        "issues": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "heterogenization": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_flex": {
+          "type": "string",
+          "enum": ["none", "polymorphic", "attribute_bag", "schema_versioning", "dynamic_key"]
+        },
+        "triggers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "fired"],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "enum": ["H0", "H1", "H2", "H3", "H4"]
+              },
+              "fired": { "type": "boolean" },
+              "evidence": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "designDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "rationale"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^D[0-9]{2,}$"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "embed",
+            "reference",
+            "extended_reference",
+            "polymorphic_collapse",
+            "bucket",
+            "computed",
+            "attribute",
+            "subset",
+            "tree",
+            "outlier",
+            "schema_versioning"
+          ]
+        },
+        "parent": { "type": "string" },
+        "child": { "type": "string" },
+        "rationale": { "type": "string", "minLength": 1 },
+        "reference": { "type": "string", "minLength": 1 },
+        "pattern": { "type": "string" }
+      }
+    }
+  }
+}

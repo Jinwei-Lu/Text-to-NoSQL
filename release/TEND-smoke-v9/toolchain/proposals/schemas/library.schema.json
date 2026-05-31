@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tend.dev/schemas/library.schema.json",
+  "title": "TEND Library Assets",
+  "description": "JSON Schemas for per-db and global library-level assets consumed by solvers and evaluators.",
+  "$defs": {
+    "fieldType": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["INT", "REAL", "TEXT", "BOOL", "OBJECT", "ARRAY"]
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": { "const": "ARRAY" },
+            "items": { "$ref": "#/$defs/nestedType" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "fields"],
+          "properties": {
+            "type": { "const": "OBJECT" },
+            "fields": {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/$defs/nestedType" }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "nestedType": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["INT", "REAL", "TEXT", "BOOL", "OBJECT", "ARRAY"]
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": { "const": "ARRAY" },
+            "items": { "$ref": "#/$defs/nestedType" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "fields"],
+          "properties": {
+            "type": { "const": "OBJECT" },
+            "fields": {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/$defs/nestedType" }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "mongodb_schema": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/collectionSchema"
+      },
+      "description": "mongodb_schema/<db_id>.json — collection name → field declaration tree."
+    },
+    "shapeVariant": {
+      "type": "object",
+      "required": ["discriminator", "fields"],
+      "additionalProperties": false,
+      "properties": {
+        "discriminator": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string" }
+        },
+        "fields": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/nestedType" }
+        },
+        "coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "source_signal": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "collectionSchema": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "__variants": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/shapeVariant" }
+        }
+      },
+      "patternProperties": {
+        "^(?!__variants$)[A-Za-z_][A-Za-z0-9_]*$": { "$ref": "#/$defs/fieldType" }
+      },
+      "additionalProperties": false
+    },
+    "mongodb_data": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "required": ["_id"],
+          "additionalProperties": true
+        }
+      },
+      "description": "mongodb_data/<db_id>.json — collection name → non-empty document array."
+    },
+    "designDecision": {
+      "type": "object",
+      "required": ["id", "type", "rationale"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^D[0-9]{2,}$" },
+        "type": {
+          "type": "string",
+          "enum": [
+            "embed",
+            "reference",
+            "extended_reference",
+            "polymorphic_collapse",
+            "bucket",
+            "computed",
+            "attribute",
+            "subset",
+            "tree",
+            "outlier",
+            "schema_versioning"
+          ]
+        },
+        "parent": { "type": "string" },
+        "child": { "type": "string" },
+        "rationale": { "type": "string", "minLength": 1 },
+        "reference": { "type": "string" },
+        "pattern": { "type": "string" }
+      }
+    },
+    "agent_design_rationale": {
+      "type": "object",
+      "required": ["db_id", "decisions", "patterns_applied"],
+      "additionalProperties": true,
+      "properties": {
+        "db_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "source_spider_tables": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "collections": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "decisions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/designDecision" }
+        },
+        "patterns_applied": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "rationale_summary": { "type": "string" },
+        "anti_pattern_checks": {
+          "type": "object",
+          "properties": {
+            "pass": { "type": "boolean" },
+            "issues": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "description": "agent_design_rationale/<db_id>.yaml — SRA output with evidence chain."
+    },
+    "spiderDbEntry": {
+      "type": "object",
+      "required": [
+        "db_id",
+        "domain_id",
+        "sqlite_path",
+        "table_count",
+        "query_count",
+        "selected",
+        "flex_eligible"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "db_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "domain_id": { "type": "string", "minLength": 1 },
+        "sqlite_path": { "type": "string", "minLength": 1 },
+        "table_count": { "type": "integer", "minimum": 1 },
+        "query_count": { "type": "integer", "minimum": 1 },
+        "selected": { "type": "boolean" },
+        "flex_eligible": {
+          "type": "boolean",
+          "description": "H1–H4 would-trigger pre-audit result; contributes to selected_flex_ratio for H7/H9 supply-relax."
+        },
+        "selection_reason": { "type": "string" },
+        "reject_reason": { "type": "string" }
+      }
+    },
+    "spider_db_catalog": {
+      "type": "object",
+      "required": ["spider_version", "generated_at", "databases"],
+      "additionalProperties": false,
+      "properties": {
+        "spider_version": { "type": "string", "const": "1.0" },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "spider_root": { "type": "string" },
+        "selection_policy": {
+          "type": "object",
+          "properties": {
+            "min_tables": { "type": "integer", "minimum": 1 },
+            "min_queries": { "type": "integer", "minimum": 1 },
+            "require_non_empty_data": { "type": "boolean" },
+            "min_flex_db_ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Minimum share of selected DBs with flex_eligible=true (default 0.30)."
+            }
+          },
+          "additionalProperties": false
+        },
+        "databases": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/spiderDbEntry" }
+        }
+      },
+      "description": "spider_db_catalog.json — global Spider DB inventory and selection verdict. selected_flex_ratio = count(selected ∧ flex_eligible) / count(selected); when selected_flex_ratio < min_flex_db_ratio (default 0.30), Coverage Controller applies H7/H9 supply-relax (test schema_flex ≠ none floor → max(15%, supply_ceiling); structural_schema_flex floor → max(10%, supply_ceiling × 0.8))."
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/mongodb_schema" },
+    { "$ref": "#/$defs/mongodb_data" },
+    { "$ref": "#/$defs/agent_design_rationale" },
+    { "$ref": "#/$defs/spider_db_catalog" }
+  ]
+}

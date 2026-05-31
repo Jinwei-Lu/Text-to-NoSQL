@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tend.dev/schemas/record.schema.json",
+  "title": "TEND Record",
+  "description": "Single evaluation record in train.json / test.json / TEND.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_id",
+    "db_id",
+    "nl_queries",
+    "MQL",
+    "canonical_form_set",
+    "difficulty",
+    "sql_infeasibility_class",
+    "shape_policy",
+    "world_signature"
+  ],
+  "properties": {
+    "record_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Globally unique positive integer; never reused across train/test."
+    },
+    "db_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Spider 1.0 database id; basename of per-db library assets."
+    },
+    "nl_queries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonical", "colloquial"],
+      "properties": {
+        "canonical": {
+          "type": "string",
+          "minLength": 1,
+          "description": "L1 canonical NLQ: explicit intent, schema-naive, no NoSQL jargon."
+        },
+        "colloquial": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Underspecified colloquial NLQ at the opposite end of the specificity spectrum."
+        }
+      }
+    },
+    "MQL": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Representative executable gold MQL; must pass AST_check against canonical_form_set."
+    },
+    "canonical_form_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "must_contain",
+        "must_not_contain",
+        "must_contain_at_root",
+        "must_not_contain_at_root"
+      ],
+      "properties": {
+        "must_contain": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^\\$[A-Za-z][A-Za-z0-9_]*$" }
+        },
+        "must_not_contain": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^\\$[A-Za-z][A-Za-z0-9_]*$" }
+        },
+        "must_contain_at_root": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^\\$[A-Za-z][A-Za-z0-9_]*$" }
+        },
+        "must_not_contain_at_root": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^\\$[A-Za-z][A-Za-z0-9_]*$" }
+        }
+      }
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": ["L0", "L1", "L2", "L3", "L4"],
+      "description": "NoSQL nativeness tier assigned by NNC; L4 = translation-lossy / NoSQL-native."
+    },
+    "sql_infeasibility_class": {
+      "type": "string",
+      "enum": [
+        "feasible",
+        "semantic",
+        "performative",
+        "structural_pipeline",
+        "structural_schema_flex"
+      ],
+      "description": "NNC-assigned SQL infeasibility class; gates dual-bridge publish when not feasible."
+    },
+    "shape_policy": {
+      "type": "string",
+      "enum": ["preserve", "reshape", "reduce"]
+    },
+    "world_signature": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]+$",
+      "minLength": 71,
+      "description": "SHA-256 pin of mongodb_data/<db_id>.json canonical BSON serialization."
+    },
+    "domain_id": {
+      "type": "string",
+      "description": "Spider domain label for cross-domain holdout and six-axis coverage."
+    },
+    "join_depth": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 8,
+      "description": "Count of $lookup (or equivalent join) stages in representative MQL."
+    },
+    "aggregation_depth": {
+      "type": "string",
+      "enum": ["shallow", "medium", "deep"],
+      "description": "Root pipeline stage-count bucket for six-axis coverage."
+    },
+    "schema_pattern": {
+      "type": "string",
+      "enum": [
+        "embed",
+        "extended_reference",
+        "polymorphic",
+        "bucket",
+        "computed",
+        "attribute",
+        "outlier",
+        "schema_versioning",
+        "subset",
+        "tree",
+        "mixed"
+      ],
+      "description": "Primary MongoDB design pattern applied by SRA for this db_id."
+    },
+    "schema_flex": {
+      "type": "string",
+      "enum": ["none", "polymorphic", "attribute_bag", "schema_versioning", "dynamic_key"],
+      "description": "SRA Stage B heterogenization type; omit or none when H1-H4 do not fire."
+    },
+    "agent_design_rationale_ref": {
+      "type": "string",
+      "pattern": "^(audit/|fixtures/|agent_design_rationale/)[^\\s]+\\.(yaml|yml|json)$"
+    },
+    "mutations_ref": {
+      "type": "string",
+      "pattern": "^(audit/|fixtures/)[^\\s]+\\.json$"
+    },
+    "_diagnostic_bridge_ref": {
+      "type": "string",
+      "pattern": "^(audit/|fixtures/)[^\\s]+\\.(yaml|yml|json)$",
+      "description": "NNC SQL/Template bridge diagnostic verdict (non-publish gate)."
+    },
+    "property_verification_ref": {
+      "type": "string",
+      "pattern": "^(audit/|fixtures/)[^\\s]+\\.(yaml|yml|json)$",
+      "description": "PV property verification and witness probe results."
+    },
+    "round_trip_ref": {
+      "type": "string",
+      "pattern": "^(audit/|fixtures/)[^\\s]+\\.(yaml|yml|json)$",
+      "description": "RTV NL→MQL round-trip closure trace."
+    },
+    "nnc_verdict_ref": {
+      "type": "string",
+      "pattern": "^audit/[^\\s]+\\.json$"
+    },
+    "ra_audit_ref": {
+      "type": "string",
+      "pattern": "^audit/[^\\s]+\\.json$"
+    },
+    "migration_log_ref": {
+      "type": "string",
+      "pattern": "^audit/[^\\s]+\\.json$"
+    }
+  }
+}

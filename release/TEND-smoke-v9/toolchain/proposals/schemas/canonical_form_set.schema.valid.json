@@ -1,0 +1,6 @@
+{
+  "must_contain": ["$setWindowFields", "$facet", "$ifNull"],
+  "must_not_contain": [],
+  "must_contain_at_root": ["$setWindowFields", "$facet"],
+  "must_not_contain_at_root": []
+}

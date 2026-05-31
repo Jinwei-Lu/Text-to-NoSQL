@@ -1,0 +1,10 @@
+{
+  "difficulty": {
+    "L4": 3,
+    "L1": 2
+  },
+  "sql_infeasibility_class": {
+    "structural_schema_flex": 3,
+    "feasible": 2
+  }
+}

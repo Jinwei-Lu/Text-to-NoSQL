@@ -1,0 +1,63 @@
+db_id: department_store
+spider_version: '1.0'
+generated_at: '2026-05-31T09:09:54Z'
+insufficient_workload: false
+source:
+  sqlite_path: database/department_store/department_store.sqlite
+  tables:
+  - Addresses
+  - Customer_Addresses
+  - Customer_Orders
+  - Customers
+  - Department_Store_Chain
+  - Department_Stores
+  - Departments
+  - Order_Items
+  - Product_Suppliers
+  - Products
+  - Staff
+  - Staff_Department_Assignments
+  - Supplier_Addresses
+  - Suppliers
+  query_count: 88
+workload_summary: 'Spider workload for department_store: 88 queries across 14 tables.'
+scenario_summary: Domain anchored on department_store. Typical questions compare entities,
+  filter by attributes, rank by metrics, aggregate counts or averages, and join related
+  records across tables.
+access_patterns:
+- pattern_id: AP01
+  type: nested_traversal
+  tables:
+  - Addresses
+  - Customer_Addresses
+  - Customer_Orders
+  join_path: null
+  frequency: 0.5
+  example_query_ids:
+  - 1
+  nl_hints:
+  - traverse related entities for filtering or projection
+  sql_operators:
+  - JOIN
+  - SELECT
+hot_fields:
+- path: Addresses.id
+  access_count: 44
+co_location_signals:
+- entities:
+  - Addresses
+  - Customer_Addresses
+  co_access_rate: 0.7
+  note: co-access inferred from join queries
+join_depth_distribution:
+  '0': 0.1
+  '1': 0.3
+  '2': 0.4
+  3+: 0.2
+aggregation_depth_distribution:
+  shallow: 0.4
+  medium: 0.35
+  deep: 0.25
+design_constraints:
+- Preserve hot-path fields reachable without deep $lookup chains.
+- Keep primary entity roots aligned with highest-frequency access patterns.

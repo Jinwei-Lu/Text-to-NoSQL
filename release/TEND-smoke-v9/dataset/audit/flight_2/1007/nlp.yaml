@@ -1,0 +1,11 @@
+{
+  "nl_queries": {
+    "canonical": "Retrieve the field attribute from all airlines where the field attribute exists (i.e., is not null or missing).",
+    "colloquial": "Which airlines have this data?"
+  },
+  "nlp_trace": {
+    "canonical_no_dollar_ops": true,
+    "colloquial_no_field_names": true,
+    "single_intent_check": true
+  }
+}

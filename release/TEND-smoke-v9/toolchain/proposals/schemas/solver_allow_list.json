@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tend.dev/schemas/solver_allow_list.json",
+  "title": "TEND solver-side allow-list",
+  "description": "Machine-readable solver boundary contract for SMART schema-less agentic stages (2 agents / 4 stages + cross-cutting Agentic RAG). Authoritative prose in proposals/06_solution_design.md.",
+  "schema_version": "2026-05-30",
+  "disabled_operators": [
+    "$sample",
+    "$rand",
+    "$out",
+    "$merge",
+    "$function"
+  ],
+  "disabled_system_vars": [
+    "$$NOW"
+  ],
+  "disabled_operator_note": "Six disabled operators per 01 §01-2-2; AST filter must reject all six plus $$NOW before submission.",
+  "tier1_forbidden_glob": [
+    "audit/**",
+    "test.json:MQL",
+    "test.json:canonical_form_set",
+    "test.json:shape_policy",
+    "test.json:*_ref",
+    "train.json:*_ref",
+    "rejected/**"
+  ],
+  "audit_blocklist": [
+    "audit/**",
+    "rejected/**"
+  ],
+  "test_record_forbidden_fields": [
+    "MQL",
+    "canonical_form_set",
+    "shape_policy",
+    "agent_design_rationale_ref",
+    "mutations_ref",
+    "_diagnostic_bridge_ref",
+    "property_verification_ref",
+    "round_trip_ref",
+    "nnc_verdict_ref",
+    "ra_audit_ref",
+    "migration_log_ref"
+  ],
+  "train_record_readable_fields": [
+    "record_id",
+    "db_id",
+    "nl_queries",
+    "MQL",
+    "canonical_form_set",
+    "difficulty",
+    "shape_policy",
+    "world_signature"
+  ],
+  "train_record_forbidden_suffix": "_ref",
+  "library_readable": [
+    "mongodb_schema/<db_id>.json",
+    "mongodb_data/<db_id>.json",
+    "agent_design_rationale/<db_id>.yaml",
+    "spider_db_catalog.json"
+  ],
+  "witness_sample_limit": {
+    "scope": "heterogeneity_planning_and_query_realization",
+    "max_per_collection": "solver_disclosed_K",
+    "forbidden_in_stage": "shape_comprehension",
+    "note": "≤ K docs/collection may enter any prompt; the query_realization executor may run on the solver's full LOCAL replica (variant-stratified sampling for cross-variant debug) — the K limit caps prompt-injected samples, not local execution data volume."
+  },
+  "four_party_disjointness": {
+    "construction_authority": "05 §05-4",
+    "solver_dual": "06 §06-4-3",
+    "sets": {
+      "A_evaluated": "solver under test (self)",
+      "B_frozen_panels": "20 frozen reference models (4 panels × 5)",
+      "C_construction_pool": "Construction Agent LLM pool {QPS, MS, MUT, PV, NLP, RTV, NNC, RA}"
+    },
+    "construction_agents": ["QPS", "MS", "MUT", "PV", "NLP", "RTV", "NNC", "RA"],
+    "solver_invariant": [
+      "S_solver ∩ B_frozen = ∅",
+      "S_solver ∩ C_construction_pool = ∅"
+    ],
+    "s_solver_scope": [
+      "shape_comprehension_slm_agent_backbone",
+      "cognition_llm_agent_backbone",
+      "example_retrieval_embedding_model",
+      "auxiliary_models"
+    ]
+  },
+  "frozen_panel_manifest_ref": "audit/reference_panel/manifest_<release>.json",
+  "frozen_panels": {
+    "small": [],
+    "medium": [],
+    "large": [],
+    "frontier": []
+  },
+  "frozen_panel_note": "Populate frozen_panels.* from audit/reference_panel/manifest_<release>.json at release time; empty arrays are placeholders until manifest is published.",
+  "stages": {
+    "shape_comprehension": {
+      "owner_agent": "SLM Agent (concurrent map-reduce probes)",
+      "inputs": ["NLQ", "S (incl __variants)"],
+      "outputs": ["S_hat (shape_model: field_locus, variants, coverage_gaps, shape_flex_signature)"],
+      "readable": [
+        "mongodb_schema/<db_id>.json (incl __variants)",
+        "test.json:nl_queries.canonical",
+        "test.json:nl_queries.colloquial",
+        "test.json:db_id",
+        "test.json:difficulty"
+      ],
+      "forbidden": [
+        "mongodb_data/** (ANY load — schema-only stage, §06-4-4.2)",
+        "audit/**",
+        "test.json:MQL",
+        "test.json:canonical_form_set",
+        "test.json:shape_policy",
+        "test.json:*_ref"
+      ],
+      "note": "__variants is the authoritative shape contract; no data sampling here. Undeclared real-data shapes are caught downstream via the query_realization → shape_comprehension loop."
+    },
+    "intent_formalization": {
+      "owner_agent": "LLM Agent",
+      "inputs": ["NLQ", "S_hat"],
+      "outputs": ["logical_spec (paradigm-neutral; includes self-inferred shape_policy + target_fields)"],
+      "readable": [
+        "test.json:nl_queries",
+        "test.json:db_id",
+        "test.json:difficulty"
+      ],
+      "forbidden": [
+        "audit/**",
+        "test.json:MQL",
+        "test.json:canonical_form_set",
+        "test.json:shape_policy",
+        "test.json:*_ref",
+        "train.json:*_ref"
+      ],
+      "postprocess": ["slm_clause_coverage_check"]
+    },
+    "heterogeneity_planning": {
+      "owner_agent": "LLM Agent (crux ★)",
+      "inputs": ["logical_spec", "S_hat"],
+      "outputs": ["physical_plan (Mongo pipeline skeleton + variant_handling)"],
+      "readable": [
+        "mongodb_schema/<db_id>.json",
+        "mongodb_data/<db_id>.json (≤ K docs per collection into prompt)",
+        "agent_design_rationale/<db_id>.yaml (public summary fields only)",
+        "test.json:nl_queries",
+        "test.json:db_id"
+      ],
+      "forbidden": [
+        "audit/**",
+        "test.json:MQL",
+        "test.json:canonical_form_set",
+        "test.json:shape_policy",
+        "test.json:*_ref",
+        "train.json:*_ref"
+      ]
+    },
+    "query_realization": {
+      "owner_agent": "LLM Agent (generation + self-debug fused; executor is an inline tool)",
+      "inputs": ["physical_plan", "S_hat", "local_mongodb"],
+      "outputs": ["q_p_final"],
+      "readable": [
+        "mongodb_schema/<db_id>.json",
+        "mongodb_data/<db_id>.json (local replica; variant-stratified execution; ≤ K docs/collection into prompt)",
+        "test.json:nl_queries",
+        "test.json:db_id"
+      ],
+      "forbidden": [
+        "test.json:MQL",
+        "test.json:canonical_form_set",
+        "test.json:shape_policy",
+        "test.json:*_ref",
+        "evaluator_gold_runtime",
+        "audit/**"
+      ],
+      "postprocess": ["ast_reject_disabled_operators"],
+      "feedback_routing": {
+        "allowed_keys": ["error_code", "stage_index", "suspect_field", "failing_variant"],
+        "loop_back_to": ["heterogeneity_planning", "intent_formalization", "shape_comprehension"],
+        "forbidden": ["raw_result_rows", "gold_answer"]
+      }
+    }
+  },
+  "tools": {
+    "example_retrieval": {
+      "description": "Agentic RAG: a cross-cutting example-retrieval tool (NOT a stage, NOT an agent) exposing two methods that match similar train examples — by regex or by embedding similarity. Authoritative prose in 06 §06-2-5.",
+      "methods": ["regex_example_retriever", "embedding_example_retriever"],
+      "method_match": {
+        "regex_example_retriever": "operator fingerprint (canonical_form_set.must_contain), stage skeleton, shape_flex signature",
+        "embedding_example_retriever": "embedding similarity on de-domained intent vector / draft-MQL vector / S_hat field-path signature"
+      },
+      "callable_by_stages": ["shape_comprehension", "intent_formalization", "heterogeneity_planning", "query_realization"],
+      "retrieval_principle": "cross-domain holdout (02 §02-3) ⇒ key on ABSTRACT STRUCTURE (operator fingerprint, shape_flex signature, de-domained intent vector), NOT surface NL/field names; surface similarity retrieves non-existent same-domain neighbours.",
+      "readable": [
+        "train.json:record_id",
+        "train.json:db_id",
+        "train.json:nl_queries",
+        "train.json:MQL",
+        "train.json:canonical_form_set",
+        "train.json:difficulty",
+        "train.json:shape_policy",
+        "train.json:world_signature"
+      ],
+      "forbidden": [
+        "train.json:*_ref",
+        "audit/**"
+      ],
+      "embedding_model_in_s_solver": true,
+      "offline_index_only_no_training": true,
+      "call_budget": "solver_disclosed_R_retr",
+      "postprocess_on_rewrite": ["ast_reject_disabled_operators"]
+    }
+  },
+  "shape_preserving": {
+    "shape_policy_trigger": "preserve",
+    "nlq_keywords_en": [
+      "attach",
+      "augment",
+      "add field",
+      "preserve structure",
+      "in place",
+      "decorate",
+      "annotate"
+    ],
+    "nlq_keywords_zh": [
+      "附加",
+      "增补",
+      "标注",
+      "就地计算",
+      "保持原结构"
+    ],
+    "required_idiom": ["$addFields", "$set", "$map", "$reduce", "$filter"],
+    "anti_patterns": ["$unwind + $group to rebuild arrays"]
+  }
+}

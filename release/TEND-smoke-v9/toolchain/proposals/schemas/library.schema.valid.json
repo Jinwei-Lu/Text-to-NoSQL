@@ -1,0 +1,23 @@
+{
+  "spider_version": "1.0",
+  "generated_at": "2026-05-23T08:00:00Z",
+  "spider_root": "/data/spider/database",
+  "selection_policy": {
+    "min_tables": 2,
+    "min_queries": 5,
+    "require_non_empty_data": true,
+    "min_flex_db_ratio": 0.30
+  },
+  "databases": [
+    {
+      "db_id": "orchestra",
+      "domain_id": "entertainment",
+      "sqlite_path": "orchestra/orchestra.sqlite",
+      "table_count": 4,
+      "query_count": 40,
+      "selected": true,
+      "flex_eligible": false,
+      "selection_reason": "canonical anchor; nested join workload"
+    }
+  ]
+}

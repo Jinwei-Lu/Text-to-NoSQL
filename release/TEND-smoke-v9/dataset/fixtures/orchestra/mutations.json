@@ -1,0 +1,46 @@
+{
+  "record_id": 1001,
+  "db_id": "orchestra",
+  "mutations": [
+    {
+      "mutation_id": "m001",
+      "dimension": "C",
+      "subaxis": "drop_ifNull",
+      "description": "Remove $ifNull on Attendance; null inputs break coalesce semantics.",
+      "MQL": "db.conductor.aggregate([{\"$unwind\": {\"path\": \"$orchestra\"}}, {\"$unwind\": {\"path\": \"$orchestra.performance\"}}, {\"$setWindowFields\": {\"partitionBy\": \"$_id\", \"sortBy\": {\"orchestra.performance.Performance_ID\": 1}, \"output\": {\"moving_avg_attendance\": {\"$avg\": \"$orchestra.performance.Attendance\", \"window\": {\"documents\": [-2, 0]}}}}}])",
+      "expected_reject": true
+    },
+    {
+      "mutation_id": "m002",
+      "dimension": "A",
+      "subaxis": "drop_must_contain_op",
+      "description": "Omit $facet; cannot compute global median in parallel branch.",
+      "MQL": "db.conductor.aggregate([{\"$unwind\": {\"path\": \"$orchestra\"}}, {\"$setWindowFields\": {\"partitionBy\": \"$_id\", \"output\": {\"moving_avg_attendance\": {\"$avg\": {\"$ifNull\": [\"$orchestra.performance.Attendance\", 0]}}}}}])",
+      "expected_reject": true
+    },
+    {
+      "mutation_id": "m003",
+      "dimension": "A",
+      "subaxis": "window_size_delta",
+      "description": "Window documents [-1,0] instead of [-2,0].",
+      "MQL": "db.conductor.aggregate([{\"$unwind\": {\"path\": \"$orchestra\"}}, {\"$unwind\": {\"path\": \"$orchestra.performance\"}}, {\"$setWindowFields\": {\"partitionBy\": \"$_id\", \"output\": {\"moving_avg_attendance\": {\"$avg\": {\"$ifNull\": [\"$orchestra.performance.Attendance\", 0]}, \"window\": {\"documents\": [-1, 0]}}}}}])",
+      "expected_reject": true
+    },
+    {
+      "mutation_id": "m004",
+      "dimension": "A",
+      "subaxis": "global_avg_substitution",
+      "description": "Replace window with global $avg.",
+      "MQL": "db.conductor.aggregate([{\"$group\": {\"_id\": \"$_id\", \"last_window_avg\": {\"$avg\": \"$orchestra.performance.Attendance\"}}}])",
+      "expected_reject": true
+    },
+    {
+      "mutation_id": "m005",
+      "dimension": "B",
+      "subaxis": "drop_output_key",
+      "description": "Drop last_window_avg from final projection.",
+      "MQL": "db.conductor.aggregate([{\"$project\": {\"_id\": 0, \"Name\": 1}}])",
+      "expected_reject": true
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+mql_round_trip_canonical: |
+  db.documents.aggregate([
+    { $project: { _id: 0, document_id: 1, title: 1, metric_pairs: { $objectToArray: "$metrics" } } },
+    { $unwind: "$metric_pairs" },
+    { $match: { "metric_pairs.k": { $in: ["weight", "priority"] } } },
+    { $group: {
+        _id: "$metric_pairs.k",
+        avg_value: { $avg: { $toDouble: "$metric_pairs.v" } }
+    } },
+    { $sort: { avg_value: -1 } },
+    { $group: {
+        _id: null,
+        ranked: { $push: { k: "$_id", avg_value: "$avg_value" } }
+    } },
+    { $project: {
+        _id: 0,
+        top_metric: { $arrayElemAt: ["$ranked", 0] }
+    } }
+  ])
+mql_round_trip_colloquial: |
+  db.documents.aggregate([
+    { $group: { _id: null, avg_weight: { $avg: "$metrics.weight" }, avg_priority: { $avg: "$metrics.priority" } } },
+    { $project: { top_metric: { k: "weight", avg_value: "$avg_weight" } } }
+  ])
+round_trip_verification:
+  canonical_pass: true
+  canonical_ex: true
+  canonical_ast_check: true
+  colloquial_pass: false
+  colloquial_ex: false
+  colloquial_ast_check: true
+  underspec_attribution: colloquial collapses to static field access; misses $objectToArray unfold and key ranking
+rtv_pass: true
+rtv_trace:
+  retry_count: 0
+  reflux_recommendation: null

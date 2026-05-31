@@ -1,0 +1,214 @@
+[
+  {
+    "record_id": 1003,
+    "db_id": "cre_doc_tracking_db",
+    "nl_queries": {
+      "canonical": "Get the payload field from each document. If the payload is an object type, use that object; otherwise use the payload as is. Output only the resolved payload, without any other fields.",
+      "colloquial": "Give me all the stored data from the documents, adjusting any complex values as needed."
+    },
+    "MQL": "db.All_Documents.aggregate([\n  {\n    \"$addFields\": {\n      \"resolved\": {\n        \"$switch\": {\n          \"branches\": [\n            {\n              \"case\": {\n                \"$eq\": [\n                  {\n                    \"$type\": \"$payload\"\n                  },\n                  \"object\"\n                ]\n              },\n              \"then\": \"$payload\"\n            }\n          ],\n          \"default\": \"$payload\"\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"resolved\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$switch",
+        "$type"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields",
+        "$project"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "polymorphic",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:c038e6af692eaa6a7ed56431596fafc9519b536cd344ebc232cf6d94225a5b8c",
+    "domain_id": "cre",
+    "join_depth": 0,
+    "aggregation_depth": "medium",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/cre_doc_tracking_db.yaml",
+    "property_verification_ref": "audit/cre_doc_tracking_db/1003/pv.yaml",
+    "round_trip_ref": "audit/cre_doc_tracking_db/1003/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/cre_doc_tracking_db/1003/nnc.yaml",
+    "mutations_ref": "audit/cre_doc_tracking_db/1003/mutations.json"
+  },
+  {
+    "record_id": 1014,
+    "db_id": "cre_doc_tracking_db",
+    "nl_queries": {
+      "canonical": "For each document, return the resolved payload: if the payload is an object, use it directly; otherwise, use the raw payload value.",
+      "colloquial": "Get the content from all documents."
+    },
+    "MQL": "db.All_Documents.aggregate([\n  {\n    \"$addFields\": {\n      \"resolved\": {\n        \"$switch\": {\n          \"branches\": [\n            {\n              \"case\": {\n                \"$eq\": [\n                  {\n                    \"$type\": \"$payload\"\n                  },\n                  \"object\"\n                ]\n              },\n              \"then\": \"$payload\"\n            }\n          ],\n          \"default\": \"$payload\"\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"resolved\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$switch",
+        "$type"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields",
+        "$project"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "polymorphic",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:c038e6af692eaa6a7ed56431596fafc9519b536cd344ebc232cf6d94225a5b8c",
+    "domain_id": "cre",
+    "join_depth": 0,
+    "aggregation_depth": "medium",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/cre_doc_tracking_db.yaml",
+    "property_verification_ref": "audit/cre_doc_tracking_db/1014/pv.yaml",
+    "round_trip_ref": "audit/cre_doc_tracking_db/1014/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/cre_doc_tracking_db/1014/nnc.yaml",
+    "mutations_ref": "audit/cre_doc_tracking_db/1014/mutations.json"
+  },
+  {
+    "record_id": 1016,
+    "db_id": "cre_doc_tracking_db",
+    "nl_queries": {
+      "canonical": "For each document in All_Documents, retrieve the value from the payload field by selecting the first non‑null value among 'payload.v2', 'payload.v1', and 'payload.legacy' in that order; if all are null, return null. Output only that value.",
+      "colloquial": "Get the latest available content for each document."
+    },
+    "MQL": "db.All_Documents.aggregate([\n  {\n    \"$addFields\": {\n      \"value\": {\n        \"$ifNull\": [\n          \"$payload.v2\",\n          {\n            \"$ifNull\": [\n              \"$payload.v1\",\n              \"$payload.legacy\"\n            ]\n          }\n        ]\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"value\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$ifNull"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields",
+        "$project"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "schema_versioning",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:c038e6af692eaa6a7ed56431596fafc9519b536cd344ebc232cf6d94225a5b8c",
+    "domain_id": "cre",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/cre_doc_tracking_db.yaml",
+    "property_verification_ref": "audit/cre_doc_tracking_db/1016/pv.yaml",
+    "round_trip_ref": "audit/cre_doc_tracking_db/1016/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/cre_doc_tracking_db/1016/nnc.yaml",
+    "mutations_ref": "audit/cre_doc_tracking_db/1016/mutations.json"
+  },
+  {
+    "record_id": 1019,
+    "db_id": "cre_doc_tracking_db",
+    "nl_queries": {
+      "canonical": "Find all documents where the field named 'field' exists, and return only that field.",
+      "colloquial": "Show me all documents that have a certain attribute."
+    },
+    "MQL": "db.All_Documents.aggregate([\n  {\n    \"$match\": {\n      \"field\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"field\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:a9df20df199503e20526d592ddf07a6d526efe15e7d9923821308ac69da5ca16",
+    "domain_id": "cre",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/cre_doc_tracking_db.yaml",
+    "property_verification_ref": "audit/cre_doc_tracking_db/1019/pv.yaml",
+    "round_trip_ref": "audit/cre_doc_tracking_db/1019/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/cre_doc_tracking_db/1019/nnc.yaml",
+    "mutations_ref": "audit/cre_doc_tracking_db/1019/mutations.json"
+  },
+  {
+    "record_id": 1021,
+    "db_id": "cre_doc_tracking_db",
+    "nl_queries": {
+      "canonical": "Find all documents where the field exists (i.e., has a non‑null value) and return only the field value.",
+      "colloquial": "Show me all documents that have some information in them and show just that information."
+    },
+    "MQL": "db.All_Documents.aggregate([\n  {\n    \"$match\": {\n      \"field\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"field\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:a9df20df199503e20526d592ddf07a6d526efe15e7d9923821308ac69da5ca16",
+    "domain_id": "cre",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/cre_doc_tracking_db.yaml",
+    "property_verification_ref": "audit/cre_doc_tracking_db/1021/pv.yaml",
+    "round_trip_ref": "audit/cre_doc_tracking_db/1021/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/cre_doc_tracking_db/1021/nnc.yaml",
+    "mutations_ref": "audit/cre_doc_tracking_db/1021/mutations.json"
+  }
+]

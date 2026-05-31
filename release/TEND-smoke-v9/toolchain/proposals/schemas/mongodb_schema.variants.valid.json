@@ -1,0 +1,32 @@
+{
+  "students": {
+    "_id": "INT",
+    "student_id": "INT",
+    "first_name": "TEXT",
+    "last_name": "TEXT",
+    "assessments": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "fields": {
+          "__type": "TEXT",
+          "assessment_id": "INT"
+        }
+      }
+    },
+    "__variants": [
+      {
+        "discriminator": { "__type": "written" },
+        "fields": { "written_score": "REAL", "word_count": "INT" },
+        "coverage": 0.42,
+        "source_signal": "H1: Candidate_Assessments.assessment_type=written"
+      },
+      {
+        "discriminator": { "__type": "oral" },
+        "fields": { "oral_score": "REAL", "duration_minutes": "INT" },
+        "coverage": 0.35,
+        "source_signal": "H1: Candidate_Assessments.assessment_type=oral"
+      }
+    ]
+  }
+}

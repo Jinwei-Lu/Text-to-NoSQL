@@ -1,0 +1,13 @@
+services:
+  mongodb:
+    image: mongodb/mongodb-community-server:7.0.14-ubuntu2204
+    ports:
+      - "27017:27017"
+    environment:
+      MONGODB_INITDB_ROOT_USERNAME: tend
+      MONGODB_INITDB_ROOT_PASSWORD: tend
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

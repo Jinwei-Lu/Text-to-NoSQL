@@ -1,0 +1,10 @@
+nl_queries:
+  canonical: 列出 Capacity 严格大于 5000 的所有体育场，返回 Name 与 Capacity 字段；若 Name 缺失则显示为 (unknown)；不要求排序。
+  colloquial: 哪些大场馆？
+nlp_trace:
+  scenario_terms_used:
+    - stadium
+    - capacity
+  colloquial_underspec:
+    - large venue
+  single_intent_check: true

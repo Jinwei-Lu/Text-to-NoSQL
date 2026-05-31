@@ -1,0 +1,22 @@
+mql_round_trip_canonical: |
+  db.stadium.aggregate([
+    { $match: { Capacity: { $gt: 5000 } } },
+    { $project: { _id: 0, Name: { $ifNull: ["$Name", "(unknown)"] }, Capacity: 1 } }
+  ])
+mql_round_trip_colloquial: |
+  db.stadium.aggregate([
+    { $match: { Capacity: { $gt: 5000 } } },
+    { $project: { _id: 0, Name: { $ifNull: ["$Name", "(unknown)"] }, Capacity: 1 } }
+  ])
+round_trip_verification:
+  canonical_pass: true
+  canonical_ex: true
+  canonical_ast_check: true
+  colloquial_pass: true
+  colloquial_ex: true
+  colloquial_ast_check: true
+  underspec_attribution: null
+rtv_pass: true
+rtv_trace:
+  retry_count: 0
+  reflux_recommendation: null

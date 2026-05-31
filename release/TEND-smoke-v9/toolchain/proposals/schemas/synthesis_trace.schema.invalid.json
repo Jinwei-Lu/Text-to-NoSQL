@@ -1,0 +1,16 @@
+{
+  "MQL": "db.conductor.aggregate([{\"$match\": {}}])",
+  "mql_alt": "db.conductor.aggregate([{\"$match\": {}}])",
+  "canonical_form_set": {
+    "must_contain": ["$match"],
+    "must_not_contain": [],
+    "must_contain_at_root": [],
+    "must_not_contain_at_root": []
+  },
+  "shape_policy": "reshape",
+  "join_depth": 0,
+  "aggregation_depth": "deep",
+  "synthesis_trace": {
+    "converged": true
+  }
+}

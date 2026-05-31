@@ -1,0 +1,6 @@
+primary_pattern: nested_unwind
+description: Multi-level array unwinding for nested document flattening.
+required_stages:
+  - $unwind
+  - $unwind
+  - $project

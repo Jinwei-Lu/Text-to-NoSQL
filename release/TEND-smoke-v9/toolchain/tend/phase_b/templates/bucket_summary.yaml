@@ -1,0 +1,4 @@
+primary_pattern: bucket_summary
+description: Histogram bucket counts over a numeric field.
+required_stages:
+  - $bucket

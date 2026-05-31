@@ -1,0 +1,5 @@
+primary_pattern: simple_filter
+description: Match and project without aggregation reshaping.
+required_stages:
+  - $match
+  - $project

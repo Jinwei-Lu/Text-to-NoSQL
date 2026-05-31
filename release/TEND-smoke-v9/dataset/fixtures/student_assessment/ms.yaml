@@ -1,0 +1,78 @@
+MQL: |
+  db.students.aggregate([
+    { $unwind: { path: "$assessments", preserveNullAndEmptyArrays: false } },
+    { $addFields: {
+        norm_score: {
+          $switch: {
+            branches: [
+              { case: { $eq: ["$assessments.__type", "written"] },
+                then: { $multiply: [
+                  { $divide: [
+                    { $ifNull: ["$assessments.written_score", 0] },
+                    { $max: [{ $ifNull: ["$assessments.word_count", 1] }, 1] }
+                  ] },
+                  100
+                ] } },
+              { case: { $eq: ["$assessments.__type", "oral"] },
+                then: { $ifNull: ["$assessments.oral_score", 0] } },
+              { case: { $eq: ["$assessments.__type", "practical"] },
+                then: { $ifNull: ["$assessments.lab_score", 0] } }
+            ],
+            default: 0
+          }
+        }
+    } },
+    { $group: {
+        _id: "$_id",
+        first_name: { $first: { $ifNull: ["$first_name", "(unknown)"] } },
+        final_score: { $max: "$norm_score" }
+    } },
+    { $project: { _id: 0, first_name: 1, final_score: 1 } }
+  ])
+mql_alt: |
+  db.students.aggregate([
+    { $unwind: { path: "$assessments", preserveNullAndEmptyArrays: false } },
+    { $addFields: {
+        norm_score: {
+          $switch: {
+            branches: [
+              { case: { $eq: ["$assessments.__type", "practical"] },
+                then: { $ifNull: ["$assessments.lab_score", 0] } },
+              { case: { $eq: ["$assessments.__type", "oral"] },
+                then: { $ifNull: ["$assessments.oral_score", 0] } },
+              { case: { $eq: ["$assessments.__type", "written"] },
+                then: { $multiply: [
+                  { $divide: [
+                    { $ifNull: ["$assessments.written_score", 0] },
+                    { $max: [{ $ifNull: ["$assessments.word_count", 1] }, 1] }
+                  ] },
+                  100
+                ] } }
+            ],
+            default: 0
+          }
+        }
+    } },
+    { $group: {
+        _id: "$_id",
+        first_name: { $first: { $ifNull: ["$first_name", "(unknown)"] } },
+        final_score: { $max: "$norm_score" }
+    } },
+    { $project: { _id: 0, first_name: 1, final_score: 1 } }
+  ])
+canonical_form_set:
+  must_contain: ["$switch", "$unwind", "$ifNull"]
+  must_not_contain: ["$setWindowFields", "$facet"]
+  must_contain_at_root: ["$unwind"]
+  must_not_contain_at_root: []
+shape_policy: reshape
+schema_flex: polymorphic
+join_depth: 0
+aggregation_depth: medium
+synthesis_trace:
+  primary_path: direct_compile
+  converged: true
+  normexec_equiv: true
+  ast_check_primary: true
+  ast_check_alt: true
+  gold_selection: mql_primary

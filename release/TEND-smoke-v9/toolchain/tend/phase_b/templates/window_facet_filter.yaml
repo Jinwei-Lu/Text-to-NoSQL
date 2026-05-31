@@ -1,0 +1,19 @@
+primary_pattern: window_facet_filter
+description: Partitioned window aggregate with parallel facet median branch and post-filter.
+root_collection: conductor
+required_stages:
+  - $unwind
+  - $unwind
+  - $setWindowFields
+  - $group
+  - $facet
+  - $project
+  - $unwind
+  - $project
+slots:
+  partition_field: $_id
+  sort_field: orchestra.performance.Performance_ID
+  attendance_field: orchestra.performance.Attendance
+  name_field: Name
+  window_documents: [-2, 0]
+  null_missing_strategy: ifNull

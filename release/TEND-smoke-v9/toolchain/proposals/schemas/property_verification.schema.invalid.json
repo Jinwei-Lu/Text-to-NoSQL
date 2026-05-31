@@ -1,0 +1,13 @@
+{
+  "property_verification": {
+    "mutations_ex_all_reject": false,
+    "mutation_results": [
+      {"mutation_id": "m003", "ex": true, "ast_check": true, "notes": "Window delta still equivalent on small witness"}
+    ]
+  },
+  "pv_pass": false,
+  "pv_trace": {
+    "blocking_failures": ["mutation m003 EX-pass on D"],
+    "reflux_target": "NLP"
+  }
+}

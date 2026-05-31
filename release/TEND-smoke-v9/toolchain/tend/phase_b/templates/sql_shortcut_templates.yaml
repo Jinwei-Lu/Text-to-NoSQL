@@ -1,0 +1,231 @@
+# Hand-curated SQL-translation shortcut templates for Template-bridge (pool D_bridge change-control).
+# Each pattern exposes keyword hints for TF-IDF matching and a deterministic MQL skeleton.
+
+patterns:
+  - id: simple_filter_projection
+    keywords: [filter, where, match, select, project, list, show]
+    weight: 1.0
+    mql: |
+      db.{{collection}}.aggregate([
+        { $match: { {{match_field}}: { $gt: {{threshold}} } } },
+        { $project: { _id: 0, {{project_fields}} } }
+      ])
+
+  - id: simple_filter_count
+    keywords: [count, how many, number of, total]
+    weight: 1.0
+    mql: |
+      db.{{collection}}.aggregate([
+        { $match: { {{match_field}}: { $exists: true } } },
+        { $count: "total" }
+      ])
+
+  - id: lookup_join
+    keywords: [join, lookup, relate, link, foreign, reference, orchestra, conductor]
+    weight: 1.2
+    mql: |
+      db.{{collection}}.aggregate([
+        { $lookup: { from: "{{lookup_from}}", localField: "{{local_field}}", foreignField: "_id", as: "joined" } },
+        { $unwind: "$joined" },
+        { $project: { _id: 0, Name: 1, {{metric_field}}: "$joined.{{metric_field}}" } }
+      ])
+
+  - id: group_count
+    keywords: [group, count, per, each, aggregate, bucket]
+    weight: 1.0
+    mql: |
+      db.{{collection}}.aggregate([
+        { $group: { _id: "${{group_field}}", total: { $sum: 1 } } },
+        { $project: { _id: 0, {{group_field}}: "$_id", total: 1 } }
+      ])
+
+  - id: group_sum
+    keywords: [sum, total, aggregate, amount, attendance]
+    weight: 1.0
+    mql: |
+      db.{{collection}}.aggregate([
+        { $group: { _id: "${{group_field}}", total: { $sum: "${{sum_field}}" } } },
+        { $project: { _id: 0, {{group_field}}: "$_id", total: 1 } }
+      ])
+
+  - id: group_avg
+    keywords: [average, avg, mean, attendance, trend]
+    weight: 1.1
+    mql: |
+      db.{{collection}}.aggregate([
+        { $unwind: { path: "$orchestra" } },
+        { $group: { _id: "$_id", Name: { $first: "$Name" }, last_window_avg: { $avg: "$orchestra.performance.Attendance" } } },
+        { $project: { _id: 0, Name: 1, last_window_avg: 1 } }
+      ])
+
+  - id: top_n_by_group
+    keywords: [top, highest, largest, rank, best, maximum]
+    weight: 1.0
+    mql: |
+      db.{{collection}}.aggregate([
+        { $sort: { {{sort_field}}: -1 } },
+        { $limit: {{limit_n}} },
+        { $project: { _id: 0, {{project_fields}} } }
+      ])
+
+  - id: bottom_n_by_group
+    keywords: [bottom, lowest, smallest, worst, minimum]
+    weight: 1.0
+    mql: |
+      db.{{collection}}.aggregate([
+        { $sort: { {{sort_field}}: 1 } },
+        { $limit: {{limit_n}} },
+        { $project: { _id: 0, {{project_fields}} } }
+      ])
+
+  - id: distinct_values
+    keywords: [distinct, unique, different, list all]
+    weight: 0.9
+    mql: |
+      db.{{collection}}.aggregate([
+        { $group: { _id: "${{group_field}}" } },
+        { $project: { _id: 0, value: "$_id" } }
+      ])
+
+  - id: nested_unwind_filter
+    keywords: [nested, unwind, array, embed, performance, series]
+    weight: 1.0
+    mql: |
+      db.{{collection}}.aggregate([
+        { $unwind: { path: "$orchestra" } },
+        { $unwind: { path: "$orchestra.performance" } },
+        { $match: { "orchestra.performance.{{match_field}}": { $gt: {{threshold}} } } },
+        { $project: { _id: 0, Name: 1, Attendance: "$orchestra.performance.Attendance" } }
+      ])
+
+  - id: sort_limit
+    keywords: [sort, order, latest, recent, first, last]
+    weight: 0.9
+    mql: |
+      db.{{collection}}.aggregate([
+        { $sort: { {{sort_field}}: {{sort_dir}} } },
+        { $limit: {{limit_n}} },
+        { $project: { _id: 0, {{project_fields}} } }
+      ])
+
+  - id: window_moving_avg
+    keywords: [window, moving, rolling, sliding, average, trend]
+    weight: 1.3
+    mql: |
+      db.{{collection}}.aggregate([
+        { $unwind: { path: "$orchestra" } },
+        { $unwind: { path: "$orchestra.performance" } },
+        { $setWindowFields: {
+            partitionBy: "$_id",
+            sortBy: { "orchestra.performance.Performance_ID": 1 },
+            output: { moving_avg: { $avg: "$orchestra.performance.Attendance", window: { documents: [-2, 0] } } }
+        } },
+        { $project: { _id: 0, Name: 1, moving_avg: 1 } }
+      ])
+
+  - id: facet_split
+    keywords: [facet, parallel, branch, median, global, split]
+    weight: 1.2
+    mql: |
+      db.{{collection}}.aggregate([
+        { $facet: {
+            branch_a: [ { $match: {} }, { $project: { _id: 0, Name: 1 } } ],
+            branch_b: [ { $group: { _id: null, median: { $avg: "${{metric_field}}" } } } ]
+        } }
+      ])
+
+  - id: filter_then_group
+    keywords: [filter, then, group, where, aggregate]
+    weight: 0.9
+    mql: |
+      db.{{collection}}.aggregate([
+        { $match: { {{match_field}}: { $ne: null } } },
+        { $group: { _id: "${{group_field}}", cnt: { $sum: 1 } } },
+        { $project: { _id: 0, {{group_field}}: "$_id", cnt: 1 } }
+      ])
+
+  - id: ifnull_coalesce
+    keywords: [missing, null, default, coalesce, ifnull, unknown]
+    weight: 1.0
+    mql: |
+      db.{{collection}}.aggregate([
+        { $project: { _id: 0, Name: { $ifNull: ["$Name", "(unknown)"] }, {{metric_field}}: 1 } }
+      ])
+
+  - id: median_filter
+    keywords: [median, above, below, peer, threshold, greater than]
+    weight: 1.2
+    mql: |
+      db.{{collection}}.aggregate([
+        { $group: { _id: "$_id", Name: { $first: "$Name" }, metric: { $avg: "$orchestra.performance.Attendance" } } },
+        { $match: { metric: { $gt: 0 } } },
+        { $project: { _id: 0, Name: 1, metric: 1 } }
+      ])
+
+  - id: polymorphic_dispatch
+    keywords: [switch, type, polymorphic, variant, dispatch]
+    weight: 1.0
+    mql: |
+      db.{{collection}}.aggregate([
+        { $project: { kind: { $type: "$payload" }, value: "$payload" } }
+      ])
+
+  - id: graph_traversal
+    keywords: [graph, traverse, path, hierarchy, tree]
+    weight: 0.8
+    mql: |
+      db.{{collection}}.aggregate([
+        { $graphLookup: { from: "{{lookup_from}}", startWith: "$_id", connectFromField: "parent", connectToField: "_id", as: "chain" } }
+      ])
+
+  - id: bucket_summary
+    keywords: [bucket, histogram, bin, range, segment]
+    weight: 0.8
+    mql: |
+      db.{{collection}}.aggregate([
+        { $bucket: { groupBy: "${{metric_field}}", boundaries: [0, 10, 100, 1000], default: "other", output: { count: { $sum: 1 } } } }
+      ])
+
+  - id: set_window
+    keywords: [set, window, partition, rank, row_number]
+    weight: 1.0
+    mql: |
+      db.{{collection}}.aggregate([
+        { $setWindowFields: { partitionBy: "${{group_field}}", output: { rn: { $documentNumber: {} } } } }
+      ])
+
+  - id: extended_reference_join
+    keywords: [extended, reference, denorm, embed, nested join]
+    weight: 0.9
+    mql: |
+      db.{{collection}}.aggregate([
+        { $unwind: { path: "$orchestra" } },
+        { $match: { "orchestra.performance.Attendance": { $exists: true } } },
+        { $project: { _id: 0, Name: 1, Attendance: "$orchestra.performance.Attendance" } }
+      ])
+
+  - id: dynamic_key_aggregation
+    keywords: [objectToArray, dynamic, key, map, attributes]
+    weight: 0.8
+    mql: |
+      db.{{collection}}.aggregate([
+        { $project: { pairs: { $objectToArray: "$attributes" } } },
+        { $unwind: "$pairs" },
+        { $group: { _id: "$pairs.k", total: { $sum: "$pairs.v" } } }
+      ])
+
+  - id: schema_version_fallback
+    keywords: [fallback, version, legacy, schema, ifnull path]
+    weight: 0.8
+    mql: |
+      db.{{collection}}.aggregate([
+        { $project: { value: { $ifNull: ["$new_field", "$legacy_field"] } } }
+      ])
+
+  - id: attribute_bag_unfold
+    keywords: [bag, unfold, reduce, arrayToObject, attributes]
+    weight: 0.7
+    mql: |
+      db.{{collection}}.aggregate([
+        { $project: { flat: { $reduce: { input: "$bag", initialValue: {}, in: { $mergeObjects: ["$$value", "$$this"] } } } } }
+      ])
