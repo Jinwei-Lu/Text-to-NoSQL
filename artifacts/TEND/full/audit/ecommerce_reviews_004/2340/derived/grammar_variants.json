@@ -1,3 +1,0 @@
-[
-  "db.reviews.aggregate([ { $match: { \"helpful_votes\": { $gt: 70 } } }, { $count: \"total\" }])"
-]

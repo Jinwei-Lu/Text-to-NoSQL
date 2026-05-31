@@ -1,4 +1,0 @@
-[
-  "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { moving_avg: { $avg: \"$balance\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$balance\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", moving_avg: 1 } }])",
-  "db.accounts.aggregate([ { $match: {} }, { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { moving_avg: { $avg: \"$balance\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$balance\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", moving_avg: 1 } }])"
-]

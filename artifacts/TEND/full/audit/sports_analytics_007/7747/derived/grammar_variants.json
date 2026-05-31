@@ -1,3 +1,0 @@
-[
-  "db.matches.aggregate([ { $match: { \"possession\": { $gt: 70 } } }, { $count: \"total\" }])"
-]

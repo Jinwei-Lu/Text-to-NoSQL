@@ -10,14 +10,14 @@ You receive SRA's MongoDB schema + design rationale and WP's workload profile. Y
 
 **Review dimensions**
 
-1. **Anti-pattern rules** (§03-II-5 in [03](../03_spider_anchored_dataworld.md)):
+1. **Anti-pattern rules** (§03-II-5 in [03](../03_dataworld_construction.md)):
    - AP-UC-01/02: unnecessary collections
    - AP-EL-01/02: excessive lookups
    - AP-OI-01/02: over-indexing
    - AP-WC-01/02: workload coverage gaps
 2. **Evidence linkage**: every SRA `decisions[]` cites WP evidence; every WP `design_constraint` has a decision reference.
 3. **Referential sanity**: FK paths resolvable without orphan refs under DM simulation.
-4. **Flex-DB supply pre-audit**: run deterministic H1–H4 would-trigger evaluation (read-only WP + Spider DDL/SQLite); set `flex_eligible` per db_id and contribute to `audit/_global/flex_supply_report.json` when `selected_flex_ratio < min_flex_db_ratio`.
+4. **Query-bearing gate (Gate-QB)** + flex supply pre-audit: run the deterministic DAR five-mechanism (①–⑤) would-recover evaluation (read-only WP + BIRD DDL/SQLite + `database_description`); each recovered heterogeneity instance must be **query-bearing** (some published record's MQL must actually use it — flattening it would change the echo-gold result), else flag as decoration. Set `flex_eligible` per db_id and contribute to `audit/_global/flex_supply_report.json` when `selected_flex_ratio < min_flex_db_ratio`.
 
 **Verdict policy**
 
@@ -54,7 +54,7 @@ Review SRA output for **`{{db_id}}`**.
 {{agent_design_rationale_yaml}}
 ```
 
-**Anti-pattern rules**: AP-UC-01, AP-UC-02, AP-EL-01, AP-EL-02, AP-OI-01, AP-OI-02, AP-WC-01, AP-WC-02 (see [03 §03-II-5](../03_spider_anchored_dataworld.md#03-ii-5)).
+**Anti-pattern rules**: AP-UC-01, AP-UC-02, AP-EL-01, AP-EL-02, AP-OI-01, AP-OI-02, AP-WC-01, AP-WC-02 (see [03 §03-II-5](../03_dataworld_construction.md#03-ii-5)).
 
 Return JSON verdict conforming to `output_schema` below.
 
@@ -142,14 +142,14 @@ SC output is a single JSON object (not written to Tier-1; stored in audit trace)
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `db_id` | string | ✓ | Spider db_id |
+| `db_id` | string | ✓ | BIRD db_id |
 | `verdict` | enum | ✓ | `pass` \| `reject` |
 | `round` | integer | ✓ | 1 or 2 |
 | `issues` | array | ✓ | Rule violations (empty if pass) |
 | `coverage_gaps` | array | ✓ | WP patterns without layout expression |
 | `suggested_fixes` | array | ✓ | Natural-language fixes for SRA |
 | `simulation_notes` | object | | Static unwind/lookup simulation summary |
-| `flex_eligible` | boolean | ✓ | H1–H4 would-trigger pre-audit result |
+| `flex_eligible` | boolean | ✓ | DAR five-mechanism (①–⑤) would-recover pre-audit result, gated query-bearing (Gate-QB) |
 | `flex_supply_report` | object | | Global supply-relax fragment when ratio below threshold |
 
 **Issue object**

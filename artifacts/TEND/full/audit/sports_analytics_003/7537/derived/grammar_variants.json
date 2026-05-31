@@ -1,4 +1,0 @@
-[
-  "db.matches.aggregate([ { $match: {} }, { $lookup: { from: \"matches\", localField: \"team\", foreignField: \"team\", as: \"joined\" } }, { $project: { _id: 0, team: 1, goals: \"$goals\", joined_count: { $size: \"$joined\" } } }, { $sort: { joined_count: -1 } }])",
-  "db.matches.aggregate([ { $lookup: { from: \"matches\", localField: \"team\", foreignField: \"team\", as: \"joined\" } }, { $project: { _id: 0, team: 1, goals: \"$goals\", joined_count: { $size: \"$joined\" } } }, { $sort: { joined_count: -1 } }])"
-]

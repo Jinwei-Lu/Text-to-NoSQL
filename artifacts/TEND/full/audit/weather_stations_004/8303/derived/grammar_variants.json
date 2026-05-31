@@ -1,4 +1,0 @@
-[
-  "db.readings.aggregate([ { $group: { _id: \"$region\", p50: { $percentile: { input: \"$humidity\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$humidity\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, region: \"$_id\", p50: 1, p95: 1 } }])",
-  "db.readings.aggregate([ { $match: {} }, { $group: { _id: \"$region\", p50: { $percentile: { input: \"$humidity\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$humidity\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, region: \"$_id\", p50: 1, p95: 1 } }])"
-]

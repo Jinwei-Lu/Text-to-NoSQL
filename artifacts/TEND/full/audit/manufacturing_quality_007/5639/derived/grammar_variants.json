@@ -1,3 +1,0 @@
-[
-  "db.inspections.aggregate([ { $match: { \"defect_count\": { $gt: 70 } } }, { $count: \"total\" }])"
-]

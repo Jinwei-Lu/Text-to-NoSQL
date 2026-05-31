@@ -1,4 +1,0 @@
-[
-  "db.patients.aggregate([ { $match: {} }, { $setWindowFields: { sortBy: { \"admission_year\": 1 }, output: { moving_avg: { $avg: \"$blood_pressure\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$blood_pressure\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, name: 1, blood_pressure: \"$blood_pressure\", moving_avg: 1 } }])",
-  "db.patients.aggregate([ { $setWindowFields: { sortBy: { \"admission_year\": 1 }, output: { moving_avg: { $avg: \"$blood_pressure\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$blood_pressure\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, name: 1, blood_pressure: \"$blood_pressure\", moving_avg: 1 } }])"
-]

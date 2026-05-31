@@ -1,4 +1,0 @@
-[
-  "db.posts.aggregate([ { $facet: { high: [{ $match: { \"category\": { $gt: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }], low: [{ $match: { \"category\": { $lte: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
-  "db.posts.aggregate([ { $match: {} }, { $facet: { high: [{ $match: { \"category\": { $gt: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }], low: [{ $match: { \"category\": { $lte: 70 } } }, { $group: { _id: \"$_sparse_notes\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
-]

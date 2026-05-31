@@ -1,4 +1,0 @@
-[
-  "db.matches.aggregate([ { $setWindowFields: { sortBy: { \"season\": 1 }, output: { moving_avg: { $avg: \"$possession\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$possession\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, team: 1, possession: \"$possession\", moving_avg: 1 } }])",
-  "db.matches.aggregate([ { $match: {} }, { $setWindowFields: { sortBy: { \"season\": 1 }, output: { moving_avg: { $avg: \"$possession\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$possession\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, team: 1, possession: \"$possession\", moving_avg: 1 } }])"
-]

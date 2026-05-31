@@ -1,3 +1,0 @@
-[
-  "db.events.aggregate([ { $match: { \"attendance\": { $gt: 70 } } }, { $project: { _id: 0, name: 1, attendance: \"$attendance\" } }])"
-]

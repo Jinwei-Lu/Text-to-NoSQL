@@ -69,9 +69,9 @@ Return JSON matching `output_schema` only.
 
 ## few-shot
 
-### Example 1 · orchestra/1001 · window_facet_filter converged
+### Example 1 · orchestra/1001 · window_facet_filter converged (transitional anchor · pending BIRD migration)
 
-**Input**: query_plan with `primary_pattern = window_facet_filter`, `null_missing_strategy = ifNull`.
+**Input**: query_plan with `primary_pattern = window_facet_filter`, `null_missing_strategy = ifNull`. (orchestra/1001 is the transitional anchor carried over from the legacy pipeline; to be replaced by a real BIRD record, e.g. `financial`.)
 
 **Output snippet**
 
@@ -133,7 +133,7 @@ Return JSON matching `output_schema` only.
 
 ### Example 3 · polymorphic_dispatch · L4 converged
 
-**Input**: query_plan with `schema_flex_mode = polymorphic`, `$switch` dispatch on `__type`.
+**Input**: query_plan with `schema_flex_mode = polymorphic`, `$switch` dispatch on the real discriminator column `assessment_type`.
 
 **Output snippet**
 

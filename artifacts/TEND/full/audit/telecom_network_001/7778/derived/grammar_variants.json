@@ -1,4 +1,0 @@
-[
-  "db.cells.aggregate([ { $facet: { high: [{ $match: { \"tower\": { $gt: 70 } } }, { $group: { _id: \"$region\", count: { $sum: 1 } } }], low: [{ $match: { \"tower\": { $lte: 70 } } }, { $group: { _id: \"$region\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
-  "db.cells.aggregate([ { $match: {} }, { $facet: { high: [{ $match: { \"tower\": { $gt: 70 } } }, { $group: { _id: \"$region\", count: { $sum: 1 } } }], low: [{ $match: { \"tower\": { $lte: 70 } } }, { $group: { _id: \"$region\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
-]

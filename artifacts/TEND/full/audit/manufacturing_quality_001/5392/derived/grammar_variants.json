@@ -1,4 +1,0 @@
-[
-  "db.inspections.aggregate([ { $project: { _id: 0, product: 1, value: { $ifNull: [\"$line\", 0] } } }, { $sort: { value: -1 } }])",
-  "db.inspections.aggregate([ { $match: {} }, { $project: { _id: 0, product: 1, value: { $ifNull: [\"$line\", 0] } } }, { $sort: { value: -1 } }])"
-]

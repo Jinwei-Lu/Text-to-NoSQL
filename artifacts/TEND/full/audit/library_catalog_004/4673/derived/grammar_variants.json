@@ -1,4 +1,0 @@
-[
-  "db.books.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rating\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
-  "db.books.aggregate([ { $match: {} }, { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$rating\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
-]

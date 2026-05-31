@@ -1,3 +1,0 @@
-[
-  "db.cells.aggregate([ { $match: { \"dropped_calls\": { $gt: 70 } } }, { $count: \"total\" }])"
-]

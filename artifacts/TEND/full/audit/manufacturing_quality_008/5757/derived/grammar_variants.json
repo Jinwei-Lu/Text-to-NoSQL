@@ -1,4 +1,0 @@
-[
-  "db.inspections.aggregate([ { $match: {} }, { $project: { _id: 0, product: 1, first: { $arrayElemAt: [\"$measurements\", 0] }, last: { $arrayElemAt: [\"$measurements\", -1] }, size: { $size: \"$measurements\" } } }])",
-  "db.inspections.aggregate([ { $project: { _id: 0, product: 1, first: { $arrayElemAt: [\"$measurements\", 0] }, last: { $arrayElemAt: [\"$measurements\", -1] }, size: { $size: \"$measurements\" } } }])"
-]

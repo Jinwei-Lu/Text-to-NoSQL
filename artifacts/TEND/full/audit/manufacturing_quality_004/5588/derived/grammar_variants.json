@@ -1,4 +1,0 @@
-[
-  "db.inspections.aggregate([ { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$defect_count\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])",
-  "db.inspections.aggregate([ { $match: {} }, { $sort: { \"year\": 1 } }, { $group: { _id: \"$year\", avg_value: { $avg: \"$defect_count\" } } }, { $project: { _id: 0, bucket: \"$_id\", avg_value: 1 } }])"
-]

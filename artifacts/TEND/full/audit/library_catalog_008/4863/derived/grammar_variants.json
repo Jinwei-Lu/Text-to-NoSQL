@@ -1,4 +1,0 @@
-[
-  "db.books.aggregate([ { $group: { _id: \"$condition\", p50: { $percentile: { input: \"$pages\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$pages\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, condition: \"$_id\", p50: 1, p95: 1 } }])",
-  "db.books.aggregate([ { $match: {} }, { $group: { _id: \"$condition\", p50: { $percentile: { input: \"$pages\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$pages\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, condition: \"$_id\", p50: 1, p95: 1 } }])"
-]

@@ -1,4 +1,0 @@
-[
-  "db.students.aggregate([ { $match: {} }, { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])",
-  "db.students.aggregate([ { $setWindowFields: { sortBy: { \"enrollment_year\": 1 }, output: { running_total: { $sum: \"$gpa\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, name: 1, gpa: \"$gpa\", running_total: 1 } }])"
-]

@@ -1,4 +1,0 @@
-[
-  "db.accounts.aggregate([ { $match: {} }, { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])",
-  "db.accounts.aggregate([ { $setWindowFields: { sortBy: { \"quarter\": 1 }, output: { running_total: { $sum: \"$balance\", window: { documents: [\"unbounded\", \"current\"] } } } } }, { $project: { _id: 0, company: 1, balance: \"$balance\", running_total: 1 } }])"
-]

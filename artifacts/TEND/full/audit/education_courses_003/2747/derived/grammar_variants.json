@@ -1,4 +1,0 @@
-[
-  "db.students.aggregate([ { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])",
-  "db.students.aggregate([ { $match: {} }, { $group: { _id: \"$department\", p50: { $percentile: { input: \"$gpa\", p: [0.5], method: \"approximate\" } }, p95: { $percentile: { input: \"$gpa\", p: [0.95], method: \"approximate\" } } } }, { $project: { _id: 0, department: \"$_id\", p50: 1, p95: 1 } }])"
-]

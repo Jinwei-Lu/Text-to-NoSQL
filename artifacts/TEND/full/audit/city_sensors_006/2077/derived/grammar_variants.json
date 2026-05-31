@@ -1,4 +1,0 @@
-[
-  "db.sensors.aggregate([ { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])",
-  "db.sensors.aggregate([ { $match: {} }, { $project: { _id: 0, station: 1, null_status: { $cond: { if: { $eq: [{ $type: \"$zone\" }, \"missing\"] }, then: \"missing\", else: { $cond: { if: { $eq: [\"$zone\", null] }, then: \"explicit_null\", else: \"has_value\" } } } } } }, { $group: { _id: \"$null_status\", count: { $sum: 1 } } }, { $project: { _id: 0, status: \"$_id\", count: 1 } }])"
-]

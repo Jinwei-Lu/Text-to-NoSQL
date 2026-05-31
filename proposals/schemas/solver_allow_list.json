@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tend.dev/schemas/solver_allow_list.json",
   "title": "TEND solver-side allow-list",
-  "description": "Machine-readable solver boundary contract for SMART schema-less agentic stages (2 agents / 4 stages + cross-cutting Agentic RAG). Authoritative prose in proposals/06_solution_design.md.",
-  "schema_version": "2026-05-30",
+  "description": "Machine-readable solver boundary contract for SMART schema-less agentic stages (single LLM backbone / 4 stages; ① perception mode = concurrent probes, ②③④ cognition mode; ④ uses per-stage execution-guided decoding, no retrieval). Authoritative prose in proposals/06_solution_design.md.",
+  "schema_version": "2026-05-31",
   "disabled_operators": [
     "$sample",
     "$rand",
@@ -21,7 +21,7 @@
     "test.json:canonical_form_set",
     "test.json:shape_policy",
     "test.json:*_ref",
-    "train.json:*_ref",
+    "train.json:**",
     "rejected/**"
   ],
   "audit_blocklist": [
@@ -41,17 +41,7 @@
     "ra_audit_ref",
     "migration_log_ref"
   ],
-  "train_record_readable_fields": [
-    "record_id",
-    "db_id",
-    "nl_queries",
-    "MQL",
-    "canonical_form_set",
-    "difficulty",
-    "shape_policy",
-    "world_signature"
-  ],
-  "train_record_forbidden_suffix": "_ref",
+  "train_json_access": "forbidden:** (solver does not use train.json — neither training labels nor retrieval corpus, §06-2-0; NoSQL-native idioms come from frozen LLM knowledge + 06 §06-2-3 strategy table)",
   "library_readable": [
     "mongodb_schema/<db_id>.json",
     "mongodb_data/<db_id>.json",
@@ -62,10 +52,10 @@
     "scope": "heterogeneity_planning_and_query_realization",
     "max_per_collection": "solver_disclosed_K",
     "forbidden_in_stage": "shape_comprehension",
-    "note": "≤ K docs/collection may enter any prompt; the query_realization executor may run on the solver's full LOCAL replica (variant-stratified sampling for cross-variant debug) — the K limit caps prompt-injected samples, not local execution data volume."
+    "note": "≤ K docs/collection may enter any prompt; the query_realization executor runs PER-STAGE prefix execution on the solver's full LOCAL replica (variant-stratified, for cross-variant debug) — the K limit caps prompt-injected samples, not local execution data volume."
   },
   "four_party_disjointness": {
-    "construction_authority": "05 §05-4",
+    "construction_authority": "05 §05-3",
     "solver_dual": "06 §06-4-3",
     "sets": {
       "A_evaluated": "solver under test (self)",
@@ -78,11 +68,10 @@
       "S_solver ∩ C_construction_pool = ∅"
     ],
     "s_solver_scope": [
-      "shape_comprehension_slm_agent_backbone",
-      "cognition_llm_agent_backbone",
-      "example_retrieval_embedding_model",
+      "single_llm_backbone",
       "auxiliary_models"
-    ]
+    ],
+    "s_solver_scope_note": "A single shared LLM backbone runs all 4 stages (perception mode for ①, cognition mode for ②③④). Per-stage execution-guided decoding, AST filter and deterministic reduce use NO model — not counted. ① perception probes MAY optionally run on a same-family small model (cost optimization); if so, that model is counted in S_solver."
   },
   "frozen_panel_manifest_ref": "audit/reference_panel/manifest_<release>.json",
   "frozen_panels": {
@@ -94,7 +83,7 @@
   "frozen_panel_note": "Populate frozen_panels.* from audit/reference_panel/manifest_<release>.json at release time; empty arrays are placeholders until manifest is published.",
   "stages": {
     "shape_comprehension": {
-      "owner_agent": "SLM Agent (concurrent map-reduce probes)",
+      "owner_agent": "LLM Agent · perception mode (concurrent map-reduce probes; may use a same-family small model when cost-sensitive)",
       "inputs": ["NLQ", "S (incl __variants)"],
       "outputs": ["S_hat (shape_model: field_locus, variants, coverage_gaps, shape_flex_signature)"],
       "readable": [
@@ -115,7 +104,7 @@
       "note": "__variants is the authoritative shape contract; no data sampling here. Undeclared real-data shapes are caught downstream via the query_realization → shape_comprehension loop."
     },
     "intent_formalization": {
-      "owner_agent": "LLM Agent",
+      "owner_agent": "LLM Agent · cognition mode",
       "inputs": ["NLQ", "S_hat"],
       "outputs": ["logical_spec (paradigm-neutral; includes self-inferred shape_policy + target_fields)"],
       "readable": [
@@ -129,12 +118,12 @@
         "test.json:canonical_form_set",
         "test.json:shape_policy",
         "test.json:*_ref",
-        "train.json:*_ref"
+        "train.json:**"
       ],
-      "postprocess": ["slm_clause_coverage_check"]
+      "postprocess": ["clause_coverage_check"]
     },
     "heterogeneity_planning": {
-      "owner_agent": "LLM Agent (crux ★)",
+      "owner_agent": "LLM Agent · cognition mode (crux ★)",
       "inputs": ["logical_spec", "S_hat"],
       "outputs": ["physical_plan (Mongo pipeline skeleton + variant_handling)"],
       "readable": [
@@ -150,11 +139,11 @@
         "test.json:canonical_form_set",
         "test.json:shape_policy",
         "test.json:*_ref",
-        "train.json:*_ref"
+        "train.json:**"
       ]
     },
     "query_realization": {
-      "owner_agent": "LLM Agent (generation + self-debug fused; executor is an inline tool)",
+      "owner_agent": "LLM Agent · cognition mode (generation + self-debug fused; executor is an inline tool)",
       "inputs": ["physical_plan", "S_hat", "local_mongodb"],
       "outputs": ["q_p_final"],
       "readable": [
@@ -171,6 +160,7 @@
         "evaluator_gold_runtime",
         "audit/**"
       ],
+      "execution_mode": "per_stage_prefix_execution (each prefix [stage_1..stage_k] executed on a variant-stratified LOCAL sample; checkpoint at every stage boundary; §06-2-5)",
       "postprocess": ["ast_reject_disabled_operators"],
       "feedback_routing": {
         "allowed_keys": ["error_code", "stage_index", "suspect_field", "failing_variant"],
@@ -180,32 +170,20 @@
     }
   },
   "tools": {
-    "example_retrieval": {
-      "description": "Agentic RAG: a cross-cutting example-retrieval tool (NOT a stage, NOT an agent) exposing two methods that match similar train examples — by regex or by embedding similarity. Authoritative prose in 06 §06-2-5.",
-      "methods": ["regex_example_retriever", "embedding_example_retriever"],
-      "method_match": {
-        "regex_example_retriever": "operator fingerprint (canonical_form_set.must_contain), stage skeleton, shape_flex signature",
-        "embedding_example_retriever": "embedding similarity on de-domained intent vector / draft-MQL vector / S_hat field-path signature"
-      },
-      "callable_by_stages": ["shape_comprehension", "intent_formalization", "heterogeneity_planning", "query_realization"],
-      "retrieval_principle": "cross-domain holdout (02 §02-3) ⇒ key on ABSTRACT STRUCTURE (operator fingerprint, shape_flex signature, de-domained intent vector), NOT surface NL/field names; surface similarity retrieves non-existent same-domain neighbours.",
-      "readable": [
-        "train.json:record_id",
-        "train.json:db_id",
-        "train.json:nl_queries",
-        "train.json:MQL",
-        "train.json:canonical_form_set",
-        "train.json:difficulty",
-        "train.json:shape_policy",
-        "train.json:world_signature"
+    "mongo_executor": {
+      "description": "Per-Stage Execution-Guided Decoding: an inline ④ execution-guidance tool (NOT a stage, NOT an agent). An MQL aggregation pipeline is an ordered stage sequence; any prefix [stage_1..stage_k] is itself a legal executable pipeline, so ④ executes each growing prefix on a variant-stratified LOCAL sample and sets a checkpoint at every stage boundary. Authoritative prose in 06 §06-2-5.",
+      "reuses": "SMART/utils/mongosh_exec.py (execute_query already runs an arbitrary query string; prefix execution only closes `])` + .toArray())",
+      "callable_by_stages": ["query_realization"],
+      "checkpoint_signals": [
+        "doc_count_collapse_to_zero",
+        "target_or_group_key_field_missing",
+        "execution_error",
+        "per_variant_failure"
       ],
-      "forbidden": [
-        "train.json:*_ref",
-        "audit/**"
-      ],
-      "embedding_model_in_s_solver": true,
-      "offline_index_only_no_training": true,
-      "call_budget": "solver_disclosed_R_retr",
+      "on_checkpoint_hit": "locate by stage_index, then route via query_realization.feedback_routing to {heterogeneity_planning|intent_formalization|shape_comprehension}",
+      "execution_scope": "LOCAL replica only (never evaluator gold); variant-stratified; NOT subject to the witness K limit (K caps prompt-injected samples, not local execution data volume, §06-4-4.2)",
+      "no_model": true,
+      "no_retrieval": true,
       "postprocess_on_rewrite": ["ast_reject_disabled_operators"]
     }
   },

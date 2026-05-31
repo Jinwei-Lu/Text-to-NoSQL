@@ -93,9 +93,9 @@ Return JSON matching `output_schema` only.
 
 ## few-shot
 
-### Example 1 · orchestra/1001 · L4 gate pass
+### Example 1 · orchestra/1001 · L4 gate pass (transitional anchor · pending BIRD migration)
 
-**Input**: L4 MQL with `$setWindowFields`, `$facet`, `$ifNull`; `sql_infeasibility_class = structural_pipeline`.
+**Input**: L4 MQL with `$setWindowFields`, `$facet`, `$ifNull`; `sql_infeasibility_class = structural_pipeline`. (orchestra/1001 is the transitional anchor carried over from the legacy pipeline; to be replaced by a real BIRD record, e.g. `financial`.)
 
 **Output snippet**
 
@@ -165,14 +165,14 @@ Return JSON matching `output_schema` only.
 
 ### Example 3 · student_assessment/4001 · L4 schema-flex gate pass
 
-**Input**: L4 MQL with `$switch` on `assessments.__type`; schema_flex=polymorphic.
+**Input**: L4 MQL with `$switch` on the real discriminator column `assessments.assessment_type`; schema_flex=polymorphic.
 
 **Output snippet**
 
 ```json
 {
   "difficulty": "L4",
-  "difficulty_rationale": "Per-assessment-type score normalization requires $switch on __type; SQL lacks per-row schema branch.",
+  "difficulty_rationale": "Per-assessment-type score normalization requires $switch on the real assessment_type column; SQL lacks per-row schema branch.",
   "sql_infeasibility_class": "structural_schema_flex",
   "diagnostic_bridge": {
     "gate_required": true,

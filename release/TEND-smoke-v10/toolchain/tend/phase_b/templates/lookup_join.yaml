@@ -1,5 +1,0 @@
-primary_pattern: lookup_join
-description: Single $lookup enrichment with projection.
-required_stages:
-  - $lookup
-  - $project

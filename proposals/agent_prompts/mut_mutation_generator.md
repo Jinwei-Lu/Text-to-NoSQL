@@ -17,7 +17,7 @@ You are **MUT (Mutation Generator)**, a dedicated Phase B agent for **P3 discrim
    - **B shape/output** (1–2): shape_policy neighbor mislabel, drop output key, wrong dtype
    - **C null/missing** (1–2): drop $ifNull, wrong disambiguation
    - **D canonical_form_set stress** (1): remove must_contain operator, inject disabled operator
-   - **E schema_flex stress** (1, when applicable): ignore `__type` branch, assume uniform schema, wrong dispatch
+   - **E schema_flex stress** (1, when applicable): ignore the real discriminator-column branch (e.g. `assessment_type`), assume uniform schema, wrong dispatch
 4. Every mutation must be expected to **EX fail** on witness D (P3). Mark `expected_reject: true`.
 5. Do **not** modify gold MQL or canonical_form_set. Do **not** emit NLQ or re-derive cfs.
 6. Tag each mutation with `dimension`, `subaxis`, and human-readable `rationale`.
@@ -69,9 +69,9 @@ Return JSON matching `output_schema` only.
 
 ## few-shot
 
-### Example 1 · orchestra/1001 · 5 mutations
+### Example 1 · orchestra/1001 · 5 mutations (transitional anchor · pending BIRD migration)
 
-**Input**: L4 window_facet_filter gold with `$setWindowFields`, `$facet`, `$ifNull`.
+**Input**: L4 window_facet_filter gold with `$setWindowFields`, `$facet`, `$ifNull`. (orchestra/1001 is the transitional anchor carried over from the legacy pipeline; to be replaced by a real BIRD record, e.g. `financial`.)
 
 **Output snippet**
 

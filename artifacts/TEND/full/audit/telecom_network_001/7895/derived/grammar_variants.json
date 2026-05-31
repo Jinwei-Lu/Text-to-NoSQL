@@ -1,4 +1,0 @@
-[
-  "db.cells.aggregate([ { $match: {} }, { $project: { _id: 0, tower: 1, tower: \"$tower\" } }])",
-  "db.cells.aggregate([ { $project: { _id: 0, tower: 1, tower: \"$tower\" } }])"
-]

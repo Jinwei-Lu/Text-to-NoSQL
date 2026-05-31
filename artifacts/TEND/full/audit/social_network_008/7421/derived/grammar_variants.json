@@ -1,3 +1,0 @@
-[
-  "db.posts.aggregate([ { $match: { \"shares\": { $gt: 70 } } }, { $count: \"total\" }])"
-]

@@ -1,4 +1,0 @@
-[
-  "db.posts.aggregate([ { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$likes\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$likes\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, author: 1, likes: \"$likes\", moving_avg: 1 } }])",
-  "db.posts.aggregate([ { $match: {} }, { $setWindowFields: { sortBy: { \"year\": 1 }, output: { moving_avg: { $avg: \"$likes\", window: { documents: [-2, 0] } } } } }, { $match: { $expr: { $gt: [\"$likes\", { $multiply: [\"$moving_avg\", 1.25] }] } } }, { $project: { _id: 0, author: 1, likes: \"$likes\", moving_avg: 1 } }])"
-]

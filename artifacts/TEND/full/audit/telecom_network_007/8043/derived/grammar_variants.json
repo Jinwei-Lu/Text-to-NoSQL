@@ -1,3 +1,0 @@
-[
-  "db.cells.aggregate([ { $match: { \"signal_strength\": { $gt: 70 } } }, { $count: \"total\" }])"
-]

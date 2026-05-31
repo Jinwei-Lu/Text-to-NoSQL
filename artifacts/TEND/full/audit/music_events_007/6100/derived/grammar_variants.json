@@ -1,4 +1,0 @@
-[
-  "db.events.aggregate([ { $project: { _id: 0, name: 1, value: { $ifNull: [\"$attendance\", 0] } } }, { $sort: { value: -1 } }])",
-  "db.events.aggregate([ { $match: {} }, { $project: { _id: 0, name: 1, value: { $ifNull: [\"$attendance\", 0] } } }, { $sort: { value: -1 } }])"
-]

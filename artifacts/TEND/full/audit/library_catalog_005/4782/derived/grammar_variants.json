@@ -1,4 +1,0 @@
-[
-  "db.books.aggregate([ { $match: {} }, { $facet: { high: [{ $match: { \"title\": { $gt: 70 } } }, { $group: { _id: \"$condition\", count: { $sum: 1 } } }], low: [{ $match: { \"title\": { $lte: 70 } } }, { $group: { _id: \"$condition\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
-  "db.books.aggregate([ { $facet: { high: [{ $match: { \"title\": { $gt: 70 } } }, { $group: { _id: \"$condition\", count: { $sum: 1 } } }], low: [{ $match: { \"title\": { $lte: 70 } } }, { $group: { _id: \"$condition\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
-]

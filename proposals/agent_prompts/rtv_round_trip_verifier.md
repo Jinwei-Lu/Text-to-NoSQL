@@ -77,7 +77,7 @@ Return JSON matching `output_schema` only.
 
 ## few-shot
 
-### Example 1 · orchestra/1001 · canonical pass
+### Example 1 · orchestra/1001 · canonical pass (transitional anchor · pending BIRD migration)
 
 **Output snippet**
 

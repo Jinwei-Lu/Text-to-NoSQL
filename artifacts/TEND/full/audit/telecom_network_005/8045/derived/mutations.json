@@ -1,6 +1,0 @@
-[
-  {
-    "mutation_id": "add_extra_field",
-    "query": "db.cells.aggregate([ { $project: { _id: 1, tower: 1, tower: \"$tower\" } }])"
-  }
-]

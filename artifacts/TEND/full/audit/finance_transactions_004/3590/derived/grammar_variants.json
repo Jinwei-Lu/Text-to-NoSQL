@@ -1,3 +1,0 @@
-[
-  "db.accounts.aggregate([ { $match: { $expr: { $anyElementTrue: { $map: { input: \"$monthly_volumes\", as: \"item\", in: { $gt: [\"$$item\", 70] } } } } } }, { $project: { _id: 0, company: 1, monthly_volumes: 1 } }])"
-]

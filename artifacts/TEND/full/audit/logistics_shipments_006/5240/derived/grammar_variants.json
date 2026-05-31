@@ -1,4 +1,0 @@
-[
-  "db.shipments.aggregate([ { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])",
-  "db.shipments.aggregate([ { $match: {} }, { $group: { _id: { $type: \"$delay_hours\" }, count: { $sum: 1 } } }, { $project: { _id: 0, field_type: \"$_id\", count: 1 } }])"
-]

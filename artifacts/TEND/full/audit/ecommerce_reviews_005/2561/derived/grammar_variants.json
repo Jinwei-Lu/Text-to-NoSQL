@@ -1,4 +1,0 @@
-[
-  "db.products.aggregate([ { $project: { _id: 0, name: 1, name: \"$name\" } }])",
-  "db.products.aggregate([ { $match: {} }, { $project: { _id: 0, name: 1, name: \"$name\" } }])"
-]

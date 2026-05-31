@@ -8,15 +8,15 @@
 
 ## TL;DR
 
-TEND (Text-to-NoSQL benchmark for Mongo-flavored pipelines) 研究自然语言查询意图如何被可执行的 MongoDB 聚合管道精确表达。任务签名是 f(NLQ, S, db_id) → q^MQL：给定单条自然语言查询、完整 Schema 与 Spider 数据库标识，模型须输出 mongosh 可执行的 MQL 字符串。
+TEND (Text-to-NoSQL benchmark for Mongo-flavored pipelines) 研究自然语言查询意图如何被可执行的 MongoDB 聚合管道精确表达。任务签名是 f(NLQ, S, db_id) → q^MQL：给定单条自然语言查询、完整 Schema 与 BIRD mini-dev 数据库标识，模型须输出 mongosh 可执行的 MQL 字符串。
 
-TEND 以 Spider 1.0 为数据源与场景源，由十一智能体流水线 (WP / SRA / SC / DM / QPS / MS / MUT / PV / NLP / RTV / NNC / RA) 产出 record。Phase B 采用逆向工程构造 NL–MQL 对：先采样 query_plan、合成 MQL、再逆向 paraphrase NLQ。Agent 框架在构造期直接保证 P1 执行良构、P3 判别力、P4 世界非平凡性；P2 语义唯一性由 QPS 计划控制 + RTV 往返闭包 + NNC 歧义攻击共同承担。
+TEND 以 BIRD mini-dev (11 库) 为数据源与场景源，由十一智能体流水线 (WP / SRA / SC / DM / QPS / MS / MUT / PV / NLP / RTV / NNC / RA) 产出 record。Phase B 采用逆向工程构造 NL–MQL 对：先采样 query_plan、合成 MQL、再逆向 paraphrase NLQ。Agent 框架在构造期直接保证 P1 执行良构、P3 判别力、P4 世界非平凡性；P2 语义唯一性由 QPS 计划控制 + RTV 往返闭包 + NNC 歧义攻击共同承担。
 
 正确性不以 MQL 字面相等为锚，而以 gold-as-class 等价类判定。每条 record 携带 canonical_form_set 四元组 (must_contain / must_not_contain / must_contain_at_root / must_not_contain_at_root) 与 canonical representative (MQL 字段)。预测 q_p 属于 gold-class 当且仅当 EX 双条件合取成立：AST_check 静态通过，且 NormExec(q_p, D) ≡_rec NormExec(q_g, D)。NormExec = Norm ∘ Exec ∘ Parse，所有执行层比较一律基于归一化结果，不直接比较原生 BSON。
 
 输出空间须满足 read-only、deterministic、mongosh-executable 三条核心性质，并禁六件 operator ($sample, $rand, $$NOW, $out, $merge, $function)。Norm 四层契约 (标量 / 复合 / null-vs-missing / _id + shape-preserving) 将 Exec 结果投射到 R*；≡_rec 在 R* 上递归定义标量、字典、列表、顶层四层相等。评测主指标 EX 是唯一语义锚；EM / QSM / QFC / EFM / EVM / QIM 均为诊断 proxy，详见 [05 §2](./05_evaluation_methodology.md#05-2)。
 
-canonical anchor orchestra/1001 贯穿全文：L4 难度、$setWindowFields + $facet + $ifNull 结构约束、reshape shape_policy，以及 world_signature 冻结 witness 快照。record 字段契约、split、覆盖轴见 [02 §2](./02_dataset_design.md#02-2)；Spider 锚定数据世界见 [03 §3](./03_spider_anchored_dataworld.md#03-3)；Agent 框架见 [04 §2](./04_agent_framework.md#04-2)。
+Canonical 锚 (pending DAR Phase A 执行验证) financial/1001 贯穿全文：L4 难度、$lookup + $addFields + $cond/$type 结构约束、preserve shape_policy、稀疏 loan + 多态 trans 异构，以及 world_signature 冻结 witness 快照。record 字段契约、覆盖轴见 [02 §2](./02_dataset_design.md#02-2)；BIRD mini-dev 锚定数据世界见 [03 §3](./03_dataworld_construction.md#03-3)；Agent 框架见 [04 §2](./04_agent_framework.md#04-2)。
 
 <a id="01-0"></a>
 ## §01-0 摘要
@@ -29,9 +29,9 @@ $$
 
 与关系式 Text-to-SQL 基准的根本区别在于：NoSQL 数据世界原生包含嵌套文档、数组字段、稀疏列与混合类型，其意图空间本质上不是 SQL AST 的子集。因此 TEND 不以 MQL 字面相等作为正确性锚，而以 **gold-as-class 等价类** + **EX 双条件** + **Norm 四层** + **≡_rec** + **P1–P4 根原则** 作为公理层。
 
-### 规模与切分
+### 规模与基准
 
-具体 record 数、NLQ 档位、train/test 比例与 cross-domain holdout 规则由 [02 §2](./02_dataset_design.md#02-2) 与 [02 §3](./02_dataset_design.md#02-3) 锁定。Spider 1.0 约 200 个 db_id 提供数据与场景；每条 record 提供 canonical 与 colloquial 二联 NLQ。
+具体 record 数、NLQ 档位由 [02 §2](./02_dataset_design.md#02-2) 与 [02 §3](./02_dataset_design.md#02-3) 锁定。基准为 test-only：BIRD mini-dev 的 11 个 db_id 全部作为 test 提供数据与场景，无 train 切分；OOD 由「构造期不向 solver 暴露」保证，而非 train/test 域切分。每条 record 提供 canonical 与 colloquial 二联 NLQ。
 
 ### 本文五项核心承诺
 
@@ -46,7 +46,7 @@ $$
 | 主题 | 跳转 |
 |------|------|
 | 发布物目录、record 字段 schema、world_signature | [02 §2](./02_dataset_design.md#02-2) |
-| Spider 锚定 schema / 数据迁移 / SRA 设计 | [03 §3](./03_spider_anchored_dataworld.md#03-3) |
+| BIRD mini-dev 锚定 schema / 数据迁移 / SRA 设计 | [03 §3](./03_dataworld_construction.md#03-3) |
 | Phase B Agent 框架、canonical_form_set 派生、mutations | [04 §4](./04_agent_framework.md#04-4) |
 | 七指标公式、4-panel 报表 | [05 §2](./05_evaluation_methodology.md#05-2) |
 | SMART schema-less agentic 双智能体 / 四阶段解法 | [06 §1](./06_solution_design.md#06-1) |
@@ -60,8 +60,8 @@ $$
 任务输入为三元组 $(\texttt{NLQ},\ S,\ \texttt{db\_id})$：
 
 - **NLQ**：单条自然语言查询。须满足单一闭包性（无多轮指示、无上下文代词链）、只读语义（不含写操作意图）、封闭引用（实体 / 属性 / 关系全部落在 S 内）。每条 record 提供 canonical 与 colloquial 二联 NLQ，评测默认以 canonical 为主、colloquial 为鲁棒性子集（字段定义见 [02 §2](./02_dataset_design.md#02-2)）。
-- **S**：`db_id` 对应 MongoDB 数据库的完整 Schema——集合树、字段类型、嵌套路径、SRA 设计 rationale。由 [03 §3](./03_spider_anchored_dataworld.md#03-3) 的 SRA 产出。
-- **db_id**：Spider 1.0 数据库标识符，索引 S 与冻结快照 D(db_id)。
+- **S**：`db_id` 对应 MongoDB 数据库的完整 Schema——集合树、字段类型、嵌套路径、SRA 设计 rationale。由 [03 §3](./03_dataworld_construction.md#03-3) 的 SRA 产出。
+- **db_id**：BIRD mini-dev 数据库标识符，索引 S 与冻结快照 D(db_id)。
 
 形式化：设 $\mathcal{N}$ 为合法 NLQ 集合，$\mathcal{S}$ 为合法 Schema 集合，$\mathcal{I}$ 为合法 db_id 集合，则
 
@@ -77,7 +77,7 @@ $$
 <a id="01-1-3"></a>
 ### §01-1-3 数据快照 D(db_id)
 
-D(db_id) 是 db_id 在评测时刻的冻结 BSON 快照：该库下所有 collection 的全量镜像。同一 db_id 下所有 record 共享同一 D；不同 db_id 各自独立。数据由 [03 §4](./03_spider_anchored_dataworld.md#03-4) 的 DM (Data Migrator) 从 Spider 关系实例迁移而来，并经 RA (Realism Auditor) 审计。
+D(db_id) 是 db_id 在评测时刻的冻结 BSON 快照：该库下所有 collection 的全量镜像。同一 db_id 下所有 record 共享同一 D；不同 db_id 各自独立。数据由 [03 §4](./03_dataworld_construction.md#03-4) 的 DM (Data Migrator) 从 BIRD mini-dev 关系实例迁移而来，并经 RA (Realism Auditor) 审计。
 
 world_signature 为 D(db_id) 经 canonical_text 序列化后的 SHA-256 摘要，保证评测可重现（定义见 [02 §2](./02_dataset_design.md#02-2)）。若 mutations 或 augment 更新 D，须重算 world_signature 并写入 record 日志。
 
@@ -150,6 +150,8 @@ Leaderboard 以 EX 为准（[05 §4](./05_evaluation_methodology.md#05-4)）。�
 
 派生算法由 [04 §4](./04_agent_framework.md#04-4) 的 MS 机械派生、NNC 确认；Glossary 别名见 [GLOSSARY](./_meta/GLOSSARY.md#canonical_form_set)。
 
+> **RAR cfs 最小化原则**：canonical_form_set 只承载 **idiom-不变量 + output-space 守卫**——`must_not_contain` 恒含六件禁用 operator；`must_contain` / `must_contain_at_root` 仅收**所有正确 idiom 共有的不可避免算子**（如该 schema 下唯一的关联手段 `$lookup`、唯一的窗口/分面结构算子）与 **shape_policy 守卫**（如 `preserve` 下根禁 `$unwind`/`$group`）；**不**锁 idiom 特定的可替换算子（`$addFields`↔`$project`、`$cond`↔`$switch`↔`$ifNull`），否则误杀等价解。「是否正面处理了异构」这一**结构判别力交由 witness（L2/P3）** 承担——近似错解在 rich witness 上 `≡_rec` 必败，无须 cfs 重复 police。派生细节见 [04 §04-3-2](./04_agent_framework.md#04-3-2)。
+
 **gold-class 成员判定**（EX 双条件）：
 
 $$
@@ -162,12 +164,12 @@ $$
 
 其中 q_g 为 record.MQL（canonical representative）。其余等价类成员通过结构侧 AST_check 与执行侧 NormExec ≡_rec 的合取被匿名接受。
 
-**为何双条件缺一不可**：
+**为何双条件缺一不可**（RAR 职责划分）：
 
-- 仅 NormExec：可能接受 $sample 等禁用 operator 凑巧匹配的结果；
-- 仅 AST_check：可能接受结构对但窗口边界、排序键等语义错误的路径。
+- 仅 NormExec：可能接受 $sample 等禁用 operator 凑巧匹配、或破坏 shape_policy（多 flatten 一层却计数凑巧相等）的结果——由 AST_check 的 output-space 守卫（禁用算子 + shape）拦截；
+- 仅 AST_check：结构守卫通过但语义错（窗口边界、排序键、未正面处理异构变体）——由 rich witness 上的 NormExec ≡_rec 拦截（L2 判别力）。
 
-合取保证「如何做」与「做对了」互为防线。
+合取保证「合法地做（output 守卫）」与「做对了（witness 判别）」互为防线。**注**：cfs 不再承担「锁定 native idiom 结构」的重活（那是旧富指纹的来源，会误杀等价 idiom）；其结构判别力已最小化并下放给 witness（见上「cfs 最小化原则」）。
 
 <a id="01-3-2"></a>
 ### §01-3-2 三层构造期保证 (L1–L3)
@@ -184,11 +186,11 @@ TEND 正确性是三层堆叠，而非单层 gold-class 通过测试：
 
 > 若存在 plausible wrong 解 q_w ∉ gold-class(r) 但 NormExec(q_w, D) ≡_rec NormExec(q_g, D)，record 在构造期驳回。
 
-plausible wrong 由 [04 §4](./04_agent_framework.md#04-4) 的 MUT mutations 库生成；witness 须足够 rich 使近似错解必然失败。每条 record 5–8 条 mutation，全部须 EX fail。
+plausible wrong 由 [04 §4](./04_agent_framework.md#04-4) 的 MUT mutations 库生成；witness 须足够 rich 使近似错解必然失败。每条 record 5–8 条 mutation，全部须 EX fail。**RAR 下 witness 是结构正确性的唯一判别器**：cfs 已最小化、不再 police native idiom（§01-3-1），故「未正面处理异构变体 / 窗口边界错 / 漏分支」全靠 rich witness 令其 `≡_rec` 必败——witness 判别力不足即 record 构造期驳回。
 
 **L3 · NLQ 一致性**
 
-> canonical NLQ 须在 RTV 闭包下 ∈ gold-class（强制）；colloquial 走软检查。canonical NLQ 在独立 LLM 歧义攻击下收敛到唯一查询意图；colloquial 变体不得引入歧义意图。
+> canonical NLQ 须在 RTV 往返下 `NormExec ≡_rec gold`（结果级，强制；非 cfs 指纹闭包）；colloquial 走软检查。canonical NLQ 在独立 LLM 歧义攻击下收敛到唯一查询意图（结果级）；colloquial 变体不得引入歧义意图。
 
 L3 由 RTV 闭包（canonical 强制 / colloquial 软）与 NNC 独立 LLM 歧义攻击承担（[04 §4](./04_agent_framework.md#04-4)）。
 
@@ -265,21 +267,21 @@ aggregate 返回值恒为 list-of-dict；顶层 ≡_rec 按列表规则。[] ≠
 
 每个合法 record 须同时满足 P1–P4，否则构造期驳回。
 
-**P1 · Execution Well-formedness**
+**P1 · Execution Well-formedness & Reference Agreement**
 
-> NormExec(q_g, D) ≠ ⊥。
+> NormExec(q_g, D) ≠ ⊥ 且 NormExec(q_g, D) ≡_rec R(D)。
 
-gold representative 在 witness 上须解析、执行、归一化成功。允许 [] 仅当 NLQ 显式问「不存在」。
+gold representative 在 witness 上须解析、执行、归一化成功，**且其结果须与该 record 的独立参照实现 R 在 D 上一致**。R 是 archetype 目录为每个问题原型提供的 naive、可审计参照（独立 Python，跨执行范式），是 RAR 对 gold 正确性的**独立 oracle**——取代纯逆向「gold 即答案」的自证，抓得到 gold 的系统性 bug。R 与双路合成（mql_primary ≡ mql_alt）三角定位 gold（[04 §04-3](./04_agent_framework.md#04-3)）。允许 [] 仅当 NLQ 显式问「不存在」。
 
 **P2 · Semantic Uniqueness**
 
-> canonical NLQ 意图唯一；RTV 往返闭包下 canonical 须 ∈ gold-class；colloquial 不引入第二意图。
+> canonical NLQ 意图唯一；RTV 往返下 canonical 须 `NormExec ≡_rec gold`（结果级）；colloquial 不引入第二意图。
 
 P2 由 QPS 计划控制 + RTV 闭包（canonical 强制 / colloquial 软）+ NNC 独立 LLM 歧义攻击共同担保。
 
 **P3 · Discriminativeness**
 
-> mutations 库中 plausible wrong 解 q_w 须满足 NormExec(q_w, D) ≢_rec NormExec(q_g, D)；NNC graduated SQL-shortcut gate 对非 feasible 类 record 须拒绝 SQL/Template 桥捷径。
+> mutations 库中 plausible wrong 解 q_w 须满足 NormExec(q_w, D) ≢_rec NormExec(q_g, D)；NNC graduated dual-bridge gate 对非 feasible 类 record 须拒绝 SQL/Template 桥捷径（RAR 纯结果判据：两桥均不得 NormExec ≡_rec gold，见 [04 §04-5-2](./04_agent_framework.md#04-5-2)）。
 
 **P4 · World Non-triviality**
 
@@ -292,83 +294,72 @@ P2 由 QPS 计划控制 + RTV 闭包（canonical 强制 / colloquial 软）+ NNC
 
 | 原则 | Agent 承担方 | 机制概要 |
 |------|-------------|---------|
-| **P1** | MS + DM | gold MQL 在 D 上 NormExec 非 ⊥ |
-| **P2** | QPS + RTV + NNC | RTV 闭包（canonical 强制 / colloquial 软）；独立 LLM 歧义攻击 |
-| **P3** | MUT + PV + NNC | mutation 库全 fail；graduated SQL-shortcut gate |
+| **P1** | MS + PV | gold ≡_rec 参照 R ∧ 双路收敛 ∧ NormExec 非 ⊥ |
+| **P2** | QPS + RTV + NNC | RTV 结果级闭包（canonical 强制 / colloquial 软）；独立 LLM 歧义攻击 |
+| **P3** | MUT + PV + NNC | mutation 库全 fail；graduated dual-bridge gate（纯结果） |
 | **P4** | RA + DM | witness 非平凡审计；必要时 targeted augment |
 
 L1–L3 与 P 的耦合关系保持不变：L1 ↔ P1 类内；L2 ↔ P3∧P4 类外区分；L3 ↔ P2 源头收敛。评测期 solver 违反 P_ro/P_det/P_mxe 或 AST_check 时 EX 直接 fail。
 
 <a id="01-7"></a>
-## §01-7 Canonical Anchor: orchestra/1001
+## §01-7 Canonical 锚 (pending DAR Phase A): financial/1001
 
-本示例为全文共享的 canonical anchor。下游文档 (02–06) 引用须字节级一致。
+本示例为全文共享的 canonical 锚。下游文档 (02–06) 引用须字节级一致。record 取自 BIRD 真实库 `financial`(已在 test-only 集),异构信号实测;布局/MQL/`world_signature` 待 DAR Phase A 构造 + 执行验证。
 
-<!-- canonical-anchor: orchestra/1001 -->
+> **⚠ PENDING DAR Phase A**：下列 record 取自 BIRD `financial`,异构信号(稀疏 `loan` 682/4500、多态 `trans`)实测;account 反范式化布局、gold MQL 与 `world_signature`(确定性占位)尚未经 DAR Phase A 在真实 MongoDB 上构造 + 执行验证。
+
+> **RAR 注**：financial/1001 是异构驱动记录的范例——难度源自稀疏 `loan` 的 present/missing 变体（DAR 机制②），canonical NLQ「无 loan 则记 0」正是该 query-bearing 异构逼出的真实业务意图（archetype = 稀疏字段的存在性条件投影，见 [04 §04-2-4](./04_agent_framework.md#04-2-4)）。其 `canonical_form_set`（`must_contain` 含 `$lookup`/`$addFields`/`$cond`/`$type`）为 **pre-collapse 旧富指纹**；按 [§01-3-1](#01-3-1) cfs 最小化原则，replace/执行验证时将重派生为「不变量 + output 守卫」（保留 `$lookup` 与 `preserve` shape 守卫 `$unwind`/`$group` 根禁，去掉可替换的 `$addFields`/`$cond`/`$type`）。此重派生并入该锚既有的 PENDING DAR Phase A 工作。
+
+<!-- canonical-anchor: financial/1001 -->
 ```json
 {
   "record_id": 1001,
-  "db_id": "orchestra",
+  "db_id": "financial",
   "nl_queries": {
-    "canonical": "对每位 conductor，先在其指挥的 orchestra 的 performance 上按 Performance_ID 升序、对 Attendance 计算窗口大小为 (当前, 前 2 场) 的滑动平均；取该 conductor 的最后一次窗口平均值作为代表值 (Attendance 缺失视为 0)。然后计算所有 conductor 代表值的中位数。最终只输出代表值严格大于该中位数的 conductor，字段为 Name 与 last_window_avg；若 Name 缺失则显示为 (unknown)；不要求排序。",
-    "colloquial": "列出最近场次出勤趋势高于同行中位数的指挥。"
+    "canonical": "为每个 account 附加一个字段 loan_to_credit_ratio:若该 account 有 loan,取 loan.amount 除以该 account 所有贷记交易(trans.type = 'PRIJEM')的 amount 之和(该和为 0 时按 1 计);若该 account 无 loan,则该字段为 0。保留每个 account 文档(含无 loan 的),只在原文档上新增该字段,不改变文档数与嵌套结构;不要求排序。",
+    "colloquial": "给每个账户标注它的贷款相对贷记流水的占比;没有贷款的账户记 0,一个账户都别漏。"
   },
-  "MQL": "db.conductor.aggregate([
-  { $unwind: { path: \"$orchestra\", preserveNullAndEmptyArrays: false } },
-  { $unwind: { path: \"$orchestra.performance\", preserveNullAndEmptyArrays: false } },
-  { $setWindowFields: {
-      partitionBy: \"$_id\",
-      sortBy: { \"orchestra.performance.Performance_ID\": 1 },
-      output: {
-        moving_avg_attendance: {
-          $avg: { $ifNull: [\"$orchestra.performance.Attendance\", 0] },
-          window: { documents: [-2, 0] }
-        }
+  "MQL": "db.account.aggregate([
+  { $lookup: {
+      from: \"trans\",
+      let: { aid: \"$_id\" },
+      pipeline: [
+        { $match: { $expr: { $and: [ { $eq: [\"$account_id\", \"$$aid\"] }, { $eq: [\"$type\", \"PRIJEM\"] } ] } } },
+        { $group: { _id: null, credit_sum: { $sum: \"$amount\" } } }
+      ],
+      as: \"_credit\"
+  } },
+  { $addFields: {
+      loan_to_credit_ratio: {
+        $cond: [
+          { $ne: [ { $type: \"$loan\" }, \"missing\" ] },
+          { $divide: [ \"$loan.amount\", { $max: [ { $ifNull: [ { $arrayElemAt: [\"$_credit.credit_sum\", 0] }, 0 ] }, 1 ] } ] },
+          0
+        ]
       }
   } },
-  { $group: {
-      _id: \"$_id\",
-      Name: { $first: { $ifNull: [\"$Name\", \"(unknown)\"] } },
-      last_window_avg: { $last: \"$moving_avg_attendance\" }
-  } },
-  { $facet: {
-      per_conductor: [ { $project: { _id: 0, Name: 1, last_window_avg: 1 } } ],
-      global_median: [
-        { $sort: { last_window_avg: 1 } },
-        { $group: { _id: null, vals: { $push: \"$last_window_avg\" } } },
-        { $project: { _id: 0, median: { $arrayElemAt: [\"$vals\", { $floor: { $divide: [{ $size: \"$vals\" }, 2] } }] } } }
-      ]
-  } },
-  { $project: {
-      kept: { $filter: {
-        input: \"$per_conductor\",
-        as: \"c\",
-        cond: { $gt: [\"$$c.last_window_avg\", { $arrayElemAt: [\"$global_median.median\", 0] }] }
-      } }
-  } },
-  { $unwind: \"$kept\" },
-  { $project: { _id: 0, Name: \"$kept.Name\", last_window_avg: \"$kept.last_window_avg\" } }
+  { $project: { _credit: 0 } }
 ])",
   "canonical_form_set": {
-    "must_contain": ["$setWindowFields", "$facet", "$ifNull"],
-    "must_not_contain": [],
-    "must_contain_at_root": ["$setWindowFields", "$facet"],
-    "must_not_contain_at_root": []
+    "must_contain": ["$lookup", "$addFields", "$cond", "$type"],
+    "must_not_contain": ["$unwind"],
+    "must_contain_at_root": ["$addFields"],
+    "must_not_contain_at_root": ["$unwind", "$group"]
   },
   "difficulty": "L4",
-  "shape_policy": "reshape",
-  "world_signature": "sha256:a47f3e8b1c2d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e90",
-  "agent_design_rationale_ref": "fixtures/orchestra/sra.yaml",
-  "mutations_ref": "fixtures/orchestra/mutations.json"
+  "shape_policy": "preserve",
+  "world_signature": "sha256:58d575b0eb62b1499642ec46e9efe5d5576082ce45d871df0326821f44751346",
+  "agent_design_rationale_ref": "fixtures/financial/sra.yaml",
+  "mutations_ref": "fixtures/financial/mutations.json"
 }
 ```
 
 **解读要点**：
 
-- difficulty L4：$facet 并行分支 + $setWindowFields 分区窗口，dual-bridge defeat 须拒绝纯 SQL 翻译捷径（[04 §3](./04_agent_framework.md#04-3)）。
-- canonical_form_set：must_contain $setWindowFields / $facet / $ifNull；must_contain_at_root $setWindowFields / $facet。
-- shape_policy reshape：允许 double $unwind 拍平嵌套 orchestra.performance。
-- mutations_ref 中典型错解（缺 $ifNull、用全局 $avg 替代窗口、硬编码中位数、median index 未 $floor）须在 witness 上 NormExec ≢_rec gold（P3）。
+- difficulty L4：$lookup 关联子管道（多态 trans 贷记求和）+ 稀疏 loan 的 $cond 变体调和，dual-bridge defeat 须拒绝纯 SQL 翻译捷径（[04 §3](./04_agent_framework.md#04-3)）。
+- canonical_form_set：must_contain $lookup / $addFields / $cond / $type；must_contain_at_root $addFields；must_not_contain $unwind（**pre-collapse 旧富指纹**；RAR cfs 最小化后保留 $lookup + preserve shape 守卫、去 $addFields/$cond/$type，见 §01-7 RAR 注）。
+- shape_policy preserve：只 $addFields 就地新增 loan_to_credit_ratio，禁 $unwind+$group 重建（§06-5）。
+- mutations_ref 中典型错解（用 INNER-JOIN 式 drop 丢无 loan 账户、漏 $cond/$type、多态 trans 未按 type 过滤、credit_sum 为 0 未兜底）须在 witness 上 NormExec ≢_rec gold（P3）。
 
 <a id="01-8"></a>
 ## §01-8 符号表
@@ -610,16 +601,16 @@ def EX_verdict(q_p: str, record: dict, snapshot: dict) -> bool:
 <a id="01-ii-7"></a>
 ### §01-II-7 单元测试伪代码
 
-# uses: pytest, fixtures.orchestra
+# uses: pytest, fixtures.financial
 ```
 
-def test_AST_check_orchestra_1001_pass():
-    rec = load_fixture("orchestra/1001.json")
+def test_AST_check_financial_1001_pass():
+    rec = load_fixture("financial/1001.json")
     assert AST_check(rec["MQL"], rec["canonical_form_set"]) is True
 
-def test_AST_check_missing_facet_fail():
-    rec = load_fixture("orchestra/1001.json")
-    q_bad = strip_root_stage(rec["MQL"], "$facet")
+def test_AST_check_missing_addfields_fail():
+    rec = load_fixture("financial/1001.json")
+    q_bad = strip_root_stage(rec["MQL"], "$addFields")
     assert AST_check(q_bad, rec["canonical_form_set"]) is False
 
 def test_disabled_operator_sample_fail():
@@ -630,9 +621,9 @@ def test_disabled_operator_now_fail():
     q = 'db.c.aggregate([{"$match": {"t": "$$NOW"}}])'
     assert disabled_operator_scanner(q) is True
 
-def test_NormExec_gold_non_bot(orchestra_snapshot):
-    rec = load_fixture("orchestra/1001.json")
-    assert NormExec(rec["MQL"], orchestra_snapshot) is not BOT
+def test_NormExec_gold_non_bot(financial_snapshot):
+    rec = load_fixture("financial/1001.json")
+    assert NormExec(rec["MQL"], financial_snapshot) is not BOT
 
 def test_equiv_rec_null_vs_missing():
     assert equiv_rec({"a": None}, {}, order_sensitive=False) is False
@@ -640,18 +631,18 @@ def test_equiv_rec_null_vs_missing():
 def test_equiv_rec_float_tolerance():
     assert equiv_rec(1.0, 1.0 + 1e-12, order_sensitive=False) is True
 
-def test_world_signature_stable(orchestra_snapshot):
-    rec = load_fixture("orchestra/1001.json")
-    assert world_signature(orchestra_snapshot) == rec["world_signature"]
+def test_world_signature_stable(financial_snapshot):
+    rec = load_fixture("financial/1001.json")
+    assert world_signature(financial_snapshot) == rec["world_signature"]
 
-def test_EX_verdict_gold_member(orchestra_snapshot):
-    rec = load_fixture("orchestra/1001.json")
-    assert EX_verdict(rec["MQL"], rec, orchestra_snapshot) is True
+def test_EX_verdict_gold_member(financial_snapshot):
+    rec = load_fixture("financial/1001.json")
+    assert EX_verdict(rec["MQL"], rec, financial_snapshot) is True
 
-def test_EX_verdict_mutation_fail(orchestra_snapshot):
-    rec = load_fixture("orchestra/1001.json")
+def test_EX_verdict_mutation_fail(financial_snapshot):
+    rec = load_fixture("financial/1001.json")
     for mut in load_mutations(rec["mutations_ref"]):
-        assert EX_verdict(mut["MQL"], rec, orchestra_snapshot) is False
+        assert EX_verdict(mut["MQL"], rec, financial_snapshot) is False
 ```
 
 ---

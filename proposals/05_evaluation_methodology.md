@@ -16,7 +16,7 @@ TEND 评测层把每条 test record 上的 solver 预测 `q_p` 压缩为固定�
 
 其余指标：**EM** = canonical_text 相等；**QSM** = 结构树相等（stage 序列 + 算子多重集，字段/字面量屏蔽）；**QFC** = 引用字段路径集合相等；**EFM** = 结果序列等长且逐文档顶层键集合相等；**EVM** = 在 EFM = 1 前提下逐字段多重集相等，否则置 0。
 
-**Solver 窄可见面**（test.json 单条 record）：仅可读 `nl_queries.canonical`、`db_id`、`mongodb_schema/<db_id>.json`、`mongodb_data/<db_id>.json`。显式禁止读取 `MQL`、`canonical_form_set`、`nl_queries.colloquial`（默认主评测）、一切 `_ref` / `_eval_` / `_audit_` 字段及整个 `audit/` 树。train.json 中 `MQL` 与 `canonical_form_set` 可读作监督信号。
+**Solver 窄可见面**（test.json 单条 record）：仅可读 `nl_queries.canonical`、`db_id`、`mongodb_schema/<db_id>.json`、`mongodb_data/<db_id>.json`。显式禁止读取 `MQL`、`canonical_form_set`、`nl_queries.colloquial`（默认主评测）、一切 `_ref` / `_eval_` / `_audit_` 字段及整个 `audit/` 树。基准为 test-only（11 库全 test，无 train）：`MQL` 与 `canonical_form_set` 在任何阶段都不向 solver 暴露；OOD 由「构造期不向 solver 暴露」保证，而非 train/test 域切分。
 
 **六轴切片**（见 [02 §4](./02_dataset_design.md#02-4)）：`domain`（domain_id）、`join_depth`（0/1/2/3+）、`aggregation_depth`（shallow/medium/deep）、`schema_pattern`（SRA 主 pattern）、`schema_flex`（SRA Stage B H1–H4 触发轴）、`difficulty_tier`（L0–L4）。每轴对 7 指标分别求均值，形成 slice × metric 矩阵；主 headline 仍为全 test 等权 EX。
 
@@ -26,7 +26,7 @@ TEND 评测层把每条 test record 上的 solver 预测 `q_p` 压缩为固定�
 
 **强制披露**：任何公开引用 TEND 分数的提交须同时披露 7 指标三级聚合、六轴切片矩阵、4-panel pr 分布、构造/评测 disjointness 时间戳、环境 digest、Solver LLM 骨干清单、per-record 指纹 CSV 等 ≥12 项（见 [§05-4](#05-4)）。缺失任一项标记 `[DISCLOSURE_INCOMPLETE]`，不得汇入 official leaderboard。
 
-Canonical anchor **orchestra/1001** 的评测实例见 [§05-5](#05-5)；字节级 JSON 见 Part II。
+Canonical anchor **financial/1001** 的评测实例见 [§05-5](#05-5)；字节级 JSON 见 Part II。
 
 ---
 
@@ -133,7 +133,7 @@ $$
 | 记录清单 | `test.json` | 窄面 | 全部 |
 | witness | `mongodb_data/<db_id>.json` | ✓ | ✓ |
 | schema | `mongodb_schema/<db_id>.json` | ✓ | ✓ |
-| 域 catalog | `spider_db_catalog.json` | 可选元数据 | ✓ |
+| 域 catalog | `bird_db_catalog.json` | 可选元数据 | ✓ |
 | SRA rationale | `agent_design_rationale/<db_id>.yaml` | 禁（audit） | ✓ |
 
 <a id="05-2-2"></a>
@@ -155,7 +155,7 @@ Solver 对单条 test record **仅**读入四字段：
 
 | 轴 ID | 观测字段 | 取值域 |
 |---|---|---|
-| `domain` | `domain_id` | Spider ~138 domain |
+| `domain` | `domain_id` | BIRD mini-dev 11 库 domain |
 | `join_depth` | `join_depth` | 0, 1, 2, 3+ |
 | `aggregation_depth` | `aggregation_depth` | shallow / medium / deep |
 | `schema_pattern` | `schema_pattern` | embed, bucket, mixed, … |
@@ -233,7 +233,7 @@ pr 四元组 `(pr_small, pr_medium, pr_large, pr_frontier)`：每个 pr_X 为 pa
 | 6 | RA realism 审计通过率 | 百分比 |
 | 7 | 构造/评测 disjointness 时间戳 + manifest digest | 2 个 gate JSON |
 | 8 | Panel manifest digests | ≥4 SHA-256 |
-| 9 | `spider_db_catalog.json` digest | SHA-256 |
+| 9 | `bird_db_catalog.json` digest | SHA-256 |
 | 10 | release `world_signature` 汇总 digest | SHA-256 |
 | 11 | mongosh + MongoDB server image digest | 见 [§05-II-3](#05-ii-3) |
 | 12 | Solver LLM 骨干 ID 清单 | `[{model_id, vendor, version_pin}, …]` |
@@ -246,13 +246,13 @@ Leaderboard 提交 JSON 须通过 `schemas/leaderboard.schema.json`（见 Part I
 ---
 
 <a id="05-5"></a>
-### 05-5 Canonical 示例（orchestra/1001）
+### 05-5 Canonical 锚评测实例（financial/1001，pending DAR Phase A）
 
-三种评测实例摘要（完整 JSON 见 Part II）：
+financial/1001 取自 BIRD 真实库 `financial`（test-only 集），pending DAR Phase A 执行验证（account 反范式化布局 / gold MQL / world_signature 待构造 + 执行验证）。三种评测实例摘要（完整 JSON 见 Part II）：
 
 | 场景 | 指纹 | 要点 |
 |---|---|---|
-| 结构简化失败 | `(0,0,1,0,0,0,0)` | 缺 `$setWindowFields`/`$facet` → AST_check fail → QIM=0 |
+| 结构简化失败 | `(0,0,1,0,0,0,0)` | 含 `$unwind`（must_not_contain）或缺根 `$addFields` → AST_check fail → QIM=0 |
 | 逐字成功 | `(1,1,1,1,1,1,1)` | EM=1 ⟹ EX=1 |
 | 等价重写 | `(0,?,1,1,1,1,1)` | EM=0 但 AST_check pass + ≡_rec → EX=1, QIM=1 |
 
@@ -484,64 +484,51 @@ def aggregate_panels(fingerprints, panel_pr_meta) -> dict:
 ---
 
 <a id="05-ii-5"></a>
-### 05-II-5 Canonical Anchor Record
+### 05-II-5 Canonical Record (pending DAR Phase A)
 
-<!-- canonical-anchor: orchestra/1001 -->
+> **⚠ PENDING DAR Phase A**：下列 record 取自 BIRD `financial`，异构信号实测；account 反范式化布局、gold MQL 与 `world_signature`（确定性占位）尚未经 DAR Phase A 在 MongoDB 上构造 + 执行验证。
+
+<!-- canonical-anchor: financial/1001 -->
 ```json
 {
   "record_id": 1001,
-  "db_id": "orchestra",
+  "db_id": "financial",
   "nl_queries": {
-    "canonical": "对每位 conductor，先在其指挥的 orchestra 的 performance 上按 Performance_ID 升序、对 Attendance 计算窗口大小为 (当前, 前 2 场) 的滑动平均；取该 conductor 的最后一次窗口平均值作为代表值 (Attendance 缺失视为 0)。然后计算所有 conductor 代表值的中位数。最终只输出代表值严格大于该中位数的 conductor，字段为 Name 与 last_window_avg；若 Name 缺失则显示为 (unknown)；不要求排序。",
-    "colloquial": "列出最近场次出勤趋势高于同行中位数的指挥。"
+    "canonical": "为每个 account 附加一个字段 loan_to_credit_ratio:若该 account 有 loan,取 loan.amount 除以该 account 所有贷记交易(trans.type = 'PRIJEM')的 amount 之和(该和为 0 时按 1 计);若该 account 无 loan,则该字段为 0。保留每个 account 文档(含无 loan 的),只在原文档上新增该字段,不改变文档数与嵌套结构;不要求排序。",
+    "colloquial": "给每个账户标注它的贷款相对贷记流水的占比;没有贷款的账户记 0,一个账户都别漏。"
   },
-  "MQL": "db.conductor.aggregate([
-  { $unwind: { path: \"$orchestra\", preserveNullAndEmptyArrays: false } },
-  { $unwind: { path: \"$orchestra.performance\", preserveNullAndEmptyArrays: false } },
-  { $setWindowFields: {
-      partitionBy: \"$_id\",
-      sortBy: { \"orchestra.performance.Performance_ID\": 1 },
-      output: {
-        moving_avg_attendance: {
-          $avg: { $ifNull: [\"$orchestra.performance.Attendance\", 0] },
-          window: { documents: [-2, 0] }
-        }
+  "MQL": "db.account.aggregate([
+  { $lookup: {
+      from: \"trans\",
+      let: { aid: \"$_id\" },
+      pipeline: [
+        { $match: { $expr: { $and: [ { $eq: [\"$account_id\", \"$$aid\"] }, { $eq: [\"$type\", \"PRIJEM\"] } ] } } },
+        { $group: { _id: null, credit_sum: { $sum: \"$amount\" } } }
+      ],
+      as: \"_credit\"
+  } },
+  { $addFields: {
+      loan_to_credit_ratio: {
+        $cond: [
+          { $ne: [ { $type: \"$loan\" }, \"missing\" ] },
+          { $divide: [ \"$loan.amount\", { $max: [ { $ifNull: [ { $arrayElemAt: [\"$_credit.credit_sum\", 0] }, 0 ] }, 1 ] } ] },
+          0
+        ]
       }
   } },
-  { $group: {
-      _id: \"$_id\",
-      Name: { $first: { $ifNull: [\"$Name\", \"(unknown)\"] } },
-      last_window_avg: { $last: \"$moving_avg_attendance\" }
-  } },
-  { $facet: {
-      per_conductor: [ { $project: { _id: 0, Name: 1, last_window_avg: 1 } } ],
-      global_median: [
-        { $sort: { last_window_avg: 1 } },
-        { $group: { _id: null, vals: { $push: \"$last_window_avg\" } } },
-        { $project: { _id: 0, median: { $arrayElemAt: [\"$vals\", { $floor: { $divide: [{ $size: \"$vals\" }, 2] } }] } } }
-      ]
-  } },
-  { $project: {
-      kept: { $filter: {
-        input: \"$per_conductor\",
-        as: \"c\",
-        cond: { $gt: [\"$$c.last_window_avg\", { $arrayElemAt: [\"$global_median.median\", 0] }] }
-      } }
-  } },
-  { $unwind: \"$kept\" },
-  { $project: { _id: 0, Name: \"$kept.Name\", last_window_avg: \"$kept.last_window_avg\" } }
+  { $project: { _credit: 0 } }
 ])",
   "canonical_form_set": {
-    "must_contain": ["$setWindowFields", "$facet", "$ifNull"],
-    "must_not_contain": [],
-    "must_contain_at_root": ["$setWindowFields", "$facet"],
-    "must_not_contain_at_root": []
+    "must_contain": ["$lookup", "$addFields", "$cond", "$type"],
+    "must_not_contain": ["$unwind"],
+    "must_contain_at_root": ["$addFields"],
+    "must_not_contain_at_root": ["$unwind", "$group"]
   },
   "difficulty": "L4",
-  "shape_policy": "reshape",
-  "world_signature": "sha256:a47f3e8b1c2d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e90",
-  "agent_design_rationale_ref": "fixtures/orchestra/sra.yaml",
-  "mutations_ref": "fixtures/orchestra/mutations.json"
+  "shape_policy": "preserve",
+  "world_signature": "sha256:58d575b0eb62b1499642ec46e9efe5d5576082ce45d871df0326821f44751346",
+  "agent_design_rationale_ref": "fixtures/financial/sra.yaml",
+  "mutations_ref": "fixtures/financial/mutations.json"
 }
 ```
 

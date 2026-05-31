@@ -1,5 +1,0 @@
-primary_pattern: schema_version_fallback
-description: Nested $ifNull fallback chain across schema versions.
-required_stages:
-  - $addFields
-  - $project

@@ -1,4 +1,0 @@
-[
-  "db.patients.aggregate([ { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])",
-  "db.patients.aggregate([ { $match: {} }, { $project: { _id: 0, kv: { $objectToArray: \"$$ROOT\" } } }, { $unwind: \"$kv\" }, { $group: { _id: \"$kv.k\", distinct_types: { $addToSet: { $type: \"$kv.v\" } }, count: { $sum: 1 } } }, { $project: { _id: 0, field_name: \"$_id\", types: \"$distinct_types\", count: 1 } }])"
-]

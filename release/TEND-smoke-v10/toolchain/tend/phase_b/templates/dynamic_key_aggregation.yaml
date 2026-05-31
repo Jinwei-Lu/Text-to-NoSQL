@@ -1,6 +1,0 @@
-primary_pattern: dynamic_key_aggregation
-description: Object key explosion and regrouping via objectToArray pipeline.
-required_stages:
-  - $objectToArray
-  - $unwind
-  - $group

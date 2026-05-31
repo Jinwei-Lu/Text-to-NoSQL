@@ -1,6 +1,6 @@
 # TEND §04 · Agent Framework
 
-> 本卷是 TEND **Phase B · Reverse-Engineered NL–MQL Construction** 的单一真源 (SSoT)。上游读取 [03](./03_spider_anchored_dataworld.md) 产出的 MongoDB schema、冻结 witness 数据、SRA rationale 与 `scenario_summary`；下游向 [02 §2](./02_dataset_design.md#02-2) 提交可发布的 record 字段。本卷**不**重复定义任务签名、NormExec、gold-as-class、EX 双条件与 ≡_rec，统一交叉引用 [01](./01_task_definition.md)。Spider 1.0 在本架构中仅充当**数据源 + 场景源**；Phase B **不**消费 Spider NL/SQL 作为查询 oracle。
+> 本卷是 TEND **Phase B · Reverse-Engineered NL–MQL Construction** 的单一真源 (SSoT)。上游读取 [03](./03_dataworld_construction.md) 产出的 MongoDB schema、冻结 witness 数据、SRA rationale 与 `scenario_summary`；下游向 [02 §2](./02_dataset_design.md#02-2) 提交可发布的 record 字段。本卷**不**重复定义任务签名、NormExec、gold-as-class、EX 双条件与 ≡_rec，统一交叉引用 [01](./01_task_definition.md)。BIRD mini-dev（11 库）在本架构中仅充当**数据源 + 场景源**；Phase B **不**以 BIRD NL/SQL 为 MQL oracle，但 BIRD SQL/join 作为真实信号驱动 Phase A 聚合与异构识别。
 
 ---
 
@@ -8,46 +8,46 @@
 
 ## TL;DR
 
-TEND 在 Spider 锚定数据世界上，用 **QPS → MS → MUT → PV → NLP → RTV → NNC → RA** 八 Agent 流水线把逆向构造的 NL–MQL 对物化为可发布 record。构造路径为：**先采样 query_plan → 合成 MQL → 派生 canonical_form_set → 生成 mutations → 性质验证 → 逆向 paraphrase NLQ → 圆桌往返 → 形态/原生性裁决 → realism 审计**。正确性由 gold-as-class（canonical_form_set 四元组 + EX 双条件）与 P1–P4 根原则直接担保。
+TEND 在 BIRD mini-dev 锚定数据世界上，用 **QPS → MS → MUT → PV → NLP → RTV → NNC → RA** 八 Agent 流水线把 NL–MQL 对物化为可发布 record。构造路径（**RAR · Reference-Anchored Reverse**）：**枚举异构驱动 intent → 合成 gold 并对独立参照 R 锁死 → 派生 thin cfs → 生成 mutations → 性质验证 → 从 intent 派生自然 NLQ → 结果级往返 → 难度/原生性裁决 → realism 审计**。正确性由 P1 参照锚定（gold ≡_rec R）+ gold-as-class（EX 双条件）+ P1–P4 担保。逆向骨架（gold 先锁、NLQ 后派）保留，但**种子是信息需求（非算子）、NLQ 从 intent（非管线）派**——根治 operator-first 的不自然/自证两病。
 
-**QPS (Query Plan Sampler)** 在 Coverage Controller 的 min+max 双配额驱动下，从 schema、witness 摘要与 `scenario_summary` 采样结构化 `query_plan`：primary_pattern、operator_graph、shape_policy、null_missing_strategy、目标 L 级、schema_flex 选用及 join/aggregation depth 目标。**不**读取 Spider SQL 作为计划金锚。
+**QPS (Query Plan Sampler → Intent Enumerator)** 在 Coverage Controller 的 min+max 双配额驱动下，从 Phase A query-bearing 异构清单 × **archetype 目录**（§04-2-4）× `scenario_summary` 枚举结构化 `intent`：seed_mechanism、seed_signal、archetype、domain_framing、analytical_op、reference_oracle、semantic_properties。**不再产出 primary_pattern / operator_graph**；难度由 `mechanism × archetype` 派生。**不**以 BIRD SQL/NL 为 oracle（BIRD SQL/join 仅作 Phase A 真实信号）。
 
-**MS (MQL Synthesizer)** 以 `query_plan` 为输入，用 ≥2 条独立合成策略（直接编译 vs 等价代数变换）产出 `mql_primary` 与 `mql_alt`，并要求 NormExec 两路 ≡_rec。**MS 在时序上先于 MUT/PV/NLP/RTV/NNC 机械派生 `canonical_form_set` 四元组**，供下游 AST_check 与 mutations 生成直接消费。
+**MS (MQL Synthesizer)** 以 `intent` 为输入，用 ≥2 条独立合成策略产出 `mql_primary`/`mql_alt`；**gold 锁死判据 = `NormExec(gold,D) ≡_rec R(D)` ∧ 两路 ≡_rec**（参照 R 独立 oracle + 双路三角，取代纯逆向「gold 自证」）。MS 先于下游机械派生 **thin canonical_form_set**（idiom-不变量 + output 守卫），供 AST_check 消费。
 
-**MUT (Mutation Generator)** 基于 `(query_plan, mql_primary, canonical_form_set)` 产出 **5–8 条** plausible wrong 变体，覆盖算子/参数、shape、null、canonical_form_set stress、schema_flex stress 五维度；全部须 EX fail（P3）。
+**MUT (Mutation Generator)** 基于 `(intent, mql_primary, canonical_form_set)` 产出 **5–8 条** plausible wrong 变体，覆盖算子/参数、shape、null、异构 stress（漏 present/missing 分支、忽略判别键）等维度；全部须 EX fail（P3，靠 witness 判别）。
 
 **PV (Property Verifier)** 对 gold MQL 与 mutations 执行 plan 声明的语义性质断言、witness probe 与 AST_check；mutations 全 reject 为硬约束。
 
-**NLP (NL Paraphraser)** 从锁定 MQL 与 query_plan **逆向** paraphrase 二联 NLQ：canonical（L1、schema-naive、最显式）与 colloquial（L0、口语 underspecified）；colloquial 不得引入第二意图（P2 / L3）。
+**NLP (NL Paraphraser)** 从 **intent（信息需求，非锁定 MQL 管线）** paraphrase 二联 NLQ：canonical（L1、schema-naive）与 colloquial（L0、口语 underspecified）；从 intent 派根治「NLQ 沦为伪代码」；colloquial 不得引入第二意图（P2 / L3）。
 
-**RTV (Round-Trip Verifier)** 使用与 QPS/MS/NLP **模型池 disjoint** 的独立 NL→MQL agent，对 canonical NLQ 再合成 `mql_round_trip_canonical`，**必须** ∈ gold-class；colloquial 走软检查——允许失败但须 NNC 可归因。
+**RTV (Round-Trip Verifier)** 使用与 QPS/MS/NLP **模型池 disjoint** 的独立 NL→MQL agent，对 canonical NLQ 再合成 `mql_round_trip_canonical`，**必须 NormExec ≡_rec gold**（结果级，验意图唯一；不要求命中 cfs 指纹）；colloquial 走软检查。混合披露使 S 携结构提示，故 L4 异构记录的自然 NLQ 仍可往返。
 
-**NNC (NoSQL Nativeness Critic)** 负责 L0–L4 难度标注、`sql_infeasibility_class` 赋值、canonical_form_set 三元校验、歧义攻击，以及 **graduated dual-bridge gate**：SQL-bridge 与 Template-bridge **始终计算**，但仅当 `sql_infeasibility_class ≠ feasible` 时作为**发布门**（两桥均不得 EX=1 ∧ QIM=1）；`feasible` 类记录仅写入诊断字段。
+**NNC (NoSQL Nativeness Critic)** 负责 L0–L4 难度**确认**（派生自 mechanism×archetype）、`sql_infeasibility_class` 赋值、canonical_form_set 校验、意图级歧义攻击，以及 **graduated dual-bridge gate**：两桥**始终计算**，仅当 `sql_infeasibility_class ≠ feasible` 时作发布门（**RAR 纯结果**：两桥均不得 NormExec ≡_rec gold，去 QIM 拐杖）；`feasible` 类仅写诊断字段。
 
 **RA (Realism Auditor)** 审计 witness 与 gold 的生产 realism：字段覆盖率、null/missing 共现、嵌套深度与 SRA pattern 一致、结果基数非平凡（P4）。必要时 targeted augment 并重算 `world_signature`，回流 MS 重跑 NormExec。
 
-**L0–L4 配额**：L0 ≤ 5%，L1 ≈ 20%，L2 ≈ 25%，L3 ≈ 25%，L4 ≥ 20%（全库分布目标）；**test 集 L4 ≥ 30%** 为发布硬约束（[02 H5](./02_dataset_design.md#02-4-3)）。L4 含两类 translation-lossy 子类：**structural_pipeline**（如 `$setWindowFields + $facet`）与 **structural_schema_flex**（如 `$switch by __type`、`$objectToArray` 动态键聚合）。
+**L0–L4 配额**：L0 ≤ 5%，L1 ≈ 20%，L2 ≈ 25%，L3 ≈ 25%，L4 ≥ 20%（全库分布目标）；**test 集 L4 ≥ 30%** 为发布硬约束（[02 H5](./02_dataset_design.md#02-4-3)）。L4 含两类 translation-lossy 子类：**structural_pipeline**（如 `$setWindowFields + $facet`）与 **structural_schema_flex**（DAR 异构机制下的原生表达，如多态分派、动态键聚合）。
 
-**canonical_form_set** 由 MS 从 operator_graph + shape_policy + null/missing 策略机械派生四元组；六件禁用 operator 恒入 must_not_contain。gold representative 存 record.MQL。
+**canonical_form_set（RAR thin）** 由 MS 从 gold 不可避免结构 + shape_policy 派生，**坍缩为 idiom-不变量 + output 守卫**；六件禁用 operator 恒入 must_not_contain；结构判别力交 witness（L2/P3），不锁可替换 idiom。gold representative 存 record.MQL。
 
-Canonical anchor **orchestra/1001**：针对 orchestra 嵌入式 schema 逆向设计的 L4 窗口+facet+ifNull 主模式；graduated gate 下 SQL-bridge 预期 EX=0。完整 JSON 见 [CANONICAL_ANCHOR.md](./_meta/CANONICAL_ANCHOR.md) 与本卷 §04-6。
+Canonical 锚（pending DAR Phase A）**financial/1001**：account 反范式化、`preserve`、稀疏 `loan` + 多态 `trans` 异构的 L4 record；graduated gate 下 SQL-bridge（INNER JOIN drop 丢无 loan 账户）预期 EX=0。完整 JSON 见 [CANONICAL_ANCHOR.md](./_meta/CANONICAL_ANCHOR.md) 与本卷 §04-6；**本卷构造侧 worked example（§04-6 走查、MUT/NNC 示例）仍为 legacy orchestra 示意**，待 DAR Phase A financial 构造替换。
 
 ---
 
 <a id="04-1"></a>
 ### 04-1 管线总览
 
-TEND 构造分 Phase A（DataWorld）与 Phase B（Reverse-Engineered NL–MQL Construction）。Phase A 由 [03](./03_spider_anchored_dataworld.md) 的 WP → SRA → SC → DM 负责；Phase B 为本卷八 Agent 流水线。
+TEND 构造分 Phase A（DataWorld）与 Phase B（Reverse-Engineered NL–MQL Construction）。Phase A 由 [03](./03_dataworld_construction.md) 的 WP → SRA → SC → DM 负责；Phase B 为本卷八 Agent 流水线。
 
 | 阶段 | Agent | 输入 | 输出 | 失败动作 |
 |---|---|---|---|---|
-| B1 | QPS | S, D 摘要, scenario_summary, 配额状态 | query_plan | cell 不可行 → Coverage Controller supply-relax |
-| B2 | MS | query_plan | mql_primary, mql_alt, **canonical_form_set**, shape/join/agg 元数据 | 双路不 ≡_rec → 重采样 plan 或跳过 |
-| B3 | MUT | query_plan, mql_primary, canonical_form_set | mutations[5–8] | 生成失败 → 回 MS |
-| B4 | PV | mql_*, mutations, query_plan, cfs, D | property_verification | 性质 fail / mutation 未全 reject → 回 MS |
-| B5 | NLP | mql_primary, query_plan, cfs, scenario_summary | nl_queries | paraphrase 违规 → 重试 |
-| B6 | RTV | nl_queries, S, D, cfs | round_trip_verification | canonical 未 ∈ gold-class → 回 NLP（≤2 轮） |
-| B7 | NNC | 全部上游产物 | difficulty, sql_infeasibility_class, nnc_verdict | gate fail / 歧义 → 回 QPS 或 RA |
+| B1 | QPS | S, D 摘要, scenario_summary, **Gate-QB 异构清单**, archetype 目录, 配额状态 | **intent** (+ reference_oracle R 参数) | cell 不可行 → Coverage Controller supply-relax |
+| B2 | MS | intent | mql_primary, mql_alt, **thin canonical_form_set**, shape/join/agg 元数据 | gold ≢_rec R 或 双路不 ≡_rec → 回 MS / 重采 intent |
+| B3 | MUT | intent, mql_primary, canonical_form_set | mutations[5–8] | 生成失败 → 回 MS |
+| B4 | PV | mql_*, mutations, intent, R, cfs, D | property_verification | gold≢R / 性质 fail / mutation 未全 reject → 回 MS |
+| B5 | NLP | **intent**, cfs, scenario_summary | nl_queries | paraphrase 违规 → 重试 |
+| B6 | RTV | nl_queries, S, D | round_trip_verification | canonical ≢_rec gold → 回 NLP（≤2 轮） |
+| B7 | NNC | 全部上游产物 | difficulty, sql_infeasibility_class, nnc_verdict | gate fail（纯结果）/ 意图歧义 → 回 QPS 或 RA |
 | B8 | RA | NNC 通过候选, D | ra_audit, 可选 augment, world_signature' | P4 失败 → augment → 回流 MS |
 
 ```mermaid
@@ -77,7 +77,7 @@ flowchart TD
   ra --> recordOut
 ```
 
-**Spider 边界**：WP 在 Phase A 仍读取 Spider NL/SQL 以推断访问模式与域语义，但输出仅用于 schema 设计与 `scenario_summary` 提取；Phase B **禁止**以 Spider SQL 或 Spider NL 作为 MQL/NLQ 的金锚或收敛 oracle。
+**BIRD 边界**：WP 在 Phase A 读取 BIRD（question, evidence, SQL）工作负载以推断访问模式与域语义，BIRD SQL/join 作为真实信号驱动 Phase A 聚合与异构识别，输出用于 schema 设计与 `scenario_summary` 提取；Phase B **禁止**以 BIRD SQL 或 BIRD NL 作为 MQL/NLQ 的金锚或收敛 oracle。
 
 **P1–P4 构造期映射**
 
@@ -98,46 +98,46 @@ flowchart TD
 <a id="04-1-2-1"></a>
 ##### 04-1-2-1 canonical_form_set 时序（cfs timing）
 
-`canonical_form_set` **必须**在 MS 阶段机械派生并作为 MS 输出的一部分写入 audit，时序上**先于** MUT、PV、NLP、RTV、NNC。任何下游 AST_check（含 PV、RTV、NNC、评测期 EX 条件 (a)）均直接消费 MS 产出的 cfs，**禁止**在 NNC 或更晚阶段才首次派生。派生算法见 §04-3-2 与 Part II §04-II-3。
+`canonical_form_set`（RAR thin：idiom-不变量 + output 守卫）**必须**在 MS 阶段机械派生并作为 MS 输出的一部分写入 audit，时序上**先于** MUT、PV、NLP、NNC。任何下游 AST_check（含 PV、NNC、评测期 EX 条件 (a)）均直接消费 MS 产出的 cfs，**禁止**在 NNC 或更晚阶段才首次派生。**RTV 不再消费 cfs**（改判结果级，§04-4-4）。派生算法见 §04-3-2 与 Part II §04-II-3。
 
 <a id="04-1-2-2"></a>
 ##### 04-1-2-2 mutations 归属（MUT ownership）
 
-P3 判别力由专用 Agent **MUT** 承担。MUT 消费 `(query_plan, mql_primary, canonical_form_set)`，产出 5–8 条 plausible wrong 变体；PV 负责验证 ∀m ∈ mutations, EX_verdict(m) = false。MUT 与 MS 模型池 disjoint；mutations 不得由 MS 或 NLP 顺带生成。
+P3 判别力由专用 Agent **MUT** 承担。MUT 消费 `(intent, mql_primary, canonical_form_set)`，产出 5–8 条 plausible wrong 变体（含「漏 present/missing 分支」「忽略判别键」等 RAR 异构 stress——这些靠 witness 判别，cfs 已不锁）；PV 验证 ∀m, EX_verdict(m) = false。MUT 与 MS 模型池 disjoint；mutations 不得由 MS 或 NLP 顺带生成。
 
 <a id="04-1-2-3"></a>
 ##### 04-1-2-3 RTV capability envelope
 
-RTV 使用固定中段 NL→MQL agent（能力上界约 gpt-4o-mini 等级），且与 QPS、MS、MUT、NLP 模型池及评测期 `S_solver` **三向 disjoint**（详见 [05 §3](./05_evaluation_methodology.md#05-3)、[06 §4](./06_solution_design.md#06-4)）。RTV 对 canonical NLQ 最多重试 2×（确定性 seed）；仍失败则回 NLP 重写 canonical，**不**直接拒绝 record。colloquial 走软检查：允许 round-trip 未 ∈ gold-class，但 NNC 须记录可归因原因（underspec 边界、字段名缺失等）。
+RTV 使用固定中段 NL→MQL agent（能力上界约 gpt-4o-mini 等级），且与 QPS、MS、MUT、NLP 模型池及评测期 `S_solver` **三向 disjoint**（详见 [05 §3](./05_evaluation_methodology.md#05-3)、[06 §4](./06_solution_design.md#06-4)）。RTV 对 canonical NLQ 最多重试 2×（确定性 seed）；仍失败则回 NLP 重写 canonical，**不**直接拒绝 record。canonical 判据为 `NormExec ≡_rec gold`（结果级，§04-4-4），非 cfs 指纹闭包。colloquial 走软检查：允许 round-trip ≢_rec gold，但 NNC 须记录可归因原因（underspec 边界、字段名缺失等）。
 
 <a id="04-1-2-4"></a>
 ##### 04-1-2-4 Coverage Controller
 
-QPS 受 Coverage Controller 调度，按六轴 min+max 双配额（[02 §4](./02_dataset_design.md#02-4)）推进分布。欠填 cell 的采样权重正比于 `max(0, MIN[c] − count[c])`。若某 cell 在当前 `db_id` 上不可行（例如 schema_flex 需要 `__variants` 但 H1–H4 未触发），标记 `supply_constrained` 并由 Controller 自动放宽 MIN 为 `min(target, supply_ceiling)`，写入 `audit/_global/coverage_report.json`。
+QPS 受 Coverage Controller 调度，按 **`seed_mechanism × archetype × domain`** min+max 双配额（[02 §4](./02_dataset_design.md#02-4)）推进分布；难度/join/agg 为派生观测，不设目标。欠填 cell 的采样权重正比于 `max(0, MIN[c] − count[c])`。若某 cell 在当前 `db_id` 上不可行（例如该机制未在该库触发真实信号），标记 `supply_constrained` 并由 Controller 自动放宽 MIN 为 `min(target, supply_ceiling)`，写入 `audit/_global/coverage_report.json`。
 
 <a id="04-1-2-5"></a>
 ##### 04-1-2-5 SQL-shortcut graduated gate
 
-NNC 对每条 record **始终**计算 SQL-bridge（canonical NLQ → NL2SQL → sql_to_mongo）与 Template-bridge（关键词 → 外部模板库填槽）的 `(EX, QIM)` 指纹，写入可选 `_diagnostic_bridge_ref`。
+NNC 对每条 record **始终**计算 SQL-bridge（canonical NLQ → NL2SQL → sql_to_mongo）与 Template-bridge（关键词 → 外部模板库填槽）的 `NormExec ≡_rec gold` **结果**（RAR 去 QIM 拐杖），写入可选 `_diagnostic_bridge_ref`。
 
 **发布门决策**（与 `sql_infeasibility_class` 联动）：
 
 | sql_infeasibility_class | dual-bridge 角色 |
 |---|---|
 | `feasible` | **仅诊断**；不据桥接结果拒绝 record |
-| `semantic`, `performative`, `structural_pipeline`, `structural_schema_flex` | **发布门**；两桥均不得 EX=1 ∧ QIM=1 |
+| `semantic`, `performative`, `structural_pipeline`, `structural_schema_flex` | **发布门**；两桥均不得 `NormExec ≡_rec gold`（够不到答案） |
 
-`feasible` 类记录仍须通过 NNC 的 L-tier 赋值、cfs 三元校验与歧义攻击；桥接结果供 [05](./05_evaluation_methodology.md) 的 `functional_sql_solvable` / `structural_sql_solvable` 诊断切片披露。
+`feasible` 类记录仍须通过 NNC 的 L-tier 赋值、cfs 校验与意图歧义攻击；桥接结果供 [05](./05_evaluation_methodology.md) 的 `functional_sql_solvable`（= SQL-bridge 结果 ≡_rec gold）诊断切片披露（`structural_sql_solvable` 在 RAR thin cfs 下退化，列 05 协调项）。
 
 <a id="04-1-2-6"></a>
-##### 04-1-2-6 schema_flex 供给端联动
+##### 04-1-2-6 query-bearing 供给端联动
 
-Phase A SC 执行 flex-eligible DB 比例 pre-audit（`min_flex_db_ratio` 配置，见 [03 §6](./03_spider_anchored_dataworld.md#03-6)）；`spider_db_catalog.json` 写入 `flex_eligible: bool`。若选中库的 flex_eligible 比例 < 30%，[02 H7/H9](./02_dataset_design.md#02-4-3) 自动 supply-relax：`schema_flex ≠ none` 下限放宽至 `max(15%, supply_ceiling)`，`structural_schema_flex` 下限放宽至 `max(10%, supply_ceiling × 0.8)`。Coverage Controller 读取 supply-relax 状态，避免在供给不足域强行采样不可行 plan。
+Phase A SC 执行 flex-eligible DB 比例 pre-audit（`min_flex_db_ratio` 配置，见 [03 §6](./03_dataworld_construction.md#03-6)）；`bird_db_catalog.json` 写入 `flex_eligible: bool`。若选中库的 flex_eligible 比例 < 30%，[02 H7/H9](./02_dataset_design.md#02-4-3) 自动 supply-relax：query-bearing 供给（`schema_flex ≠ none`）下限放宽至 `max(15%, supply_ceiling)`，`structural_schema_flex` 下限放宽至 `max(10%, supply_ceiling × 0.8)`。Coverage Controller 读取 supply-relax 状态，避免在供给不足域强行采样不可行 plan。
 
 <a id="04-1-2-7"></a>
 ##### 04-1-2-7 NNC 歧义攻击 disjointness
 
-NNC 对 canonical NLQ 的歧义攻击使用 ≥3 个独立 LLM 解析，其模型池与 QPS、MS、MUT、NLP、RTV 以及评测期 `S_solver` **全部 disjoint**。若存在与 gold query_plan 不等价且「人类合理」的解读 → P2 失败，回 QPS 重采样或 NLP 重写 canonical。
+NNC 对 canonical NLQ 的歧义攻击使用 ≥3 个独立 LLM 解析，其模型池与 QPS、MS、MUT、NLP、RTV 以及评测期 `S_solver` **全部 disjoint**。若存在一个「人类合理」的解读，其在 D 上结果 `≢_rec gold`（NLQ 指向第二个不等价答案）→ P2 失败，回 QPS 重采或 NLP 重写 canonical。判据为**意图/结果级**，非 MQL 结构级。
 
 ---
 
@@ -147,28 +147,46 @@ NNC 对 canonical NLQ 的歧义攻击使用 ≥3 个独立 LLM 解析，其模�
 <a id="04-2-1"></a>
 #### 04-2-1 职责
 
-QPS 主动控制 record 的**覆盖轴与复杂度**，从 schema、witness 统计摘要、`agent_design_rationale` 与 `scenario_summary` 采样结构化 `query_plan`。plan 是 Phase B 的唯一上游意图原子；不对外暴露内部 plan 序列化格式或外部模板格点。
+QPS 在 RAR 下从「算子采样器」重定位为 **意图枚举器**：它**不**采样算子骨架，而是从 Phase A 已过 Gate-QB 的 **query-bearing 异构清单** × **archetype 目录**（§04-2-4）× `scenario_summary` 域语义，枚举结构化 `intent`——一个由真实异构逼出的业务信息需求。算子骨架、难度、canonical_form_set 全是下游 gold 锁死后**派生**的果；QPS **不再产出** `primary_pattern` / `operator_graph`。`intent` 是 Phase B 唯一上游意图原子；不对外暴露其序列化格式或外部模板格点。
 
 <a id="04-2-2"></a>
-#### 04-2-2 query_plan 核心字段
+#### 04-2-2 intent 核心字段
+
+`intent` 取代旧 operator-centric `query_plan`：种子是信息需求（因），算子是下游派生的果。**无** `primary_pattern` / `operator_graph` 作为输入。
 
 | 字段 | 含义 |
 |---|---|
-| `primary_pattern` | 主模式 ID（如 `window_facet_filter`, `polymorphic_dispatch`） |
-| `operator_graph` | 预期 stage 骨架与算子依赖 |
-| `shape_policy` | preserve / augment / reshape / reduce |
-| `null_missing_strategy` | none / ifNull / type / cond |
-| `target_difficulty` | 目标 L0–L4 |
-| `schema_flex_mode` | none 或 H1–H4 对应模式 |
-| `join_depth_target` | 0–3+ |
-| `aggregation_depth_target` | shallow / medium / deep |
-| `target_fields` | plan 须观测的 schema 路径列表 |
-| `semantic_properties` | PV 将断言的性质清单（基数、tie、null 覆盖等） |
+| `seed_mechanism` | DAR 机制（①多态 / ②稀疏 / ④嵌套·动态键 / ⑤版本）或 `none`（域/工作负载基线）；来自 Phase A，**不采样** |
+| `seed_signal` | Phase A 真信号：`{collection, discriminator/field, values/variants}` |
+| `archetype` | §04-2-4 封闭目录条目（问题原型） |
+| `domain_framing` | `scenario_summary` 域名词：`{entity_noun, metric_noun, …}` |
+| `analytical_op` | 语义级操作：`{group_key?, metric?, filter?, dispatch_rule?}`（非算子） |
+| `shape_policy` | preserve / reshape / reduce（由 archetype 落出） |
+| `semantic_properties` | PV 将断言的性质（分派覆盖全 variant、null 覆盖、基数 ≥2、tie 等） |
+| `reference_oracle` | archetype 参照 R 的实例化参数（§04-2-4）；MS gold-lock 判据 |
+| `target_difficulty` | L0–L4，由 `seed_mechanism × archetype` **派生**（非采样目标） |
 
 <a id="04-2-3"></a>
 #### 04-2-3 与 Coverage Controller 的交互
 
-QPS 每轮读取六轴 cell 计数与 min/max 配额，优先采样 deficit 最大的可行 cell。plan-template 库覆盖 NoSQL-native 主模式：`polymorphic_dispatch`、`dynamic_key_aggregation`、`attribute_bag_unfold`、`schema_version_fallback`、`window_facet_filter`、`graph_traversal`、`bucket_summary`、`extended_reference_join`、`nested_unwind`、`set_window` 等。目标 L 级与 schema_flex 套路由 QPS 直接驱动，**不受** Spider SQL 表达力上限约束。
+QPS 每轮读取覆盖 cell 计数与 min/max 配额，优先采样 deficit 最大的可行 cell。**RAR 覆盖 cell 换底座**：从「算子 pattern」改为 **`seed_mechanism × archetype × domain`**（见 [02 §02-4](./02_dataset_design.md#02-4)）；难度 / join_depth / aggregation_depth 降为 gold 落出的**派生观测**，不再设目标。异构段（①②④⑤）供给 L3–L4，`none` 段（WP 真实 join/filter/group access pattern）供给 L0–L2；两段经**同一**下游流水线。目标 L 级**不受** BIRD SQL 表达力上限约束。
+
+<a id="04-2-4"></a>
+#### 04-2-4 Archetype 目录与参照实现 R（RAR 拱心石）
+
+archetype 目录是一张**按 DAR 机制索引的封闭目录**；每条目挂三样：**问题形状**、**参照实现 R 模板**、**落出难度**。`intent / gold 判据 / NLQ / 覆盖` 全从此流出——「从异构枚举业务问题」**不是**放任 LLM 想象，而是 `机制实例 × archetype × 域名词` 的确定性叉乘，LLM 仅做域表面措辞。三重免费性质：覆盖**可数**、query-bearing **由构造保证**（每个 archetype 的定义即「必须撞上机制 M 的操作」）、确定性强。
+
+| seed 机制（Phase A 真信号） | archetype（问题形状） | 逼出的分析操作 | 参照 R 模板（naive·可审计） | 落出难度 |
+|---|---|---|---|---|
+| **①多态子类型**（低基数判别列+enum） | 按子类型分别聚合 · 子类型条件投影 · 跨子类型比较 · 限定子类型用其专属字段 | 按判别键 group / `$switch` 分派；专属字段缺失须处理 | 按 discriminator 分桶 → 各桶算 metric / 按子类型规则取专属字段 | L3–**L4** `structural_schema_flex` |
+| **②可选/稀疏**（NULL率∈.05–.95 / 稀疏 embed） | 存在性计数 · null-coalesce 聚合 · present/missing 条件投影 · 有无对比 | `$exists` / `$ifNull` / `$type:"missing"` 分支 | 逐 doc 判字段在否 → 在则用值、缺则默认/记 0 | L2–L3 `semantic`；稀疏 embed 提至 **L4** |
+| **④嵌套/动态键**（FK共现 / EAV列对） | 动态键折叠 · 跨异构键集取值 | `$objectToArray`+`$unwind` / `$arrayToObject` | 遍历每 doc 键值对聚合 | L2–**L4** |
+| **⑤版本演进**（时间分桶字段改名） | 跨版本聚合（字段改名/增删） | 多层 `$ifNull` fallback | 按版本取对应字段名 → 统一聚合 | L2–L3 `semantic` |
+| **none**（WP 真实 join/filter/group） | 单集合过滤投影 · topN · 分组计数 · join+嵌套 group | 常规 | 朴素 filter/group/sort | L0–L2 |
+
+**参照 R 的角色**：R ≠ gold。R 是独立 Python、跨执行范式的 naive 参照，**定义答案**；gold 是原生 MongoDB idiom，**演示拿到答案的 native 方式**。MS 的 gold 锁死判据是 `NormExec(gold,D) ≡_rec R(D)`（§04-3），取代纯逆向「gold 自证」——抓得到 gold 的系统性 bug（如 `$ifNull` 默认值写错）。R 须按 MongoDB 算子语义编写（null-vs-missing、类型序），其结果过同一 Norm 后比较；R 与双路合成正交三角定位 gold。**纪律**：只有「naive R 可审计」的操作才进目录；无简单 R 的 intent 不构造——这把 gold 可信度焊在目录层。
+
+**worked example（financial/1001，机制②稀疏）**：seed_signal = `loan` 稀疏 embed（682/4500 present）；archetype = present/missing 条件投影；analytical_op =「有 loan 取 amount/credit_sum（0→1），无 loan 记 0」。R = 逐 account 判 loan 在否、在则除以 PRIJEM 贷记和、缺则 0。gold = `$lookup`（贷记和）+ `$cond[$type:loan]`（present/missing 分支），`≡_rec R` → 锁死。NLQ 从 intent（非管线）派生 → 自然。难度 L4 `structural_schema_flex`（relational 普遍 `INNER JOIN loan` 静默丢账户，反范式化后 present/missing 须显式处理 = 不可 SQL 平移）。
 
 ---
 
@@ -178,59 +196,46 @@ QPS 每轮读取六轴 cell 计数与 min/max 配额，优先采样 deficit 最�
 <a id="04-3-1"></a>
 #### 04-3-1 双路合成
 
-MS 接收 `query_plan`，执行 ≥2 条独立合成路径：
+MS 接收 `intent`，执行 ≥2 条独立合成路径，并对独立参照 R 锁死：
 
 | 路径 | 方法 | 产物 |
 |---|---|---|
-| **直接编译** | query_plan → stage 骨架 → MQL | mql_primary |
+| **直接编译** | intent → stage 骨架 → MQL | mql_primary |
 | **等价变换** | 代数等价重写（stage 重排、accumulator 等价替换） | mql_alt |
 
-**收敛条件（合取）**
+**收敛条件（合取）· RAR gold-lock**
 
-1. NormExec(mql_primary, D) ≡_rec NormExec(mql_alt, D) ≠ ⊥
-2. AST_check 对两者使用 MS 派生的同一 canonical_form_set 均 pass
-3. 禁用 operator 扫描均 pass
-4. shape_policy 推断与 query_plan 一致
+1. **参照锚定**：NormExec(mql_primary, D) ≡_rec **R(D)**（archetype 参照实现，§04-2-4）——gold 正确性的独立 oracle，取代纯逆向「gold 自证」，抓得到系统性 bug
+2. **双路三角**：NormExec(mql_primary, D) ≡_rec NormExec(mql_alt, D) ≠ ⊥（R 抓系统性 plan 级错、双路抓随机错，二者正交）
+3. AST_check 对两者使用 MS 派生的同一 canonical_form_set 均 pass
+4. 禁用 operator 扫描均 pass
+5. shape_policy 推断与 intent 一致
 
-代表实例写入 record.MQL（默认 mql_primary；若 mql_alt AST 更紧则取 mql_alt）。另一路写入 audit `synthesis_trace` 供诊断。
+代表实例写入 record.MQL（默认 mql_primary；若 mql_alt AST 更紧则取 mql_alt）。另一路与 R 写入 audit `synthesis_trace` 供诊断。任一条件不满足 → 回流：R 不一致 = gold 有 bug → 回 MS 重合成；R 本身不可实现 → 回 QPS 重采 intent。
 
 <a id="04-3-2"></a>
 #### 04-3-2 canonical_form_set 派生（MS 所有权）
 
-给定 query_plan 的 operator_graph、shape_policy、null_missing_strategy，MS **机械派生**四元组：
+RAR 下 cfs **坍缩为 idiom-不变量 + output-space 守卫**（[01 §01-3-1](./01_task_definition.md#01-3-1)）；结构判别力交由 witness（L2/P3），cfs 不再 police native idiom。MS 从**锁死的 gold MQL** 与 intent **机械派生**四元组：
 
-**must_contain**
-
-- primary_pattern 核心算子（如 window+facet → `{$setWindowFields, $facet}`）
-- schema-flex primary_pattern 核心算子（见下表）
-- null/missing 策略算子（ifNull → `{$ifNull}`；type → `{$type}`；cond → `{$cond}`）
-- aggregations 用到的 accumulator（mean → `{$avg}`；median → `{$median}` 或手动百分位集合）
-
-**schema-flex primary_pattern → must_contain**
-
-| primary_pattern | must_contain（至少） | must_contain_at_root（至少） |
-|---|---|---|
-| `polymorphic_dispatch` | `$switch` 或 `$type` | `$addFields` 或 `$project`（含 dispatch stage） |
-| `dynamic_key_aggregation` | `$objectToArray`, `$unwind`, `$arrayToObject` | `$unwind` |
-| `attribute_bag_unfold` | `$arrayToObject` 或 `$reduce` | `$addFields` |
-| `schema_version_fallback` | `$ifNull`（≥2 处引用） | `$addFields` 或 `$project` |
-
-**must_contain_at_root**（通用）
-
-- primary stage 算子（$setWindowFields、$facet、$graphLookup、$lookup 等按 pattern）
-- shape_policy = reduce 时 $group 须在 root
-
-**must_not_contain**
+**must_not_contain**（恒定）
 
 - 六件禁用 operator：`{$sample, $rand, $$NOW, $out, $merge, $function}`
-- pattern 特定禁止集（如 simple_filter 禁 `{$group, $setWindowFields, $facet}`）
 
-**must_not_contain_at_root**
+**must_contain / must_contain_at_root**（仅不变量）
 
-- shape_policy ∈ {preserve, augment}：根禁 `{$unwind, $group}`（除非 pattern 豁免）
-- shape_policy = reduce：根禁纯 $project 独占（须含 $group）
+- 该 schema 下**不可避免**的结构算子——所有正确 idiom 共有者（如引用集合的唯一关联手段 `$lookup`、唯一窗口/分面结构算子 `$setWindowFields`/`$facet`、深层 `$graphLookup`）
+- **不**收 idiom 特定可替换算子（`$addFields`↔`$project`、`$cond`↔`$switch`↔`$ifNull`、`$type`↔`$exists`）——否则误杀等价解。「是否正面处理了异构变体」不靠 cfs 锁算子，靠 rich witness 令漏分支解 `≡_rec` 必败
 
-AST_check 协议所有权在 [01 §3-1](./01_task_definition.md#01-3-1)；本卷定义派生来源。NNC 仅**确认** cfs 与 MQL 一致，不重新派生。
+**must_contain_at_root / must_not_contain_at_root**（shape 守卫）
+
+- shape_policy = preserve：根禁 `{$unwind, $group}`（保文档数与嵌套）
+- shape_policy = reduce：根须含 `$group`
+- shape_policy = reshape：按 intent 显式声明放行 `$unwind`
+
+派生只读 gold 的**不可避免结构 + shape_policy**，**不**再用「primary_pattern → 算子集」查表（该机制随 operator-first 一并废止）。AST_check 协议所有权在 [01 §3-1](./01_task_definition.md#01-3-1)；NNC 仅**确认** cfs 与 MQL 一致（§04-5-4），不重新派生。
+
+> **worked example（financial/1001）**：不变量 = `$lookup`（trans 引用唯一关联手段）；shape 守卫 = preserve 根禁 `$unwind`/`$group`。`$addFields`/`$cond`/`$type` **不**入 must_contain（可被 `$project`/`$switch`/`$ifNull` 等价替换）；「无 loan 记 0」的分支正确性由 witness（含 present 与 missing 两类 account）判别。锚 JSON 现存富指纹为 pre-collapse 遗留，replace 时按此重派生（[01 §01-7](./01_task_definition.md#01-7)）。
 
 ---
 
@@ -248,7 +253,7 @@ mutations 是 **plausible wrong** 变体库，评测期与构造期 P3 共用。
 | **B shape / output** | shape_policy 邻接错标、缺 output key、错误 dtype | 1–2 |
 | **C null / missing** | 丢弃 $ifNull、错误 disambig | 1–2 |
 | **D canonical_form_set stress** | 移除 must_contain 算子、加入禁用 operator | 1 |
-| **E schema_flex_stress** | 忽略 `__type` 分支、假设统一 schema、丢弃 `$ifNull` fallback、错误 dispatch | 1 |
+| **E DAR 异构 stress** | 忽略判别键分支、假设统一 schema、丢弃 `$ifNull` fallback、错误 dispatch | 1 |
 
 **总量**：5 ≤ |mutations| ≤ 8。序列化至 audit 或 fixtures `mutations.json`（见 `schemas/mutations.schema.json`）。
 
@@ -265,13 +270,13 @@ orchestra/1001 典型 mutation（均须 EX fail）：
 
 PV 对 gold MQL 与 mutations 执行：
 
-1. **plan 性质断言**：逐条检验 `query_plan.semantic_properties`（结果基数 ≥ 2、tie 可区分、null/missing 覆盖、shape 与 shape_policy 一致等）
+1. **性质断言 + 参照锚定**：逐条检验 `intent.semantic_properties`（结果基数 ≥ 2、tie 可区分、null/missing 覆盖、shape 与 shape_policy 一致等），并验 `NormExec(gold,D) ≡_rec R(D)`（P1）
 2. **witness probe**：在 D 上执行针对性子查询，验证边界 doc 存在
 3. **AST_check**：gold 与 mutations 分别扫描 cfs
 4. **P3 硬约束**：∀m ∈ mutations, EX_verdict(m, record, D) = false
-5. **gold accept**：EX_verdict(MQL, record, D) = true
+5. **gold accept**：EX_verdict(MQL, record, D) = true 且 NormExec(MQL, D) ≡_rec R(D)（P1 参照锚定，§04-2-4）
 
-失败时回流 MS（plan 不可实现）或 MUT（mutation 未 sufficiently wrong）。
+失败时回流 MS（intent 不可实现 / 与 R 不一致）或 MUT（mutation 未 sufficiently wrong）。
 
 <a id="04-4-3"></a>
 #### 04-4-3 NLP · 二联 NLQ
@@ -281,19 +286,19 @@ PV 对 gold MQL 与 mutations 执行：
 | nl_queries.canonical | L1 | schema-naive；无 `$` operator 术语；单一闭包意图 |
 | nl_queries.colloquial | L0 | 口语 underspecified；不得出现 schema 字段名；不得引入第二意图 |
 
-Paraphrase 由 NLP 在 MQL 与 query_plan 确定后，结合 `scenario_summary` 域语义生成（见 Part II §04-II-6）。canonical 须完整覆盖 plan 中的语义闭包；colloquial 为 optional robustness 子集。
+Paraphrase 由 NLP 从 **intent（信息需求）+ `scenario_summary` 域语义**生成，**不从锁死的 gold MQL 管线转写**——这是 RAR 根治「NLQ 沦为伪代码」的关键：NLQ 描述的是「为每个账户标注贷款相对贷记流水占比、没有则记 0」式业务问题，而非 `$lookup`/`$cond`/`$type` 的 stage 序列。gold MQL 仅供 RTV 往返校验（§04-4-4），不作 paraphrase 输入。canonical 须完整覆盖 intent 的语义闭包；colloquial 为 optional robustness 子集。混合披露（[03 §03-6](./03_dataworld_construction.md#03-6)）下结构提示在 S、不在 NLQ，故 canonical 可保持自然又不丢唯一性。
 
 <a id="04-4-4"></a>
 #### 04-4-4 RTV · Round-Trip Verifier
 
-RTV 使用独立 NL→MQL agent（与构造池 disjoint），读取 `(nl_queries, S, D, canonical_form_set)`：
+RTV 使用独立 NL→MQL agent（与构造池 disjoint），读取 `(nl_queries, S, D)`：
 
-| NLQ 档位 | 要求 |
+| NLQ 档位 | 要求（RAR 结果级） |
 |---|---|
-| **canonical** | `mql_round_trip_canonical` 必须 EX=1（∈ gold-class）；失败 → 回 NLP 重写，最多 2 轮 |
-| **colloquial** | `mql_round_trip_colloquial` 软检查；允许 EX=0，但 NNC 须记录 underspec 归因 |
+| **canonical** | `mql_round_trip_canonical` 必须 **NormExec ≡_rec gold**（意图唯一可复原）；失败 → 回 NLP 重写，最多 2 轮 |
+| **colloquial** | 软检查；允许 ≢_rec，但 NNC 须记录 underspec 归因 |
 
-RTV 验证 NL 信息在逆向 paraphrase 后仍可闭包回 gold-class，是 P2 的核心机制之一（与 NNC 歧义攻击互补）。
+RTV 改判**结果等价**而非 gold-class 指纹闭包：它验的是「NLQ 唯一确定答案」（P2 意图清晰度），不是难度或结构——cfs 指纹是评测期反作弊（EX），与构造期唯一性**解耦**。混合披露下 S 携带结构提示，故 gpt-4o-mini 级 RTV 能对 L4 异构记录复原**结果**而不必让 NLQ 泄漏管线——这正是 RAR 化解「自然度 vs 往返可闭包」张力之处。
 
 ---
 
@@ -309,7 +314,7 @@ RTV 验证 NL 信息在逆向 paraphrase 后仍可闭包回 gold-class，是 P2 
 | **L1** | light aggregation | $group、$sort、$limit | 可直译 |
 | **L2** | multi-stage | $lookup、$unwind、嵌套 $group | 多数可直译 |
 | **L3** | window / branch | $setWindowFields、$switch、$graphLookup 浅层 | 部分 lossy |
-| **L4** | NoSQL-native | $facet + window、$objectToArray、深 $graphLookup、**$switch by __type** | structural_pipeline / structural_schema_flex |
+| **L4** | NoSQL-native | $facet + window、$objectToArray、深 $graphLookup、**按判别键 $switch 分派** | structural_pipeline / structural_schema_flex |
 
 **分布目标（全库）**
 
@@ -331,108 +336,96 @@ RTV 验证 NL 信息在逆向 paraphrase 后仍可闭包回 gold-class，是 P2 
 | `semantic` | SQL 可表达但 null/missing 语义 lossy | L2–L3 with `$ifNull` |
 | `performative` | SQL 需 CTE/window 拼装，性能/结构 lossy | L3–L4 pipeline |
 | `structural_pipeline` | 管线结构 SQL 不可同步表达 | L4 `$facet + $setWindowFields` |
-| `structural_schema_flex` | schema 形状 SQL 不可表达 | L4 `$switch by __type`、`$objectToArray` |
+| `structural_schema_flex` | schema 形状 SQL 不可表达 | L4 按判别键 `$switch` 分派、`$objectToArray` 动态键聚合 |
 
-当 `schema_flex != none` 且 MQL 含 schema-flex 算子作用于 `__variants` 字段时，NNC **必须**标注 `structural_schema_flex` 且 `difficulty = L4`。
+当 query-bearing 供给为 DAR 异构形状（`schema_flex != none`）且 MQL 含相应异构算子作用于该形状时，NNC **必须**标注 `structural_schema_flex` 且 `difficulty = L4`。该判别由真实判别器支撑。
 
 <a id="04-5-2"></a>
 #### 04-5-2 graduated dual-bridge gate
 
-**目标**：对 translation-lossy 记录，杜绝 solver 通过「SQL 翻译」或「固定模板填槽」不经 NoSQL 推理即 ∈ gold-class。
+**目标**：对 translation-lossy 记录，杜绝 solver 通过「SQL 翻译」或「固定模板填槽」不经 NoSQL 推理即拿到正确结果。
 
 | 桥 | 路径 | 发布门判据（仅 non-feasible） |
 |---|---|---|
-| **SQL-bridge** | canonical NLQ → NL2SQL LLM → sql_to_mongo → mql_sql_bridge | 在 D 上 EX = 0 **或** QIM = 0 |
+| **SQL-bridge** | canonical NLQ → NL2SQL LLM → sql_to_mongo → mql_sql_bridge | 在 D 上 **NormExec ≢_rec gold**（够不到答案） |
 | **Template-bridge** | canonical NLQ → 关键词 → 外部 MQL 模板库 → mql_template_bridge | 同上 |
 
-**通过判据（non-feasible）**：两桥均不得同时 EX = 1 ∧ QIM = 1。`feasible` 类记录跳过发布门，桥接结果写入 `_diagnostic_bridge_ref` 供报表。
+**通过判据（non-feasible，RAR 纯结果）**：两桥均不得 `NormExec ≡_rec gold`——即 SQL/模板路线**都够不到正确结果**。RAR 下 cfs 已坍缩、QIM 退化（[01 §01-3-1](./01_task_definition.md#01-3-1)），故**去 QIM 拐杖**，判据回归「难度 = 答案不可被 SQL/模板路线触及」这一本质。`feasible` 类记录跳过发布门，桥接结果写入 `_diagnostic_bridge_ref` 供报表。
 
-orchestra/1001（`structural_pipeline`）预期：
-- SQL-bridge：SQL 无法同步表达 facet + 分区窗口 → 翻译失败或 AST fail → EX = 0
-- Template-bridge：关键词误导至 lookup_join 模板 → 结构错位 → EX = 0
+financial/1001（`structural_schema_flex`）预期：
+- SQL-bridge：relational `INNER JOIN loan` 静默丢无 loan 账户 → 文档数与 present/missing 分支错 → NormExec ≢_rec gold
+- Template-bridge：关键词误导至 join 模板 → 漏 present/missing 调和 → NormExec ≢_rec gold
 
-失败处理：优先 RA targeted augment；2 轮仍失败 → QPS 重采样 plan 或拒绝 record。
+失败处理：优先 RA targeted augment；2 轮仍失败 → QPS 重采 intent 或拒绝 record。
 
 <a id="04-5-3"></a>
 #### 04-5-3 歧义攻击
 
-独立 LLM（模型池与 QPS/MS/MUT/NLP/RTV/S_solver 全部 disjoint）读取 **仅** canonical NLQ + schema，产出 ≥3 个 query_plan 解读。若存在与 gold query_plan 不等价且「人类合理」的解读 → P2 失败，回 QPS 或 NLP 重写 canonical。
+独立 LLM（模型池与 QPS/MS/MUT/NLP/RTV/S_solver 全部 disjoint）读取 **仅** canonical NLQ + schema，产出 ≥3 个**意图解读**。RAR 判据为**意图/结果级唯一**：若存在一个「人类合理」的解读，其在 D 上的结果 `≢_rec gold`（即 NLQ 指向第二个不等价答案）→ P2 失败，回 QPS 或 NLP 重写 canonical。不再要求 MQL 级结构等价（那是 cfs/评测期的事）。
 
 <a id="04-5-4"></a>
 #### 04-5-4 三元校验
 
-NNC 在赋 difficulty 前执行：
+NNC 在赋 difficulty 前执行（RAR thin cfs 对齐）：
 
-1. canonical_form_set.must_contain ⊆ ops(MQL)
-2. must_contain_at_root ⊆ root_ops(MQL) 且非空
-3. must_not_contain 与禁用 operator 扫描一致
-4. shape_policy 与 pipeline 形状一致（preserve / reshape / reduce）
+1. canonical_form_set.must_contain ⊆ ops(MQL)（仅不变量算子）
+2. must_contain_at_root ⊆ root_ops(MQL)；**RAR 下可空**——cfs 非空性由 must_not_contain（恒含 6 禁用）+ shape 守卫承担，不再强制 must_contain_at_root 非空（[02 C6](./02_dataset_design.md#02-2) 同步放宽）
+3. must_not_contain 与禁用 operator 扫描一致（恒含 6 禁用）
+4. shape_policy 与 pipeline 形状一致（preserve / reshape / reduce）；must_not_contain_at_root shape 守卫与之相容
+5. difficulty 由 `seed_mechanism × archetype` 派生（§04-2-4），NNC **确认**而非独立赋分
 
 ---
 
 <a id="04-6"></a>
-### 04-6 Canonical Anchor · orchestra/1001
+### 04-6 Canonical 锚 `financial/1001`（pending DAR Phase A）· RAR 构造走查
 
-orchestra/1001 是逆向构造管线的 canonical 示范：QPS 在 orchestra 嵌入式 schema（conductor → orchestra[] → performance[]，Attendance 来自 show 表 denormalize，见 [03 §1](./03_spider_anchored_dataworld.md#03-1)）上采样 `primary_pattern = window_facet_filter` 的 query_plan；MS 合成 `$setWindowFields` 分区滑动窗口 + `$facet` 并行 median 分支 + `$ifNull` null coalesce；NLP 逆向 paraphrase 出二联 NLQ；NNC 标注 `difficulty = L4`、`sql_infeasibility_class = structural_pipeline`。
+financial/1001 是 **RAR 构造管线**的示范：QPS 从 Phase A 的 query-bearing 异构（稀疏 `loan` embed，682/4500 present）× archetype「present/missing 条件投影」× 域名词 {account, 贷款占比} 枚举 `intent`（**不**采样算子）；archetype 目录提供参照 R（逐 account 判 loan 在否、在则 amount/credit_sum、缺则 0）；MS 合成 gold（`$lookup` 贷记和 + `$cond[$type:loan]` present/missing 分支），**对 R 锁死**（`NormExec(gold,D) ≡_rec R(D)`）+ 双路三角；MS 派生 **thin cfs**（不变量 `$lookup` + preserve shape 守卫，不锁 `$addFields/$cond/$type`）；NLP **从 intent**（非管线）派自然 NLQ；NNC 确认 `difficulty = L4`、`sql_infeasibility_class = structural_schema_flex`。
 
-该 record **不是** Spider SQL 的翻译产物，而是针对 embed schema 主动设计的 NoSQL-native 主模式；graduated gate 下 SQL-bridge 预期无法同时结构匹配又执行等价。
+该 record **不是** BIRD SQL 的翻译产物，而是稀疏 loan 异构逼出的真实业务意图；relational 普遍 `INNER JOIN loan` 静默丢无 loan 账户，反范式化后 present/missing 须显式处理——dual-bridge（纯结果）下两桥均够不到 `≡_rec gold`。
 
-<!-- canonical-anchor: orchestra/1001 -->
+> **⚠ PENDING DAR Phase A**: 下方 canonical record 块为 `financial/1001`（跨卷逐字节一致，Gate 3）；布局/gold MQL/`world_signature` 待 DAR Phase A 在真实 MongoDB 构造 + 执行验证；锚 cfs 现为 pre-collapse 富指纹，执行验证时按 thin 重派生（[01 §01-7](./01_task_definition.md#01-7)）。`agent_prompts/` 的 Example 1 仍为 legacy orchestra，待同步替换。
+
+<!-- canonical-anchor: financial/1001 -->
 ```json
 {
   "record_id": 1001,
-  "db_id": "orchestra",
+  "db_id": "financial",
   "nl_queries": {
-    "canonical": "对每位 conductor，先在其指挥的 orchestra 的 performance 上按 Performance_ID 升序、对 Attendance 计算窗口大小为 (当前, 前 2 场) 的滑动平均；取该 conductor 的最后一次窗口平均值作为代表值 (Attendance 缺失视为 0)。然后计算所有 conductor 代表值的中位数。最终只输出代表值严格大于该中位数的 conductor，字段为 Name 与 last_window_avg；若 Name 缺失则显示为 (unknown)；不要求排序。",
-    "colloquial": "列出最近场次出勤趋势高于同行中位数的指挥。"
+    "canonical": "为每个 account 附加一个字段 loan_to_credit_ratio:若该 account 有 loan,取 loan.amount 除以该 account 所有贷记交易(trans.type = 'PRIJEM')的 amount 之和(该和为 0 时按 1 计);若该 account 无 loan,则该字段为 0。保留每个 account 文档(含无 loan 的),只在原文档上新增该字段,不改变文档数与嵌套结构;不要求排序。",
+    "colloquial": "给每个账户标注它的贷款相对贷记流水的占比;没有贷款的账户记 0,一个账户都别漏。"
   },
-  "MQL": "db.conductor.aggregate([
-  { $unwind: { path: \"$orchestra\", preserveNullAndEmptyArrays: false } },
-  { $unwind: { path: \"$orchestra.performance\", preserveNullAndEmptyArrays: false } },
-  { $setWindowFields: {
-      partitionBy: \"$_id\",
-      sortBy: { \"orchestra.performance.Performance_ID\": 1 },
-      output: {
-        moving_avg_attendance: {
-          $avg: { $ifNull: [\"$orchestra.performance.Attendance\", 0] },
-          window: { documents: [-2, 0] }
-        }
+  "MQL": "db.account.aggregate([
+  { $lookup: {
+      from: \"trans\",
+      let: { aid: \"$_id\" },
+      pipeline: [
+        { $match: { $expr: { $and: [ { $eq: [\"$account_id\", \"$$aid\"] }, { $eq: [\"$type\", \"PRIJEM\"] } ] } } },
+        { $group: { _id: null, credit_sum: { $sum: \"$amount\" } } }
+      ],
+      as: \"_credit\"
+  } },
+  { $addFields: {
+      loan_to_credit_ratio: {
+        $cond: [
+          { $ne: [ { $type: \"$loan\" }, \"missing\" ] },
+          { $divide: [ \"$loan.amount\", { $max: [ { $ifNull: [ { $arrayElemAt: [\"$_credit.credit_sum\", 0] }, 0 ] }, 1 ] } ] },
+          0
+        ]
       }
   } },
-  { $group: {
-      _id: \"$_id\",
-      Name: { $first: { $ifNull: [\"$Name\", \"(unknown)\"] } },
-      last_window_avg: { $last: \"$moving_avg_attendance\" }
-  } },
-  { $facet: {
-      per_conductor: [ { $project: { _id: 0, Name: 1, last_window_avg: 1 } } ],
-      global_median: [
-        { $sort: { last_window_avg: 1 } },
-        { $group: { _id: null, vals: { $push: \"$last_window_avg\" } } },
-        { $project: { _id: 0, median: { $arrayElemAt: [\"$vals\", { $floor: { $divide: [{ $size: \"$vals\" }, 2] } }] } } }
-      ]
-  } },
-  { $project: {
-      kept: { $filter: {
-        input: \"$per_conductor\",
-        as: \"c\",
-        cond: { $gt: [\"$$c.last_window_avg\", { $arrayElemAt: [\"$global_median.median\", 0] }] }
-      } }
-  } },
-  { $unwind: \"$kept\" },
-  { $project: { _id: 0, Name: \"$kept.Name\", last_window_avg: \"$kept.last_window_avg\" } }
+  { $project: { _credit: 0 } }
 ])",
   "canonical_form_set": {
-    "must_contain": ["$setWindowFields", "$facet", "$ifNull"],
-    "must_not_contain": [],
-    "must_contain_at_root": ["$setWindowFields", "$facet"],
-    "must_not_contain_at_root": []
+    "must_contain": ["$lookup", "$addFields", "$cond", "$type"],
+    "must_not_contain": ["$unwind"],
+    "must_contain_at_root": ["$addFields"],
+    "must_not_contain_at_root": ["$unwind", "$group"]
   },
   "difficulty": "L4",
-  "shape_policy": "reshape",
-  "world_signature": "sha256:a47f3e8b1c2d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e90",
-  "agent_design_rationale_ref": "fixtures/orchestra/sra.yaml",
-  "mutations_ref": "fixtures/orchestra/mutations.json"
+  "shape_policy": "preserve",
+  "world_signature": "sha256:58d575b0eb62b1499642ec46e9efe5d5576082ce45d871df0326821f44751346",
+  "agent_design_rationale_ref": "fixtures/financial/sra.yaml",
+  "mutations_ref": "fixtures/financial/mutations.json"
 }
 ```
 
@@ -446,7 +439,7 @@ orchestra/1001 是逆向构造管线的 canonical 示范：QPS 在 orchestra 嵌
 
 | 检查项 | 说明 | 关联原则 |
 |---|---|---|
-| field observability | query_plan 引用字段在 D 上有非空实例 | P1 |
+| field observability | intent 引用字段在 D 上有非空实例 | P1 |
 | null/missing coverage | $ifNull / $type 字段同时含 null 与 non-null | P4 |
 | result cardinality | 非空结果；group/window 值域 ≥ 2（除非 NLQ 问不存在） | P4 |
 | embed depth | $unwind 层数与 SRA embed 一致 | realism |
@@ -474,10 +467,10 @@ orchestra/1001 是逆向构造管线的 canonical 示范：QPS 在 orchestra 嵌
 
 record 发布前须通过：
 
-1. **gold accept**：EX_verdict(MQL, record, D) = true
+1. **gold accept**：EX_verdict(MQL, record, D) = true 且 NormExec(MQL,D) ≡_rec R(D)（P1 参照锚定）
 2. **mutations 全 reject**：∀m ∈ mutations, EX_verdict(m.MQL, record, D) = false
-3. **RTV canonical 闭包**：mql_round_trip_canonical ∈ gold-class
-4. **graduated gate**（若 sql_infeasibility_class ≠ feasible）：两桥均非 (EX=1 ∧ QIM=1)
+3. **RTV canonical 闭包**：mql_round_trip_canonical 的 NormExec ≡_rec gold（结果级，非 cfs 指纹）
+4. **graduated gate**（若 sql_infeasibility_class ≠ feasible）：两桥均 NormExec ≢_rec gold（纯结果，去 QIM）
 5. **P4 非平凡**：RA 签发的 ra_audit.pass = true
 
 <a id="04-7-5"></a>
@@ -487,7 +480,7 @@ record 发布前须通过：
 |---|---|
 | 任务签名、EX、≡_rec、AST_check | [01](./01_task_definition.md) |
 | record 字段、split、L4 ≥ 30%、L0 ≤ 5% | [02](./02_dataset_design.md) |
-| WP/SRA/SC/DM、scenario_summary、flex supply | [03](./03_spider_anchored_dataworld.md) |
+| WP/SRA/SC/DM、scenario_summary、flex supply | [03](./03_dataworld_construction.md) |
 | 7 指标、4-panel 观测、SQL-route 诊断切片 | [05](./05_evaluation_methodology.md) |
 | SMART solver、disjointness 池 | [06](./06_solution_design.md) |
 
@@ -511,14 +504,17 @@ Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`、`ms_mql_synthe
 | In | scenario_summary | string | ✓ |
 | In | sra_rationale | object | ✓ |
 | In | quota_state | object | ✓ |
-| Out | query_plan | object | ✓ |
+| In | heterogeneity_inventory | object | ✓ |
+| In | archetype_catalog | object | ✓ |
+| Out | intent | object | ✓ |
+| Out | reference_oracle | object | ✓ |
 | Out | qps_trace | object | ✓ |
 
 #### MS
 
 | 方向 | 字段 | 类型 | 必填 |
 |---|---|---|---|
-| In | query_plan | object | ✓ |
+| In | intent | object | ✓ |
 | In | schema | object | ✓ |
 | In | snapshot | object | ✓ |
 | Out | MQL | string | ✓ |
@@ -533,7 +529,7 @@ Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`、`ms_mql_synthe
 
 | 方向 | 字段 | 类型 | 必填 |
 |---|---|---|---|
-| In | query_plan | object | ✓ |
+| In | intent | object | ✓ |
 | In | MQL | string | ✓ |
 | In | canonical_form_set | object | ✓ |
 | Out | mutations | array[5–8] | ✓ |
@@ -546,7 +542,7 @@ Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`、`ms_mql_synthe
 | In | MQL | string | ✓ |
 | In | mql_alt | string | ✓ |
 | In | mutations | array | ✓ |
-| In | query_plan | object | ✓ |
+| In | intent | object | ✓ |
 | In | canonical_form_set | object | ✓ |
 | In | snapshot | object | ✓ |
 | Out | property_verification | object | ✓ |
@@ -556,9 +552,7 @@ Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`、`ms_mql_synthe
 
 | 方向 | 字段 | 类型 | 必填 |
 |---|---|---|---|
-| In | MQL | string | ✓ |
-| In | query_plan | object | ✓ |
-| In | canonical_form_set | object | ✓ |
+| In | intent | object | ✓ |
 | In | scenario_summary | string | ✓ |
 | Out | nl_queries | {canonical, colloquial} | ✓ |
 | Out | nlp_trace | object | ✓ |
@@ -570,7 +564,7 @@ Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`、`ms_mql_synthe
 | In | nl_queries | object | ✓ |
 | In | schema | object | ✓ |
 | In | snapshot | object | ✓ |
-| In | canonical_form_set | object | ✓ |
+| In | MQL (gold) | string | ✓ |
 | Out | mql_round_trip_canonical | string | ✓ |
 | Out | mql_round_trip_colloquial | string | ✓ |
 | Out | round_trip_verification | object | ✓ |
@@ -583,7 +577,7 @@ Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`、`ms_mql_synthe
 | In | MQL | string | ✓ |
 | In | nl_queries | object | ✓ |
 | In | canonical_form_set | object | ✓ |
-| In | query_plan | object | ✓ |
+| In | intent | object | ✓ |
 | In | snapshot | object | ✓ |
 | In | shape_policy | string | ✓ |
 | In | round_trip_verification | object | ✓ |
@@ -600,7 +594,7 @@ Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`、`ms_mql_synthe
 |---|---|---|---|
 | In | MQL | string | ✓ |
 | In | nl_queries | object | ✓ |
-| In | query_plan | object | ✓ |
+| In | intent | object | ✓ |
 | In | snapshot | object | ✓ |
 | In | schema | object | ✓ |
 | Out | ra_audit | object | ✓ |
@@ -632,14 +626,14 @@ def graduated_gate(record, snapshot, *, sql_bridge_mql, template_bridge_mql) -> 
     tpl_v = bridge_verdict(template_bridge_mql, record, snapshot)
     cls = record.get("sql_infeasibility_class", "feasible")
     gate_required = cls != "feasible"
-    defeat = all(not (v["ex"] == 1 and v["qim"] == 1) for v in (sql_v, tpl_v))
+    defeat = all(v["ex"] == 0 for v in (sql_v, tpl_v))   # RAR pure-result: neither bridge reaches ≡_rec gold
     return {
         "sql_bridge": sql_v,
         "template_bridge": tpl_v,
         "gate_required": gate_required,
         "gate_pass": (not gate_required) or defeat,
         "functional_sql_solvable": sql_v["ex"] == 1,
-        "structural_sql_solvable": sql_v["ex"] == 1 and sql_v["qim"] == 1,
+        "structural_sql_solvable": sql_v["ex"] == 1 and sql_v["qim"] == 1,  # degrades under thin cfs (05 coord)
     }
 ```
 
@@ -653,39 +647,31 @@ def graduated_gate(record, snapshot, *, sql_bridge_mql, template_bridge_mql) -> 
 
 DISABLED = {"$sample", "$rand", "$out", "$merge", "$function", "$$NOW"}
 
-PATTERN_CORE_OPS = {
-    "window_facet_filter": {"$setWindowFields", "$facet"},
-    "simple_filter": set(),
-    "lookup_join": {"$lookup"},
-    "polymorphic_dispatch": {"$switch", "$type"},
-    "dynamic_key_aggregation": {"$objectToArray", "$unwind", "$arrayToObject"},
-    "attribute_bag_unfold": {"$arrayToObject", "$reduce"},
-    "schema_version_fallback": {"$ifNull"},
-}
+# operators that are structurally unavoidable for ANY correct idiom (cross-collection join,
+# window/facet/graph stages). NOT $addFields/$project, $cond/$switch/$ifNull, $type/$exists.
+INVARIANT_STRUCTURAL_OPS = {"$lookup", "$setWindowFields", "$facet", "$graphLookup", "$unionWith"}
 
-NULL_OP = {"ifNull": "$ifNull", "type": "$type", "cond": "$cond"}
-
-def derive_canonical_form_set(query_plan: dict) -> dict:
-    pattern = query_plan["primary_pattern"]
-    shape = query_plan["shape_policy"]
-    must_contain = set(PATTERN_CORE_OPS.get(pattern, set()))
-    for agg in query_plan.get("aggregations", []):
-        must_contain |= accumulator_ops(agg)
-    strat = query_plan.get("null_missing_strategy", "none")
-    if strat in NULL_OP:
-        must_contain.add(NULL_OP[strat])
-    must_not_contain = set(DISABLED) | pattern_forbidden_ops(pattern)
-    must_contain_at_root = root_required_ops(pattern, shape)
-    must_not_contain_at_root = root_forbidden_ops(shape)
+def derive_canonical_form_set(intent: dict, gold_mql: str) -> dict:
+    """RAR thin cfs: idiom-invariant operators + output-space guard ONLY. Structural
+    discrimination ('did it handle the heterogeneity?') is carried by the witness (L2/P3),
+    NOT by cfs — so we never lock idiom-specific replaceable ops (that false-rejects)."""
+    shape = intent["shape_policy"]
+    ops_all, ops_root = all_ops(gold_mql), root_ops(gold_mql)
+    must_contain = ops_all & INVARIANT_STRUCTURAL_OPS
+    must_contain_at_root = ops_root & INVARIANT_STRUCTURAL_OPS
+    if shape == "reduce":
+        must_contain_at_root |= {"$group"}
+    must_not_contain = set(DISABLED)
+    must_not_contain_at_root = {"$unwind", "$group"} if shape == "preserve" else set()
     return {
         "must_contain": sorted(must_contain),
         "must_not_contain": sorted(must_not_contain),
-        "must_contain_at_root": sorted(must_contain_at_root),
+        "must_contain_at_root": sorted(must_contain_at_root),       # MAY be empty under RAR
         "must_not_contain_at_root": sorted(must_not_contain_at_root),
     }
 ```
 
-orchestra/1001：`primary_pattern = window_facet_filter`，`null_missing_strategy = ifNull`，`shape_policy = reshape` → 与 §04-6 JSON 一致。
+financial/1001（RAR thin）：`shape_policy = preserve` → must_not_contain_at_root `{$unwind, $group}`；不变量 `$lookup` 入 must_contain；`$addFields/$cond/$type` **不**入（可替换，由 witness 判别）。**注**：§04-6 锚 JSON 现存富 must_contain 为 **pre-collapse 遗留**，执行验证时按此重派生（[01 §01-7](./01_task_definition.md#01-7)）。
 
 ---
 
@@ -703,14 +689,14 @@ MUTATION_SUBAXES = {
     "E": ["ignore_variants", "assume_uniform_schema", "drop_ifNull_fallback", "wrong_dispatch"],
 }
 
-def generate_mutations(query_plan, gold_mql, canonical_form_set, *, seed=0, min_n=5, max_n=8):
+def generate_mutations(intent, gold_mql, canonical_form_set, *, seed=0, min_n=5, max_n=8):
     rng = random.Random(seed)
     n = rng.randint(min_n, max_n)
     muts = []
     for i in range(n):
         dim = rng.choice(list(MUTATION_SUBAXES.keys()))
         sub = rng.choice(MUTATION_SUBAXES[dim])
-        mql = apply_subaxis(gold_mql, query_plan, canonical_form_set, dim, sub)
+        mql = apply_subaxis(gold_mql, intent, canonical_form_set, dim, sub)
         muts.append({
             "mutation_id": f"m{i+1:03d}",
             "dimension": dim,
@@ -733,26 +719,30 @@ def validate_mutations(muts, record, snapshot):
 # uses: typing
 ```
 
-def ms_synthesize(query_plan, schema, snapshot) -> dict:
-    mql_primary = compile_query_plan(query_plan, schema, strategy="direct")
-    mql_alt = compile_query_plan(query_plan, schema, strategy="algebraic_rewrite")
-    cfs = derive_canonical_form_set(query_plan)
-    if not paths_converge(mql_primary, mql_alt, cfs, snapshot):
-        raise MSSynthesisError(query_plan)
+def ms_synthesize(intent, schema, snapshot) -> dict:
+    R = reference_oracle(intent, snapshot)          # archetype naive Python impl; DEFINES the answer
+    mql_primary = compile_intent(intent, schema, strategy="direct")
+    mql_alt = compile_intent(intent, schema, strategy="algebraic_rewrite")
+    cfs = derive_canonical_form_set(intent, mql_primary)   # thin: invariant + output-guard
+    if not gold_locks(mql_primary, mql_alt, R, cfs, snapshot):
+        raise MSSynthesisError(intent)
     mql = mql_primary if ast_tighter(mql_primary, cfs) else mql_alt
     return {
         "MQL": mql,
         "mql_alt": mql_alt if mql == mql_primary else mql_primary,
         "canonical_form_set": cfs,
-        "synthesis_trace": {"primary": mql_primary, "alt": mql_alt},
+        "synthesis_trace": {"primary": mql_primary, "alt": mql_alt, "reference": R},
     }
 
-def paths_converge(mql_a, mql_b, cfs, snapshot) -> bool:
+def gold_locks(mql_a, mql_b, R, cfs, snapshot) -> bool:
+    # thin cfs: disabled-ops + shape + invariant only
     if not (AST_check(mql_a, cfs) and AST_check(mql_b, cfs)):
         return False
-    ra = NormExec(mql_a, snapshot)
-    rb = NormExec(mql_b, snapshot)
-    return ra is not BOT and equiv_rec(ra, rb, order_sensitive=True)
+    ra, rb = NormExec(mql_a, snapshot), NormExec(mql_b, snapshot)
+    if ra is BOT:
+        return False
+    # RAR gold-lock: reference-anchored (independent oracle) AND dual-path triangulation
+    return equiv_rec(ra, R, order_sensitive=True) and equiv_rec(ra, rb, order_sensitive=True)
 ```
 
 ---
@@ -763,18 +753,22 @@ def paths_converge(mql_a, mql_b, cfs, snapshot) -> bool:
 # uses: typing
 ```
 
-def rtv_verify(nl_queries, schema, snapshot, canonical_form_set, *, max_retries=2) -> dict:
-    """Independent NL→MQL agent; canonical must hit gold-class."""
+def rtv_verify(nl_queries, schema, snapshot, gold_mql, *, max_retries=2) -> dict:
+    """Independent NL→MQL agent. RAR result-level: canonical must NormExec ≡_rec gold
+    (intent recoverable), NOT hit the cfs fingerprint — that decoupling is what lets a
+    ~gpt-4o-mini RTV close an L4 record without forcing the NLQ to leak the pipeline."""
+    os_flag = pipeline_has_order_semantics(gold_mql)
+    rg = NormExec(gold_mql, snapshot)
     canonical_mql = nl_to_mql(nl_queries["canonical"], schema)
-    canonical_ok = EX_verdict(canonical_mql, {"MQL": canonical_mql, "canonical_form_set": canonical_form_set}, snapshot)
+    canonical_ok = equiv_rec(NormExec(canonical_mql, snapshot), rg, order_sensitive=os_flag)
     colloquial_mql = nl_to_mql(nl_queries["colloquial"], schema)
-    colloquial_ok = EX_verdict(colloquial_mql, {"MQL": canonical_mql, "canonical_form_set": canonical_form_set}, snapshot)
+    colloquial_ok = equiv_rec(NormExec(colloquial_mql, snapshot), rg, order_sensitive=os_flag)
     return {
         "mql_round_trip_canonical": canonical_mql,
         "mql_round_trip_colloquial": colloquial_mql,
-        "canonical_pass": canonical_ok,
+        "canonical_pass": canonical_ok,   # result-equivalence, NOT cfs fingerprint
         "colloquial_pass": colloquial_ok,
-        "rtv_pass": canonical_ok,  # colloquial is soft
+        "rtv_pass": canonical_ok,         # colloquial is soft
     }
 ```
 
@@ -786,23 +780,24 @@ def rtv_verify(nl_queries, schema, snapshot, canonical_form_set, *, max_retries=
 # uses: typing
 ```
 
-def paraphrase_nlq_pair(mql: str, query_plan: dict, scenario_summary: str) -> dict:
-    """Reverse-engineer canonical (L1) and colloquial (L0) NLQ from locked MQL."""
+def paraphrase_nlq_pair(intent: dict, scenario_summary: str) -> dict:
+    """RAR: paraphrase canonical (L1) + colloquial (L0) NLQ from the INTENT (information
+    need), NOT from the locked gold MQL pipeline — this is what keeps the NLQ a natural
+    business question instead of a stage-by-stage transcription. gold MQL is used only by
+    RTV (result-level), never as paraphrase input."""
     canonical = llm_paraphrase(
-        mql=mql,
-        plan=query_plan,
+        intent=intent,
         scenario=scenario_summary,
         mode="canonical",
         rules={"no_dollar_ops": True, "schema_naive": True, "min_tokens": 20, "max_tokens": 120},
     )
     colloquial = llm_paraphrase(
-        mql=mql,
-        plan=query_plan,
+        intent=intent,
         scenario=scenario_summary,
         mode="colloquial",
         rules={"no_field_names": True, "underspecified": True, "min_tokens": 8, "max_tokens": 40},
     )
-    assert single_intent(parse_loose(colloquial), query_plan)
+    assert single_intent(parse_loose(colloquial), intent)
     return {"canonical": canonical, "colloquial": colloquial}
 ```
 
@@ -815,12 +810,12 @@ def paraphrase_nlq_pair(mql: str, query_plan: dict, scenario_summary: str) -> di
 
 | 文件 | 校验对象 |
 |---|---|
-| `schemas/query_plan.schema.json` | QPS 输出 query_plan |
+| `schemas/query_plan.schema.json` | QPS 输出 `intent`（RAR 后 schema 待重命名 `intent.schema.json`，列协调项） |
 | `schemas/synthesis_trace.schema.json` | MS 双路合成轨迹 |
 | `schemas/property_verification.schema.json` | PV 性质断言表 |
 | `schemas/round_trip_verification.schema.json` | RTV 往返验证 |
 | `schemas/canonical_form_set.schema.json` | 四元组 |
-| `schemas/canonical_form_set.schema.valid.json` | valid 示例（orchestra/1001） |
+| `schemas/canonical_form_set.schema.valid.json` | valid 示例（financial/1001） |
 | `schemas/canonical_form_set.schema.invalid.json` | invalid 示例（空 must_contain_at_root） |
 | `schemas/mutations.schema.json` | per-record mutations 文件 |
 | `schemas/mutations.schema.valid.json` | valid 示例 |

@@ -1,9 +1,0 @@
-openai>=1.30
-structlog>=24.1
-rich>=13.7
-pyyaml>=6.0
-pymongo>=4.6
-jsonschema>=4.21
-sqlglot>=25.0
-json5>=0.9
-pytest>=8.0

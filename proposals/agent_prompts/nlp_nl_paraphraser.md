@@ -75,9 +75,9 @@ Return JSON matching `output_schema` only.
 
 ## few-shot
 
-### Example 1 · orchestra/1001
+### Example 1 · orchestra/1001 (transitional anchor · pending BIRD migration)
 
-**Input**: window_facet_filter MQL; scenario_summary describes classical-music conductor–orchestra–performance attendance analytics.
+**Input**: window_facet_filter MQL; scenario_summary describes classical-music conductor–orchestra–performance attendance analytics. (orchestra/1001 is the transitional anchor carried over from the legacy pipeline; to be replaced by a real BIRD record, e.g. `financial`.)
 
 **Output snippet**
 

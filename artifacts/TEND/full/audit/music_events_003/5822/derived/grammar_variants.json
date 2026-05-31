@@ -1,4 +1,0 @@
-[
-  "db.events.aggregate([ { $facet: { high: [{ $match: { \"attendance\": { $gt: 70 } } }, { $group: { _id: \"$city\", count: { $sum: 1 } } }], low: [{ $match: { \"attendance\": { $lte: 70 } } }, { $group: { _id: \"$city\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])",
-  "db.events.aggregate([ { $match: {} }, { $facet: { high: [{ $match: { \"attendance\": { $gt: 70 } } }, { $group: { _id: \"$city\", count: { $sum: 1 } } }], low: [{ $match: { \"attendance\": { $lte: 70 } } }, { $group: { _id: \"$city\", count: { $sum: 1 } } }] } }, { $project: { _id: 0, high: 1, low: 1 } }])"
-]

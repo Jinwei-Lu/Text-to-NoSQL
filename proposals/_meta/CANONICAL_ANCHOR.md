@@ -1,4 +1,6 @@
-# TEND Canonical Anchor: orchestra/1001
+# TEND Canonical Anchor: financial/1001
+
+> **⚠ PENDING DAR Phase A execution-verification**:financial/1001 取自 BIRD mini-dev 真实库 `financial`(已在 test-only 数据集内),但其 MongoDB 反范式化布局(account 聚合 + 稀疏 `loan`/`card` embed + 多态 `trans`)、gold MQL 与 `world_signature` **尚未由 DAR Phase A 在真实 MongoDB 上构造并执行验证**——record 的异构信号(loan 覆盖 682/4500、trans.type 多态、card.type)为**实测**,布局与 MQL 为**提议态**,待 DAR Phase A 落地后冻结真值并替换 `world_signature`(当前为确定性占位)。构造侧 worked example(03/04 的 WP→SRA→…→RA 叙述、`agent_prompts/` 的 Example 1)仍以旧 `orchestra` 构造示意,待 DAR Phase A financial 构造实现后同步替换。
 
 > Cross-volume byte-identical reference record. Every volume that embeds this example MUST use the JSON block below verbatim (including whitespace inside `MQL`).
 
@@ -6,84 +8,76 @@
 
 | Property | Value |
 |----------|-------|
-| Spider DB | `orchestra` |
+| BIRD mini-dev (test-only) | `financial` |
 | record_id | `1001` |
-| Rationale | Spider 1.0 real DB; nested embed schema (conductor → orchestra → performance); reverse-engineered L4 query with `$setWindowFields` + `$facet` + `$ifNull` on orchestra embed layout |
+| Rationale | 真实 BIRD 业务库;account 聚合反范式化(稀疏 `loan`/`card` embed + 多态 `trans` 判别);**`preserve` L4** 查询同时演练 §06-5 就地惯用法、③ `variant_handling`(present/missing + polymorphic dispatch)、④ 逐 stage 跨变体塌缩定位(4500→682)——这三项正是 orchestra/1001(`reshape`、无变体)无法演练的部分 |
 
 ## Canonical Record
 
-<!-- canonical-anchor: orchestra/1001 -->
+<!-- canonical-anchor: financial/1001 -->
 ```json
 {
   "record_id": 1001,
-  "db_id": "orchestra",
+  "db_id": "financial",
   "nl_queries": {
-    "canonical": "对每位 conductor，先在其指挥的 orchestra 的 performance 上按 Performance_ID 升序、对 Attendance 计算窗口大小为 (当前, 前 2 场) 的滑动平均；取该 conductor 的最后一次窗口平均值作为代表值 (Attendance 缺失视为 0)。然后计算所有 conductor 代表值的中位数。最终只输出代表值严格大于该中位数的 conductor，字段为 Name 与 last_window_avg；若 Name 缺失则显示为 (unknown)；不要求排序。",
-    "colloquial": "列出最近场次出勤趋势高于同行中位数的指挥。"
+    "canonical": "为每个 account 附加一个字段 loan_to_credit_ratio:若该 account 有 loan,取 loan.amount 除以该 account 所有贷记交易(trans.type = 'PRIJEM')的 amount 之和(该和为 0 时按 1 计);若该 account 无 loan,则该字段为 0。保留每个 account 文档(含无 loan 的),只在原文档上新增该字段,不改变文档数与嵌套结构;不要求排序。",
+    "colloquial": "给每个账户标注它的贷款相对贷记流水的占比;没有贷款的账户记 0,一个账户都别漏。"
   },
-  "MQL": "db.conductor.aggregate([
-  { $unwind: { path: \"$orchestra\", preserveNullAndEmptyArrays: false } },
-  { $unwind: { path: \"$orchestra.performance\", preserveNullAndEmptyArrays: false } },
-  { $setWindowFields: {
-      partitionBy: \"$_id\",
-      sortBy: { \"orchestra.performance.Performance_ID\": 1 },
-      output: {
-        moving_avg_attendance: {
-          $avg: { $ifNull: [\"$orchestra.performance.Attendance\", 0] },
-          window: { documents: [-2, 0] }
-        }
+  "MQL": "db.account.aggregate([
+  { $lookup: {
+      from: \"trans\",
+      let: { aid: \"$_id\" },
+      pipeline: [
+        { $match: { $expr: { $and: [ { $eq: [\"$account_id\", \"$$aid\"] }, { $eq: [\"$type\", \"PRIJEM\"] } ] } } },
+        { $group: { _id: null, credit_sum: { $sum: \"$amount\" } } }
+      ],
+      as: \"_credit\"
+  } },
+  { $addFields: {
+      loan_to_credit_ratio: {
+        $cond: [
+          { $ne: [ { $type: \"$loan\" }, \"missing\" ] },
+          { $divide: [ \"$loan.amount\", { $max: [ { $ifNull: [ { $arrayElemAt: [\"$_credit.credit_sum\", 0] }, 0 ] }, 1 ] } ] },
+          0
+        ]
       }
   } },
-  { $group: {
-      _id: \"$_id\",
-      Name: { $first: { $ifNull: [\"$Name\", \"(unknown)\"] } },
-      last_window_avg: { $last: \"$moving_avg_attendance\" }
-  } },
-  { $facet: {
-      per_conductor: [ { $project: { _id: 0, Name: 1, last_window_avg: 1 } } ],
-      global_median: [
-        { $sort: { last_window_avg: 1 } },
-        { $group: { _id: null, vals: { $push: \"$last_window_avg\" } } },
-        { $project: { _id: 0, median: { $arrayElemAt: [\"$vals\", { $floor: { $divide: [{ $size: \"$vals\" }, 2] } }] } } }
-      ]
-  } },
-  { $project: {
-      kept: { $filter: {
-        input: \"$per_conductor\",
-        as: \"c\",
-        cond: { $gt: [\"$$c.last_window_avg\", { $arrayElemAt: [\"$global_median.median\", 0] }] }
-      } }
-  } },
-  { $unwind: \"$kept\" },
-  { $project: { _id: 0, Name: \"$kept.Name\", last_window_avg: \"$kept.last_window_avg\" } }
+  { $project: { _credit: 0 } }
 ])",
   "canonical_form_set": {
-    "must_contain": ["$setWindowFields", "$facet", "$ifNull"],
-    "must_not_contain": [],
-    "must_contain_at_root": ["$setWindowFields", "$facet"],
-    "must_not_contain_at_root": []
+    "must_contain": ["$lookup", "$addFields", "$cond", "$type"],
+    "must_not_contain": ["$unwind"],
+    "must_contain_at_root": ["$addFields"],
+    "must_not_contain_at_root": ["$unwind", "$group"]
   },
   "difficulty": "L4",
-  "shape_policy": "reshape",
-  "world_signature": "sha256:a47f3e8b1c2d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e90",
-  "agent_design_rationale_ref": "fixtures/orchestra/sra.yaml",
-  "mutations_ref": "fixtures/orchestra/mutations.json"
+  "shape_policy": "preserve",
+  "world_signature": "sha256:58d575b0eb62b1499642ec46e9efe5d5576082ce45d871df0326821f44751346",
+  "agent_design_rationale_ref": "fixtures/financial/sra.yaml",
+  "mutations_ref": "fixtures/financial/mutations.json"
 }
 ```
 
 ## Usage Rules
 
 1. Copy the fenced JSON block above into vols 01–06 without modification.
-2. Tag every embedded copy with `<!-- canonical-anchor: orchestra/1001 -->` immediately before the fence.
+2. Tag every embedded copy with `<!-- canonical-anchor: financial/1001 -->` immediately before the fence.
 3. Gate 3 verifies all six copies hash identically.
 
-## Spider Ground Truth
+## BIRD Ground Truth (financial)
 
-Relational schema (Spider 1.0):
+Relational schema (BIRD mini-dev `financial`,真实):
 
-- `conductor(Conductor_ID, Name, Age, Nationality, Year_of_Work)`
-- `orchestra(Orchestra_ID, Orchestra, Conductor_ID, Record_Company, Year_of_Founded, Major_Record_Format)`
-- `performance(Performance_ID, Orchestra_ID, Type, Date, Official_ratings, Weekly_rank, Share)`
-- `show(Show_ID, Performance_ID, Result, Attendance)`
+- `account(account_id, district_id, frequency, date)` — 4500 行
+- `loan(loan_id, account_id, date, amount, duration, payments, status)` — 682 行,**仅覆盖 ~15% 账户(稀疏)**
+- `card(card_id, disp_id, type∈{classic,gold,junior}, issued)` — 892 行,**覆盖 ~17% disp(稀疏)**
+- `disp(disp_id, client_id, account_id, type)`、`client`、`district`、`order`
+- `trans(trans_id, account_id, date, type∈{PRIJEM,VYDAJ,VYBER}, operation?, amount, balance, k_symbol?, bank?, account?)` — 1.06M 行,**多态 + 稀疏字段**
 
-MongoDB design (SRA output): embed `performance[]` under `orchestra[]` under `conductor` documents — see `fixtures/orchestra/sra.yaml`.
+实测 query-bearing 异构信号(BIRD financial 32 题中 `loan` 被 **10 题**引用、`status` 5 题):
+
+- 稀疏可选 embed:loan 682/4500、card 892/5369 → present/missing 变体(机制②稀疏);
+- 多态判别:`trans.type` PRIJEM(贷)/VYDAJ(借)/VYBER,`operation` 在利息贷记上 NULL(机制①多态);
+- null-vs-missing:`k_symbol`/`bank`/`account` 大量 NULL → 反范式化后变缺字段(机制③)。
+
+MongoDB design (SRA output,**pending DAR Phase A**): account-rooted aggregate embeds optional `loan` + `dispositions[].card`;`trans` referenced(1.06M,多态)— see `fixtures/financial/sra.yaml`(pending)。relational gold 普遍用 `INNER JOIN loan`(静默丢弃无 loan 账户),反范式化为文档后该 present/missing 变体必须由求解器显式处理——这正是"不可被 SQL 平移"的难度来源。

@@ -1,3 +1,0 @@
-[
-  "db.departments.aggregate([ { $match: { \"budget\": { $gt: 70 } } }, { $count: \"total\" }])"
-]
