@@ -102,8 +102,9 @@ class ProgressReporter:
     def add_group(self, group_id: str, label: str, *, phase: str | None = None,
                   total: int | None = None) -> None:
         with self._lock:
+            order = self._groups[group_id].order if group_id in self._groups else len(self._groups)
             self._groups[group_id] = _Group(label=label, phase=phase or self._phase,
-                                            total=total, order=len(self._groups))
+                                            total=total, order=order)
 
     # ----------------------------------------------------------------- #
     # task hooks (called by the workflow engine)
@@ -114,6 +115,7 @@ class ProgressReporter:
                 self.add_group(group, group)
             self._tasks[task_id] = _Task(label=label, group=group, detail=detail)
             self._counts["started"] += 1
+            self._ensure_group_uses_task_units(group)
 
     def update_task(self, task_id: str, *, detail: str | None = None,
                     status: str | None = None) -> None:
@@ -140,18 +142,30 @@ class ProgressReporter:
             t = self._tasks.get(task_id)
             if not t:
                 return
+            was_terminal = t.status in ("ok", "fail")
             t.status = "ok" if ok else "fail"
             t.ended = time.monotonic()
             t.anomaly = anomaly
             if detail is not None:
                 t.detail = detail
-            self._counts["ok" if ok else "fail"] += 1
+            if not was_terminal:
+                self._counts["ok" if ok else "fail"] += 1
 
     def _on_anomaly(self, record: dict[str, Any]) -> None:
         with self._lock:
             kind = record.get("anomaly", "internal")
             self._anom_by_kind[kind] = self._anom_by_kind.get(kind, 0) + 1
             self._anoms.append(record)
+
+    def _ensure_group_uses_task_units(self, group: str) -> None:
+        if not group:
+            return
+        g = self._groups.get(group)
+        if g is None or g.total is None:
+            return
+        task_count = sum(1 for task in self._tasks.values() if task.group == group)
+        if task_count > g.total:
+            g.total = None
 
     # ----------------------------------------------------------------- #
     # rendering
@@ -175,6 +189,7 @@ class ProgressReporter:
                 tasks = [t for t in self._tasks.values() if t.group == gid]
                 done = sum(1 for t in tasks if t.status in ("ok", "fail"))
                 total = g.total if g.total is not None else len(tasks)
+                total = max(total, done)
                 gnode = pnode.add(Text.assemble(
                     (f"{g.label} ", "bold"),
                     (f"[{done}/{total}]", "grey62"),
@@ -195,8 +210,9 @@ class ProgressReporter:
 
     def _render_footer(self) -> Panel:
         c = self._counts
+        running = max(0, c["started"] - c["ok"] - c["fail"])
         counters = Text.assemble(
-            ("running ", "cyan"), (f"{c['started'] - c['ok'] - c['fail']}  ", "bold cyan"),
+            ("running ", "cyan"), (f"{running}  ", "bold cyan"),
             ("ok ", "green"), (f"{c['ok']}  ", "bold green"),
             ("fail ", "red"), (f"{c['fail']}  ", "bold red"),
             ("retry ", "yellow"), (f"{c['retry']}  ", "bold yellow"),

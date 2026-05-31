@@ -44,6 +44,7 @@ class Anomaly(str, enum.Enum):
     GOLD_LOCK_FAILED = "gold_lock_failed"  # gold !=_rec reference oracle / dual-path
     GATE_FAILED = "gate_failed"            # a publish gate rejected the candidate
     MIGRATION_ERROR = "migration_error"    # DM produced inconsistent witness data
+    SOLVER_EXHAUSTED = "solver_exhausted"  # SMART solver exhausted bounded attempts
     SUPPLY_EXHAUSTED = "supply_exhausted"  # coverage cell infeasible / no candidates
     INTERNAL = "internal"                  # unexpected bug (wraps stray exceptions)
 

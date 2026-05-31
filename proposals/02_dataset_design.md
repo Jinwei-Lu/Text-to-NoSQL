@@ -317,7 +317,7 @@ test-only 下**不做选择过滤**：BIRD mini-dev 的 11 个库**全部直接�
 3. 从 BIRD 库语义指定 `domain_id`（如 `financial` → finance、`formula_1` → sports、`california_schools` → education）
 4. 对每个库标注 **query-bearing 异构供给预判**（与 [03 §03-6-3](./03_dataworld_construction.md#03-6-3) SC Gate-QB pre-audit 同规则）：DAR 五机制中存在被真实 BIRD SQL 引用、经 Gate-QB 后 bearing 的机制 → `flex_eligible: true`，否则 `false`（不影响装载，仅供 H7/H9 供给放宽判定）
 5. 写入 `bird_db_catalog.json`，每条记录含 `selected: true`（11 库恒为 true）、`flex_eligible: bool`、`load_note`
-6. 输出 JSON 须通过 `schemas/library.schema.json` 中 catalog 定义（沿用既有 `spider_db_catalog` 定义形状，仅文件名改为 `bird_db_catalog.json`）
+6. 输出 JSON 须通过 `schemas/library.schema.json` 中 `bird_db_catalog` 定义
 7. query-bearing 供给统计：`flex_eligible_db_ratio = |{db : flex_eligible}| / 11`；若 `< 0.30`，脚本 **warn**（不 fail-fast）；Coverage Controller 在组成校验时对 H7/H9 启用供给放宽
 
 **catalog 条目示例字段**
@@ -467,12 +467,13 @@ function compose_test_set(catalog, records):
   { $project: { _credit: 0 } }
 ])",
   "canonical_form_set": {
-    "must_contain": ["$lookup", "$addFields", "$cond", "$type"],
-    "must_not_contain": ["$unwind"],
-    "must_contain_at_root": ["$addFields"],
+    "must_contain": ["$lookup"],
+    "must_not_contain": ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function"],
+    "must_contain_at_root": [],
     "must_not_contain_at_root": ["$unwind", "$group"]
   },
   "difficulty": "L4",
+  "sql_infeasibility_class": "structural_schema_flex",
   "shape_policy": "preserve",
   "world_signature": "sha256:58d575b0eb62b1499642ec46e9efe5d5576082ce45d871df0326821f44751346",
   "agent_design_rationale_ref": "fixtures/financial/sra.yaml",

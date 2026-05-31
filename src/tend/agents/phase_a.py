@@ -1,9 +1,9 @@
-"""Phase A LLM agents: WP (workload profiler), SRA (schema re-architect), SC (critic).
+"""Phase A LLM agents: WP (workload profiler), SRA (rationale), SC (critic).
 
 DM (data migrator) is deterministic and lives in :mod:`tend.agents.dm`. These three drive
-the DataWorld design: WP profiles the real BIRD workload, SRA recovers a document-aggregate
-MongoDB layout (with optional ``__variants`` from real signal), and SC adversarially reviews
-it (anti-patterns + query-bearing pre-audit).
+the DataWorld context around DM's materialized artifact: WP profiles the real BIRD workload,
+SRA records design rationale/context, and SC adversarially reviews DM's actual MongoDB
+schema/data plus query-bearing evidence.
 """
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ class WorkloadProfiler(LLMAgent):
 
 @register
 class SchemaRearchitect(LLMAgent):
-    """SRA — recover a document-aggregate MongoDB layout (+ optional __variants)."""
+    """SRA — record document-aggregate design rationale/context."""
 
     id = "sra"
     phase = "A"
@@ -116,9 +116,13 @@ class SchemaRearchitect(LLMAgent):
                 f"{fk.child_table}.{fk.child_col}->{fk.parent_table}" for fk in sch.foreign_keys))
         if fixes:
             parts.append("\n## SC requested fixes (revise accordingly):\n" + str(fixes))
+        if inputs.get("dm_review_context"):
+            parts.append("\n## DM artifact under review (authoritative; revise rationale only):\n"
+                         + _clip(inputs["dm_review_context"]))
         parts.append("\nApply the 11-pattern menu (Stage A) then five-mechanism recovery "
-                     "(Stage B, real signal only). Emit mongodb_schema (+ optional __variants "
-                     "keyed by REAL column names) and agent_design_rationale.")
+                     "(Stage B, real signal only). Emit agent_design_rationale grounded in "
+                     "the real BIRD signals. Any mongodb_schema you include is advisory only; "
+                     "DM's materialized schema/data are authoritative downstream.")
         return "\n".join(parts)
 
 
@@ -133,17 +137,35 @@ class SchemaCritic(LLMAgent):
     output_schema = _SC_SCHEMA
 
     def render_inputs(self, ctx: AgentContext, inputs: dict[str, Any]) -> str:
-        schema = inputs.get("schema", {})
+        schema = inputs.get("mongodb_schema", inputs.get("schema", {}))
+        data = inputs.get("mongodb_data", {})
         wp = inputs.get("wp_output", {})
-        return ("# SC review\n"
-                "Review the SRA schema for the 3 anti-patterns (unnecessary collections, "
-                "excessive lookups, over-indexing), workload coverage, and decorative "
-                "(non query-bearing) heterogeneity. Run the query-bearing pre-audit.\n\n"
-                f"## SRA schema\n```json\n{_clip(schema)}\n```\n"
-                f"## WP access patterns\n{_clip(wp.get('access_patterns', []))}\n")
+        return (
+            "# SC review\n"
+            "Review DM's materialized MongoDB schema and witness data as authoritative. "
+            "Use SRA rationale only as context; do not rely on a stale SRA schema over "
+            "the DM artifacts. Check the 3 anti-patterns (unnecessary collections, "
+            "excessive lookups, over-indexing), workload coverage, and decorative "
+            "(non query-bearing) heterogeneity against the real query evidence.\n\n"
+            f"## DM materialized schema\n```json\n{_clip(schema)}\n```\n"
+            f"## DM witness data sample\n```json\n{_clip(_sample_data(data))}\n```\n"
+            f"## DM migration log\n```json\n{_clip(inputs.get('migration_log', {}))}\n```\n"
+            f"## SRA rationale/context\n```json\n{_clip(inputs.get('sra_rationale', {}))}\n```\n"
+            f"## WP access patterns\n{_clip(wp.get('access_patterns', []))}\n"
+            f"## Query-bearing evidence\n```json\n{_clip(inputs.get('query_evidence', []))}\n```"
+        )
 
 
 def _clip(obj: Any, n: int = 2500) -> str:
     import json
     s = json.dumps(obj, ensure_ascii=False, indent=2)
     return s if len(s) <= n else s[:n] + "\n... (truncated)"
+
+
+def _sample_data(data: Any, per_collection: int = 3) -> Any:
+    if not isinstance(data, dict):
+        return data
+    sample = {}
+    for coll, docs in data.items():
+        sample[coll] = docs[:per_collection] if isinstance(docs, list) else docs
+    return sample

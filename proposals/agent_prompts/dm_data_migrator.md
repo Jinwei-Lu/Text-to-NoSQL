@@ -60,9 +60,9 @@ Return two fenced blocks: witness JSON, then migration log JSON.
 
 ## few-shot
 
-### Example 1 (transitional anchor · pending BIRD migration)
+### Example 1 (smoke fixture, not production release)
 
-**Context**: orchestra — 3 conductors, embed orchestra/performance, Attendance denormalized from show. (Transitional anchor carried over from the legacy pipeline; not a BIRD mini-dev library — to be replaced by a real BIRD record, e.g. `financial`. Witness JSON preserved byte-for-byte.)
+**Context**: orchestra — 3 conductors, embed orchestra/performance, Attendance denormalized from show. This is a smoke fixture carried over from the legacy pipeline, not a production TEND release record.
 
 **mongodb_data excerpt**
 

@@ -64,7 +64,7 @@ class CoverageSlot:
 
 
 # --------------------------------------------------------------------------- #
-# Phase A — DataWorld construction (per db: WP -> SRA -> SC* -> DM)
+# Phase A — DataWorld construction (per db: WP -> SRA -> DM -> SC*)
 # --------------------------------------------------------------------------- #
 async def run_phase_a(wf: Workflow, db_ids: list[str]) -> dict[str, DbArtifacts]:
     """Build Tier-1 assets for each db, in parallel across dbs."""
@@ -86,35 +86,58 @@ async def _phase_a_one_db(wf: Workflow, db_id: str) -> DbArtifacts:
     wp = await wf.agent("wp", {"db_id": db_id}, ctx=ctx)
     assert wp is not None  # non-isolated within the db chain; failure aborts this db
 
-    sra = await wf.agent(
-        "sra", {"wp_output": wp, "db_id": db_id}, ctx=ctx
-    )
-    # SC adversarial review with bounded revision loop
-    sc = await wf.agent("sc", {"schema": sra, "wp_output": wp}, ctx=ctx)
-    rounds = 0
-    while sc and sc.get("verdict") == "reject" and rounds < SC_MAX_ROUNDS:
-        rounds += 1
-        ctx.log.warning("sc_reject", round=rounds, issues=sc.get("issues"))
-        sra = await wf.agent(
-            "sra", {"wp_output": wp, "db_id": db_id, "sc_fixes": sc.get("suggested_fixes")},
-            ctx=ctx,
-        )
-        sc = await wf.agent("sc", {"schema": sra, "wp_output": wp}, ctx=ctx)
+    sra = await wf.agent("sra", {"wp_output": wp, "db_id": db_id}, ctx=ctx)
+    assert sra is not None
 
-    dm = await wf.agent("dm", {"schema": sra, "db_id": db_id}, ctx=ctx)
+    dm = await wf.agent("dm", {
+        "db_id": db_id,
+        "sra_rationale": sra.get("agent_design_rationale", {}),
+    }, ctx=ctx)
     assert dm is not None
 
     # DM's schema is authoritative (consistent with the migrated data by construction, Gate-SD)
     source_schema = ctx.source.schema(db_id) if ctx.source else None
     workload = ctx.source.workload(db_id) if ctx.source else []
-    schema = dm.get("mongodb_schema", sra.get("mongodb_schema", {}))
+    schema = dm.get("mongodb_schema", {})
+    sc_inputs = {
+        "db_id": db_id,
+        "mongodb_schema": schema,
+        "mongodb_data": dm.get("mongodb_data", {}),
+        "migration_log": dm.get("migration_log", {}),
+        "sra_rationale": sra.get("agent_design_rationale", {}),
+        "wp_output": wp,
+        "query_evidence": _workload_evidence(workload),
+    }
+    # SC reviews DM's materialized artifacts. A reject can ask SRA to clarify rationale,
+    # but SRA's proposed schema is no longer a source of truth for downstream construction.
+    sc = await wf.agent("sc", sc_inputs, ctx=ctx)
+    rounds = 0
+    while sc and sc.get("verdict") == "reject" and rounds < SC_MAX_ROUNDS:
+        rounds += 1
+        ctx.log.warning("sc_reject", round=rounds, issues=sc.get("issues"))
+        sra = await wf.agent(
+            "sra",
+            {
+                "wp_output": wp,
+                "db_id": db_id,
+                "sc_fixes": sc.get("suggested_fixes"),
+                "dm_review_context": {
+                    "mongodb_schema": schema,
+                    "migration_log": dm.get("migration_log", {}),
+                },
+            },
+            ctx=ctx,
+        )
+        sc_inputs["sra_rationale"] = (sra or {}).get("agent_design_rationale", {})
+        sc = await wf.agent("sc", sc_inputs, ctx=ctx)
+
     art = DbArtifacts(
         db_id=db_id,
         mongodb_schema=schema,
         mongodb_data=dm.get("mongodb_data", {}),
         rationale=_complete_rationale(
             db_id=db_id,
-            rationale=sra.get("agent_design_rationale", {}),
+            rationale=(sra or {}).get("agent_design_rationale", {}),
             schema=schema,
             migration_log=dm.get("migration_log", {}),
             source_schema=source_schema,
@@ -171,13 +194,16 @@ async def _build_record(
     }, ctx=ctx)
     if not qps:
         return _drop(ctx, "qps", "intent enumeration failed")
-    intent = qps.get("intent", qps)
+    intent = _intent_with_reference_oracle(qps)
+    reference = intent.get("reference_oracle")
 
     # MS: synthesize gold + deterministic gold-lock (executes + preserve cardinality)
     ms = None
     ms_feedback = None
     for r in range(MS_MAX_ROUNDS + 1):
-        ms = await wf.agent("ms", {"intent": intent, "schema": art.mongodb_schema,
+        ms = await wf.agent("ms", {"intent": intent, "reference_oracle": reference,
+                                   "schema": art.mongodb_schema,
+                                   "mongodb_data": art.mongodb_data,
                                    "target_difficulty": slot.target_difficulty,
                                    "target_sql_infeasibility_class": slot.target_sql_infeasibility_class,
                                    "target_schema_flex": slot.target_schema_flex,
@@ -211,16 +237,20 @@ async def _build_record(
                      detail=(pv or {}).get("property_verification"))
 
     # NLP -> RTV (P2 intent uniqueness); RTV canonical fail -> NLP rewrite
-    nlp = await wf.agent("nlp", {"intent": intent, "scenario_summary": art.scenario_summary},
-                         ctx=ctx)
+    nlp_inputs = {
+        "intent": intent,
+        "scenario_summary": art.scenario_summary,
+        "MQL": ms["MQL"],
+        "result_fields": ms.get("result_fields"),
+    }
+    nlp = await wf.agent("nlp", nlp_inputs, ctx=ctx)
     rtv = await wf.agent("rtv", {"nl_queries": (nlp or {}).get("nl_queries"),
                                  "MQL": ms["MQL"], "schema": art.mongodb_schema}, ctx=ctx)
     rounds = 0
     while (not rtv or not rtv.get("rtv_pass")) and rounds < RTV_MAX_ROUNDS:
         rounds += 1
         ctx.log.warning("rtv_reject", round=rounds, reason=(rtv or {}).get("rtv_reason"))
-        nlp = await wf.agent("nlp", {"intent": intent, "scenario_summary": art.scenario_summary,
-                                     "rtv_feedback": rtv}, ctx=ctx)
+        nlp = await wf.agent("nlp", {**nlp_inputs, "rtv_feedback": rtv}, ctx=ctx)
         rtv = await wf.agent("rtv", {"nl_queries": (nlp or {}).get("nl_queries"),
                                      "MQL": ms["MQL"], "schema": art.mongodb_schema}, ctx=ctx)
     if not rtv or not rtv.get("rtv_pass"):
@@ -298,6 +328,32 @@ def _target_violations(
     return violations
 
 
+def _intent_with_reference_oracle(qps: dict[str, Any]) -> dict[str, Any]:
+    """Extract QPS intent without losing the top-level oracle payload MS must verify."""
+    intent = qps.get("intent", qps)
+    if not isinstance(intent, dict):
+        return {}
+    out = dict(intent)
+    reference = qps.get("reference_oracle")
+    if reference is not None and "reference_oracle" not in out:
+        out["reference_oracle"] = reference
+    return out
+
+
+def _workload_evidence(workload: list[Any], limit: int = 12) -> list[dict[str, Any]]:
+    """Compact real query-bearing evidence for SC's artifact review."""
+    evidence = []
+    for q in workload[:limit]:
+        evidence.append({
+            "question_id": getattr(q, "question_id", None),
+            "difficulty": getattr(q, "difficulty", ""),
+            "question": getattr(q, "question", ""),
+            "evidence": getattr(q, "evidence", ""),
+            "sql": getattr(q, "sql", ""),
+        })
+    return evidence
+
+
 def _complete_rationale(
     *,
     db_id: str,
@@ -361,7 +417,7 @@ def _complete_rationale(
             "schema_flex": "polymorphic" if has_variants else "none",
             "triggers": [
                 {
-                    "id": "H1",
+                    "mechanism": "sparse",
                     "fired": bool(has_variants),
                     "evidence": "sparse optional embeds create present/missing document variants",
                 }

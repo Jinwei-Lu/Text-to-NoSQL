@@ -32,6 +32,8 @@ _EN_PRESERVE = (
 _ZH_PRESERVE = ("附加", "增补", "标注", "就地计算", "保持原结构", "保留每个", "不改变文档数")
 _REDUCE = ("sum", "count", "average", "avg", "top", "group by", "total", "聚合", "总数", "平均")
 _RESHAPE = ("flatten", "list all", "unwind", "展开", "透视", "重塑")
+_REQUIRED_FROZEN_PANELS = ("small", "medium", "large", "frontier")
+_CONSTRUCTION_ROLE_LABELS = frozenset({"qps", "ms", "mut", "pv", "nlp", "rtv", "nnc", "ra"})
 
 
 @dataclass(frozen=True)
@@ -91,8 +93,8 @@ def build_disclosure(
     witness_k: int,
 ) -> SolverDisclosure:
     backbone = settings.llm.model
-    s_solver = [backbone]
-    detail = check_disjointness(s_solver, allow_list)
+    s_solver = _dedupe_model_ids([backbone, *settings.llm.agent_models.values()])
+    detail = check_disjointness(s_solver, allow_list, require_manifests=not settings.stub)
     return SolverDisclosure(
         s_solver=s_solver,
         backbone=backbone,
@@ -103,24 +105,49 @@ def build_disclosure(
     )
 
 
-def check_disjointness(s_solver: list[str], allow_list: dict[str, Any]) -> dict[str, Any]:
-    normalized = {_norm_model(m) for m in s_solver}
-    construction = {
-        _norm_model(m) for m in allow_list.get("four_party_disjointness", {}).get(
-            "construction_agents", []
-        )
-    }
+def check_disjointness(
+    s_solver: list[str],
+    allow_list: dict[str, Any],
+    *,
+    require_manifests: bool = True,
+) -> dict[str, Any]:
+    normalized = {_norm_model(m) for m in s_solver if _norm_model(m)}
+    disjointness = allow_list.get("four_party_disjointness", {})
+    construction = _model_id_set(disjointness.get("construction_model_ids"))
     frozen: set[str] = set()
-    for panel in allow_list.get("frozen_panels", {}).values():
-        if isinstance(panel, list):
-            frozen.update(_norm_model(m) for m in panel)
+    manifest_errors: list[str] = []
+
+    if require_manifests:
+        if not construction:
+            manifest_errors.append("four_party_disjointness.construction_model_ids missing/empty")
+        role_labels = sorted(construction & _CONSTRUCTION_ROLE_LABELS)
+        if role_labels:
+            manifest_errors.append(
+                "four_party_disjointness.construction_model_ids contains role labels "
+                f"instead of model IDs: {role_labels}"
+            )
+
+    frozen_panels = allow_list.get("frozen_panels")
+    if not isinstance(frozen_panels, dict):
+        if require_manifests:
+            manifest_errors.append("frozen_panels missing/invalid")
+        frozen_panels = {}
+
+    for panel_name in _REQUIRED_FROZEN_PANELS:
+        panel_models = _model_id_set(frozen_panels.get(panel_name))
+        if require_manifests and not panel_models:
+            manifest_errors.append(f"frozen_panels.{panel_name} missing/empty")
+        frozen.update(panel_models)
+
     construction_hits = sorted(normalized & construction)
     frozen_hits = sorted(normalized & frozen)
     return {
-        "ok": not construction_hits and not frozen_hits,
+        "ok": not manifest_errors and not construction_hits and not frozen_hits,
         "construction_pool_hits": construction_hits,
         "frozen_panel_hits": frozen_hits,
+        "manifest_errors": manifest_errors,
         "checked_models": sorted(s_solver),
+        "required_manifests": require_manifests,
     }
 
 
@@ -196,3 +223,30 @@ def render_mql(collection: str, stages: list[dict[str, Any]]) -> str:
 
 def _norm_model(model: str) -> str:
     return str(model).strip().lower()
+
+
+def _model_id_set(raw: Any) -> set[str]:
+    if not isinstance(raw, list):
+        return set()
+    ids: set[str] = set()
+    for item in raw:
+        if isinstance(item, dict):
+            value = item.get("model_id") or item.get("id")
+        else:
+            value = item
+        normalized = _norm_model(str(value or ""))
+        if normalized:
+            ids.add(normalized)
+    return ids
+
+
+def _dedupe_model_ids(models: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for model in models:
+        normalized = _norm_model(model)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        out.append(str(model).strip())
+    return out

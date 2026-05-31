@@ -8,14 +8,14 @@
   "MQL": "db.stadium.aggregate([\n  { $match: { Capacity: { $gt: 5000 } } },\n  { $project: { _id: 0, Name: { $ifNull: [\"$Name\", \"(unknown)\"] }, Capacity: 1 } }\n])",
   "canonical_form_set": {
     "must_contain": ["$match", "$ifNull"],
-    "must_not_contain": ["$sample", "$rand", "$out", "$merge", "$function"],
+    "must_not_contain": ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function"],
     "must_contain_at_root": ["$match"],
     "must_not_contain_at_root": ["$group"]
   },
   "difficulty": "L1",
   "sql_infeasibility_class": "feasible",
   "shape_policy": "preserve",
-  "world_signature": "sha256:b58a4f9c2d3e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f1a2",
+  "world_signature": "sha256:20926a3d94a2d9613d6e2cabd76868ebd171ef8b4bbbbd8270306379aa04b8fa",
   "domain_id": "entertainment",
   "join_depth": 0,
   "aggregation_depth": "shallow",

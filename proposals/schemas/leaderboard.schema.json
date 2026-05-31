@@ -198,7 +198,7 @@
         "construction_gate_digest",
         "evaluation_gate_digest",
         "panel_manifest_digest",
-        "spider_db_catalog_digest",
+        "bird_db_catalog_digest",
         "diagnostics_summary"
       ],
       "properties": {
@@ -214,7 +214,7 @@
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"
         },
-        "spider_db_catalog_digest": {
+        "bird_db_catalog_digest": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"
         },
@@ -238,13 +238,13 @@
               "type": "number",
               "minimum": 0,
               "maximum": 1,
-              "description": "Observation-only share of test records with NNC functional_sql_solvable=true (SQL-bridge EX=1)."
+              "description": "Observation-only share of test records with NNC functional_sql_solvable=true (SQL-bridge result-equivalent to gold)."
             },
             "structural_sql_solvable_rate": {
               "type": "number",
               "minimum": 0,
               "maximum": 1,
-              "description": "Observation-only share of test records with NNC structural_sql_solvable=true (SQL-bridge EX=1 ∧ QIM=1)."
+              "description": "Observation-only share of test records with NNC structural_sql_solvable=true (SQL-bridge result-equivalent to gold and AST_check pass)."
             }
           }
         }

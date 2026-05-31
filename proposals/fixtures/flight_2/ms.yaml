@@ -31,7 +31,7 @@ mql_alt: |
   ])
 canonical_form_set:
   must_contain: ["$unwind", "$group", "$ifNull"]
-  must_not_contain: ["$setWindowFields", "$facet"]
+  must_not_contain: ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function", "$setWindowFields", "$facet"]
   must_contain_at_root: ["$unwind"]
   must_not_contain_at_root: ["$lookup"]
 shape_policy: reshape

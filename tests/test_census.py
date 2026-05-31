@@ -64,6 +64,31 @@ def test_coverage_controller_deterministic():
     assert a != d or len(c.databases) == 0
 
 
+def test_coverage_controller_prefers_sparse_embed_for_single_financial_l4():
+    from tend.source import BirdSource
+    from tend.source.census import plan_coverage_slots, run_census
+
+    with BirdSource(_BIRD) as src:
+        c = run_census(src, db_ids=["financial"])
+    slots = plan_coverage_slots(c, n_records=1, seed=0)
+    assert len(slots) == 1
+    assert slots[0].mechanism == "sparse_embed"
+    assert slots[0].archetype == "present_missing_projection"
+    assert slots[0].target_difficulty == "L4"
+
+
+def test_coverage_controller_penalizes_extreme_sparse_embed_smoke_cells():
+    from tend.source import BirdSource
+    from tend.source.census import plan_coverage_slots, run_census
+
+    with BirdSource(_BIRD) as src:
+        c = run_census(src, db_ids=["financial", "student_club", "thrombosis_prediction"])
+    slots = plan_coverage_slots(c, n_records=1, seed=0)
+    assert len(slots) == 1
+    assert slots[0].mechanism == "sparse_embed"
+    assert slots[0].db_id in {"financial", "student_club"}
+
+
 def test_catalog_build():
     from tend.source import BirdSource
     from tend.source.catalog import build_catalog

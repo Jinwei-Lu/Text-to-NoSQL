@@ -78,7 +78,7 @@ class Paths:
     agent_prompts: Path       # proposals/agent_prompts
     schemas: Path             # proposals/schemas
     runs: Path                # runs/   (run-scoped output: logs, artifacts)
-    dataset_out: Path         # release/ dataset output (mongodb_schema/, test.json, ...)
+    dataset_out: Path         # construction dataset output (mongodb_schema/, test.json, ...)
 
     def ensure(self) -> None:
         for p in (self.runs, self.dataset_out):
@@ -97,7 +97,14 @@ class Settings:
     run_id: str = "dev"
 
     @classmethod
-    def from_env(cls, *, run_id: str = "dev", overrides: dict[str, str] | None = None) -> "Settings":
+    def from_env(
+        cls,
+        *,
+        run_id: str = "dev",
+        overrides: dict[str, str] | None = None,
+        require_bird: bool = True,
+        require_llm: bool = True,
+    ) -> "Settings":
         root = _find_repo_root()
         envmap = load_dotenv(root / ".env")
         if overrides:
@@ -106,7 +113,7 @@ class Settings:
         api_key = _env(envmap, "OPENAI_API_KEY")
         base_url = _env(envmap, "OPENAI_BASE_URL")
         stub = _env(envmap, "TEND_LLM_STUB", "0") == "1"
-        if not stub:
+        if require_llm and not stub:
             if not api_key or api_key.startswith("your-"):
                 raise ConfigError(
                     "OPENAI_API_KEY is unset/placeholder; set it in .env or use TEND_LLM_STUB=1",
@@ -116,7 +123,7 @@ class Settings:
                 raise ConfigError("OPENAI_BASE_URL is unset/placeholder", context={})
 
         bird_root = root / _env(envmap, "TEND_BIRD_ROOT", "minidev/MINIDEV")
-        if not bird_root.exists():
+        if require_bird and not bird_root.exists():
             raise ConfigError(
                 f"BIRD mini-dev root not found at {bird_root}",
                 context={"hint": "set TEND_BIRD_ROOT or place data under minidev/MINIDEV"},
@@ -141,7 +148,10 @@ class Settings:
             agent_prompts=root / "proposals" / "agent_prompts",
             schemas=root / "proposals" / "schemas",
             runs=root / "runs",
-            dataset_out=root / _env(envmap, "TEND_DATASET_OUT", "release/TEND-dataset"),
+            dataset_out=root / (
+                _env(envmap, "TEND_DATASET_OUT")
+                or f"runs/{run_id}/dataset"
+            ),
         )
         return cls(
             llm=llm,

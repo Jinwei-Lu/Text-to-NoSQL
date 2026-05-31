@@ -3,7 +3,7 @@
     "_id": "INT",
     "__variants": [
       {
-        "discriminator": { "__type": "written" },
+        "discriminator": { "assessment_type": "written" },
         "fields": { "written_score": "REAL" }
       }
     ]

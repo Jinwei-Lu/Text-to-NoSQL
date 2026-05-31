@@ -21,7 +21,7 @@ After Stage A, run the deterministic **DAR five-mechanism** detectors from [03 �
 |---|---|---|
 | ① polymorphic subtype | low-cardinality discriminator column (2–8 values) + `value_description` enum, conditioned by ≥1 SQL | `polymorphic` |
 | ② optional/sparse | column NULL rate ∈ (0.05, 0.95) | `attribute_bag` |
-| ③ type/structure | (no natural signal → constructed at build time, must disclose) | `dynamic_key` |
+| ③ type/structure | real mixed-type column or real EAV key/value signal only | `dynamic_key` |
 | ④ nesting | FK + query join frequency (co-access) | (embed array; `schema_pattern` + `join_depth`) |
 | ⑤ version evolution | temporal/season column → coexisting historical fields | `schema_versioning` |
 
@@ -73,15 +73,15 @@ Design MongoDB schema for **`{{db_id}}`** using the inputs below.
    - `patterns_applied[]`
    - `rationale_summary`
    - `anti_pattern_checks: {pass: bool, issues: []}` (self-check before SC)
-   - `heterogenization` (optional): `{triggers: [{mechanism: polymorphic|sparse|type|nesting|version, fired: bool, evidence: string}], schema_flex: none|...}` — `evidence` must name the real BIRD column/query signal
+   - `heterogenization` (optional): `{triggers: [{mechanism: polymorphic|sparse|dynamic_key|nesting|version|type, fired: bool, evidence: string}], schema_flex: none|...}` — `evidence` must name the real BIRD column/query signal
 
 Return two fenced blocks: first JSON schema, then YAML rationale.
 
 ## few-shot
 
-### Example 1 (transitional anchor · pending BIRD migration)
+### Example 1 (smoke fixture, not production release)
 
-**Context**: orchestra WP profile (AP01 nested_traversal 0.62; show.Attendance hot). Transitional anchor carried over from the legacy pipeline; not a BIRD mini-dev library — to be replaced by a real BIRD record (e.g. `financial`).
+**Context**: orchestra WP profile (AP01 nested_traversal 0.62; show.Attendance hot). This is a smoke fixture carried over from the legacy pipeline, not a production TEND release record.
 
 **mongodb_schema excerpt**
 

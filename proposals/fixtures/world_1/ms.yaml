@@ -39,7 +39,7 @@ mql_alt: |
   ])
 canonical_form_set:
   must_contain: ["$match", "$group", "$divide"]
-  must_not_contain: []
+  must_not_contain: ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function"]
   must_contain_at_root: ["$match"]
   must_not_contain_at_root: ["$lookup"]
 shape_policy: reshape

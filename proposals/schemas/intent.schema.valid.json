@@ -1,0 +1,42 @@
+{
+  "intent": {
+    "seed_mechanism": "sparse_embed",
+    "seed_signal": {
+      "collection": "account",
+      "field": "loan",
+      "presence": { "present": 682, "total": 4500 }
+    },
+    "archetype": "present_missing_projection",
+    "domain_framing": {
+      "entity_noun": "account",
+      "metric_noun": "loan_to_credit_ratio"
+    },
+    "analytical_op": {
+      "per": "account",
+      "compute": "if loan present then loan.amount / max(credit_sum, 1), else 0",
+      "output": "preserve original account document and attach loan_to_credit_ratio"
+    },
+    "shape_policy": "preserve",
+    "semantic_properties": [
+      { "id": "loan_present_branch", "expect": "loan-present accounts use loan.amount" },
+      { "id": "loan_missing_branch", "expect": "loan-missing accounts emit 0" },
+      { "id": "preserve_account_count", "expect": "one output document per account" }
+    ],
+    "reference_oracle": {
+      "template": "present_missing_projection_ratio",
+      "params": {
+        "root_collection": "account",
+        "optional_field": "loan",
+        "credit_collection": "trans",
+        "credit_type": "PRIJEM"
+      }
+    },
+    "target_difficulty": "L4"
+  },
+  "qps_trace": {
+    "coverage_cell": "sparse_embed|present_missing_projection|finance",
+    "deficit_weight": 0.22,
+    "supply_constrained": false,
+    "rationale": "financial has query-bearing sparse loan evidence; archetype forces present/missing handling."
+  }
+}

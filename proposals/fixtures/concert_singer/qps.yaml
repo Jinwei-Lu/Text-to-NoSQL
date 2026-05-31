@@ -1,19 +1,18 @@
-query_plan:
-  primary_pattern: simple_filter
-  operator_graph:
-    stages: ["$match", "$project"]
-    dependencies:
-      - Capacity threshold predicate on stadium root
-      - Name projection with ifNull coalesce
+intent:
+  seed_mechanism: none
+  seed_signal:
+    source: WP AP01
+    collection: stadium
+    field: Capacity
+  archetype: root_filter_projection
+  domain_framing:
+    entity_noun: stadium
+    metric_noun: capacity
+  analytical_op:
+    filter: Capacity > 5000
+    output: Name and Capacity
+    missing: Name coalesced to (unknown)
   shape_policy: preserve
-  null_missing_strategy: ifNull
-  target_difficulty: L1
-  schema_flex_mode: none
-  join_depth_target: 0
-  aggregation_depth_target: shallow
-  target_fields:
-    - stadium.Name
-    - stadium.Capacity
   semantic_properties:
     - id: capacity_threshold_strict
       expect: only Capacity > 5000 retained
@@ -21,8 +20,15 @@ query_plan:
       expect: missing Name coalesced to (unknown)
     - id: result_non_empty
       expect: witness has at least one large-capacity stadium
+  reference_oracle:
+    template: root_filter_projection
+    params:
+      collection: stadium
+      predicate: Capacity > 5000
+      fields: [Name, Capacity]
+  target_difficulty: L1
 qps_trace:
-  coverage_cell: L1|feasible|schema_flex_none
+  coverage_cell: none|root_filter_projection|entertainment
   deficit_weight: 0.12
   supply_constrained: false
-  pattern_rationale: scenario_summary emphasizes capacity filters on stadium root; low-deficit L1 cell
+  rationale: Smoke fixture; scenario_summary emphasizes capacity filters on stadium root.

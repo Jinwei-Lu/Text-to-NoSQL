@@ -2,7 +2,7 @@ db_id: student_assessment
 generated_at: "2026-05-23T12:45:00Z"
 source_sqlite: database/student_assessment/student_assessment.sqlite
 target_collections: [students]
-world_signature: sha256:d70b6b1e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2
+world_signature: sha256:09bdae265fe3f36e40b76df68e6043dda251d751eda23b9ae4cd5d2b27130eb3
 stats:
   source_rows: 1247
   target_documents: 15
@@ -41,7 +41,7 @@ entries:
     target_path: assessments
     embedded_children: []
     variant:
-      __type: written
+      assessment_type: written
   - entry_id: M0102
     source_table: Candidate_Assessments
     source_pk: "502"
@@ -51,7 +51,7 @@ entries:
     target_path: assessments
     embedded_children: []
     variant:
-      __type: oral
+      assessment_type: oral
 integrity_checks:
   referential_pass: true
   row_count_reconciled: true

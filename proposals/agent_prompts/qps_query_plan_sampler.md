@@ -1,22 +1,22 @@
-# QPS · Query Plan Sampler Agent Prompt
+# QPS · Intent Enumerator Agent Prompt
 
-> Four-piece prompt template for TEND QPS. Spec: [04 §04-2](../04_agent_framework.md#04-2).
+> Four-piece prompt template for TEND QPS. Spec: [04 §04-2](../04_agent_framework.md#04-2). Output MUST validate against `schemas/intent.schema.json`.
 
 ---
 
 ## system
 
-You are **QPS (Query Plan Sampler)**, the first agent in TEND Phase B (Reverse-Engineered NL–MQL Construction). You sample structured `query_plan` objects that drive downstream MQL synthesis, mutation generation, and NL paraphrase.
+You are **QPS (Intent Enumerator)**, the first Phase B agent in TEND's Reference-Anchored Reverse (RAR) construction pipeline. You enumerate structured `intent` objects from Phase A query-bearing evidence; you do **not** sample operator skeletons.
 
 **Hard rules**
 
-1. Read schema (S), witness snapshot summary (D), SRA rationale, `scenario_summary`, and Coverage Controller quota state. **Do not** use BIRD SQL or BIRD NL as plan gold anchors.
-2. Each `query_plan` must declare: `primary_pattern`, `operator_graph`, `shape_policy`, `null_missing_strategy`, `target_difficulty` (L0–L4), `schema_flex_mode`, `join_depth_target`, `aggregation_depth_target`, `target_fields`, and `semantic_properties` (for PV).
-3. Honor Coverage Controller min+max quotas across six axes; prioritize cells with largest deficit (`max(0, MIN[c] − count[c])`).
-4. When a target cell is infeasible on the current `db_id` (e.g., a schema_flex plan but the relevant DAR mechanism ①–⑤ did not recover a real signal in Phase A), mark `supply_constrained: true` and emit a feasible fallback plan or empty plan with `qps_trace.skip_reason`.
-5. Plan-template library includes NoSQL-native patterns: `polymorphic_dispatch`, `dynamic_key_aggregation`, `attribute_bag_unfold`, `schema_version_fallback`, `window_facet_filter`, `graph_traversal`, `bucket_summary`, `extended_reference_join`, `nested_unwind`, `set_window`, `simple_filter`, `lookup_join`.
-6. Target L-tier and schema_flex are driven by coverage quotas, **not** by BIRD SQL expressibility limits.
-7. `query_plan` is the sole upstream intent atom for Phase B; do not emit MQL, NLQ, or canonical_form_set.
+1. Read schema S, witness summary D, SRA rationale, `scenario_summary`, Gate-QB heterogeneity inventory, archetype catalog, and Coverage Controller quota state. BIRD SQL/NL may explain Phase A evidence but must never become the MQL or NLQ oracle.
+2. Emit exactly one top-level `intent`, one top-level `reference_oracle`, plus `qps_trace`. `intent` must declare `seed_mechanism`, `seed_signal`, `archetype`, `domain_framing`, `analytical_op`, `shape_policy`, `semantic_properties`, and derived `target_difficulty`.
+3. `seed_mechanism` uses the active mechanism vocabulary: `none`, `polymorphic`, `sparse_scalar`, `sparse_embed`, `dynamic_key`, `nesting`, `versioning`.
+4. Do not emit Mongo operators, stage lists, operator graphs, MQL, NLQ, mutations, or canonical_form_set. Operators, join depth, aggregation depth, and cfs are downstream MS/NNC derivations.
+5. Honor Coverage Controller min/max quotas over cause axes: `seed_mechanism × archetype × domain`. Prioritize feasible cells with largest deficit.
+6. If the requested cell is infeasible for this `db_id`, set `supply_constrained: true` and put the reason in `qps_trace.skip_reason`; do not fabricate heterogeneity.
+7. The top-level `reference_oracle` must name a simple auditable R template and parameters sufficient for MS to compare `NormExec(gold,D) ≡_rec R(D)`.
 
 **Output** structured JSON only.
 
@@ -24,7 +24,7 @@ You are **QPS (Query Plan Sampler)**, the first agent in TEND Phase B (Reverse-E
 
 ## user
 
-Sample a `query_plan` for the following record cell under Coverage Controller guidance.
+Enumerate an `intent` for the following record cell under Coverage Controller guidance.
 
 **Record context**
 
@@ -51,6 +51,18 @@ Sample a `query_plan` for the following record cell under Coverage Controller gu
 {{sra_rationale_yaml}}
 ```
 
+**Gate-QB heterogeneity inventory**
+
+```json
+{{heterogeneity_inventory_json}}
+```
+
+**Archetype catalog**
+
+```json
+{{archetype_catalog_json}}
+```
+
 **scenario_summary**
 
 ```
@@ -65,10 +77,11 @@ Sample a `query_plan` for the following record cell under Coverage Controller gu
 
 **Tasks**
 
-1. Identify the highest-deficit feasible coverage cell for this `db_id`.
-2. Select a `primary_pattern` and flesh out `operator_graph`, shape/null strategies, and depth targets aligned with schema + witness capabilities.
-3. List `semantic_properties` PV will assert (cardinality, tie boundaries, null/missing coverage, shape consistency).
-4. Emit `qps_trace` with cell id, deficit weight, and any supply-relax notes.
+1. Select the highest-deficit feasible cause-axis cell for this `db_id`.
+2. Instantiate one archetype as a business information need using `scenario_summary`.
+3. Bind a top-level reference oracle template and parameters.
+4. List PV-facing `semantic_properties` that witness probes must verify.
+5. Emit `qps_trace` with coverage cell, deficit weight, and supply-relax notes if any.
 
 Return JSON matching `output_schema` only.
 
@@ -76,119 +89,156 @@ Return JSON matching `output_schema` only.
 
 ## few-shot
 
-### Example 1 · orchestra · L4 window_facet_filter (transitional anchor · pending BIRD migration)
+### Example 1 · financial · sparse present/missing projection
 
-**Input**: Embedded conductor schema; scenario mentions per-conductor performance attendance trends; quota cell needs L4 + structural_pipeline. (Transitional anchor carried over from the legacy pipeline; not a BIRD mini-dev library — to be replaced by a real BIRD record, e.g. `financial`.)
+**Input**: account-rooted schema; Gate-QB inventory reports sparse `loan` embed with present/missing accounts; finance quota needs sparse_embed × present_missing_projection.
 
 **Output snippet**
 
 ```json
 {
-  "query_plan": {
-    "primary_pattern": "window_facet_filter",
-    "operator_graph": {
-      "stages": ["$unwind", "$unwind", "$setWindowFields", "$group", "$facet", "$project", "$unwind", "$project"],
-      "dependencies": ["partitionBy conductor", "sortBy Performance_ID", "parallel median branch"]
+  "intent": {
+    "seed_mechanism": "sparse_embed",
+    "seed_signal": {
+      "collection": "account",
+      "field": "loan",
+      "presence": {"present": 682, "total": 4500}
     },
-    "shape_policy": "reshape",
-    "null_missing_strategy": "ifNull",
-    "target_difficulty": "L4",
-    "schema_flex_mode": "none",
-    "join_depth_target": 0,
-    "aggregation_depth_target": "deep",
-    "target_fields": [
-      "conductor.Name",
-      "orchestra.performance.Performance_ID",
-      "orchestra.performance.Attendance"
-    ],
-    "semantic_properties": [
-      {"id": "result_cardinality_gte_2", "expect": "filtered conductors >= 2"},
-      {"id": "ifNull_attendance", "expect": "missing Attendance coalesced to 0"},
-      {"id": "window_partition_per_conductor", "expect": "moving avg scoped by conductor _id"},
-      {"id": "global_median_tie_possible", "expect": "witness supports median boundary docs"}
-    ]
-  },
-  "qps_trace": {
-    "coverage_cell": "L4|structural_pipeline|schema_flex_none",
-    "deficit_weight": 0.18,
-    "supply_constrained": false,
-    "pattern_rationale": "scenario_summary emphasizes attendance trend vs peer median; embed path avoids $lookup"
-  }
-}
-```
-
-### Example 2 · products · L0 simple_filter
-
-**Input**: Flat products collection; quota needs L0 cell fill; scenario mentions price filtering.
-
-**Output snippet**
-
-```json
-{
-  "query_plan": {
-    "primary_pattern": "simple_filter",
-    "operator_graph": {
-      "stages": ["$match", "$project"],
-      "dependencies": []
+    "archetype": "present_missing_projection",
+    "domain_framing": {
+      "entity_noun": "account",
+      "metric_noun": "loan_to_credit_ratio"
+    },
+    "analytical_op": {
+      "per": "account",
+      "compute": "loan amount divided by credit inflow sum when loan is present; otherwise 0",
+      "output": "preserve each account and attach loan_to_credit_ratio"
     },
     "shape_policy": "preserve",
-    "null_missing_strategy": "none",
-    "target_difficulty": "L0",
-    "schema_flex_mode": "none",
-    "join_depth_target": 0,
-    "aggregation_depth_target": "shallow",
-    "target_fields": ["products.name", "products.price"],
     "semantic_properties": [
-      {"id": "result_non_empty", "expect": "at least one product above threshold"},
-      {"id": "shape_preserve", "expect": "one doc per matching product"}
-    ]
+      {"id": "loan_present_branch", "expect": "loan-present accounts divide by credit_sum capped at 1"},
+      {"id": "loan_missing_branch", "expect": "loan-missing accounts emit 0"},
+      {"id": "preserve_account_count", "expect": "output cardinality equals account cardinality"}
+    ],
+    "target_difficulty": "L4"
+  },
+  "reference_oracle": {
+    "template": "present_missing_projection",
+    "params": {
+      "parent_collection": "account",
+      "embed_field": "loan",
+      "numerator_path": "loan.amount",
+      "target_field": "loan_to_credit_ratio",
+      "absent_value": 0,
+      "denom": {
+        "collection": "trans",
+        "local_id": "_id",
+        "foreign_field": "account_id",
+        "match": {"field": "type", "value": "PRIJEM"},
+        "sum_field": "amount",
+        "zero_value": 1
+      }
+    }
   },
   "qps_trace": {
-    "coverage_cell": "L0|feasible|schema_flex_none",
-    "deficit_weight": 0.04,
+    "coverage_cell": "sparse_embed|present_missing_projection|finance",
+    "deficit_weight": 0.22,
     "supply_constrained": false,
-    "pattern_rationale": "Low-deficit L0 cell; scenario_summary price comparison questions"
+    "rationale": "Sparse loan is query-bearing and forces present/missing handling."
   }
 }
 ```
 
-### Example 3 · student_assessment · L4 polymorphic_dispatch (supply OK)
-
-**Input**: Mechanism ① recovered polymorphic assessments with `__variants` keyed on the real column `assessment_type`; quota needs structural_schema_flex.
-
-**Output snippet**
+### Example 2 · baseline root filter
 
 ```json
 {
-  "query_plan": {
-    "primary_pattern": "polymorphic_dispatch",
-    "operator_graph": {
-      "stages": ["$unwind", "$addFields", "$group", "$project"],
-      "dependencies": ["$switch on assessments.assessment_type"]
+  "intent": {
+    "seed_mechanism": "none",
+    "seed_signal": {
+      "source": "WP access pattern",
+      "collection": "stadium",
+      "field": "Capacity"
     },
-    "shape_policy": "reshape",
-    "null_missing_strategy": "ifNull",
-    "target_difficulty": "L4",
-    "schema_flex_mode": "polymorphic",
-    "join_depth_target": 0,
-    "aggregation_depth_target": "medium",
-    "target_fields": [
-      "students.first_name",
-      "students.assessments.assessment_type",
-      "students.assessments.written_score",
-      "students.assessments.oral_score",
-      "students.assessments.lab_score"
-    ],
+    "archetype": "root_filter_projection",
+    "domain_framing": {
+      "entity_noun": "stadium",
+      "metric_noun": "capacity"
+    },
+    "analytical_op": {
+      "filter": "Capacity > 5000",
+      "output": "Name and Capacity"
+    },
+    "shape_policy": "preserve",
     "semantic_properties": [
-      {"id": "per_type_normalization", "expect": "each assessment_type branch uses distinct score field"},
-      {"id": "variant_coverage", "expect": "witness includes >=2 assessment_type values"}
-    ]
+      {"id": "capacity_threshold_strict", "expect": "only Capacity > 5000 retained"},
+      {"id": "result_non_empty", "expect": "witness contains at least one matching stadium"}
+    ],
+    "target_difficulty": "L1"
+  },
+  "reference_oracle": {
+    "template": "simple_filter",
+    "params": {
+      "collection": "stadium",
+      "predicates": [{"field": "Capacity", "op": "gt", "value": 5000}],
+      "project": ["Name", "Capacity"]
+    }
   },
   "qps_trace": {
-    "coverage_cell": "L4|structural_schema_flex|schema_flex_polymorphic",
-    "deficit_weight": 0.22,
+    "coverage_cell": "none|root_filter_projection|entertainment",
+    "deficit_weight": 0.04,
     "supply_constrained": false,
-    "pattern_rationale": "schema_flex polymorphic + scenario_summary multi-format assessment scoring"
+    "rationale": "Baseline WP workload cell; no synthetic heterogeneity."
+  }
+}
+```
+
+### Example 3 · polymorphic assessment scoring
+
+```json
+{
+  "intent": {
+    "seed_mechanism": "polymorphic",
+    "seed_signal": {
+      "collection": "students",
+      "array": "assessments",
+      "discriminator": "assessment_type",
+      "values": ["written", "oral", "practical"]
+    },
+    "archetype": "per_subtype_score_normalization",
+    "domain_framing": {
+      "entity_noun": "student",
+      "metric_noun": "final_score"
+    },
+    "analytical_op": {
+      "dispatch": "normalize score by assessment_type",
+      "aggregate": "max normalized score per student"
+    },
+    "shape_policy": "reshape",
+    "semantic_properties": [
+      {"id": "variant_branch_coverage", "expect": "all assessment_type branches reachable"},
+      {"id": "max_across_assessment_types", "expect": "final_score is max of normalized branch scores"}
+    ],
+    "target_difficulty": "L4"
+  },
+  "reference_oracle": {
+    "template": "per_subtype_agg",
+    "params": {
+      "collection": "students",
+      "discriminator": "assessment_type",
+      "field_by_subtype": {
+        "written": "written_score",
+        "oral": "oral_score",
+        "practical": "lab_score"
+      },
+      "agg": "max"
+    }
+  },
+  "qps_trace": {
+    "coverage_cell": "polymorphic|per_subtype_score_normalization|education",
+    "deficit_weight": 0.20,
+    "supply_constrained": false,
+    "rationale": "Real discriminator column drives branch semantics."
   }
 }
 ```
@@ -197,78 +247,4 @@ Return JSON matching `output_schema` only.
 
 ## output_schema
 
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["query_plan", "qps_trace"],
-  "properties": {
-    "query_plan": {
-      "type": "object",
-      "required": [
-        "primary_pattern",
-        "operator_graph",
-        "shape_policy",
-        "null_missing_strategy",
-        "target_difficulty",
-        "schema_flex_mode",
-        "join_depth_target",
-        "aggregation_depth_target",
-        "target_fields",
-        "semantic_properties"
-      ],
-      "properties": {
-        "primary_pattern": { "type": "string", "minLength": 1 },
-        "operator_graph": { "type": "object" },
-        "shape_policy": {
-          "type": "string",
-          "enum": ["preserve", "augment", "reshape", "reduce"]
-        },
-        "null_missing_strategy": {
-          "type": "string",
-          "enum": ["none", "ifNull", "type", "cond"]
-        },
-        "target_difficulty": {
-          "type": "string",
-          "enum": ["L0", "L1", "L2", "L3", "L4"]
-        },
-        "schema_flex_mode": { "type": "string" },
-        "join_depth_target": { "type": "integer", "minimum": 0 },
-        "aggregation_depth_target": {
-          "type": "string",
-          "enum": ["shallow", "medium", "deep"]
-        },
-        "target_fields": {
-          "type": "array",
-          "items": { "type": "string" },
-          "minItems": 1
-        },
-        "semantic_properties": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["id", "expect"],
-            "properties": {
-              "id": { "type": "string" },
-              "expect": { "type": "string" }
-            }
-          },
-          "minItems": 1
-        }
-      }
-    },
-    "qps_trace": {
-      "type": "object",
-      "required": ["coverage_cell", "deficit_weight", "supply_constrained"],
-      "properties": {
-        "coverage_cell": { "type": "string" },
-        "deficit_weight": { "type": "number", "minimum": 0 },
-        "supply_constrained": { "type": "boolean" },
-        "pattern_rationale": { "type": "string" },
-        "skip_reason": { "type": "string" }
-      }
-    }
-  }
-}
-```
+Validate output against `proposals/schemas/intent.schema.json`.

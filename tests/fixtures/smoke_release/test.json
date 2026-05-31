@@ -1,0 +1,36 @@
+[
+  {
+    "record_id": 1001,
+    "db_id": "financial",
+    "nl_queries": {
+      "canonical": "For each account attach loan_to_credit_ratio: if it has a loan, loan amount over sum of credit transactions, else 0; keep every account.",
+      "colloquial": "Tag each account with its loan-to-credit ratio; accounts with no loan get 0."
+    },
+    "MQL": "db.account.aggregate([ { \"$lookup\": { \"from\": \"trans\", \"let\": { \"aid\": \"$_id\" }, \"pipeline\": [{ \"$match\": { \"$expr\": { \"$and\": [ { \"$eq\": [\"$account_id\", \"$$aid\"] }, { \"$eq\": [\"$type\", \"PRIJEM\"] } ] } } },{ \"$group\": { \"_id\": null, \"credit_sum\": { \"$sum\": \"$amount\" } } } ], \"as\": \"_credit\" } },{ \"$addFields\": { \"loan_to_credit_ratio\": { \"$cond\": [ { \"$ne\": [ { \"$type\": \"$loan\" }, \"missing\" ] },{ \"$divide\": [ \"$loan.amount\", { \"$max\": [ { \"$ifNull\": [ { \"$arrayElemAt\": [\"$_credit.credit_sum\", 0] }, 0 ] }, 1 ] } ] }, 0 ] } } },{ \"$project\": { \"_credit\": 0 } } ])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$lookup"
+      ],
+      "must_not_contain": [
+        "$$NOW",
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$lookup"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:fc3071d79b96dddc125324887db0553f5c06a4832194fb6b6adcdbc15720f75d",
+    "schema_flex": "polymorphic"
+  }
+]

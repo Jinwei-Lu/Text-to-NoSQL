@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tend.dev/schemas/synthesis_trace.schema.json",
   "title": "TEND MS Agent Output",
-  "description": "Dual-path MQL synthesis output from MS (MQL Synthesizer), including mechanically derived canonical_form_set.",
+  "description": "Reference-anchored dual-path MQL synthesis output from MS, including mechanically derived RAR thin canonical_form_set.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -30,7 +30,7 @@
     },
     "shape_policy": {
       "type": "string",
-      "enum": ["preserve", "augment", "reshape", "reduce"]
+      "enum": ["preserve", "reshape", "reduce"]
     },
     "join_depth": {
       "type": "integer",
@@ -54,6 +54,7 @@
         "mql_alt": { "type": "string", "minLength": 1 },
         "converged": { "type": "boolean" },
         "normexec_equiv": { "type": "boolean" },
+        "reference_equiv": { "type": "boolean" },
         "ast_check_primary": { "type": "boolean" },
         "ast_check_alt": { "type": "boolean" },
         "gold_selection": {

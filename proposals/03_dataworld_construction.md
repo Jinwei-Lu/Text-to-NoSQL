@@ -12,7 +12,7 @@
 
 ## TL;DR
 
-TEND 的 DataWorld 以 **BIRD mini-dev** 11 个真实业务库为 **数据源 + 查询工作负载源**：提供行级实例(脏数据:大量 NULL、可选列、枚举码、历史字段)、`database_description` 列语义(含 `value_description` 枚举)、以及 `(question, evidence, SQL, difficulty)` 真实工作负载。**BIRD 的 NL/SQL 不是 MQL 金锚**——Phase B 的 MQL 由 query_plan 正向合成;但 BIRD 的 SQL/join 模式**作为真实信号**驱动聚合发现与异构机制识别。
+TEND 的 DataWorld 以 **BIRD mini-dev** 11 个真实业务库为 **数据源 + 查询工作负载源**：提供行级实例(脏数据:大量 NULL、可选列、枚举码、历史字段)、`database_description` 列语义(含 `value_description` 枚举)、以及 `(question, evidence, SQL, difficulty)` 真实工作负载。**BIRD 的 NL/SQL 不是 MQL 金锚**——Phase B 的 MQL 由 RAR `intent` + 参照 R 锁死；BIRD 的 SQL/join 模式仅作为真实信号驱动聚合发现与异构机制识别。
 
 **第一性原理(DAR)**:schema-less 制造难度的唯一机制是「迫使查询在运行时处理异构」(`$switch`/`$ifNull`/`$objectToArray`/`$unwind`),故**异构必须 query-bearing**——其存在须改变至少一条 record 的 echo-gold 结果,否则即装饰、删除。关系范式化恰把本该异构的文档结构压平了;DAR 不凭空造 variant(噪声),也不照搬同构表(Spider 死路),而是**反范式化恢复文档原生聚合**,异构作为忠实恢复的**涌现属性**。
 
@@ -22,7 +22,7 @@ TEND 的 DataWorld 以 **BIRD mini-dev** 11 个真实业务库为 **数据源 + 
 
 MongoDB 设计采用 **11 官方 pattern + 3 anti-pattern** 菜单(见 §03-2)。Pattern 包括 embedded、extended reference、polymorphic、attribute、bucket、computed、subset、tree、outlier、schema versioning、mixed。Anti-pattern 包括 unnecessary collections、excessive lookups、over-indexing——SC 与 publish gate 必须拒绝命中项。
 
-> **Canonical anchor**:跨卷锚 `financial/1001` 取自 BIRD 真实库 `financial`(test-only 集内),**pending DAR Phase A 执行验证**——异构信号(稀疏 `loan` 682/4500、多态 `trans`)实测,account 反范式化布局 / gold MQL / `world_signature` 待 DAR Phase A 在 MongoDB 上构造 + 执行验证后冻结。**注**:本卷 §03 端到端构造走查仍以 legacy `orchestra` 示意(沿用旧 Spider 已验证形状),待 DAR Phase A 实现 financial 构造后替换;§03-II-9 嵌入的 canonical record 块已为 `financial/1001`。库级资产路径与 record 契约见 [02 §02-2](./02_dataset_design.md#02-2)。
+> **Canonical anchor**:跨卷锚 `financial/1001` 取自 BIRD 真实库 `financial`(test-only 集内),**pending DAR Phase A 执行验证**——异构信号(稀疏 `loan` 682/4500、多态 `trans`)实测,account 反范式化布局 / gold MQL / `world_signature` 待 DAR Phase A 在 MongoDB 上构造 + 执行验证后冻结。**注**:本卷 §03 端到端构造走查中的 `orchestra` 仅为 smoke fixture,不是 production release 记录,待 DAR Phase A 实现 financial 构造后替换;§03-II-9 嵌入的 canonical record 块已为 `financial/1001`。库级资产路径与 record 契约见 [02 §02-2](./02_dataset_design.md#02-2)。
 
 ---
 
@@ -39,7 +39,7 @@ $$
 
 **立场声明 (DAR · BIRD as data + workload source)**：
 
-1. **BIRD 是数据源 + 查询工作负载源，不是 MQL oracle**。BIRD 提供 SQLite 脏数据、`database_description` 列语义、`(question, evidence, SQL, difficulty)` 真实工作负载;Phase B 的 MQL 由 query_plan 正向合成,**不**以 BIRD NL/SQL 为金锚;但 BIRD 的 SQL/join 模式与列统计**作为真实信号**驱动聚合发现与五机制识别。
+1. **BIRD 是数据源 + 查询工作负载源，不是 MQL oracle**。BIRD 提供 SQLite 脏数据、`database_description` 列语义、`(question, evidence, SQL, difficulty)` 真实工作负载;Phase B 的 MQL 由 `intent` 与独立参照 R 锁死,**不**以 BIRD NL/SQL 为金锚;但 BIRD 的 SQL/join 模式与列统计**作为真实信号**驱动聚合发现与五机制识别。
 2. **异构 = 反范式化恢复,且必须 query-bearing**。关系范式化把文档原生异构压平;SRA 用真实信号(判别列、NULL 率、EAV 表、时间列、FK+join 频率)**恢复**聚合而非注入装饰。任一异构机制须被至少一条 record 的 MQL 利用(删除它会改变 echo-gold 结果),否则删除(Gate-QB,见 [§03-6-3](#03-6-3))。
 3. **DataWorld 是自足的且 schema≡data**。schema + witness + rationale 须支撑该库访问模式的可执行性论证;schema 声明的字段/变体须与 data 一致(Gate-SD)。
 4. **Phase A / Phase B 分离**。03 产出 S、D、rationale、scenario_summary;04 消费上述资产构造 record。03 不定义 canonical_form_set、不产出 MQL、不进行 NNC / dual-bridge 裁决。
@@ -82,7 +82,7 @@ flowchart LR
 
 ### §03-1-2 单库主路径（以 orchestra 为例 · 过渡示意）
 
-> **过渡锚**:本节用 `orchestra` 演示 schema-less 难度的端到端路径,沿用旧 Spider 管道已验证的形状;`orchestra` 不在 BIRD test-only 数据集内,标注 `PENDING BIRD migration`,待 DAR 实现后由真实 BIRD 记录(参考 `financial`,见 [§03-6-4](#03-6-4))替换。
+> **过渡锚**:本节用 `orchestra` 作为 smoke fixture 演示 schema-less 难度的端到端路径;`orchestra` 不是 BIRD test-only production release 记录,标注 `PENDING BIRD migration`,待 DAR 实现后由真实 BIRD 记录(参考 `financial`,见 [§03-6-4](#03-6-4))替换。
 
 1. **Catalog 选中**：`bird_db_catalog.json` 中 `db_id = orchestra`，`selected = true`。
 2. **WP 剖析 workload**：四表 join 链 conductor → orchestra → performance → show；62% 查询触及 performance/show 度量；38% 需 per-entity 序列聚合。同步产出 `scenario_summary`（古典音乐机构域：指挥–乐团–演出–观众出勤等业务问题样态）。
@@ -148,7 +148,7 @@ SRA 输入：WP `wp_output.yaml`、BIRD `tables.json` / `columns.json`（含 `da
 7. 异构化是 **layout 设计决策（= 聚合设计 = 反范式化）**，不是 DM 事后注入；DM 仅按真实判别值路由填充。
 8. 无真实信号时 `__variants` 省略，`schema_flex = none`（见 [02 §2](./02_dataset_design.md#02-2)）；不合成兜底异构。
 
-**Canonical orchestra 决策摘要**（过渡示意,pending BIRD migration,待 DAR 实现后由真实 BIRD 记录(`financial`,见 [§03-6-4](#03-6-4))替换）
+**orchestra 决策摘要**（smoke fixture, not production release；待 DAR 实现后由真实 BIRD 记录(`financial`,见 [§03-6-4](#03-6-4))替换）
 
 - D01 embed：orchestra[] ⊂ conductor（WP AP02 co_access 0.91）
 - D02 embed：performance[] ⊂ orchestra（WP AP01 nested_traversal 0.62）
@@ -267,7 +267,7 @@ Phase B（[04](./04_agent_framework.md)）**消费**：
 
 | 输入 | 来源 | 用途 |
 |---|---|---|
-| S（schema） | SRA Tier-1 | query_plan 字段路径、schema_flex 套路选择 |
+| S（schema） | SRA Tier-1 | intent 字段路径、schema_flex 套路选择 |
 | D（witness） | DM Tier-1 | NormExec、PV 性质探测、RA realism |
 | agent_design_rationale | SRA Tier-1 | pattern 证据、heterogenization 上下文 |
 | scenario_summary | WP Tier-2 | NLP 逆向 paraphrase 域语境与业务问题样态 |
@@ -669,12 +669,13 @@ def stratified_sample(rows, discriminator_col, n):
   { $project: { _credit: 0 } }
 ])",
   "canonical_form_set": {
-    "must_contain": ["$lookup", "$addFields", "$cond", "$type"],
-    "must_not_contain": ["$unwind"],
-    "must_contain_at_root": ["$addFields"],
+    "must_contain": ["$lookup"],
+    "must_not_contain": ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function"],
+    "must_contain_at_root": [],
     "must_not_contain_at_root": ["$unwind", "$group"]
   },
   "difficulty": "L4",
+  "sql_infeasibility_class": "structural_schema_flex",
   "shape_policy": "preserve",
   "world_signature": "sha256:58d575b0eb62b1499642ec46e9efe5d5576082ce45d871df0326821f44751346",
   "agent_design_rationale_ref": "fixtures/financial/sra.yaml",
@@ -682,4 +683,4 @@ def stratified_sample(rows, discriminator_col, n):
 }
 ```
 
-Spider 四表 DDL 见 [phase0_spider_verify_report.md](../audit/phase0_spider_verify_report.md)。
+Legacy `orchestra` smoke DDL 仅为历史过渡材料；该 smoke fixture 不定义当前 BIRD production contract。

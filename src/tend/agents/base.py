@@ -47,6 +47,7 @@ class AgentContext:
     record_id: int | None = None
     phase: str = "A"
     group: str | None = None                # progress group id (defaults to db_id)
+    work_item_id: str | None = None         # caller-supplied progress task discriminator
     extra: dict[str, Any] = field(default_factory=dict)
 
     def bind(self, **fields: Any) -> "AgentContext":
@@ -93,9 +94,9 @@ class Agent(ABC):
     async def __call__(self, ctx: AgentContext, inputs: dict[str, Any]) -> dict[str, Any]:
         ctx = ctx.bind(phase=self.phase)
         log = ctx.log.bind(agent=self.id)
-        ctx = replace(ctx, log=log)
+        task_id = _agent_task_id(self.id, ctx, inputs)
+        ctx = replace(ctx, log=log, extra={**ctx.extra, "_task_id": task_id})
         group = ctx.group or ctx.db_id or self.phase
-        task_id = ":".join(filter(None, [self.id, ctx.db_id, _s(ctx.record_id)])) or self.id
         if ctx.progress:
             ctx.progress.start_task(task_id, self.title or self.id, group=group)
         log.info("agent_start", title=self.title)
@@ -218,7 +219,39 @@ class LLMAgent(Agent):
                     transcript_ref=result.transcript_ref,
                     diagnostics_ref=result.diagnostics_ref,
                 )
-                return self.postprocess(ctx, inputs, output, result)
+                try:
+                    return self.postprocess(ctx, inputs, output, result)
+                except TendError as err:
+                    if not err.retryable or attempt >= self.contract_retries:
+                        raise
+                    ctx.progress and ctx.progress.retry_task(
+                        _active_task_id(ctx) or _agent_task_id(self.id, ctx, inputs),
+                        detail=f"postprocess retry {attempt + 1}",
+                    )
+                    ctx.log.warning(
+                        "agent_postprocess_retry",
+                        agent=self.id,
+                        attempt=attempt + 1,
+                        error_type=type(err).__name__,
+                        anomaly=err.anomaly.value if err.anomaly else None,
+                        reason=err.message,
+                        context=err.context,
+                        transcript_ref=result.transcript_ref,
+                        diagnostics_ref=result.diagnostics_ref,
+                    )
+                    messages = messages + [
+                        {"role": "assistant", "content": result.text},
+                        {
+                            "role": "user",
+                            "content": (
+                                "Your output passed JSON/schema validation but failed "
+                                "deterministic postprocess:\n"
+                                f"  - {type(err).__name__}: {err.message}\n"
+                                "Return a corrected JSON object."
+                            ),
+                        },
+                    ]
+                    continue
             if attempt >= self.contract_retries:
                 raise ContractViolationError(
                     "agent output failed semantic contract",
@@ -227,7 +260,7 @@ class LLMAgent(Agent):
                              "diagnostics_ref": result.diagnostics_ref},
                 )
             ctx.progress and ctx.progress.retry_task(
-                ":".join(filter(None, [self.id, ctx.db_id, _s(ctx.record_id)])),
+                _active_task_id(ctx) or _agent_task_id(self.id, ctx, inputs),
                 detail=f"contract retry {attempt + 1}")
             ctx.log.warning("agent_contract_retry", agent=self.id, attempt=attempt + 1,
                             violations=violations)
@@ -249,3 +282,54 @@ class LLMAgent(Agent):
 
 def _s(v: Any) -> str:
     return "" if v is None else str(v)
+
+
+def _active_task_id(ctx: AgentContext) -> str | None:
+    task_id = ctx.extra.get("_task_id")
+    return str(task_id) if task_id else None
+
+
+def _agent_task_id(agent_id: str, ctx: AgentContext, inputs: dict[str, Any]) -> str:
+    parts = [agent_id, ctx.db_id, _s(ctx.record_id)]
+    identity = _work_item_identity(ctx, inputs)
+    if identity:
+        parts.append(identity)
+    return ":".join(_task_id_part(p) for p in parts if _s(p)) or agent_id
+
+
+def _work_item_identity(ctx: AgentContext, inputs: dict[str, Any]) -> str:
+    explicit = (
+        ctx.work_item_id
+        or ctx.extra.get("work_item_id")
+        or inputs.get("work_item_id")
+        or inputs.get("task_item_id")
+        or inputs.get("item_id")
+    )
+    if explicit is not None:
+        return f"item={_identity_value(explicit)}"
+
+    fields: list[tuple[str, Any]] = []
+    for key in ("collection", "stage_index", "stage_name", "stage"):
+        if key in inputs and inputs[key] is not None:
+            fields.append((key, inputs[key]))
+    return ",".join(f"{key}={_identity_value(value)}" for key, value in fields)
+
+
+def _identity_value(value: Any) -> str:
+    if isinstance(value, dict):
+        if len(value) == 1:
+            return _task_id_part(next(iter(value)))
+        keys = ",".join(sorted(str(k) for k in value)[:4])
+        return _task_id_part(keys or "dict")
+    if isinstance(value, (list, tuple)):
+        return _task_id_part(",".join(_identity_value(v) for v in value[:4]))
+    return _task_id_part(value)
+
+
+def _task_id_part(value: Any, limit: int = 80) -> str:
+    text = str(value)
+    cleaned = "".join(ch if ch.isalnum() or ch in "._=-" else "_" for ch in text)
+    cleaned = cleaned.strip("_")
+    if len(cleaned) > limit:
+        cleaned = cleaned[:limit]
+    return cleaned or "unknown"

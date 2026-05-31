@@ -10,7 +10,7 @@ mql_alt: |
   ])
 canonical_form_set:
   must_contain: ["$match", "$ifNull"]
-  must_not_contain: ["$sample", "$rand", "$out", "$merge", "$function"]
+  must_not_contain: ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function"]
   must_contain_at_root: ["$match"]
   must_not_contain_at_root: ["$group"]
 shape_policy: preserve

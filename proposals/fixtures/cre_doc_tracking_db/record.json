@@ -8,7 +8,7 @@
   "MQL": "db.documents.aggregate([\n  { $project: { _id: 0, document_id: 1, title: 1, metric_pairs: { $objectToArray: \"$metrics\" } } },\n  { $unwind: \"$metric_pairs\" },\n  { $match: { \"metric_pairs.k\": { $in: [\"weight\", \"priority\"] } } },\n  { $group: {\n      _id: \"$metric_pairs.k\",\n      avg_value: { $avg: { $toDouble: \"$metric_pairs.v\" } }\n  } },\n  { $sort: { avg_value: -1 } },\n  { $group: {\n      _id: null,\n      ranked: { $push: { k: \"$_id\", avg_value: \"$avg_value\" } }\n  } },\n  { $project: {\n      _id: 0,\n      top_metric: { $arrayElemAt: [\"$ranked\", 0] }\n  } }\n])",
   "canonical_form_set": {
     "must_contain": ["$objectToArray", "$unwind", "$group"],
-    "must_not_contain": ["$setWindowFields"],
+    "must_not_contain": ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function", "$setWindowFields"],
     "must_contain_at_root": ["$project"],
     "must_not_contain_at_root": []
   },
@@ -16,7 +16,7 @@
   "sql_infeasibility_class": "structural_schema_flex",
   "shape_policy": "reshape",
   "schema_flex": "dynamic_key",
-  "world_signature": "sha256:e81c7a2b3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcd",
+  "world_signature": "sha256:b969f035ff32283c9be5cda3a14f9f366e0eef2d57b6ac41a4f1b1295245aa5a",
   "domain_id": "tracking",
   "join_depth": 0,
   "aggregation_depth": "medium",

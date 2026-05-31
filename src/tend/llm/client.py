@@ -19,7 +19,7 @@ import json
 import random
 import time
 import traceback
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -127,6 +127,107 @@ def _schema_errors(data: Any, schema: dict) -> list[str]:
         loc = "$" + "".join(f"[{p!r}]" for p in e.path)
         out.append(f"{loc}: {e.message}")
     return out
+
+
+def _json_safe(value: Any, *, max_depth: int = 8) -> Any:
+    if max_depth < 0:
+        return _safe_repr(value)
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v, max_depth=max_depth - 1) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v, max_depth=max_depth - 1) for v in value]
+    if is_dataclass(value) and not isinstance(value, type):
+        return _json_safe(asdict(value), max_depth=max_depth - 1)
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return _json_safe(model_dump(mode="json"), max_depth=max_depth - 1)
+        except TypeError:
+            return _json_safe(model_dump(), max_depth=max_depth - 1)
+        except Exception:  # noqa: BLE001 - fall through to safer object handling
+            pass
+    if hasattr(value, "__dict__"):
+        return {
+            str(k): _json_safe(v, max_depth=max_depth - 1)
+            for k, v in vars(value).items()
+            if not str(k).startswith("_")
+        }
+    return _safe_repr(value)
+
+
+def _safe_repr(value: Any, limit: int = 1200) -> str:
+    text = repr(value)
+    return text if len(text) <= limit else f"{text[:limit - 3]}..."
+
+
+def _provider_metadata(raw: Any, finish: str | None) -> dict[str, Any]:
+    safe = _json_safe(raw)
+    metadata: dict[str, Any] = {"finish_reason": finish}
+    if isinstance(safe, dict):
+        for key, value in safe.items():
+            if _is_metadata_scalar(value) or key in {
+                "finish_reason",
+                "refusal",
+                "truncation",
+                "incomplete_details",
+                "status",
+                "error",
+            }:
+                metadata.setdefault(key, value)
+        choices = safe.get("choices")
+        if isinstance(choices, list):
+            metadata["choices"] = [_choice_metadata(choice) for choice in choices]
+    return metadata
+
+
+def _choice_metadata(choice: Any) -> dict[str, Any]:
+    if not isinstance(choice, dict):
+        return {"raw": choice}
+    out: dict[str, Any] = {}
+    for key in (
+        "index",
+        "finish_reason",
+        "stop_reason",
+        "truncation",
+        "incomplete_details",
+        "content_filter_results",
+    ):
+        if key in choice:
+            out[key] = choice[key]
+    message = choice.get("message")
+    if isinstance(message, dict):
+        msg: dict[str, Any] = {}
+        for key in ("role", "refusal", "reasoning_content", "annotations"):
+            if key in message:
+                msg[key] = message[key]
+        if "content" in message:
+            msg["content_preview"] = str(message.get("content") or "")[:500]
+        if msg:
+            out["message"] = msg
+    return out
+
+
+def _is_metadata_scalar(value: Any) -> bool:
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
+def _metadata_refusal(provider_metadata: dict[str, Any] | None) -> Any | None:
+    if not provider_metadata:
+        return None
+    refusal = provider_metadata.get("refusal")
+    if refusal:
+        return refusal
+    for choice in provider_metadata.get("choices") or []:
+        if not isinstance(choice, dict):
+            continue
+        message = choice.get("message")
+        if isinstance(message, dict) and message.get("refusal"):
+            return message["refusal"]
+    return None
 
 
 class LLMClient:
@@ -308,13 +409,16 @@ class LLMClient:
                 text, finish, usage, raw = await self._raw_call(
                     agent, model, convo, temperature, max_tokens
                 )
+                provider_metadata = _provider_metadata(raw, finish)
                 attempts.append({
                     "attempt": attempt, "kind": "send", "finish_reason": finish,
                     "usage": usage, "latency_s": round(time.monotonic() - t0, 3),
                     "response": text,
                     "response_preview": text[:500],
+                    "provider_metadata": provider_metadata,
+                    "raw_response": _json_safe(raw),
                 })
-                self._check_response(text, finish, agent)
+                self._check_response(text, finish, agent, provider_metadata=provider_metadata)
                 return text, finish, usage
             except LLMError as err:
                 last = err
@@ -349,9 +453,6 @@ class LLMClient:
                 raise self._map_provider_error(exc) from exc
         choice = resp.choices[0]
         text = choice.message.content or ""
-        if getattr(choice.message, "refusal", None):
-            raise RefusalError("model returned a refusal",
-                               context={"refusal": str(choice.message.refusal)[:300]})
         usage = {
             "prompt_tokens": getattr(resp.usage, "prompt_tokens", 0),
             "completion_tokens": getattr(resp.usage, "completion_tokens", 0),
@@ -390,13 +491,38 @@ class LLMClient:
                         context={"status_code": status}, retryable=retryable)
 
     @staticmethod
-    def _check_response(text: str, finish: str | None, agent: str) -> None:
+    def _check_response(
+        text: str,
+        finish: str | None,
+        agent: str,
+        *,
+        provider_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        refusal = _metadata_refusal(provider_metadata)
+        if refusal:
+            raise RefusalError(
+                "model returned a refusal",
+                context={
+                    "agent": agent,
+                    "finish_reason": finish,
+                    "refusal": _safe_repr(refusal, limit=500),
+                },
+            )
         if not text.strip():
             raise EmptyResponseError("model returned empty content",
                                      context={"agent": agent, "finish_reason": finish})
         if finish == "length":
             raise TruncatedResponseError("response truncated (finish_reason=length)",
-                                         context={"agent": agent})
+                                         context={
+                                             "agent": agent,
+                                             "finish_reason": finish,
+                                             "truncation": (
+                                                 provider_metadata or {}
+                                             ).get("truncation"),
+                                             "incomplete_details": (
+                                                 provider_metadata or {}
+                                             ).get("incomplete_details"),
+                                         })
         low = text.strip().lower()
         if len(low) < 120 and any(low.startswith(m) for m in _REFUSAL_MARKERS):
             raise RefusalError("response looks like a refusal",
@@ -419,6 +545,14 @@ class LLMClient:
         attempts: list[dict[str, Any]], log: RunLogger, *, messages: list[Message],
     ) -> LLMResult:
         latency = round(time.monotonic() - t0, 3)
+        provider_metadata = next(
+            (
+                item.get("provider_metadata")
+                for item in reversed(attempts)
+                if item.get("provider_metadata")
+            ),
+            None,
+        )
         ref = log.save_transcript(agent, call_id, {
             "model": model,
             "messages": messages,
@@ -429,6 +563,7 @@ class LLMClient:
             "usage": usage,
             "latency_s": latency,
             "parsed_ok": parsed is not None,
+            "provider_metadata": provider_metadata,
         })
         diagnostics_ref = _diagnostics_ref_from_transcript(ref)
         log.info("llm_call_ok", agent=agent, call_id=call_id, model=model,

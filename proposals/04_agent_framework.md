@@ -235,7 +235,7 @@ RAR 下 cfs **坍缩为 idiom-不变量 + output-space 守卫**（[01 §01-3-1](
 
 派生只读 gold 的**不可避免结构 + shape_policy**，**不**再用「primary_pattern → 算子集」查表（该机制随 operator-first 一并废止）。AST_check 协议所有权在 [01 §3-1](./01_task_definition.md#01-3-1)；NNC 仅**确认** cfs 与 MQL 一致（§04-5-4），不重新派生。
 
-> **worked example（financial/1001）**：不变量 = `$lookup`（trans 引用唯一关联手段）；shape 守卫 = preserve 根禁 `$unwind`/`$group`。`$addFields`/`$cond`/`$type` **不**入 must_contain（可被 `$project`/`$switch`/`$ifNull` 等价替换）；「无 loan 记 0」的分支正确性由 witness（含 present 与 missing 两类 account）判别。锚 JSON 现存富指纹为 pre-collapse 遗留，replace 时按此重派生（[01 §01-7](./01_task_definition.md#01-7)）。
+> **worked example（financial/1001）**：不变量 = `$lookup`（trans 引用唯一关联手段）；shape 守卫 = preserve 根禁 `$unwind`/`$group`。`$addFields`/`$cond`/`$type` **不**入 must_contain（可被 `$project`/`$switch`/`$ifNull` 等价替换）；「无 loan 记 0」的分支正确性由 witness（含 present 与 missing 两类 account）判别。锚 JSON 已采用该 RAR thin cfs；剩余 PENDING 仅是 DAR Phase A 对布局/gold MQL/`world_signature` 的真实 MongoDB 构造与执行验证。
 
 ---
 
@@ -383,7 +383,7 @@ financial/1001 是 **RAR 构造管线**的示范：QPS 从 Phase A 的 query-bea
 
 该 record **不是** BIRD SQL 的翻译产物，而是稀疏 loan 异构逼出的真实业务意图；relational 普遍 `INNER JOIN loan` 静默丢无 loan 账户，反范式化后 present/missing 须显式处理——dual-bridge（纯结果）下两桥均够不到 `≡_rec gold`。
 
-> **⚠ PENDING DAR Phase A**: 下方 canonical record 块为 `financial/1001`（跨卷逐字节一致，Gate 3）；布局/gold MQL/`world_signature` 待 DAR Phase A 在真实 MongoDB 构造 + 执行验证；锚 cfs 现为 pre-collapse 富指纹，执行验证时按 thin 重派生（[01 §01-7](./01_task_definition.md#01-7)）。`agent_prompts/` 的 Example 1 仍为 legacy orchestra，待同步替换。
+> **⚠ PENDING DAR Phase A**: 下方 canonical record 块为 `financial/1001`（跨卷逐字节一致，Gate 3）；布局/gold MQL/`world_signature` 待 DAR Phase A 在真实 MongoDB 构造 + 执行验证。锚 cfs 已是 RAR thin contract（`$lookup` 不变量 + 6 禁用 operator + preserve root guard）。`agent_prompts/` 中的 `orchestra` Example 1 仅为 smoke fixture,不是 production release 记录。
 
 <!-- canonical-anchor: financial/1001 -->
 ```json
@@ -416,12 +416,13 @@ financial/1001 是 **RAR 构造管线**的示范：QPS 从 Phase A 的 query-bea
   { $project: { _credit: 0 } }
 ])",
   "canonical_form_set": {
-    "must_contain": ["$lookup", "$addFields", "$cond", "$type"],
-    "must_not_contain": ["$unwind"],
-    "must_contain_at_root": ["$addFields"],
+    "must_contain": ["$lookup"],
+    "must_not_contain": ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function"],
+    "must_contain_at_root": [],
     "must_not_contain_at_root": ["$unwind", "$group"]
   },
   "difficulty": "L4",
+  "sql_infeasibility_class": "structural_schema_flex",
   "shape_policy": "preserve",
   "world_signature": "sha256:58d575b0eb62b1499642ec46e9efe5d5576082ce45d871df0326821f44751346",
   "agent_design_rationale_ref": "fixtures/financial/sra.yaml",
@@ -459,7 +460,7 @@ financial/1001 是 **RAR 构造管线**的示范：QPS 从 Phase A 的 query-bea
 | 失败类型 | 回流 |
 |---|---|
 | P4 cardinality | RA augment → 回流 MS → PV → … → NNC 重验 |
-| dual-bridge 近 miss（EX=1, QIM=0 边界，non-feasible） | RA 增 boundary doc → NNC 重验 |
+| dual-bridge 近 miss（bridge `NormExec ≡_rec gold`，non-feasible） | RA 增 boundary doc → NNC 重验 |
 | realism 不可修复 | 拒绝 record |
 
 <a id="04-7-4"></a>
@@ -484,7 +485,7 @@ record 发布前须通过：
 | 7 指标、4-panel 观测、SQL-route 诊断切片 | [05](./05_evaluation_methodology.md) |
 | SMART solver、disjointness 池 | [06](./06_solution_design.md) |
 
-Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`、`ms_mql_synthesizer.md`、`mut_mutation_generator.md`、`pv_property_verifier.md`、`nlp_nl_paraphraser.md`、`rtv_round_trip_verifier.md`、`nnc_nosql_nativeness_critic.md`、`ra_realism_auditor.md`。
+Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`（legacy filename; active prompt emits `intent`）、`ms_mql_synthesizer.md`、`mut_mutation_generator.md`、`pv_property_verifier.md`、`nlp_nl_paraphraser.md`、`rtv_round_trip_verifier.md`、`nnc_nosql_nativeness_critic.md`、`ra_realism_auditor.md`。
 
 ---
 
@@ -610,15 +611,16 @@ Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`、`ms_mql_synthe
 ```
 
 def bridge_verdict(mql_bridge: str, record: dict, snapshot: dict) -> dict:
-    """Return {ex: 0|1, qim: 0|1} for one bridge product."""
+    """Return pure-result bridge diagnostics. AST is observation-only."""
     ast_ok = AST_check(mql_bridge, record["canonical_form_set"])
-    qim = 1 if ast_ok else 0
-    if not ast_ok:
-        return {"ex": 0, "qim": 0}
     rp = NormExec(mql_bridge, snapshot)
     rg = NormExec(record["MQL"], snapshot)
-    ex = 1 if equiv_rec(rp, rg, order_sensitive=pipeline_has_order_semantics(record["MQL"])) else 0
-    return {"ex": ex, "qim": qim}
+    result_equiv = equiv_rec(
+        rp,
+        rg,
+        order_sensitive=pipeline_has_order_semantics(record["MQL"]),
+    )
+    return {"normexec_equiv_gold": result_equiv, "ast_check_pass": ast_ok}
 
 def graduated_gate(record, snapshot, *, sql_bridge_mql, template_bridge_mql) -> dict:
     """Gate only when sql_infeasibility_class != feasible."""
@@ -626,14 +628,14 @@ def graduated_gate(record, snapshot, *, sql_bridge_mql, template_bridge_mql) -> 
     tpl_v = bridge_verdict(template_bridge_mql, record, snapshot)
     cls = record.get("sql_infeasibility_class", "feasible")
     gate_required = cls != "feasible"
-    defeat = all(v["ex"] == 0 for v in (sql_v, tpl_v))   # RAR pure-result: neither bridge reaches ≡_rec gold
+    defeat = all(not v["normexec_equiv_gold"] for v in (sql_v, tpl_v))
     return {
         "sql_bridge": sql_v,
         "template_bridge": tpl_v,
         "gate_required": gate_required,
         "gate_pass": (not gate_required) or defeat,
-        "functional_sql_solvable": sql_v["ex"] == 1,
-        "structural_sql_solvable": sql_v["ex"] == 1 and sql_v["qim"] == 1,  # degrades under thin cfs (05 coord)
+        "functional_sql_solvable": sql_v["normexec_equiv_gold"],
+        "structural_sql_solvable": sql_v["normexec_equiv_gold"] and sql_v["ast_check_pass"],
     }
 ```
 
@@ -671,7 +673,7 @@ def derive_canonical_form_set(intent: dict, gold_mql: str) -> dict:
     }
 ```
 
-financial/1001（RAR thin）：`shape_policy = preserve` → must_not_contain_at_root `{$unwind, $group}`；不变量 `$lookup` 入 must_contain；`$addFields/$cond/$type` **不**入（可替换，由 witness 判别）。**注**：§04-6 锚 JSON 现存富 must_contain 为 **pre-collapse 遗留**，执行验证时按此重派生（[01 §01-7](./01_task_definition.md#01-7)）。
+financial/1001（RAR thin）：`shape_policy = preserve` → must_not_contain_at_root `{$unwind, $group}`；不变量 `$lookup` 入 must_contain；`$addFields/$cond/$type` **不**入（可替换，由 witness 判别）。§04-6 锚 JSON 已按该 contract 表达；执行验证只负责确认 gold/result/world_signature,不扩张 cfs。
 
 ---
 
@@ -810,7 +812,7 @@ def paraphrase_nlq_pair(intent: dict, scenario_summary: str) -> dict:
 
 | 文件 | 校验对象 |
 |---|---|
-| `schemas/query_plan.schema.json` | QPS 输出 `intent`（RAR 后 schema 待重命名 `intent.schema.json`，列协调项） |
+| `schemas/intent.schema.json` | QPS 输出 `intent` |
 | `schemas/synthesis_trace.schema.json` | MS 双路合成轨迹 |
 | `schemas/property_verification.schema.json` | PV 性质断言表 |
 | `schemas/round_trip_verification.schema.json` | RTV 往返验证 |
@@ -825,6 +827,9 @@ def paraphrase_nlq_pair(intent: dict, scenario_summary: str) -> dict:
 **校验命令**
 
 ```bash
+jsonschema --schema proposals/schemas/intent.schema.json \
+  --instance proposals/schemas/intent.schema.valid.json
+
 jsonschema --schema proposals/schemas/canonical_form_set.schema.json \
   --instance proposals/schemas/canonical_form_set.schema.valid.json
 

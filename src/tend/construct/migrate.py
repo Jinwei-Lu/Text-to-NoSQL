@@ -14,13 +14,14 @@ migration is reproducible and faithful (this is why DM is deterministic in the m
 """
 from __future__ import annotations
 
-import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..source import BirdSource, DbSchema
 
 DEFAULT_REF_SAMPLE_CAP = 40_000      # max rows kept per referenced fact table
+MigrationEventHook = Callable[..., None]
 
 
 @dataclass
@@ -44,8 +45,33 @@ class MigrationPlan:
         return {e.child for edges in self.embeds.values() for e in edges}
 
 
-def _stable_hash(*parts: Any) -> str:
-    return hashlib.sha256("|".join(map(str, parts)).encode("utf-8")).hexdigest()
+def _q(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _stable_sql_value(value: Any) -> tuple[int, Any]:
+    if value is None:
+        return (0, "")
+    if isinstance(value, bool):
+        return (1, int(value))
+    if isinstance(value, (int, float)):
+        return (2, float(value))
+    if isinstance(value, bytes):
+        return (3, value.hex())
+    return (4, str(value))
+
+
+def _stable_row_key(row: tuple) -> tuple[tuple[int, Any], ...]:
+    return tuple(_stable_sql_value(value) for value in row)
+
+
+def _emit_migration_event(
+    event_hook: MigrationEventHook | None,
+    event: str,
+    **fields: Any,
+) -> None:
+    if event_hook is not None:
+        event_hook(event, **fields)
 
 
 def build_plan(source: BirdSource, db_id: str, *,
@@ -90,8 +116,8 @@ def build_plan(source: BirdSource, db_id: str, *,
 
 def _max_children_per_parent(source: BirdSource, db_id: str, child: str, fk_col: str) -> int:
     conn = source.connection(db_id)
-    q = (f'SELECT MAX(c) FROM (SELECT COUNT(*) c FROM "{child}" '
-         f'WHERE "{fk_col}" IS NOT NULL GROUP BY "{fk_col}")')
+    q = (f"SELECT MAX(c) FROM (SELECT COUNT(*) c FROM {_q(child)} "
+         f"WHERE {_q(fk_col)} IS NOT NULL GROUP BY {_q(fk_col)})")
     row = conn.execute(q).fetchone()
     return int(row[0]) if row and row[0] is not None else 0
 
@@ -111,18 +137,33 @@ def _row_to_doc(cols: list[str], values: tuple, *, pk_cols: list[str] | None) ->
     return doc
 
 
-def _fetch_rows(source: BirdSource, db_id: str, table: str,
-                cap: int | None) -> tuple[list[str], list[tuple]]:
+def _fetch_rows(
+    source: BirdSource,
+    db_id: str,
+    table: str,
+    cap: int | None,
+    pk_cols: list[str] | None,
+) -> tuple[list[str], list[tuple]]:
     conn = source.connection(db_id)
-    cur = conn.execute(f'SELECT * FROM "{table}"')
+    order_cols = pk_cols or []
+    order_by = f" ORDER BY {', '.join(_q(c) for c in order_cols)}" if order_cols else ""
+    cur = conn.execute(f"SELECT * FROM {_q(table)}{order_by}")
     cols = [d[0] for d in cur.description]
     allrows = cur.fetchall()
+    if not order_cols:
+        allrows = sorted(allrows, key=_stable_row_key)
     if cap is not None and len(allrows) > cap:
-        allrows = sorted(allrows, key=lambda r: _stable_hash(table, r))[:cap]
+        allrows = allrows[:cap]
     return cols, allrows
 
 
-def migrate(source: BirdSource, db_id: str, plan: MigrationPlan) -> dict[str, list[dict]]:
+def migrate(
+    source: BirdSource,
+    db_id: str,
+    plan: MigrationPlan,
+    *,
+    event_hook: MigrationEventHook | None = None,
+) -> dict[str, list[dict]]:
     """Materialize ``{collection: [documents]}`` per the plan (deterministic)."""
     sch = source.schema(db_id)
     out: dict[str, list[dict]] = {}
@@ -131,19 +172,50 @@ def migrate(source: BirdSource, db_id: str, plan: MigrationPlan) -> dict[str, li
     child_index: dict[str, dict[Any, list[dict]]] = {}
     for edges in plan.embeds.values():
         for e in edges:
-            cols, rows = _fetch_rows(source, db_id, e.child, None)
             child_pk = sch.primary_keys.get(e.child)
+            source_row_count = source.row_count(db_id, e.child)
+            _emit_migration_event(
+                event_hook,
+                "migration_table_start",
+                db_id=db_id,
+                table=e.child,
+                role="embedded_child",
+                source_row_count=source_row_count,
+                cap=None,
+            )
+            cols, rows = _fetch_rows(source, db_id, e.child, None, child_pk)
             idx: dict[Any, list[dict]] = {}
             for r in rows:
                 doc = _row_to_doc(cols, r, pk_cols=child_pk)
                 idx.setdefault(dict(zip(cols, r)).get(e.fk_col), []).append(doc)
             child_index[e.child] = idx
+            _emit_migration_event(
+                event_hook,
+                "migration_table_done",
+                db_id=db_id,
+                table=e.child,
+                role="embedded_child",
+                source_row_count=source_row_count,
+                materialized_row_count=len(rows),
+                cap=None,
+                capped=False,
+            )
 
     # 2) root collections, with embeds attached
     for table in plan.roots:
         cap = plan.sample_caps.get(table)
-        cols, rows = _fetch_rows(source, db_id, table, cap)
         pk = sch.primary_keys.get(table)
+        source_row_count = source.row_count(db_id, table)
+        _emit_migration_event(
+            event_hook,
+            "migration_table_start",
+            db_id=db_id,
+            table=table,
+            role="root",
+            source_row_count=source_row_count,
+            cap=cap,
+        )
+        cols, rows = _fetch_rows(source, db_id, table, cap, pk)
         docs: list[dict] = []
         for r in rows:
             doc = _row_to_doc(cols, r, pk_cols=pk)
@@ -158,4 +230,15 @@ def migrate(source: BirdSource, db_id: str, plan: MigrationPlan) -> dict[str, li
                 doc[e.child] = kids if e.as_array else kids[0]
             docs.append(doc)
         out[table] = docs
+        _emit_migration_event(
+            event_hook,
+            "migration_table_done",
+            db_id=db_id,
+            table=table,
+            role="root",
+            source_row_count=source_row_count,
+            materialized_row_count=len(docs),
+            cap=cap,
+            capped=cap is not None and source_row_count > cap,
+        )
     return out

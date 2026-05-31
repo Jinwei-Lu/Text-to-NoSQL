@@ -11,7 +11,7 @@ source_spider_tables:
   - Candidate_Assessments
 patterns_applied: [embed, polymorphic]
 rationale_summary: >
-  Student-root embed with polymorphic assessments[] via H1 Stage B; per-type score
+  Student-root embed with polymorphic assessments[] via real assessment_type; per-type score
   fields require $switch dispatch in Phase B queries.
 decisions:
   - id: D01
@@ -36,21 +36,21 @@ decisions:
     type: polymorphic_collapse
     parent: students
     child: assessments
-    rationale: H1 fired; __variants declare written/oral/practical field sets on assessments[].
-    reference: heterogenization.triggers.H1
+    rationale: polymorphic mechanism fired; __variants declare written/oral/practical field sets on assessments[].
+    reference: heterogenization.triggers.polymorphic
 heterogenization:
   schema_flex: polymorphic
   triggers:
-    - id: H1
+    - mechanism: polymorphic
       fired: true
       evidence: Candidate_Assessments.assessment_type; type_conditional_rate=0.36
-    - id: H2
+    - mechanism: sparse
       fired: false
       evidence: sparse_null_cols=1 (<3 threshold)
-    - id: H3
+    - mechanism: version
       fired: false
       evidence: no column rename pair detected
-    - id: H4
+    - mechanism: dynamic_key
       fired: false
       evidence: no EAV table shape
 anti_pattern_checks:

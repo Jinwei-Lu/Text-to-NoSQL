@@ -1,21 +1,19 @@
-query_plan:
-  primary_pattern: window_facet_filter
-  operator_graph:
-    stages: ["$unwind", "$unwind", "$setWindowFields", "$group", "$facet", "$project", "$unwind", "$project"]
-    dependencies:
-      - partitionBy conductor _id
-      - sortBy Performance_ID ascending
-      - parallel global median branch via $facet
+intent:
+  seed_mechanism: nesting
+  seed_signal:
+    collection: conductor
+    arrays: [orchestra, orchestra.performance]
+    fields: [Performance_ID, Attendance]
+  archetype: nested_window_vs_global_median
+  domain_framing:
+    entity_noun: conductor
+    metric_noun: attendance trend
+  analytical_op:
+    window: moving average over current and previous two performances
+    partition: conductor
+    compare: last window average greater than global median
+    missing: Attendance coalesced to 0
   shape_policy: reshape
-  null_missing_strategy: ifNull
-  target_difficulty: L4
-  schema_flex_mode: none
-  join_depth_target: 0
-  aggregation_depth_target: deep
-  target_fields:
-    - conductor.Name
-    - orchestra.performance.Performance_ID
-    - orchestra.performance.Attendance
   semantic_properties:
     - id: result_cardinality_gte_2
       expect: filtered conductors >= 2 on witness D
@@ -25,8 +23,14 @@ query_plan:
       expect: moving average scoped per conductor _id
     - id: global_median_tie_possible
       expect: witness supports median boundary comparisons
+  reference_oracle:
+    template: nested_window_vs_global_median
+    params:
+      collection: conductor
+      window: [-2, 0]
+  target_difficulty: L4
 qps_trace:
-  coverage_cell: L4|structural_pipeline|schema_flex_none
+  coverage_cell: nesting|nested_window_vs_global_median|entertainment
   deficit_weight: 0.18
   supply_constrained: false
-  pattern_rationale: scenario_summary emphasizes attendance trend vs peer median; embed path avoids $lookup
+  rationale: Smoke fixture; attendance trend vs peer median over embedded paths.

@@ -1,6 +1,6 @@
 # TEND Canonical Anchor: financial/1001
 
-> **⚠ PENDING DAR Phase A execution-verification**:financial/1001 取自 BIRD mini-dev 真实库 `financial`(已在 test-only 数据集内),但其 MongoDB 反范式化布局(account 聚合 + 稀疏 `loan`/`card` embed + 多态 `trans`)、gold MQL 与 `world_signature` **尚未由 DAR Phase A 在真实 MongoDB 上构造并执行验证**——record 的异构信号(loan 覆盖 682/4500、trans.type 多态、card.type)为**实测**,布局与 MQL 为**提议态**,待 DAR Phase A 落地后冻结真值并替换 `world_signature`(当前为确定性占位)。构造侧 worked example(03/04 的 WP→SRA→…→RA 叙述、`agent_prompts/` 的 Example 1)仍以旧 `orchestra` 构造示意,待 DAR Phase A financial 构造实现后同步替换。
+> **⚠ PENDING DAR Phase A execution-verification**:financial/1001 取自 BIRD mini-dev 真实库 `financial`(已在 test-only 数据集内),但其 MongoDB 反范式化布局(account 聚合 + 稀疏 `loan`/`card` embed + 多态 `trans`)、gold MQL 与 `world_signature` **尚未由 DAR Phase A 在真实 MongoDB 上构造并执行验证**——record 的异构信号(loan 覆盖 682/4500、trans.type 多态、card.type)为**实测**,布局与 MQL 为**提议态**,待 DAR Phase A 落地后冻结真值并替换 `world_signature`(当前为确定性占位)。构造侧 `orchestra` worked examples 仅为 smoke fixtures,不是 production release 记录,待 DAR Phase A financial 构造实现后同步替换。
 
 > Cross-volume byte-identical reference record. Every volume that embeds this example MUST use the JSON block below verbatim (including whitespace inside `MQL`).
 
@@ -45,12 +45,13 @@
   { $project: { _credit: 0 } }
 ])",
   "canonical_form_set": {
-    "must_contain": ["$lookup", "$addFields", "$cond", "$type"],
-    "must_not_contain": ["$unwind"],
-    "must_contain_at_root": ["$addFields"],
+    "must_contain": ["$lookup"],
+    "must_not_contain": ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function"],
+    "must_contain_at_root": [],
     "must_not_contain_at_root": ["$unwind", "$group"]
   },
   "difficulty": "L4",
+  "sql_infeasibility_class": "structural_schema_flex",
   "shape_policy": "preserve",
   "world_signature": "sha256:58d575b0eb62b1499642ec46e9efe5d5576082ce45d871df0326821f44751346",
   "agent_design_rationale_ref": "fixtures/financial/sra.yaml",

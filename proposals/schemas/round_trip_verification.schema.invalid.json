@@ -3,7 +3,7 @@
   "mql_round_trip_colloquial": "db.conductor.aggregate([{\"$match\": {}}])",
   "round_trip_verification": {
     "canonical_pass": false,
-    "canonical_ex": false,
+    "canonical_result_equiv": false,
     "colloquial_pass": false
   },
   "rtv_pass": false,

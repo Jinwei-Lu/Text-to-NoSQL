@@ -2,7 +2,7 @@ db_id: cre_doc_tracking_db
 generated_at: "2026-05-23T13:00:00Z"
 source_sqlite: database/cre_doc_tracking_db/cre_doc_tracking_db.sqlite
 target_collections: [documents]
-world_signature: sha256:e81c7a2b3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcd
+world_signature: sha256:b969f035ff32283c9be5cda3a14f9f366e0eef2d57b6ac41a4f1b1295245aa5a
 stats:
   source_rows: 412
   target_documents: 20

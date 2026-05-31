@@ -25,7 +25,7 @@
     "db_id": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]*$",
-      "description": "Spider 1.0 database id; basename of per-db library assets."
+      "description": "BIRD mini-dev database id; basename of per-db library assets."
     },
     "nl_queries": {
       "type": "object",
@@ -61,19 +61,39 @@
       "properties": {
         "must_contain": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^\\$\\$?[A-Za-z][A-Za-z0-9_]*$" }
+          "items": {
+            "type": "string",
+            "pattern": "^(\\$\\$NOW|\\$[A-Za-z][A-Za-z0-9_]*)$"
+          }
         },
         "must_not_contain": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^\\$\\$?[A-Za-z][A-Za-z0-9_]*$" }
+          "allOf": [
+            { "contains": { "const": "$sample" } },
+            { "contains": { "const": "$rand" } },
+            { "contains": { "const": "$$NOW" } },
+            { "contains": { "const": "$out" } },
+            { "contains": { "const": "$merge" } },
+            { "contains": { "const": "$function" } }
+          ],
+          "items": {
+            "type": "string",
+            "pattern": "^(\\$\\$NOW|\\$[A-Za-z][A-Za-z0-9_]*)$"
+          }
         },
         "must_contain_at_root": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^\\$\\$?[A-Za-z][A-Za-z0-9_]*$" }
+          "items": {
+            "type": "string",
+            "pattern": "^(\\$\\$NOW|\\$[A-Za-z][A-Za-z0-9_]*)$"
+          }
         },
         "must_not_contain_at_root": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^\\$\\$?[A-Za-z][A-Za-z0-9_]*$" }
+          "items": {
+            "type": "string",
+            "pattern": "^(\\$\\$NOW|\\$[A-Za-z][A-Za-z0-9_]*)$"
+          }
         }
       }
     },
@@ -99,13 +119,12 @@
     },
     "world_signature": {
       "type": "string",
-      "pattern": "^sha256:[0-9a-f]+$",
-      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
       "description": "SHA-256 pin of mongodb_data/<db_id>.json canonical BSON serialization."
     },
     "domain_id": {
       "type": "string",
-      "description": "Spider domain label for cross-domain holdout and six-axis coverage."
+      "description": "BIRD domain label for diagnostics and RAR coverage accounting."
     },
     "join_depth": {
       "type": "integer",

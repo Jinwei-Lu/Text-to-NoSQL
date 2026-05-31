@@ -72,18 +72,22 @@ class VariantExecution:
     documents: tuple[Mapping[str, Any], ...] = ()
     input_count: int | None = None
     error: str | None = None
+    context: Mapping[str, JSONValue] = field(default_factory=dict)
 
     @property
     def output_count(self) -> int:
         return len(self.documents)
 
     def to_log_context(self) -> dict[str, JSONValue]:
-        return {
+        payload: dict[str, JSONValue] = {
             "variant": self.variant,
             "input_count": self.input_count,
             "output_count": self.output_count,
             "error": self.error,
         }
+        if self.context:
+            payload["context"] = dict(self.context)
+        return payload
 
 
 @dataclass(frozen=True)
@@ -326,17 +330,19 @@ def checkpoint_prefix(
     required_fields = spec.fields_for_stage(request.stage_index)
     for field_name in required_fields:
         for variant in result.variants:
-            field_absent = all(not _has_path(doc, field_name) for doc in variant.documents)
-            if variant.documents and field_absent:
+            missing_count = sum(1 for doc in variant.documents if not _has_path(doc, field_name))
+            if variant.documents and missing_count:
                 return CheckpointFeedback(
                     error_code=CheckpointCode.TARGET_FIELD_MISSING,
                     stage_index=request.stage_index,
                     failing_variant=variant.variant,
                     suspect_field=field_name,
-                    message="required target field is absent from all documents in a variant",
+                    message="required target field is absent from at least one document in a variant",
                     context={
                         **request.to_log_context(),
                         "required_fields": list(required_fields),
+                        "missing_count": missing_count,
+                        "output_count": variant.output_count,
                         "variants": [v.to_log_context() for v in result.variants],
                     },
                 )
@@ -367,6 +373,7 @@ def normalize_prefix_result(raw_result: Any) -> PrefixExecutionResult:
                         docs,
                         raw_variant.get("input_count"),
                         raw_variant.get("error"),
+                        dict(raw_variant.get("context") or {}),
                     )
                 )
             return PrefixExecutionResult(tuple(variants))
@@ -494,11 +501,15 @@ def _emit_failure(
     logger: Any | None,
     feedback: CheckpointFeedback,
     cause: BaseException | None = None,
+    *,
+    emit_anomaly: bool = False,
 ) -> None:
     if logger is None:
         return
     context = feedback.to_log_context()
     logger.warning("solver_per_stage_checkpoint_failed", **context)
+    if not emit_anomaly:
+        return
     if not hasattr(logger, "anomaly"):
         return
     if feedback.error_code == CheckpointCode.DISABLED_OPERATOR:

@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tend.dev/schemas/intent.schema.json",
+  "title": "TEND QPS Intent Output",
+  "description": "Active RAR QPS output. The seed is an information need; operator graphs and difficulty artifacts are derived downstream.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["intent", "qps_trace"],
+  "properties": {
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seed_mechanism",
+        "seed_signal",
+        "archetype",
+        "domain_framing",
+        "analytical_op",
+        "shape_policy",
+        "semantic_properties",
+        "reference_oracle",
+        "target_difficulty"
+      ],
+      "properties": {
+        "seed_mechanism": {
+          "type": "string",
+          "enum": [
+            "none",
+            "polymorphic",
+            "sparse_scalar",
+            "sparse_embed",
+            "dynamic_key",
+            "nesting",
+            "versioning"
+          ]
+        },
+        "seed_signal": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": true,
+          "description": "Phase A Gate-QB signal: collection, field/discriminator, values, variants, or WP baseline evidence."
+        },
+        "archetype": { "type": "string", "minLength": 1 },
+        "domain_framing": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string" }
+        },
+        "analytical_op": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": true
+        },
+        "shape_policy": {
+          "type": "string",
+          "enum": ["preserve", "reshape", "reduce"]
+        },
+        "semantic_properties": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "expect"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "expect": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "reference_oracle": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["template", "params"],
+          "properties": {
+            "template": { "type": "string", "minLength": 1 },
+            "params": { "type": "object" }
+          }
+        },
+        "target_difficulty": {
+          "type": "string",
+          "enum": ["L0", "L1", "L2", "L3", "L4"],
+          "description": "Derived from seed_mechanism × archetype; not sampled as an operator quota target."
+        }
+      }
+    },
+    "qps_trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coverage_cell", "deficit_weight", "supply_constrained"],
+      "properties": {
+        "coverage_cell": { "type": "string", "minLength": 1 },
+        "deficit_weight": { "type": "number", "minimum": 0 },
+        "supply_constrained": { "type": "boolean" },
+        "rationale": { "type": "string", "minLength": 1 },
+        "skip_reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

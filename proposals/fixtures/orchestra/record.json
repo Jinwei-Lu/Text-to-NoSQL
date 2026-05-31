@@ -8,7 +8,7 @@
   "MQL": "db.conductor.aggregate([\n  { $unwind: { path: \"$orchestra\", preserveNullAndEmptyArrays: false } },\n  { $unwind: { path: \"$orchestra.performance\", preserveNullAndEmptyArrays: false } },\n  { $setWindowFields: {\n      partitionBy: \"$_id\",\n      sortBy: { \"orchestra.performance.Performance_ID\": 1 },\n      output: {\n        moving_avg_attendance: {\n          $avg: { $ifNull: [\"$orchestra.performance.Attendance\", 0] },\n          window: { documents: [-2, 0] }\n        }\n      }\n  } },\n  { $group: {\n      _id: \"$_id\",\n      Name: { $first: { $ifNull: [\"$Name\", \"(unknown)\"] } },\n      last_window_avg: { $last: \"$moving_avg_attendance\" }\n  } },\n  { $facet: {\n      per_conductor: [ { $project: { _id: 0, Name: 1, last_window_avg: 1 } } ],\n      global_median: [\n        { $sort: { last_window_avg: 1 } },\n        { $group: { _id: null, vals: { $push: \"$last_window_avg\" } } },\n        { $project: { _id: 0, median: { $arrayElemAt: [\"$vals\", { $floor: { $divide: [{ $size: \"$vals\" }, 2] } }] } } }\n      ]\n  } },\n  { $project: {\n      kept: { $filter: {\n        input: \"$per_conductor\",\n        as: \"c\",\n        cond: { $gt: [\"$$c.last_window_avg\", { $arrayElemAt: [\"$global_median.median\", 0] }] }\n      } }\n  } },\n  { $unwind: \"$kept\" },\n  { $project: { _id: 0, Name: \"$kept.Name\", last_window_avg: \"$kept.last_window_avg\" } }\n])",
   "canonical_form_set": {
     "must_contain": ["$setWindowFields", "$facet", "$ifNull"],
-    "must_not_contain": [],
+    "must_not_contain": ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function"],
     "must_contain_at_root": ["$setWindowFields", "$facet"],
     "must_not_contain_at_root": []
   },

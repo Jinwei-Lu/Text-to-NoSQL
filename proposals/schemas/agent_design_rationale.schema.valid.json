@@ -1,6 +1,7 @@
 {
   "db_id": "orchestra",
   "source_spider_tables": ["conductor", "orchestra", "performance", "show"],
+  "source_bird_tables": ["conductor", "orchestra", "performance", "show"],
   "patterns_applied": ["embed", "mixed"],
   "rationale_summary": "Single conductor-rooted collection embeds orchestra and performance arrays; show.Attendance denormalized onto performance for WP hot-path coverage.",
   "decisions": [
@@ -32,5 +33,15 @@
   "anti_pattern_checks": {
     "pass": true,
     "issues": []
+  },
+  "heterogenization": {
+    "schema_flex": "none",
+    "triggers": [
+      {
+        "mechanism": "polymorphic",
+        "fired": false,
+        "evidence": "smoke fixture: no real discriminator column drives a query-bearing polymorphic aggregate"
+      }
+    ]
   }
 }

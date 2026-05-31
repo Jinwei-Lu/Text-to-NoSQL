@@ -5,7 +5,7 @@ mql_round_trip_canonical: |
         norm_score: {
           $switch: {
             branches: [
-              { case: { $eq: ["$assessments.__type", "written"] },
+              { case: { $eq: ["$assessments.assessment_type", "written"] },
                 then: { $multiply: [
                   { $divide: [
                     { $ifNull: ["$assessments.written_score", 0] },
@@ -13,9 +13,9 @@ mql_round_trip_canonical: |
                   ] },
                   100
                 ] } },
-              { case: { $eq: ["$assessments.__type", "oral"] },
+              { case: { $eq: ["$assessments.assessment_type", "oral"] },
                 then: { $ifNull: ["$assessments.oral_score", 0] } },
-              { case: { $eq: ["$assessments.__type", "practical"] },
+              { case: { $eq: ["$assessments.assessment_type", "practical"] },
                 then: { $ifNull: ["$assessments.lab_score", 0] } }
             ],
             default: 0
@@ -37,11 +37,9 @@ mql_round_trip_colloquial: |
   ])
 round_trip_verification:
   canonical_pass: true
-  canonical_ex: true
-  canonical_ast_check: true
+  canonical_result_equiv: true
   colloquial_pass: false
-  colloquial_ex: false
-  colloquial_ast_check: true
+  colloquial_result_equiv: false
   underspec_attribution: colloquial omits per-type normalization rules and $switch dispatch
 rtv_pass: true
 rtv_trace:

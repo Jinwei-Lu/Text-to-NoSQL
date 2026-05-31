@@ -5,12 +5,12 @@ diagnostic_bridge:
   gate_required: false
   gate_pass: true
   sql_bridge:
-    ex: 1
-    qim: 1
+    normexec_equiv_gold: true
+    ast_check_pass: true
     notes: Direct WHERE Capacity > 5000 with name projection
   template_bridge:
-    ex: 1
-    qim: 0
+    normexec_equiv_gold: true
+    ast_check_pass: false
     notes: Template omits ifNull on sparse Name field
   functional_sql_solvable: true
   structural_sql_solvable: true

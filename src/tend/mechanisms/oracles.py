@@ -81,6 +81,16 @@ def _docs(snapshot: Snapshot, collection: str) -> list[dict[str, Any]]:
     return docs
 
 
+def _sortable_value(value: Any) -> tuple[int, Any]:
+    if isinstance(value, bool):
+        return (0, int(value))
+    if isinstance(value, (int, float)):
+        return (1, float(value))
+    if isinstance(value, str):
+        return (2, value)
+    return (3, repr(value))
+
+
 # --------------------------------------------------------------------------- #
 # oracles (one per archetype reference_template)
 # --------------------------------------------------------------------------- #
@@ -115,13 +125,33 @@ def _match(doc: dict[str, Any], pred: dict[str, Any]) -> bool:
 
 
 def _topn(snapshot: Snapshot, params: dict[str, Any]) -> list[dict[str, Any]]:
-    """params: {collection, sort_key, order(asc|desc), n, project?}."""
+    """params: {collection, sort_key, order(asc|desc), n, project?, nulls(first|last)}."""
     _require(params, "collection", "sort_key", "n")
     docs = list(_docs(snapshot, params["collection"]))
     key = params["sort_key"]
-    rev = params.get("order", "desc") == "desc"
-    docs.sort(key=lambda d: (_get(d, key)[1] is None, _get(d, key)[1]), reverse=rev)
-    top = docs[: int(params["n"])]
+    order = params.get("order", "desc")
+    if order not in {"asc", "desc"}:
+        raise OracleError(f"unknown topn order: {order}")
+    nulls = params.get("nulls", "last")
+    if nulls not in {"first", "last"}:
+        raise OracleError(f"unknown topn nulls policy: {nulls}")
+
+    with_sort_key: list[tuple[tuple[int, Any], dict[str, Any]]] = []
+    without_sort_key: list[dict[str, Any]] = []
+    for d in docs:
+        present, value = _get(d, key)
+        if not present or value is None:
+            without_sort_key.append(d)
+        else:
+            with_sort_key.append((_sortable_value(value), d))
+
+    with_sort_key.sort(key=lambda item: item[0], reverse=order == "desc")
+    ordered = [d for _, d in with_sort_key]
+    if nulls == "first":
+        ordered = without_sort_key + ordered
+    else:
+        ordered.extend(without_sort_key)
+    top = ordered[: int(params["n"])]
     project = params.get("project")
     return [{k: _get(d, k)[1] for k in project} if project else dict(d) for d in top]
 
@@ -198,7 +228,9 @@ def _present_missing_projection(snapshot: Snapshot, params: dict[str, Any]) -> l
     # precompute per-parent denominator sums
     denom_docs = _docs(snapshot, denom_spec["collection"])
     sums: dict[Any, float] = {}
-    mfield, mval = denom_spec.get("match", {}).get("field"), denom_spec.get("match", {}).get("value")
+    match = denom_spec.get("match")
+    mfield = match.get("field") if isinstance(match, dict) else None
+    mval = match.get("value") if isinstance(match, dict) else None
     for dd in denom_docs:
         if mfield is not None and _get(dd, mfield)[1] != mval:
             continue
@@ -219,6 +251,43 @@ def _present_missing_projection(snapshot: Snapshot, params: dict[str, Any]) -> l
             doc[target] = absent_value
         out.append(doc)
     return out
+
+
+def _optional_embed_projection(snapshot: Snapshot, params: dict[str, Any]) -> list[dict[str, Any]]:
+    """Attach a scalar from an optional embed, preserving every parent document.
+
+    params: {
+      parent_collection, embed_field, value_path, target_field, missing_default
+    }
+
+    ``value_path`` may be either parent-rooted (``loan.amount``) or relative to
+    ``embed_field`` (``amount``).
+
+    This is the simple preserve-shape sparse-embed oracle. Use
+    ``present_missing_projection`` only for the ratio form that needs a denominator
+    collection.
+    """
+    _require(params, "parent_collection", "embed_field", "value_path",
+             "target_field", "missing_default")
+    parents = _docs(snapshot, params["parent_collection"])
+    embed_field = params["embed_field"]
+    value_path = _embed_value_path(embed_field, params["value_path"])
+    target = params["target_field"]
+    default = params["missing_default"]
+    out = []
+    for p in parents:
+        doc = dict(p)
+        has_embed = _get(p, embed_field)[0]
+        present, value = _get(p, value_path)
+        doc[target] = value if has_embed and present and value is not None else default
+        out.append(doc)
+    return out
+
+
+def _embed_value_path(embed_field: str, value_path: str) -> str:
+    if value_path == embed_field or value_path.startswith(f"{embed_field}."):
+        return value_path
+    return f"{embed_field}.{value_path}"
 
 
 def _subtype_cond_projection(snapshot: Snapshot, params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -369,6 +438,7 @@ _REGISTRY: dict[str, Oracle] = {
     "subtype_specific_field": _subtype_specific_field,
     # sparse_embed
     "present_missing_projection": _present_missing_projection,
+    "optional_embed_projection": _optional_embed_projection,
     "has_vs_absent_compare": _has_vs_absent_compare,
     # dynamic_key
     "dynamic_key_fold": _dynamic_key_fold,
@@ -376,6 +446,63 @@ _REGISTRY: dict[str, Oracle] = {
     # versioning
     "cross_version_agg": _cross_version_agg,
 }
+
+_REQUIRED_PARAMS: dict[str, tuple[str, ...]] = {
+    "simple_filter": ("collection",),
+    "topn": ("collection", "sort_key", "n"),
+    "group_count": ("collection", "group_by"),
+    "join_nested_group": ("collection", "array_field", "group_by"),
+    "existence_count": ("collection", "field"),
+    "null_coalesce_agg": ("collection", "field", "agg"),
+    "per_subtype_agg": ("collection", "discriminator", "field_by_subtype", "agg"),
+    "subtype_cond_projection": (
+        "collection", "discriminator", "field_by_subtype", "target_field",
+    ),
+    "cross_subtype_compare": ("collection", "discriminator", "field_by_subtype", "agg"),
+    "subtype_specific_field": ("collection", "discriminator", "subtype_value", "field"),
+    "present_missing_projection": (
+        "parent_collection", "embed_field", "numerator_path", "target_field", "denom",
+    ),
+    "optional_embed_projection": (
+        "parent_collection", "embed_field", "value_path", "target_field", "missing_default",
+    ),
+    "has_vs_absent_compare": ("parent_collection", "embed_field"),
+    "dynamic_key_fold": ("collection", "name_field", "value_field", "agg"),
+    "cross_keyset_value": ("collection", "key"),
+    "cross_version_agg": ("collection", "field_candidates", "agg"),
+}
+
+_REQUIRED_NESTED_PARAMS: dict[str, dict[str, tuple[str, ...]]] = {
+    "present_missing_projection": {
+        "denom": ("collection", "local_id", "foreign_field", "sum_field"),
+    },
+}
+
+
+def oracle_param_errors(template: str, params: Any) -> list[str]:
+    """Return static parameter-contract errors for a reference oracle template."""
+    if not has_oracle(template):
+        return [f"unsupported reference_oracle.template {template!r}"]
+    if not isinstance(params, dict):
+        return ["reference_oracle.params must be an object"]
+    errors: list[str] = []
+    missing = [k for k in _REQUIRED_PARAMS.get(template, ()) if k not in params]
+    if missing:
+        errors.append(f"reference_oracle.params missing required keys: {missing}")
+    for parent_key, nested_keys in _REQUIRED_NESTED_PARAMS.get(template, {}).items():
+        if parent_key not in params:
+            continue
+        nested = params[parent_key]
+        if not isinstance(nested, dict):
+            errors.append(f"reference_oracle.params.{parent_key} must be an object")
+            continue
+        nested_missing = [k for k in nested_keys if k not in nested]
+        if nested_missing:
+            errors.append(
+                f"reference_oracle.params.{parent_key} missing required keys: "
+                f"{nested_missing}"
+            )
+    return errors
 
 
 def has_oracle(template: str) -> bool:

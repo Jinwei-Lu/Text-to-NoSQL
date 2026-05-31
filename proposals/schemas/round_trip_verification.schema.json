@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tend.dev/schemas/round_trip_verification.schema.json",
   "title": "TEND RTV Agent Output",
-  "description": "Round-trip verification output from RTV (Round-Trip Verifier): independent NL→MQL synthesis vs gold-class.",
+  "description": "Round-trip verification output from RTV: independent NL→MQL synthesis compared to gold by result equivalence, not cfs fingerprint.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -27,11 +27,9 @@
       "required": ["canonical_pass", "colloquial_pass"],
       "properties": {
         "canonical_pass": { "type": "boolean" },
-        "canonical_ex": { "type": "boolean" },
-        "canonical_ast_check": { "type": "boolean" },
+        "canonical_result_equiv": { "type": "boolean" },
         "colloquial_pass": { "type": "boolean" },
-        "colloquial_ex": { "type": "boolean" },
-        "colloquial_ast_check": { "type": "boolean" },
+        "colloquial_result_equiv": { "type": "boolean" },
         "underspec_attribution": { "type": "string", "minLength": 1 }
       }
     },

@@ -58,6 +58,35 @@ def test_c2_nl_queries_shape():
     assert any("C2" in i for i in validate_record(rec))
 
 
+def test_disabled_system_var_in_string_value_fails():
+    rec = _valid_record(
+        MQL='db.account.aggregate([{ "$addFields": { "generated_at": "$$NOW" } }])',
+        canonical_form_set={
+            "must_contain": ["$addFields"],
+            "must_not_contain": _SIX,
+            "must_contain_at_root": ["$addFields"],
+            "must_not_contain_at_root": [],
+        },
+    )
+    iss = validate_record(rec)
+    assert any("C5" in i and "$$NOW" in i for i in iss)
+
+
+def test_norm_exec_fallback_only_checks_runs_without_error():
+    class EmptyExecutor:
+        def __init__(self):
+            self.calls = []
+
+        def norm_exec(self, db_id, mql):
+            self.calls.append((db_id, mql))
+            return []
+
+    executor = EmptyExecutor()
+    iss = validate_record(_valid_record(), executor=executor, snapshot={"account": []})
+    assert executor.calls
+    assert not any("not a gold-class member" in i for i in iss)
+
+
 def test_composition_constraints():
     # 10 records: 4 L4 (all ssf+flex), 5 L2, 1 L0 -> L4=40%, L0=10% (H8 fail)
     recs = []
@@ -84,6 +113,65 @@ def test_jsonschema_against_record_schema():
         rec = json.loads(valid.read_text(encoding="utf-8"))
         assert validate_record_jsonschema(rec, schema) == []
         assert not any("C6" in issue for issue in validate_record(rec))
+
+
+def test_record_schema_enforces_exact_world_signature_length():
+    schema = Path("proposals/schemas/record.schema.json")
+    too_short = _valid_record(world_signature="sha256:" + "a" * 63)
+    too_long = _valid_record(world_signature="sha256:" + "a" * 65)
+    assert validate_record_jsonschema(too_short, schema)
+    assert validate_record_jsonschema(too_long, schema)
+
+
+def test_library_schema_rejects_unsafe_field_names():
+    import jsonschema
+
+    schema = json.loads(
+        Path("proposals/schemas/library.schema.json").read_text(encoding="utf-8")
+    )
+    validator = jsonschema.Draft202012Validator(schema)
+    cases = [
+        {"students": {"$bad": "TEXT"}},
+        {"students": {"profile.name": "TEXT"}},
+        {"students": {"profile..name": "TEXT"}},
+        {"students": {"   ": "TEXT"}},
+        {"students": {"profile": {"type": "OBJECT", "fields": {"__variants": "TEXT"}}}},
+    ]
+    for case in cases:
+        assert list(validator.iter_errors(case)), case
+
+
+def test_validate_release_reports_malformed_mql_as_record_violation(tmp_path: Path):
+    out = tmp_path / "release"
+    db = "financial"
+    data = {"account": [{"_id": 1}], "trans": [{"_id": 10, "account_id": 1}]}
+    rec = _valid_record(
+        MQL='db.account.aggregate([{ "$lookup": }])',
+        canonical_form_set={
+            "must_contain": ["$lookup"],
+            "must_not_contain": _SIX,
+            "must_contain_at_root": ["$lookup"],
+            "must_not_contain_at_root": ["$group", "$unwind"],
+        },
+        world_signature=world_signature(data),
+    )
+
+    (out / "mongodb_data").mkdir(parents=True)
+    (out / "mongodb_schema").mkdir()
+    (out / "agent_design_rationale").mkdir()
+    (out / "test.json").write_text(json.dumps([rec]), encoding="utf-8")
+    (out / "TEND.json").write_text(json.dumps([rec]), encoding="utf-8")
+    (out / "mongodb_data" / f"{db}.json").write_text(json.dumps(data), encoding="utf-8")
+    (out / "mongodb_schema" / f"{db}.json").write_text(
+        json.dumps({"account": {"_id": "INT"}}), encoding="utf-8"
+    )
+    (out / "agent_design_rationale" / f"{db}.yaml").write_text(
+        "db_id: financial\n", encoding="utf-8"
+    )
+
+    report = validate_release(out, require_all_dbs=False)
+    assert not report.ok
+    assert any("C5" in issue and "parse error" in issue for issue in report.record_violations)
 
 
 def test_validate_release_checks_artifacts_and_signature(tmp_path: Path):
@@ -138,7 +226,7 @@ def test_validate_release_checks_artifacts_and_signature(tmp_path: Path):
         "anti_pattern_checks": {"pass": True, "issues": []},
     }
     catalog = {
-        "spider_version": "1.0",
+        "source_version": "1.0",
         "generated_at": "2026-06-01T00:00:00+00:00",
         "databases": [{
             "db_id": db,

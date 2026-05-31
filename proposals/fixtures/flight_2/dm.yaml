@@ -2,7 +2,7 @@ db_id: flight_2
 generated_at: "2026-05-23T13:00:00Z"
 source_sqlite: database/flight_2/flight_2.sqlite
 target_collections: [airlines, airports]
-world_signature: sha256:e81c7c2f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3
+world_signature: sha256:998222459441749c7614d44d939d749a975b35a28b3f37713792cbd07f27e0cf
 stats:
   source_rows: 1200
   target_documents: 14

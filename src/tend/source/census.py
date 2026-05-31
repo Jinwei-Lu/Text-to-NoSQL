@@ -132,6 +132,25 @@ def _cell_key(seed: int, db_id: str, mech: str, arch: str, i: int) -> str:
     return hashlib.sha256(f"{seed}|{db_id}|{mech}|{arch}|{i}".encode()).hexdigest()
 
 
+_MECHANISM_PRIORITY = {
+    "sparse_embed": 0,
+    "dynamic_key": 1,
+    "versioning": 2,
+    "polymorphic": 3,
+    "sparse_scalar": 4,
+    "none": 5,
+}
+
+_ARCHETYPE_PRIORITY = {
+    "present_missing_projection": 0,
+    "has_vs_absent_compare": 1,
+    "per_subtype_agg": 2,
+    "subtype_cond_projection": 3,
+    "cross_keyset_value": 4,
+    "dynamic_key_fold": 5,
+}
+
+
 def _archetype_meta(arch_id: str):
     from ..mechanisms import get_archetype
 
@@ -166,7 +185,12 @@ def plan_coverage_slots(
             bucket.append((db_id, "none", arch.id))
 
     def _ordered(cells: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
-        return sorted(cells, key=lambda c: _cell_key(seed, c[0], c[1], c[2], 0))
+        return sorted(cells, key=lambda c: (
+            _MECHANISM_PRIORITY.get(c[1], 99),
+            _ARCHETYPE_PRIORITY.get(c[2], 99),
+            _mechanism_quality_rank(census.databases[c[0]], c[1]),
+            _cell_key(seed, c[0], c[1], c[2], 0),
+        ))
 
     l4_cells, mid_cells = _ordered(l4_cells), _ordered(mid_cells)
     low_cells, l0_cells = _ordered(low_cells), _ordered(l0_cells)
@@ -209,6 +233,27 @@ def _cycle(cells: list[tuple[str, str, str]], k: int) -> list[tuple[str, str, st
     if not cells or k <= 0:
         return []
     return [cells[i % len(cells)] for i in range(k)]
+
+
+def _mechanism_quality_rank(dbc: DbCensus, mechanism: str) -> float:
+    """Lower is better. Penalize sparse embeds whose present branch is nearly absent."""
+    if mechanism != "sparse_embed":
+        return 0.0
+    scores: list[float] = []
+    for mech in dbc.mechanisms:
+        if mech.get("mechanism") != mechanism or not mech.get("query_bearing"):
+            continue
+        detail = mech.get("detail") if isinstance(mech.get("detail"), dict) else {}
+        coverage = detail.get("coverage")
+        if not isinstance(coverage, (int, float)):
+            continue
+        # A good present/missing benchmark has both branches visible. Extremely sparse
+        # candidates remain supply, but should not lead a small smoke run.
+        penalty = 0.0
+        if coverage < 0.10 or coverage > 0.80:
+            penalty = 1.0
+        scores.append(abs(float(coverage) - 0.25) + penalty)
+    return min(scores) if scores else 0.0
 
 
 def write_census(census: Census, path: Any) -> None:

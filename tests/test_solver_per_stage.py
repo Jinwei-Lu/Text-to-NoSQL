@@ -125,6 +125,37 @@ def test_target_field_missing_feedback_identifies_projection_stage() -> None:
     assert result.prefixes_executed == 2
 
 
+def test_target_field_missing_fails_when_any_output_document_lacks_field() -> None:
+    mql = 'db.account.aggregate([{"$addFields":{"score":1}}])'
+    executor = FakePrefixExecutor(
+        {
+            1: _result(
+                _variant(
+                    "default",
+                    [{"_id": 1, "score": 1}, {"_id": 2}],
+                    input_count=2,
+                )
+            ),
+        }
+    )
+
+    result = run_per_stage_check(
+        db_id="financial",
+        mql=mql,
+        executor=executor,
+        checkpoint=CheckpointSpec(required_fields_by_stage={1: ("score",)}),
+    )
+
+    assert result.ok is False
+    assert result.feedback is not None
+    assert result.feedback.error_code == CheckpointCode.TARGET_FIELD_MISSING
+    assert result.feedback.stage_index == 1
+    assert result.feedback.failing_variant == "default"
+    assert result.feedback.suspect_field == "score"
+    assert result.feedback.context["missing_count"] == 1
+    assert result.feedback.context["output_count"] == 2
+
+
 def test_disabled_operator_rejects_before_executing_bad_prefix() -> None:
     mql = (
         "db.account.aggregate(["
@@ -149,6 +180,43 @@ def test_disabled_operator_rejects_before_executing_bad_prefix() -> None:
     assert result.prefixes_executed == 1
     assert [request.stage_index for request in executor.requests] == [1]
     json.dumps(result.feedback.to_log_context())
+
+
+def test_recoverable_checkpoint_feedback_logs_warning_without_anomaly() -> None:
+    class CapturingLogger:
+        def __init__(self) -> None:
+            self.warnings: list[tuple[str, dict]] = []
+            self.anomalies: list[tuple[tuple, dict]] = []
+
+        def info(self, _event: str, **_fields) -> None:
+            pass
+
+        def warning(self, event: str, **fields) -> None:
+            self.warnings.append((event, fields))
+
+        def anomaly(self, *args, **fields) -> None:
+            self.anomalies.append((args, fields))
+
+    mql = 'db.account.aggregate([{"$project":{"_id":1}}])'
+    executor = FakePrefixExecutor(
+        {
+            1: _result(_variant("default", [{"_id": 1}], input_count=1)),
+        }
+    )
+    logger = CapturingLogger()
+
+    result = run_per_stage_check(
+        db_id="financial",
+        mql=mql,
+        executor=executor,
+        checkpoint=CheckpointSpec(required_fields_by_stage={1: ("score",)}),
+        logger=logger,
+    )
+
+    assert result.ok is False
+    assert logger.warnings
+    assert logger.warnings[-1][0] == "solver_per_stage_checkpoint_failed"
+    assert logger.anomalies == []
 
 
 def test_executor_exception_becomes_exec_error_feedback_with_cause() -> None:

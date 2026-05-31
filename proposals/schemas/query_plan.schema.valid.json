@@ -27,6 +27,6 @@
     "coverage_cell": "L4|structural_pipeline|schema_flex_none",
     "deficit_weight": 0.18,
     "supply_constrained": false,
-    "pattern_rationale": "scenario_summary emphasizes attendance trend vs peer median; embed path avoids $lookup"
+    "pattern_rationale": "ARCHIVAL NON-ACTIVE fixture: legacy operator-plan example retained only for compatibility; active fixture is intent.schema.valid.json."
   }
 }

@@ -1,7 +1,7 @@
 {
-  "spider_version": "1.0",
+  "source_version": "smoke-fixture",
   "generated_at": "2026-05-23T08:00:00Z",
-  "spider_root": "/data/spider/database",
+  "bird_root": "minidev/MINIDEV",
   "selection_policy": {
     "min_tables": 2,
     "min_queries": 5,
@@ -17,7 +17,7 @@
       "query_count": 40,
       "selected": true,
       "flex_eligible": false,
-      "selection_reason": "canonical anchor; nested join workload"
+      "selection_reason": "smoke fixture; nested join workload"
     }
   ]
 }

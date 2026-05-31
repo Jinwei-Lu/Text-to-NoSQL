@@ -359,12 +359,13 @@ schema-less 下"理解结构"不是读一张固定 schema,而是**并发扫清�
   { $project: { _credit: 0 } }
 ])",
   "canonical_form_set": {
-    "must_contain": ["$lookup", "$addFields", "$cond", "$type"],
-    "must_not_contain": ["$unwind"],
-    "must_contain_at_root": ["$addFields"],
+    "must_contain": ["$lookup"],
+    "must_not_contain": ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function"],
+    "must_contain_at_root": [],
     "must_not_contain_at_root": ["$unwind", "$group"]
   },
   "difficulty": "L4",
+  "sql_infeasibility_class": "structural_schema_flex",
   "shape_policy": "preserve",
   "world_signature": "sha256:58d575b0eb62b1499642ec46e9efe5d5576082ce45d871df0326821f44751346",
   "agent_design_rationale_ref": "fixtures/financial/sra.yaml",

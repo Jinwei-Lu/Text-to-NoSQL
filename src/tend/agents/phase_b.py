@@ -13,7 +13,8 @@ from typing import Any
 
 from ..errors import TendError
 from ..execution import derive_canonical_form_set, parse_pipeline, scan_disabled
-from ..execution.mongo import equiv_rec
+from ..execution.mongo import _normalize_doc, equiv_rec
+from ..mechanisms import OracleError, has_oracle, oracle_param_errors, reference_oracle
 from .base import Agent, AgentContext, LLMAgent, register
 
 _ORDER_INSENSITIVE = False  # ≡_rec default for construction checks (NLQ says "no order")
@@ -44,7 +45,21 @@ _ARCHETYPE_RECIPE = {
         "to every document of the ROOT collection, computed from its optional embedded "
         "sub-document: if the sub-doc is PRESENT use a concrete formula over its fields; if "
         "MISSING the field is a fixed default (e.g. 0). Keep every input document. State the "
-        "exact formula and the missing-default so the result is fully determined."
+        "exact formula and the non-null missing-default so the result is fully determined. "
+        "Use reference_oracle.template='optional_embed_projection' for a simple field copy "
+        "from an optional embed. Use 'present_missing_projection' only for the ratio form "
+        "and include the complete denom object."
+    ),
+    "subtype_cond_projection": (
+        "Target cell is L4 structural_schema_flex with shape_policy='preserve'. Attach "
+        "exactly ONE scalar field to every root document while keeping every original field. "
+        "The computation MUST visibly branch on real schema variants with $type/$switch/$cond "
+        "downstream, and the missing/default branch MUST be explicit and non-null (usually 0). "
+        "If the variant is optional embedded-subdocument presence, use "
+        "reference_oracle.template='optional_embed_projection' with params "
+        "{parent_collection, embed_field, value_path, target_field, missing_default}. If it is "
+        "a true discriminator-subtype task, use 'subtype_cond_projection' with complete "
+        "{collection, discriminator, field_by_subtype, target_field, default} params."
     ),
     "schema_flex_variant_summary": (
         "Target cell is L4 structural_schema_flex. The intent MUST use a ROOT collection "
@@ -52,7 +67,9 @@ _ARCHETYPE_RECIPE = {
         "present vs missing, and reshape/reduce into a variant summary. Require schema-flex "
         "operators such as $type/$switch in downstream MQL, not a simple preserve $addFields. "
         "The result must include one row per variant with counts and at least one numeric "
-        "aggregate over a real nested field from the present branch, using 0 for missing."
+        "aggregate over a real nested field from the present branch, using 0 for missing. "
+        "Use public output field 'variant' with EXACT string values 'present' and 'missing'; "
+        "include 'count' and the aggregate target field in output.fields."
     ),
 }
 
@@ -81,13 +98,14 @@ class QueryPlanSampler(LLMAgent):
                 f"scenario_summary: {inputs.get('scenario_summary', '')[:500]}\n"
                 f"## schema (use ONLY these real collections/fields)\n{_schema_digest(inputs.get('schema', {}))}\n"
                 f"## archetype recipe\n{recipe}\n\n"
-                "Emit intent with: seed_mechanism; seed_signal {collection, field}; archetype; "
+                "Emit top-level intent with: seed_mechanism; seed_signal {collection, field}; archetype; "
                 "target_difficulty; target_sql_infeasibility_class; schema_flex_mode; "
                 "domain_framing (use the REAL collection/field names — do NOT invent entities "
                 "like 'customers'/'phone' that aren't in the schema); analytical_op (a CONCRETE "
                 "computation: target field name + exact formula + missing-default); "
                 "shape_policy (preserve|reshape|reduce); output {fields, missing}; "
-                "semantic_properties; reference_oracle. The intent must fully determine the result.")
+                "semantic_properties. Also emit top-level reference_oracle {template, params}. "
+                "The intent plus reference_oracle must fully determine the result.")
 
     def check_contract(self, ctx, inputs, output) -> list[str]:
         intent = output.get("intent", {})
@@ -97,6 +115,9 @@ class QueryPlanSampler(LLMAgent):
             v.append(f"intent.shape_policy must be preserve/reshape/reduce, got {sp!r}")
         if inputs.get("archetype") == "present_missing_projection" and sp != "preserve":
             v.append("present_missing_projection requires shape_policy=preserve")
+        if sp == "preserve" and inputs.get("target_sql_infeasibility_class") == \
+                "structural_schema_flex":
+            v.extend(_preserve_schema_flex_default_violations(intent))
         if inputs.get("archetype") == "schema_flex_variant_summary":
             if sp not in ("reshape", "reduce"):
                 v.append("schema_flex_variant_summary requires shape_policy=reshape or reduce")
@@ -106,6 +127,28 @@ class QueryPlanSampler(LLMAgent):
                 None, "structural_schema_flex"
             ):
                 v.append("schema_flex_variant_summary must target structural_schema_flex")
+            fields = (intent.get("output") or {}).get("fields") or []
+            if "variant" not in fields:
+                v.append("schema_flex_variant_summary output.fields must include 'variant'")
+            if "count" not in fields:
+                v.append("schema_flex_variant_summary output.fields must include 'count'")
+            target_field = (intent.get("analytical_op") or {}).get("target_field")
+            if target_field and target_field not in fields:
+                v.append(
+                    "schema_flex_variant_summary output.fields must include "
+                    f"analytical_op.target_field {target_field!r}"
+                )
+        ref = output.get("reference_oracle") or intent.get("reference_oracle")
+        if not isinstance(ref, dict):
+            v.append("reference_oracle with supported template is required")
+        else:
+            template = ref.get("template")
+            if not template:
+                v.append("reference_oracle.template is required")
+            elif not has_oracle(str(template)):
+                v.append(f"unsupported reference_oracle.template {template!r}")
+            else:
+                v.extend(oracle_param_errors(str(template), ref.get("params")))
         return v
 
 
@@ -125,6 +168,31 @@ _MS_SCHEMA = {
 }
 
 
+def _oracle_prompt_rule(oracle: Any) -> str:
+    """Small deterministic hints for oracle semantics LLMs commonly miss."""
+    if not isinstance(oracle, dict):
+        return ""
+    template = oracle.get("template")
+    params = oracle.get("params") if isinstance(oracle.get("params"), dict) else {}
+    if template == "present_missing_projection":
+        denom = params.get("denom") if isinstance(params.get("denom"), dict) else {}
+        zero_value = denom.get("zero_value", 1)
+        return (
+            "For reference_oracle.template='present_missing_projection', preserve every "
+            "parent document. If the optional embed is absent, set target_field to "
+            "absent_value. If the embed is present, compute numerator_path divided by the "
+            "denominator sum; when that denominator is missing or 0, use denom.zero_value "
+            f"({zero_value!r}) as the divisor, not 0 as the final answer. "
+        )
+    if template == "optional_embed_projection":
+        return (
+            "For reference_oracle.template='optional_embed_projection', preserve every "
+            "parent document and set the target to missing_default when the embed/value is "
+            "missing or null. "
+        )
+    return ""
+
+
 @register
 class MqlSynthesizer(LLMAgent):
     id = "ms"
@@ -136,29 +204,51 @@ class MqlSynthesizer(LLMAgent):
     def render_inputs(self, ctx: AgentContext, inputs: dict[str, Any]) -> str:
         import json
         intent = inputs.get("intent", {})
+        oracle = inputs.get("reference_oracle") or intent.get("reference_oracle")
         fb = inputs.get("ms_feedback")
         fb_note = f"\n\nPREVIOUS ATTEMPT REJECTED: {fb}. Fix exactly this." if fb else ""
+        oracle_rule = _oracle_prompt_rule(oracle)
         target = (
             f"target_difficulty: {inputs.get('target_difficulty', 'L4')}\n"
             "target_sql_infeasibility_class: "
             f"{inputs.get('target_sql_infeasibility_class', 'structural_schema_flex')}\n"
             f"target_schema_flex: {inputs.get('target_schema_flex', 'polymorphic')}\n"
         )
-        structural_rule = (
-            "\nFor target structural_schema_flex, the MQL MUST visibly dispatch over real "
-            "document-shape variants using $type/$switch/$cond on the optional embedded "
-            "sub-document. It must reshape/reduce into a variant summary; do not output a "
-            "plain preserve-only computed field. Set schema_flex='polymorphic'."
-            if inputs.get("target_sql_infeasibility_class") == "structural_schema_flex" else ""
-        )
+        structural_rule = ""
+        if inputs.get("target_sql_infeasibility_class") == "structural_schema_flex":
+            structural_rule = (
+                "\nFor target structural_schema_flex, the MQL MUST visibly dispatch over real "
+                "document-shape variants using $type/$switch/$cond on the optional embedded "
+                "sub-document. Set schema_flex='polymorphic'."
+            )
+            if intent.get("archetype") == "schema_flex_variant_summary":
+                structural_rule += (
+                    " This summary archetype must reshape/reduce into a variant summary; do "
+                    "not output a plain preserve-only computed field. Output a field named "
+                    "'variant' whose only values are the exact strings 'present' and "
+                    "'missing', plus 'count' and the aggregate target field."
+                )
+            elif intent.get("shape_policy") == "preserve":
+                structural_rule += (
+                    " This preserve archetype must keep every root document and attach the "
+                    "computed target field; do not add a root $group."
+                )
         return ("# MS — synthesize gold MQL that realizes THIS intent exactly\n"
                 f"## coverage target\n{target}"
                 f"## intent\n```json\n{json.dumps(intent, ensure_ascii=False, indent=2)}\n```\n"
+                "## reference_oracle (authoritative answer oracle)\n"
+                f"```json\n{json.dumps(oracle, ensure_ascii=False, indent=2)}\n```\n"
                 f"## schema (real collections/fields)\n{_schema_digest(inputs.get('schema', {}))}{fb_note}\n\n"
                 "Produce MQL = db.<root_collection>.aggregate([...]) realizing the intent's "
                 "exact formula + missing-default. Honor intent.shape_policy: if 'preserve', use "
                 "$addFields to attach the computed field and KEEP every input document and its "
-                "original fields (no $match that drops docs, no root $group/$unwind). "
+                "original fields (no $match that drops docs, no root $group/$unwind). Remove "
+                "any temporary lookup/sum/helper fields before the final output; the only new "
+                "field left in preserve output should be the intent target field. "
+                f"{oracle_rule}"
+                "Do not alter the reference_oracle; the deterministic lock will run "
+                "reference_oracle.template with reference_oracle.params against DM's snapshot "
+                "and require it to match this MQL result. "
                 "Also give mql_alt (an equivalent algebraic rewrite) + shape_policy + schema_flex. "
                 "No banned operators ($sample/$rand/$$NOW/$out/$merge/$function)."
                 f"{structural_rule}")
@@ -186,9 +276,14 @@ class MqlSynthesizer(LLMAgent):
             output.setdefault("mql_alt", mql)
             return output
 
-        # gold-lock: executes + non-empty + (preserve => cardinality preserved). Dual-path
-        # is advisory only here (independently-generated LLM pairs are often inconsistent);
-        # reference-oracle (R) anchoring is the proper correctness anchor and is future work.
+        if ctx.mongo is None or not ctx.mongo.available():
+            output["gold_locked"] = False
+            output["gold_lock_reason"] = "MongoDB executor unavailable for gold-lock"
+            return output
+
+        # gold-lock: executes + non-empty + (preserve => cardinality preserved) + independent
+        # reference oracle R over DM's authoritative snapshot. Dual-path remains advisory only
+        # because independently-generated LLM pairs are often inconsistent.
         try:
             collection, _ = parse_pipeline(mql)
             bad_refs = _unknown_schema_refs(mql, inputs.get("schema", {}), collection)
@@ -205,19 +300,28 @@ class MqlSynthesizer(LLMAgent):
                 return output
             if inputs.get("target_schema_flex") and inputs.get("target_schema_flex") != "none":
                 output["schema_flex"] = inputs["target_schema_flex"]
-            r_primary = ctx.mongo.norm_exec(ctx.db_id, mql)
+            r_primary = [_normalize_doc(d) for d in ctx.mongo.norm_exec(ctx.db_id, mql)]
             if not r_primary:
                 output["gold_locked"] = False
                 output["gold_lock_reason"] = "gold result is empty (P4 trivial)"
                 return output
+            output["result_fields"] = sorted({k for row in r_primary for k in row})
             reasons: list[str] = []
+            reasons.extend(_structural_schema_flex_result_reasons(r_primary, inputs))
             if shape == "preserve":
                 n_in = ctx.mongo.count(ctx.db_id, collection)
                 if len(r_primary) != n_in:
                     reasons.append(f"preserve violated: {len(r_primary)} out docs != "
                                    f"{n_in} input docs (a $match/$group dropped some)")
                 input_fields = ctx.mongo.sample_fields(ctx.db_id, collection)
-                reasons.extend(_computed_field_quality_reasons(r_primary, input_fields))
+                reasons.extend(_computed_field_quality_reasons(
+                    r_primary, input_fields, _expected_new_fields(inputs)
+                ))
+            oracle_reason = _reference_oracle_reason(inputs, r_primary)
+            if oracle_reason:
+                reasons.append(oracle_reason)
+            else:
+                output["reference_oracle_verified"] = True
             alt = output.get("mql_alt")
             if alt and alt != mql:
                 try:
@@ -369,6 +473,19 @@ class NlParaphraser(LLMAgent):
         import json
         intent = inputs.get("intent", {})
         preserve = intent.get("shape_policy") == "preserve"
+        result_fields = inputs.get("result_fields") or (intent.get("output") or {}).get("fields")
+        field_note = ""
+        if result_fields:
+            field_note = "\nGold result field names to preserve literally: " + ", ".join(
+                map(str, result_fields)
+            ) + "."
+        mql_note = ""
+        if inputs.get("MQL"):
+            mql_note = (
+                "\nLocked gold MQL is provided only to recover literal output field names and "
+                "category labels; do not mention operator syntax in the NLQ.\n"
+                f"{inputs['MQL']}"
+            )
         shape_rule = (
             "This is a PRESERVE task: say the new field is ADDED to each document and that "
             "EVERY existing field and nested sub-document is KEPT unchanged. Do NOT enumerate "
@@ -377,7 +494,9 @@ class NlParaphraser(LLMAgent):
             if preserve else
             "This is a RESHAPE/REDUCE task: do NOT say the result adds a field to each "
             "document, and do NOT say that each document is kept unchanged. State the "
-            "summary/grouping unit and list exactly the output fields in intent.output.fields."
+            "summary/grouping unit and list exactly the gold result fields. For schema-flex "
+            "variant summaries, state that the variant field uses the exact literal values "
+            "'present' and 'missing'."
         )
         fb = inputs.get("rtv_feedback")
         extra = ""
@@ -392,23 +511,28 @@ class NlParaphraser(LLMAgent):
                      " For this reshape/reduce task, do not rewrite it as a per-document "
                      "add-field task. Say it summarizes/groups documents by the variant, "
                      "uses the missing-default formula, and outputs only the requested "
-                     "summary fields.")
+                     "summary fields. Preserve exact variant labels.")
         return ("# NLP — paraphrase canonical (L1) + colloquial (L0) NLQ from THIS intent "
                 "(not from any pipeline)\n"
                 f"## intent\n```json\n{json.dumps(intent, ensure_ascii=False, indent=2)}\n```\n"
                 "RULES: describe EXACTLY the computation in this intent over ITS named "
                 "collection/fields. Do NOT introduce entities/fields not in the intent "
                 "(no 'customers'/'phone' unless named). Name the computed field + exact formula "
-                f"+ missing-default; no $ operator terms.\n{shape_rule}" + extra)
+                f"+ missing-default; no $ operator terms.\n{shape_rule}{field_note}{mql_note}"
+                + extra)
 
     def check_contract(self, ctx, inputs, output) -> list[str]:
         c = output.get("nl_queries", {}).get("canonical", "")
         v = ["canonical NLQ must not contain $ operator terms"] if "$" in c else []
-        v.extend(_nl_shape_contract_violations(inputs.get("intent", {}), c))
+        v.extend(_nl_shape_contract_violations(
+            inputs.get("intent", {}), c, inputs.get("result_fields")
+        ))
         return v
 
 
-def _nl_shape_contract_violations(intent: dict[str, Any], canonical: str) -> list[str]:
+def _nl_shape_contract_violations(
+    intent: dict[str, Any], canonical: str, result_fields: list[str] | None = None
+) -> list[str]:
     """Catch NLQ/shape mismatches before RTV burns another retry."""
     shape = intent.get("shape_policy")
     text = canonical.lower()
@@ -430,7 +554,7 @@ def _nl_shape_contract_violations(intent: dict[str, Any], canonical: str) -> lis
     if intent.get("archetype") == "schema_flex_variant_summary":
         fields = [
             str(f).lower()
-            for f in (intent.get("output") or {}).get("fields", [])
+            for f in (result_fields or (intent.get("output") or {}).get("fields", []))
             if isinstance(f, str) and f
         ]
         missing = [f for f in fields if f not in text]
@@ -439,6 +563,12 @@ def _nl_shape_contract_violations(intent: dict[str, Any], canonical: str) -> lis
                 "schema_flex_variant_summary canonical NLQ must name output fields: "
                 + ", ".join(missing)
             )
+        for label in ("present", "missing"):
+            if label not in text:
+                violations.append(
+                    "schema_flex_variant_summary canonical NLQ must name exact variant "
+                    f"label {label!r}"
+                )
     return violations
 
 
@@ -604,18 +734,134 @@ def _hashable(v: Any) -> Any:
     return v
 
 
+def _preserve_schema_flex_default_violations(intent: dict[str, Any]) -> list[str]:
+    """Reject preserve schema-flex intents whose missing/default branch is underspecified."""
+    op = intent.get("analytical_op") if isinstance(intent.get("analytical_op"), dict) else {}
+    output = intent.get("output") if isinstance(intent.get("output"), dict) else {}
+    op_output = op.get("output") if isinstance(op.get("output"), dict) else {}
+    target = op.get("target_field")
+    candidates: list[tuple[str, Any]] = []
+    for key in ("missing_default", "absent_value", "default"):
+        if key in op:
+            candidates.append((f"analytical_op.{key}", op[key]))
+    for prefix, out in (("output", output), ("analytical_op.output", op_output)):
+        output_missing = out.get("missing")
+        if isinstance(output_missing, dict):
+            if target and target in output_missing:
+                candidates.append((f"{prefix}.missing.{target}", output_missing[target]))
+            else:
+                candidates.extend(
+                    (f"{prefix}.missing.{k}", v) for k, v in output_missing.items()
+                )
+        elif "missing" in out:
+            candidates.append((f"{prefix}.missing", output_missing))
+
+    if not candidates:
+        return [
+            "preserve structural_schema_flex intent must state a non-null missing/default "
+            "value for the computed target field"
+        ]
+    null_paths = [path for path, value in candidates if value is None]
+    if null_paths:
+        return [
+            "preserve structural_schema_flex computed fields must use non-null "
+            "missing/default values: " + ", ".join(null_paths)
+        ]
+    return []
+
+
 def _bucket(n_stages: int) -> str:
     if n_stages <= 4:
         return "shallow"
     return "medium" if n_stages <= 9 else "deep"
 
 
+def _reference_oracle_reason(inputs: dict[str, Any], mql_norm: list[dict[str, Any]]) -> str | None:
+    """Return why R(D) does not certify the MQL result, or None when it matches."""
+    intent = inputs.get("intent") if isinstance(inputs.get("intent"), dict) else {}
+    payload = inputs.get("reference_oracle") or intent.get("reference_oracle")
+    if not isinstance(payload, dict):
+        return "missing reference_oracle payload with template and params"
+    template = payload.get("template")
+    if not isinstance(template, str) or not template:
+        return "reference_oracle.template is required"
+    if not has_oracle(template):
+        return f"unsupported reference_oracle.template {template!r}"
+    params = payload.get("params")
+    if not isinstance(params, dict):
+        return "reference_oracle.params must be an object"
+    snapshot = inputs.get("mongodb_data")
+    if not isinstance(snapshot, dict):
+        return "mongodb_data snapshot is required to run reference_oracle"
+    try:
+        oracle_raw = reference_oracle(template)(snapshot, params)
+    except OracleError as exc:
+        return f"reference_oracle execution failed for {template!r}: {exc}"
+    except Exception as exc:  # noqa: BLE001 - malformed oracle params must fail the lock cleanly
+        return (
+            f"reference_oracle execution failed for {template!r}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+    if not isinstance(oracle_raw, list):
+        return f"reference_oracle {template!r} returned {type(oracle_raw).__name__}, expected list"
+    oracle_norm = [_normalize_doc(d) for d in oracle_raw]
+    if not equiv_rec(mql_norm, oracle_norm, order_sensitive=_ORDER_INSENSITIVE):
+        detail = _oracle_divergence_detail(mql_norm, oracle_norm, params)
+        return (
+            f"reference_oracle divergence for {template!r}: "
+            f"mql_rows={len(mql_norm)}, oracle_rows={len(oracle_norm)}{detail}"
+        )
+    return None
+
+
+def _oracle_divergence_detail(
+    mql_norm: list[dict[str, Any]], oracle_norm: list[dict[str, Any]], params: dict[str, Any]
+) -> str:
+    target = params.get("target_field")
+    if not isinstance(target, str) or not target:
+        return ""
+    if not all(isinstance(row, dict) and "_id" in row for row in mql_norm[:500]):
+        return ""
+    if not all(isinstance(row, dict) and "_id" in row for row in oracle_norm[:500]):
+        return ""
+    oracle_by_id = {row["_id"]: row for row in oracle_norm if isinstance(row, dict)}
+    for row in mql_norm[:500]:
+        key = row.get("_id")
+        other = oracle_by_id.get(key)
+        if not isinstance(other, dict):
+            return f"; first_mismatch _id={key!r} missing from oracle"
+        extra = sorted(set(row) - set(other))
+        missing = sorted(set(other) - set(row))
+        if extra or missing:
+            parts = []
+            if extra:
+                parts.append(f"extra_mql_fields={extra}")
+            if missing:
+                parts.append(f"missing_mql_fields={missing}")
+            return f"; first_mismatch _id={key!r} " + " ".join(parts)
+        if row.get(target) != other.get(target):
+            return (
+                f"; first_mismatch _id={key!r} field={target!r} "
+                f"mql={row.get(target)!r} oracle={other.get(target)!r}"
+            )
+    return ""
+
+
 def _computed_field_quality_reasons(
-    rows: list[dict[str, Any]], input_fields: set[str]
+    rows: list[dict[str, Any]], input_fields: set[str],
+    allowed_new_fields: set[str] | None = None,
 ) -> list[str]:
     sample = rows[:500]
     new_fields = sorted({k for d in sample for k in d} - input_fields)
     reasons: list[str] = []
+    if allowed_new_fields is not None:
+        leaked = [f for f in new_fields if f not in allowed_new_fields]
+        if leaked:
+            reasons.append(
+                "preserve leaked helper fields: " + ", ".join(repr(f) for f in leaked)
+                + "; final preserve output may only add "
+                + ", ".join(repr(f) for f in sorted(allowed_new_fields))
+            )
     for field in new_fields:
         values = [d.get(field) for d in sample]
         if any(field not in d for d in sample) or any(v is None for v in values):
@@ -623,6 +869,17 @@ def _computed_field_quality_reasons(
         if any(isinstance(v, (dict, list)) for v in values):
             reasons.append(f"computed field {field!r} produced non-scalar values")
     return reasons
+
+
+def _expected_new_fields(inputs: dict[str, Any]) -> set[str] | None:
+    intent = inputs.get("intent") if isinstance(inputs.get("intent"), dict) else {}
+    op = intent.get("analytical_op") if isinstance(intent.get("analytical_op"), dict) else {}
+    target = op.get("target_field")
+    if not isinstance(target, str) or not target:
+        ref = inputs.get("reference_oracle") or intent.get("reference_oracle")
+        params = ref.get("params") if isinstance(ref, dict) else {}
+        target = params.get("target_field") if isinstance(params, dict) else None
+    return {target} if isinstance(target, str) and target else None
 
 
 def _structural_schema_flex_reasons(
@@ -644,12 +901,43 @@ def _structural_schema_flex_reasons(
         reasons.append("structural_schema_flex target requires $type or $objectToArray")
     if not ({"$switch", "$cond"} & ops):
         reasons.append("structural_schema_flex target requires explicit variant branch dispatch")
-    if "$group" not in ops:
+    intent = inputs.get("intent") if isinstance(inputs.get("intent"), dict) else {}
+    if intent.get("archetype") == "schema_flex_variant_summary" and "$group" not in ops:
         reasons.append("schema_flex_variant_summary target requires a $group summary")
     if inputs.get("target_schema_flex") and inputs.get("target_schema_flex") != "none":
         sf = str(inputs.get("target_schema_flex"))
         if sf != "polymorphic":
             reasons.append(f"unsupported target_schema_flex {sf!r}")
+    return reasons
+
+
+def _structural_schema_flex_result_reasons(
+    rows: list[dict[str, Any]], inputs: dict[str, Any]
+) -> list[str]:
+    if inputs.get("target_sql_infeasibility_class") != "structural_schema_flex":
+        return []
+    intent = inputs.get("intent") if isinstance(inputs.get("intent"), dict) else {}
+    if intent.get("archetype") != "schema_flex_variant_summary":
+        return []
+    sample = rows[:500]
+    reasons: list[str] = []
+    if any("variant" not in row for row in sample):
+        reasons.append("schema_flex_variant_summary result must expose field 'variant'")
+    else:
+        variants = {row.get("variant") for row in sample}
+        if variants != {"present", "missing"}:
+            reasons.append(
+                "schema_flex_variant_summary result variant values must be exactly "
+                f"'present' and 'missing', got {sorted(map(str, variants))}"
+            )
+    if any("count" not in row for row in sample):
+        reasons.append("schema_flex_variant_summary result must expose field 'count'")
+    target_field = ((inputs.get("intent") or {}).get("analytical_op") or {}).get("target_field")
+    if target_field and any(target_field not in row for row in sample):
+        reasons.append(
+            "schema_flex_variant_summary result must expose analytical target field "
+            f"{target_field!r}"
+        )
     return reasons
 
 
@@ -673,27 +961,44 @@ def _pipeline_operator_set(value: Any) -> set[str]:
 
 def _unknown_schema_refs(mql: str, schema: dict[str, Any], collection: str) -> list[str]:
     """Return field paths used by MQL but absent from the collection schema."""
+    try:
+        _, pipeline = parse_pipeline(mql)
+    except TendError:
+        return []
+    refs_by_collection = _mql_field_refs_by_collection(pipeline, collection)
+    transient_heads = _pipeline_created_heads(mql)
+    bad: list[str] = []
+    for coll, refs in refs_by_collection.items():
+        ignored_heads = transient_heads if coll == collection else set()
+        prefix = "" if coll == collection else f"{coll}."
+        bad.extend(_unknown_refs_for_collection(schema, coll, refs, ignored_heads, prefix))
+    return sorted(set(bad))
+
+
+def _unknown_refs_for_collection(
+    schema: dict[str, Any], collection: str, refs: set[str], ignored_heads: set[str],
+    prefix: str = "",
+) -> list[str]:
     allowed = _schema_field_paths(schema, collection)
     if not allowed:
         return []
     known_nested_heads = _known_nested_schema_heads(schema, collection)
-    transient_heads = _pipeline_created_heads(mql)
-    refs = set()
-    for ref in _mql_field_refs(mql):
+    candidates = set()
+    for ref in refs:
         if not ref or ref.startswith("$"):
             continue
         head = ref.split(".", 1)[0]
-        if head in {"ROOT", "CURRENT"} or head in transient_heads:
+        if head in {"ROOT", "CURRENT"} or head in ignored_heads:
             continue
-        refs.add(ref)
+        candidates.add(ref)
     bad = []
-    for ref in refs:
+    for ref in candidates:
         if ref in allowed:
             continue
         head = ref.split(".", 1)[0]
         if "." in ref and head in allowed and head not in known_nested_heads:
             continue
-        bad.append(ref)
+        bad.append(f"{prefix}{ref}")
     return sorted(bad)
 
 
@@ -704,22 +1009,52 @@ def _mql_field_refs(mql: str) -> set[str]:
     except TendError:
         return set()
 
+    return _field_refs(pipeline)
+
+
+def _mql_field_refs_by_collection(
+    pipeline: list[dict[str, Any]], root_collection: str
+) -> dict[str, set[str]]:
+    refs: dict[str, set[str]] = {root_collection: set()}
+    for stage in pipeline:
+        if not isinstance(stage, dict):
+            continue
+        lookup = stage.get("$lookup")
+        if isinstance(lookup, dict):
+            root_lookup = {k: v for k, v in lookup.items() if k != "pipeline"}
+            refs[root_collection].update(_field_refs(root_lookup))
+            from_coll = lookup.get("from")
+            subpipe = lookup.get("pipeline")
+            if isinstance(from_coll, str) and isinstance(subpipe, list):
+                sub_created = _pipeline_created_heads_from_stages(subpipe)
+                refs.setdefault(from_coll, set()).update(
+                    ref for ref in _field_refs(subpipe)
+                    if ref.split(".", 1)[0] not in sub_created
+                )
+            stage = {k: v for k, v in stage.items() if k != "$lookup"}
+            if not stage:
+                continue
+        refs[root_collection].update(_field_refs(stage))
+    return refs
+
+
+def _field_refs(value: Any) -> set[str]:
     refs: set[str] = set()
 
-    def visit(value: Any) -> None:
-        if isinstance(value, str):
-            if value.startswith("$") and not value.startswith("$$") and len(value) > 1:
-                refs.add(value[1:])
+    def visit(node: Any) -> None:
+        if isinstance(node, str):
+            if node.startswith("$") and not node.startswith("$$") and len(node) > 1:
+                refs.add(node[1:])
             return
-        if isinstance(value, list):
-            for item in value:
+        if isinstance(node, list):
+            for item in node:
                 visit(item)
             return
-        if isinstance(value, dict):
-            for item in value.values():
+        if isinstance(node, dict):
+            for item in node.values():
                 visit(item)
 
-    visit(pipeline)
+    visit(value)
     return refs
 
 
@@ -729,6 +1064,11 @@ def _pipeline_created_heads(mql: str) -> set[str]:
         _, pipeline = parse_pipeline(mql)
     except TendError:
         return set()
+    return _pipeline_created_heads_from_stages(pipeline)
+
+
+def _pipeline_created_heads_from_stages(pipeline: list[Any]) -> set[str]:
+    """Top-level fields created inside a root pipeline or lookup sub-pipeline."""
     heads: set[str] = set()
     for stage in pipeline:
         if not isinstance(stage, dict):
@@ -746,6 +1086,13 @@ def _pipeline_created_heads(mql: str) -> set[str]:
                 k.split(".", 1)[0]
                 for k, v in project.items()
                 if isinstance(k, str) and isinstance(v, dict)
+            )
+        group = stage.get("$group")
+        if isinstance(group, dict):
+            heads.update(
+                k.split(".", 1)[0]
+                for k in group
+                if isinstance(k, str) and k != "_id"
             )
     return heads
 

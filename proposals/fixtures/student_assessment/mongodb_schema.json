@@ -19,7 +19,7 @@
       "items": {
         "type": "OBJECT",
         "fields": {
-          "__type": "TEXT",
+          "assessment_type": "TEXT",
           "assessment_id": "INT",
           "score": "REAL"
         }
@@ -27,19 +27,19 @@
     },
     "__variants": [
       {
-        "discriminator": { "__type": "written" },
+        "discriminator": { "assessment_type": "written" },
         "fields": { "written_score": "REAL", "word_count": "INT" },
         "coverage": 0.42,
         "source_signal": "H1: Candidate_Assessments.assessment_type=written"
       },
       {
-        "discriminator": { "__type": "oral" },
+        "discriminator": { "assessment_type": "oral" },
         "fields": { "oral_score": "REAL", "duration_minutes": "INT" },
         "coverage": 0.35,
         "source_signal": "H1: Candidate_Assessments.assessment_type=oral"
       },
       {
-        "discriminator": { "__type": "practical" },
+        "discriminator": { "assessment_type": "practical" },
         "fields": { "lab_score": "REAL", "equipment_id": "INT" },
         "coverage": 0.23,
         "source_signal": "H1: Candidate_Assessments.assessment_type=practical"

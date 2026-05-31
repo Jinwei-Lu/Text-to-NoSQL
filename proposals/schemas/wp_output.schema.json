@@ -2,12 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tend.dev/schemas/wp_output.schema.json",
   "title": "TEND WP Agent Output",
-  "description": "Workload profile produced by WP (Workload Profiler) for a Spider db_id.",
+  "description": "Workload profile produced by WP (Workload Profiler) for a BIRD mini-dev db_id or explicit smoke fixture.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "db_id",
-    "spider_version",
+    "source_version",
     "generated_at",
     "insufficient_workload",
     "source",
@@ -25,9 +25,10 @@
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]*$"
     },
-    "spider_version": {
+    "source_version": {
       "type": "string",
-      "const": "1.0"
+      "minLength": 1,
+      "description": "Source tag such as bird-mini-dev; smoke examples must use an explicit smoke-fixture tag."
     },
     "generated_at": {
       "type": "string",

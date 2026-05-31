@@ -3,7 +3,7 @@
   "mql_alt": "db.conductor.aggregate([{\"$unwind\": {\"path\": \"$orchestra\"}}, {\"$unwind\": {\"path\": \"$orchestra.performance\"}}, {\"$facet\": {\"windowed\": [{\"$setWindowFields\": {\"partitionBy\": \"$_id\", \"sortBy\": {\"orchestra.performance.Performance_ID\": 1}, \"output\": {\"moving_avg_attendance\": {\"$avg\": {\"$ifNull\": [\"$orchestra.performance.Attendance\", 0]}, \"window\": {\"documents\": [-2, 0]}}}}}]}}, {\"$unwind\": \"$windowed\"}, {\"$group\": {\"_id\": \"$_id\", \"Name\": {\"$first\": {\"$ifNull\": [\"$Name\", \"(unknown)\"]}}, \"last_window_avg\": {\"$last\": \"$moving_avg_attendance\"}}}])",
   "canonical_form_set": {
     "must_contain": ["$setWindowFields", "$facet", "$ifNull"],
-    "must_not_contain": [],
+    "must_not_contain": ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function"],
     "must_contain_at_root": ["$setWindowFields", "$facet"],
     "must_not_contain_at_root": []
   },
@@ -16,6 +16,7 @@
     "mql_alt": "db.conductor.aggregate([...])",
     "converged": true,
     "normexec_equiv": true,
+    "reference_equiv": true,
     "ast_check_primary": true,
     "ast_check_alt": true,
     "gold_selection": "mql_primary"

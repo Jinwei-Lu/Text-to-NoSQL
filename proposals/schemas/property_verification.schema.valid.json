@@ -2,6 +2,7 @@
   "property_verification": {
     "gold_ex": true,
     "gold_normexec_non_bot": true,
+    "gold_reference_equiv": true,
     "mql_alt_ex_equiv": true,
     "ast_check_gold": true,
     "ast_check_alt": true,

@@ -10,7 +10,7 @@
 
 TEND (Text-to-NoSQL benchmark for Mongo-flavored pipelines) 研究自然语言查询意图如何被可执行的 MongoDB 聚合管道精确表达。任务签名是 f(NLQ, S, db_id) → q^MQL：给定单条自然语言查询、完整 Schema 与 BIRD mini-dev 数据库标识，模型须输出 mongosh 可执行的 MQL 字符串。
 
-TEND 以 BIRD mini-dev (11 库) 为数据源与场景源，由十一智能体流水线 (WP / SRA / SC / DM / QPS / MS / MUT / PV / NLP / RTV / NNC / RA) 产出 record。Phase B 采用逆向工程构造 NL–MQL 对：先采样 query_plan、合成 MQL、再逆向 paraphrase NLQ。Agent 框架在构造期直接保证 P1 执行良构、P3 判别力、P4 世界非平凡性；P2 语义唯一性由 QPS 计划控制 + RTV 往返闭包 + NNC 歧义攻击共同承担。
+TEND 以 BIRD mini-dev (11 库) 为数据源与场景源，由十一智能体流水线 (WP / SRA / SC / DM / QPS / MS / MUT / PV / NLP / RTV / NNC / RA) 产出 record。Phase B 采用 RAR 逆向工程构造 NL–MQL 对：先枚举异构驱动 `intent`，再以参照 R 锁死 gold MQL，最后从 intent 生成 NLQ。Agent 框架在构造期直接保证 P1 执行良构、P3 判别力、P4 世界非平凡性；P2 语义唯一性由 intent 控制 + RTV 结果级往返闭包 + NNC 歧义攻击共同承担。
 
 正确性不以 MQL 字面相等为锚，而以 gold-as-class 等价类判定。每条 record 携带 canonical_form_set 四元组 (must_contain / must_not_contain / must_contain_at_root / must_not_contain_at_root) 与 canonical representative (MQL 字段)。预测 q_p 属于 gold-class 当且仅当 EX 双条件合取成立：AST_check 静态通过，且 NormExec(q_p, D) ≡_rec NormExec(q_g, D)。NormExec = Norm ∘ Exec ∘ Parse，所有执行层比较一律基于归一化结果，不直接比较原生 BSON。
 
@@ -232,7 +232,7 @@ Norm 是从原生 Exec 结果到 $\mathcal{R}^\ast$ 的确定性投射。四层�
 ### §01-4-4 _id 与 shape-preserving
 
 - **_id**：默认剥除顶层副作用 _id（gold 未在 $project 列出 _id:1 且未在 $group 将 _id 作为语义键时）；显式保留时参与比较。
-- **shape-preserving**：gold 未 flatten 的嵌套数组，Norm 严格保留形状；shape_policy ∈ {reshape, preserve, irrelevant} 见 [02 §2](./02_dataset_design.md#02-2)。preserve 下 flatten 多余一层判 ≢_rec，即使计数凑巧相等。
+- **shape-preserving**：gold 未 flatten 的嵌套数组，Norm 严格保留形状；shape_policy ∈ {preserve, reshape, reduce} 见 [02 §2](./02_dataset_design.md#02-2)。preserve 下 flatten 多余一层判 ≢_rec，即使计数凑巧相等。
 
 <a id="01-5"></a>
 ## §01-5 ≡_rec 递归相等
@@ -277,7 +277,7 @@ gold representative 在 witness 上须解析、执行、归一化成功，**且�
 
 > canonical NLQ 意图唯一；RTV 往返下 canonical 须 `NormExec ≡_rec gold`（结果级）；colloquial 不引入第二意图。
 
-P2 由 QPS 计划控制 + RTV 闭包（canonical 强制 / colloquial 软）+ NNC 独立 LLM 歧义攻击共同担保。
+P2 由 QPS 枚举的 `intent` + RTV 结果级闭包（canonical 强制 / colloquial 软）+ NNC 独立 LLM 歧义攻击共同担保。
 
 **P3 · Discriminativeness**
 
@@ -308,7 +308,7 @@ L1–L3 与 P 的耦合关系保持不变：L1 ↔ P1 类内；L2 ↔ P3∧P4 �
 
 > **⚠ PENDING DAR Phase A**：下列 record 取自 BIRD `financial`,异构信号(稀疏 `loan` 682/4500、多态 `trans`)实测;account 反范式化布局、gold MQL 与 `world_signature`(确定性占位)尚未经 DAR Phase A 在真实 MongoDB 上构造 + 执行验证。
 
-> **RAR 注**：financial/1001 是异构驱动记录的范例——难度源自稀疏 `loan` 的 present/missing 变体（DAR 机制②），canonical NLQ「无 loan 则记 0」正是该 query-bearing 异构逼出的真实业务意图（archetype = 稀疏字段的存在性条件投影，见 [04 §04-2-4](./04_agent_framework.md#04-2-4)）。其 `canonical_form_set`（`must_contain` 含 `$lookup`/`$addFields`/`$cond`/`$type`）为 **pre-collapse 旧富指纹**；按 [§01-3-1](#01-3-1) cfs 最小化原则，replace/执行验证时将重派生为「不变量 + output 守卫」（保留 `$lookup` 与 `preserve` shape 守卫 `$unwind`/`$group` 根禁，去掉可替换的 `$addFields`/`$cond`/`$type`）。此重派生并入该锚既有的 PENDING DAR Phase A 工作。
+> **RAR 注**：financial/1001 是异构驱动记录的范例——难度源自稀疏 `loan` 的 present/missing 变体（DAR 机制②），canonical NLQ「无 loan 则记 0」正是该 query-bearing 异构逼出的真实业务意图（archetype = 稀疏字段的存在性条件投影，见 [04 §04-2-4](./04_agent_framework.md#04-2-4)）。其 `canonical_form_set` 已按 [§01-3-1](#01-3-1) 收敛为 RAR thin contract：`must_contain` 仅保留不可避免的 `$lookup`，`must_not_contain` 恒含 6 件禁用 operator，`must_contain_at_root` 可空，`preserve` shape 以根禁 `$unwind`/`$group` 守住 output space；`$addFields`/`$cond`/`$type` 等可替换 idiom 不进入 cfs，由 witness + `NormExec ≡_rec` 判别。
 
 <!-- canonical-anchor: financial/1001 -->
 ```json
@@ -341,12 +341,13 @@ L1–L3 与 P 的耦合关系保持不变：L1 ↔ P1 类内；L2 ↔ P3∧P4 �
   { $project: { _credit: 0 } }
 ])",
   "canonical_form_set": {
-    "must_contain": ["$lookup", "$addFields", "$cond", "$type"],
-    "must_not_contain": ["$unwind"],
-    "must_contain_at_root": ["$addFields"],
+    "must_contain": ["$lookup"],
+    "must_not_contain": ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function"],
+    "must_contain_at_root": [],
     "must_not_contain_at_root": ["$unwind", "$group"]
   },
   "difficulty": "L4",
+  "sql_infeasibility_class": "structural_schema_flex",
   "shape_policy": "preserve",
   "world_signature": "sha256:58d575b0eb62b1499642ec46e9efe5d5576082ce45d871df0326821f44751346",
   "agent_design_rationale_ref": "fixtures/financial/sra.yaml",
@@ -357,7 +358,7 @@ L1–L3 与 P 的耦合关系保持不变：L1 ↔ P1 类内；L2 ↔ P3∧P4 �
 **解读要点**：
 
 - difficulty L4：$lookup 关联子管道（多态 trans 贷记求和）+ 稀疏 loan 的 $cond 变体调和，dual-bridge defeat 须拒绝纯 SQL 翻译捷径（[04 §3](./04_agent_framework.md#04-3)）。
-- canonical_form_set：must_contain $lookup / $addFields / $cond / $type；must_contain_at_root $addFields；must_not_contain $unwind（**pre-collapse 旧富指纹**；RAR cfs 最小化后保留 $lookup + preserve shape 守卫、去 $addFields/$cond/$type，见 §01-7 RAR 注）。
+- canonical_form_set：RAR thin guard；`must_contain` 仅 `$lookup`，`must_not_contain` 恒含 6 件禁用 operator，`must_contain_at_root` 可空，`preserve` shape 以根禁 `$unwind`/`$group` 守住文档数与嵌套结构。
 - shape_policy preserve：只 $addFields 就地新增 loan_to_credit_ratio，禁 $unwind+$group 重建（§06-5）。
 - mutations_ref 中典型错解（用 INNER-JOIN 式 drop 丢无 loan 账户、漏 $cond/$type、多态 trans 未按 type 过滤、credit_sum 为 0 未兜底）须在 witness 上 NormExec ≢_rec gold（P3）。
 

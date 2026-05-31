@@ -5,7 +5,7 @@ MQL: |
         norm_score: {
           $switch: {
             branches: [
-              { case: { $eq: ["$assessments.__type", "written"] },
+              { case: { $eq: ["$assessments.assessment_type", "written"] },
                 then: { $multiply: [
                   { $divide: [
                     { $ifNull: ["$assessments.written_score", 0] },
@@ -13,9 +13,9 @@ MQL: |
                   ] },
                   100
                 ] } },
-              { case: { $eq: ["$assessments.__type", "oral"] },
+              { case: { $eq: ["$assessments.assessment_type", "oral"] },
                 then: { $ifNull: ["$assessments.oral_score", 0] } },
-              { case: { $eq: ["$assessments.__type", "practical"] },
+              { case: { $eq: ["$assessments.assessment_type", "practical"] },
                 then: { $ifNull: ["$assessments.lab_score", 0] } }
             ],
             default: 0
@@ -36,11 +36,11 @@ mql_alt: |
         norm_score: {
           $switch: {
             branches: [
-              { case: { $eq: ["$assessments.__type", "practical"] },
+              { case: { $eq: ["$assessments.assessment_type", "practical"] },
                 then: { $ifNull: ["$assessments.lab_score", 0] } },
-              { case: { $eq: ["$assessments.__type", "oral"] },
+              { case: { $eq: ["$assessments.assessment_type", "oral"] },
                 then: { $ifNull: ["$assessments.oral_score", 0] } },
-              { case: { $eq: ["$assessments.__type", "written"] },
+              { case: { $eq: ["$assessments.assessment_type", "written"] },
                 then: { $multiply: [
                   { $divide: [
                     { $ifNull: ["$assessments.written_score", 0] },
@@ -62,11 +62,10 @@ mql_alt: |
   ])
 canonical_form_set:
   must_contain: ["$switch", "$unwind", "$ifNull"]
-  must_not_contain: ["$setWindowFields", "$facet"]
+  must_not_contain: ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function", "$setWindowFields", "$facet"]
   must_contain_at_root: ["$unwind"]
   must_not_contain_at_root: []
 shape_policy: reshape
-schema_flex: polymorphic
 join_depth: 0
 aggregation_depth: medium
 synthesis_trace:

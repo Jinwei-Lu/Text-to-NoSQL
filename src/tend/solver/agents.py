@@ -56,9 +56,18 @@ _PLAN_SCHEMA = {
                 "required": ["op", "stage"],
                 "properties": {
                     "op": {"type": "string"},
-                    "note": {"type": "string"},
+                    "note": {"type": "string", "minLength": 1},
+                    "rationale": {"type": "object", "minProperties": 1},
+                    "diagnostic": {"type": "object", "minProperties": 1},
+                    "diagnostics": {"type": "object", "minProperties": 1},
                     "stage": {"type": "object"},
                 },
+                "anyOf": [
+                    {"required": ["note"]},
+                    {"required": ["rationale"]},
+                    {"required": ["diagnostic"]},
+                    {"required": ["diagnostics"]},
+                ],
                 "additionalProperties": True,
             },
         },
@@ -124,7 +133,7 @@ class SmartIntentFormalizer(LLMAgent):
             "shape_model S_hat:\n```json\n"
             + json.dumps(inputs.get("shape_model", {}), ensure_ascii=False, indent=2)
             + "\n```\n\n"
-            "feedback from a later stage, if any:\n```json\n"
+            "bounded checkpoint feedback from a later stage, if any:\n```json\n"
             + json.dumps(inputs.get("feedback"), ensure_ascii=False, indent=2)
             + "\n```"
         )
@@ -176,9 +185,9 @@ class SmartNosqlPlanner(LLMAgent):
             + json.dumps(inputs.get("logical_spec", {}), ensure_ascii=False, indent=2)
             + "\n```\n\nshape_model S_hat:\n```json\n"
             + json.dumps(inputs.get("shape_model", {}), ensure_ascii=False, indent=2)
-            + "\n```\n\nfeedback:\n```json\n"
+            + "\n```\n\nbounded checkpoint feedback:\n```json\n"
             + json.dumps(inputs.get("feedback"), ensure_ascii=False, indent=2)
-            + "\n```\n\nwitness_digest (≤K docs per collection, planning only):\n```json\n"
+            + "\n```\n\ndisclosed witness_digest (≤K docs per collection, planning only):\n```json\n"
             + json.dumps(inputs.get("witness_digest", {}), ensure_ascii=False, indent=2)
             + "\n```"
         )
@@ -226,6 +235,10 @@ class SmartNosqlPlanner(LLMAgent):
                     "$addFields/$set; remove them or inline with $let: " + str(leaked_assigned)
                 )
         for i, stage in enumerate(stages):
+            if not _has_stage_diagnostic(stage):
+                violations.append(
+                    f"stage {i} must include a non-empty diagnostic note or structured rationale"
+                )
             hits = disabled_hits_in_node(stage.get("stage"))
             if hits:
                 violations.append(f"stage {i} uses disabled operators: {hits}")
@@ -272,6 +285,17 @@ def _normalized_stage_items(stages: list[dict[str, Any]]) -> list[dict[str, Any]
             stage = {op: stage}
         normalized.append({**item, "stage": stage})
     return normalized
+
+
+def _has_stage_diagnostic(stage: dict[str, Any]) -> bool:
+    note = stage.get("note")
+    if isinstance(note, str) and note.strip():
+        return True
+    for key in ("rationale", "diagnostic", "diagnostics"):
+        value = stage.get(key)
+        if isinstance(value, dict) and value:
+            return True
+    return False
 
 
 def _collection_shape(collection: str, schema: dict[str, Any]) -> dict[str, Any]:

@@ -1,5 +1,5 @@
 db_id: world_1
-spider_version: "1.0"
+source_version: "smoke-fixture"
 generated_at: "2026-05-23T10:30:00Z"
 insufficient_workload: false
 source:

@@ -8,14 +8,14 @@
   "MQL": "db.airlines.aggregate([\n  { $unwind: { path: \"$flights\", preserveNullAndEmptyArrays: false } },\n  { $group: {\n      _id: {\n        Abbreviation: { $ifNull: [\"$Abbreviation\", \"(unknown)\"] },\n        route: { $concat: [\"$flights.SourceAirport\", \"-\", \"$flights.DestAirport\"] }\n      },\n      flight_count: { $sum: 1 }\n  } },\n  { $match: { flight_count: { $gt: 3 } } },\n  { $project: {\n      _id: 0,\n      Abbreviation: \"$_id.Abbreviation\",\n      route: \"$_id.route\",\n      flight_count: 1\n  } }\n])",
   "canonical_form_set": {
     "must_contain": ["$unwind", "$group", "$ifNull"],
-    "must_not_contain": ["$setWindowFields", "$facet"],
+    "must_not_contain": ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function", "$setWindowFields", "$facet"],
     "must_contain_at_root": ["$unwind"],
     "must_not_contain_at_root": ["$lookup"]
   },
   "difficulty": "L2",
   "sql_infeasibility_class": "semantic",
   "shape_policy": "reshape",
-  "world_signature": "sha256:e81c7c2f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3",
+  "world_signature": "sha256:998222459441749c7614d44d939d749a975b35a28b3f37713792cbd07f27e0cf",
   "domain_id": "transportation",
   "join_depth": 0,
   "aggregation_depth": "medium",

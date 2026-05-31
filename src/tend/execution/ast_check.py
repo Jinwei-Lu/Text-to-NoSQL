@@ -30,6 +30,10 @@ INVARIANT_STRUCTURAL_OPS: frozenset[str] = frozenset(
 _AGG_RE = re.compile(r"db\.([A-Za-z0-9_]+)\.aggregate\s*\(", re.DOTALL)
 
 
+def _disabled_token_re(token: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![A-Za-z0-9_$]){re.escape(token)}(?![A-Za-z0-9_])")
+
+
 def parse_pipeline(mql: str) -> tuple[str, list[dict[str, Any]]]:
     """Parse ``db.<coll>.aggregate([...])`` into ``(collection, pipeline_stages)``.
 
@@ -79,6 +83,18 @@ def _walk_keys(node: Any):
             yield from _walk_keys(item)
 
 
+def _walk_strings(node: Any):
+    """Yield every string value at any depth."""
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, dict):
+        for value in node.values():
+            yield from _walk_strings(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _walk_strings(item)
+
+
 def all_ops(pipeline: list[dict[str, Any]]) -> set[str]:
     return {k for k in _walk_keys(pipeline) if isinstance(k, str) and k.startswith("$")}
 
@@ -91,14 +107,21 @@ def root_ops(pipeline: list[dict[str, Any]]) -> set[str]:
     return ops
 
 
+def disabled_tokens(pipeline: list[dict[str, Any]], *, raw_mql: str = "") -> set[str]:
+    """Return disabled operators/system vars seen as keys or string tokens."""
+    disabled = DISABLED_OPERATORS | DISABLED_SYSTEM_VARS
+    hits = set(all_ops(pipeline) & disabled)
+    for value in _walk_strings(pipeline):
+        hits.update(token for token in disabled if _disabled_token_re(token).search(value))
+    if raw_mql:
+        hits.update(token for token in disabled if _disabled_token_re(token).search(raw_mql))
+    return hits
+
+
 def scan_disabled(mql: str) -> list[str]:
     """Return banned-operator hits (operators + $$NOW system var) found anywhere."""
     _, pipeline = parse_pipeline(mql)
-    hits = sorted(all_ops(pipeline) & DISABLED_OPERATORS)
-    for var in DISABLED_SYSTEM_VARS:
-        if var in mql:
-            hits.append(var)
-    return hits
+    return sorted(disabled_tokens(pipeline, raw_mql=mql))
 
 
 def assert_no_disabled(mql: str) -> None:
@@ -113,9 +136,14 @@ def ast_check(mql: str, cfs: dict[str, Any]) -> tuple[bool, list[str]]:
 
     cfs quadruple: must_contain / must_not_contain (any depth) and the *_at_root variants.
     """
-    _, pipeline = parse_pipeline(mql)
+    try:
+        _, pipeline = parse_pipeline(mql)
+    except ResponseParseError as exc:
+        return False, [f"parse error: {exc}"]
     ops, rops = all_ops(pipeline), root_ops(pipeline)
     reasons: list[str] = []
+    for op in sorted(disabled_tokens(pipeline, raw_mql=mql)):
+        reasons.append(f"forbidden disabled token present {op}")
     for op in cfs.get("must_contain", []):
         if op not in ops:
             reasons.append(f"missing required op {op}")

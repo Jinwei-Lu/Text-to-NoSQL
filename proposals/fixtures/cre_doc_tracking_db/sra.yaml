@@ -4,7 +4,7 @@ source_spider_tables:
   - Document_Attributes
 patterns_applied: [embed]
 rationale_summary: >
-  Single documents collection with H4 dynamic-key metrics object promoted from EAV attribute rows.
+  Single documents collection with dynamic-key metrics object promoted from real EAV attribute rows.
 decisions:
   - id: D01
     type: embed
@@ -16,21 +16,21 @@ decisions:
     type: attribute
     parent: documents
     child: metrics
-    rationale: H4 eav_promote; Document_Attributes rows become dynamic keys under metrics.
-    reference: heterogenization.triggers.H4
+    rationale: dynamic_key mechanism fired; Document_Attributes rows become dynamic keys under metrics.
+    reference: heterogenization.triggers.dynamic_key
 heterogenization:
   schema_flex: dynamic_key
   triggers:
-    - id: H4
+    - mechanism: dynamic_key
       fired: true
       evidence: Document_Attributes EAV shape; entity_id=document_id; name/value columns
-    - id: H1
+    - mechanism: polymorphic
       fired: false
       evidence: no type_conditional_rate >= 0.30
-    - id: H2
+    - mechanism: sparse
       fired: false
       evidence: sparse_null_cols=0
-    - id: H3
+    - mechanism: version
       fired: false
       evidence: no temporal rename pair
 anti_pattern_checks:

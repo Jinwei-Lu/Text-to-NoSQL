@@ -1,6 +1,6 @@
 {
   "must_contain": ["$match"],
-  "must_not_contain": [],
-  "must_contain_at_root": [],
+  "must_not_contain": ["$sample", "$rand", "$out", "$merge", "$function"],
+  "must_contain_at_root": ["not_an_operator"],
   "must_not_contain_at_root": []
 }

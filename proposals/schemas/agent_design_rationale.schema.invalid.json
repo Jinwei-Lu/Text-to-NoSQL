@@ -7,5 +7,15 @@
       "type": "not_a_pattern",
       "rationale": ""
     }
-  ]
+  ],
+  "heterogenization": {
+    "schema_flex": "polymorphic",
+    "triggers": [
+      {
+        "id": "H1",
+        "fired": true,
+        "evidence": "legacy trigger id without mechanism"
+      }
+    ]
+  }
 }

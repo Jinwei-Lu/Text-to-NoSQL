@@ -20,11 +20,9 @@ mql_round_trip_colloquial: |
   ])
 round_trip_verification:
   canonical_pass: true
-  canonical_ex: true
-  canonical_ast_check: true
+  canonical_result_equiv: true
   colloquial_pass: false
-  colloquial_ex: false
-  colloquial_ast_check: true
+  colloquial_result_equiv: false
   underspec_attribution: colloquial omits per-route grouping and route field in output
 rtv_pass: true
 rtv_trace:

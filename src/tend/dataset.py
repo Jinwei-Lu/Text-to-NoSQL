@@ -40,7 +40,7 @@ def write_records(out_dir: Path, records: list[dict[str, Any]]) -> None:
 
 def write_catalog(out_dir: Path, artifacts: dict[str, DbArtifacts]) -> None:
     catalog = {
-        "spider_version": "1.0",
+        "source_version": "1.0",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "selection_policy": {
             "min_tables": 1,

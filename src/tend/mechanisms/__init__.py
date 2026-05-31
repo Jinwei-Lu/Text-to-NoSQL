@@ -27,7 +27,7 @@ from .archetypes import (
     normalize_mechanism,
 )
 from .detectors import MechanismInstance, detect_mechanisms
-from .oracles import OracleError, has_oracle, reference_oracle
+from .oracles import OracleError, has_oracle, oracle_param_errors, reference_oracle
 
 __all__ = [
     "MECHANISMS",
@@ -42,5 +42,6 @@ __all__ = [
     "detect_mechanisms",
     "reference_oracle",
     "has_oracle",
+    "oracle_param_errors",
     "OracleError",
 ]

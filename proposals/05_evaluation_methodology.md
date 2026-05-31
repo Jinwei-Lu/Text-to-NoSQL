@@ -22,7 +22,7 @@ TEND 评测层把每条 test record 上的 solver 预测 `q_p` 压缩为固定�
 
 **4-panel 报告（纯观测）**：构造期由 20 个冻结模型（small/medium/large/frontier 各 5）在每条 record 上产出 pr 四元组 `(pr_small, pr_medium, pr_large, pr_frontier)`，随 release 发布为 evaluator-only 元数据。4-panel 仅用于难度形状观测、Solver-vs-Panel 对比视图与 `empirical_difficulty` 标签（由 pr_medium 分桶），不得反向修改 witness 或 record。
 
-**SQL-bridge 诊断切片（纯观测）**：构造期 NNC 对每条 record 写入 `functional_sql_solvable`（SQL-bridge EX=1）与 `structural_sql_solvable`（SQL-bridge EX=1 ∧ QIM=1）。评测层对两布尔字段分别切片，形成 `functional_sql_solvable × 7 指标` 与 `structural_sql_solvable × 7 指标` 诊断矩阵，用于观测 SQL 捷径可解性分布；**不得**替代 EX headline 或放宽 gold-class。
+**SQL-bridge 诊断切片（纯观测）**：构造期 NNC 对每条 record 写入 `functional_sql_solvable`（SQL-bridge `NormExec ≡_rec gold`）与 `structural_sql_solvable`（SQL-bridge result-equivalent 且 AST_check pass）。评测层对两布尔字段分别切片，形成 `functional_sql_solvable × 7 指标` 与 `structural_sql_solvable × 7 指标` 诊断矩阵，用于观测 SQL 捷径可解性分布；**不得**替代 EX headline 或放宽 gold-class。
 
 **强制披露**：任何公开引用 TEND 分数的提交须同时披露 7 指标三级聚合、六轴切片矩阵、4-panel pr 分布、构造/评测 disjointness 时间戳、环境 digest、Solver LLM 骨干清单、per-record 指纹 CSV 等 ≥12 项（见 [§05-4](#05-4)）。缺失任一项标记 `[DISCLOSURE_INCOMPLETE]`，不得汇入 official leaderboard。
 
@@ -194,8 +194,8 @@ pr 四元组 `(pr_small, pr_medium, pr_large, pr_frontier)`：每个 pr_X 为 pa
 
 | 字段 | 定义 | 用途 |
 |---|---|---|
-| `functional_sql_solvable` | SQL-bridge 产物 EX=1 | 观测「语义可函数化到 SQL 再桥接」比例 |
-| `structural_sql_solvable` | SQL-bridge 产物 EX=1 ∧ QIM=1 | 观测「结构+语义均可 SQL 捷径」比例 |
+| `functional_sql_solvable` | SQL-bridge 产物 `NormExec ≡_rec gold` | 观测「语义可函数化到 SQL 再桥接」比例 |
+| `structural_sql_solvable` | SQL-bridge result-equivalent 且 AST_check pass | 观测「结构+语义均可 SQL 捷径」比例 |
 
 评测层对两字段分别切片，生成 `functional_sql_solvable × 7 指标` 与 `structural_sql_solvable × 7 指标` 矩阵；可与六轴、`sql_infeasibility_class`、`empirical_difficulty` 交叉。`functional_sql_solvable` 与 `structural_sql_solvable` **仅作诊断**，不参与 EX headline 或 leaderboard 排名。
 
@@ -519,12 +519,13 @@ def aggregate_panels(fingerprints, panel_pr_meta) -> dict:
   { $project: { _credit: 0 } }
 ])",
   "canonical_form_set": {
-    "must_contain": ["$lookup", "$addFields", "$cond", "$type"],
-    "must_not_contain": ["$unwind"],
-    "must_contain_at_root": ["$addFields"],
+    "must_contain": ["$lookup"],
+    "must_not_contain": ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function"],
+    "must_contain_at_root": [],
     "must_not_contain_at_root": ["$unwind", "$group"]
   },
   "difficulty": "L4",
+  "sql_infeasibility_class": "structural_schema_flex",
   "shape_policy": "preserve",
   "world_signature": "sha256:58d575b0eb62b1499642ec46e9efe5d5576082ce45d871df0326821f44751346",
   "agent_design_rationale_ref": "fixtures/financial/sra.yaml",

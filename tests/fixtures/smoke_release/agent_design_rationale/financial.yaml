@@ -1,0 +1,104 @@
+decisions:
+- id: D01
+  type: embed
+  parent: account
+  child: loan
+  rationale: DM embedded sparse satellite table loan under account from the BIRD foreign-key/cardinality
+    evidence.
+  reference: migration_log.embeds
+- id: D02
+  type: embed
+  parent: client
+  child: disp
+  rationale: DM embedded sparse satellite table disp under client from the BIRD foreign-key/cardinality
+    evidence.
+  reference: migration_log.embeds
+db_id: financial
+source_spider_tables:
+- account
+- card
+- client
+- disp
+- district
+- loan
+- order
+- trans
+collections:
+  account:
+    fields:
+    - _id
+    - account_id
+    - date
+    - district_id
+    - frequency
+    - loan
+  card:
+    fields:
+    - _id
+    - card_id
+    - disp_id
+    - issued
+    - type
+  client:
+    fields:
+    - _id
+    - birth_date
+    - client_id
+    - disp
+    - district_id
+    - gender
+  district:
+    fields:
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - _id
+    - district_id
+  order:
+    fields:
+    - _id
+    - account_id
+    - account_to
+    - amount
+    - bank_to
+    - k_symbol
+    - order_id
+  trans:
+    fields:
+    - _id
+    - account
+    - account_id
+    - amount
+    - balance
+    - bank
+    - date
+    - k_symbol
+    - operation
+    - trans_id
+    - type
+patterns_applied:
+- embed
+- polymorphic
+rationale_summary: DM produced a deterministic document-aggregate layout from BIRD
+  FKs.
+anti_pattern_checks:
+  pass: true
+  issues: []
+heterogenization:
+  schema_flex: polymorphic
+  triggers:
+  - mechanism: sparse
+    fired: true
+    evidence: sparse optional embeds create present/missing document variants

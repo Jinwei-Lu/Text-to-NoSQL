@@ -5,12 +5,12 @@ diagnostic_bridge:
   gate_required: true
   gate_pass: true
   sql_bridge:
-    ex: 0
-    qim: 0
+    normexec_equiv_gold: false
+    ast_check_pass: false
     notes: SQL cannot pivot arbitrary attribute_name keys without static CASE-per-key explosion
   template_bridge:
-    ex: 0
-    qim: 0
+    normexec_equiv_gold: false
+    ast_check_pass: false
     notes: Matched flat_filter template; missing $objectToArray unfold
   functional_sql_solvable: false
   structural_sql_solvable: false

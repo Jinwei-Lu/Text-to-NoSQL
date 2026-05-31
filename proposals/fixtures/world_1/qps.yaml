@@ -1,21 +1,19 @@
-query_plan:
-  primary_pattern: embed_ratio_aggregate
-  operator_graph:
-    stages: ["$match", "$unwind", "$group", "$project", "$match"]
-    dependencies:
-      - continent filter on country root
-      - unwind embedded cities array
-      - conditional sum for null-excluding denominator
+intent:
+  seed_mechanism: nesting
+  seed_signal:
+    collection: country
+    array: cities
+    fields: [Continent, Name, Population]
+  archetype: nested_conditional_ratio
+  domain_framing:
+    entity_noun: country
+    metric_noun: large-city share
+  analytical_op:
+    filter: Continent = Europe
+    numerator: cities with Population > 1000000
+    denominator: cities with non-null Population
+    output_filter: pct > 0.3
   shape_policy: reshape
-  null_missing_strategy: cond
-  target_difficulty: L2
-  schema_flex_mode: none
-  join_depth_target: 0
-  aggregation_depth_target: medium
-  target_fields:
-    - country.Continent
-    - country.Name
-    - cities.Population
   semantic_properties:
     - id: europe_continent_filter
       expect: only Continent = Europe countries enter aggregation
@@ -23,8 +21,15 @@ query_plan:
       expect: cities with null Population excluded from numerator and denominator
     - id: pct_threshold
       expect: only pct > 0.3 retained
+  reference_oracle:
+    template: nested_conditional_ratio
+    params:
+      collection: country
+      array: cities
+      threshold: 0.3
+  target_difficulty: L2
 qps_trace:
-  coverage_cell: L2|semantic|schema_flex_none
+  coverage_cell: nesting|nested_conditional_ratio|geography
   deficit_weight: 0.10
   supply_constrained: false
-  pattern_rationale: scenario_summary emphasizes per-country city population ratios under embedded cities
+  rationale: Smoke fixture; per-country city population ratios under embedded cities.

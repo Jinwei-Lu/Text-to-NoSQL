@@ -6,7 +6,7 @@
       "mutation_id": "m001",
       "dimension": "E",
       "subaxis": "ignore_variants",
-      "description": "Use uniform assessments.score instead of $switch per __type",
+      "description": "Use uniform assessments.score instead of $switch per assessment_type",
       "MQL": "db.students.aggregate([{ $unwind: \"$assessments\" }, { $group: { _id: \"$_id\", first_name: { $first: \"$first_name\" }, final_score: { $max: \"$assessments.score\" } } }, { $project: { _id: 0, first_name: 1, final_score: 1 } }])",
       "expected_reject": true
     },
@@ -23,7 +23,7 @@
       "dimension": "C",
       "subaxis": "drop_ifNull",
       "description": "Remove $ifNull on first_name and variant score fields",
-      "MQL": "db.students.aggregate([{ $unwind: \"$assessments\" }, { $addFields: { norm_score: { $switch: { branches: [{ case: { $eq: [\"$assessments.__type\", \"written\"] }, then: { $divide: [\"$assessments.written_score\", \"$assessments.word_count\"] } }], default: 0 } } } }, { $group: { _id: \"$_id\", first_name: { $first: \"$first_name\" }, final_score: { $max: \"$norm_score\" } } }, { $project: { _id: 0, first_name: 1, final_score: 1 } }])",
+      "MQL": "db.students.aggregate([{ $unwind: \"$assessments\" }, { $addFields: { norm_score: { $switch: { branches: [{ case: { $eq: [\"$assessments.assessment_type\", \"written\"] }, then: { $divide: [\"$assessments.written_score\", \"$assessments.word_count\"] } }], default: 0 } } } }, { $group: { _id: \"$_id\", first_name: { $first: \"$first_name\" }, final_score: { $max: \"$norm_score\" } } }, { $project: { _id: 0, first_name: 1, final_score: 1 } }])",
       "expected_reject": true
     },
     {
@@ -31,7 +31,7 @@
       "dimension": "E",
       "subaxis": "wrong_dispatch",
       "description": "Swap oral and practical branches in $switch",
-      "MQL": "db.students.aggregate([{ $unwind: \"$assessments\" }, { $addFields: { norm_score: { $switch: { branches: [{ case: { $eq: [\"$assessments.__type\", \"oral\"] }, then: { $ifNull: [\"$assessments.lab_score\", 0] } }, { case: { $eq: [\"$assessments.__type\", \"practical\"] }, then: { $ifNull: [\"$assessments.oral_score\", 0] } }], default: 0 } } } }, { $group: { _id: \"$_id\", first_name: { $first: { $ifNull: [\"$first_name\", \"(unknown)\"] } }, final_score: { $max: \"$norm_score\" } } }, { $project: { _id: 0, first_name: 1, final_score: 1 } }])",
+      "MQL": "db.students.aggregate([{ $unwind: \"$assessments\" }, { $addFields: { norm_score: { $switch: { branches: [{ case: { $eq: [\"$assessments.assessment_type\", \"oral\"] }, then: { $ifNull: [\"$assessments.lab_score\", 0] } }, { case: { $eq: [\"$assessments.assessment_type\", \"practical\"] }, then: { $ifNull: [\"$assessments.oral_score\", 0] } }], default: 0 } } } }, { $group: { _id: \"$_id\", first_name: { $first: { $ifNull: [\"$first_name\", \"(unknown)\"] } }, final_score: { $max: \"$norm_score\" } } }, { $project: { _id: 0, first_name: 1, final_score: 1 } }])",
       "expected_reject": true
     },
     {

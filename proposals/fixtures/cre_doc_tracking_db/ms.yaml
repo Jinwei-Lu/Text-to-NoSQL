@@ -32,11 +32,10 @@ mql_alt: |
   ])
 canonical_form_set:
   must_contain: ["$objectToArray", "$unwind", "$group"]
-  must_not_contain: ["$setWindowFields"]
+  must_not_contain: ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function", "$setWindowFields"]
   must_contain_at_root: ["$project"]
   must_not_contain_at_root: []
 shape_policy: reshape
-schema_flex: dynamic_key
 join_depth: 0
 aggregation_depth: medium
 synthesis_trace:

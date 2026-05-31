@@ -2,16 +2,38 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
+from ..errors import Anomaly
 from ..workflow import Workflow
 from . import agents as _agents  # noqa: F401 - import registers SMART agents
-from .contracts import LogicalSpec, PhysicalPlan, SolverPrediction
+from .contracts import LogicalSpec, PhysicalPlan, SolverDisclosure, SolverPrediction
 from .guards import SolverBoundary, render_mql
 
 DEFAULT_R_MAX = 2
 DEFAULT_WITNESS_K = 3
+
+
+@dataclass(frozen=True)
+class SolverFailure:
+    """Typed terminal solver result that is not a prediction."""
+
+    record_id: int | None
+    db_id: str
+    error_code: str
+    message: str
+    disclosure: SolverDisclosure
+    shape_model: dict[str, Any]
+    logical_spec: dict[str, Any]
+    physical_plan: dict[str, Any]
+    feedback: list[dict[str, Any]] = field(default_factory=list)
+    terminal_feedback: dict[str, Any] | None = None
+    result_type: str = "solver_failure"
+
+    def to_json(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 async def smart_solve_record(
@@ -22,7 +44,7 @@ async def smart_solve_record(
     local_data: dict[str, list[dict[str, Any]]] | None = None,
     r_max: int = DEFAULT_R_MAX,
     witness_k: int = DEFAULT_WITNESS_K,
-) -> SolverPrediction:
+) -> SolverPrediction | SolverFailure:
     """Solve one TEND record using the SMART four-stage reference workflow.
 
     The record may be a release ``test.json`` record. It is sanitized before any stage sees
@@ -83,6 +105,10 @@ async def smart_solve_record(
             db_id=db_id,
             plan=plan,
             target_fields=spec.target_fields,
+            schema=schema,
+            shape_model=shape_model,
+            local_data=local_data,
+            attempt=attempt,
         )
         if realization["ok"]:
             mql = realization["mql"]
@@ -97,20 +123,45 @@ async def smart_solve_record(
                 physical_plan=plan.to_json(),
                 feedback=feedback_log,
             )
-        feedback = realization["feedback"]
-        feedback_log.append(dict(feedback or {}))
-        ctx.log.warning("smart_solver_feedback", attempt=attempt, feedback=feedback)
+        feedback_entry = dict(realization["feedback"] or {})
+        feedback_entry.setdefault("attempt", attempt)
+        feedback = feedback_entry
+        feedback_log.append(feedback_entry)
+        ctx.log.warning("smart_solver_feedback", attempt=attempt, feedback=feedback_entry)
+        if feedback_entry.get("boundary_failure"):
+            return SolverFailure(
+                record_id=record_id,
+                db_id=db_id,
+                error_code=str(feedback_entry.get("error_code") or "EXEC_ERROR"),
+                message=str(feedback_entry.get("message") or "solver execution boundary failed"),
+                disclosure=disclosure,
+                shape_model=shape_model,
+                logical_spec=spec.to_json(),
+                physical_plan=plan.to_json(),
+                feedback=feedback_log,
+                terminal_feedback=feedback_entry,
+            )
 
+    terminal_feedback = feedback_log[-1] if feedback_log else None
     ctx.log.warning("smart_solver_abandon", attempts=r_max + 1, feedback=feedback_log)
-    return SolverPrediction(
+    ctx.log.anomaly(
+        kind=Anomaly.SOLVER_EXHAUSTED,
+        message="solver exhausted all realization attempts",
+        attempts=r_max + 1,
+        feedback=feedback_log,
+        terminal_feedback=terminal_feedback,
+    )
+    return SolverFailure(
         record_id=record_id,
         db_id=db_id,
-        MQL="[]",
+        error_code="SOLVER_EXHAUSTED",
+        message="solver exhausted all realization attempts",
         disclosure=disclosure,
         shape_model=shape_model,
         logical_spec=logical_spec,
         physical_plan=physical_plan,
         feedback=feedback_log,
+        terminal_feedback=terminal_feedback,
     )
 
 
@@ -153,6 +204,10 @@ def realize_plan_per_stage(
     db_id: str,
     plan: PhysicalPlan,
     target_fields: list[str],
+    schema: dict[str, Any] | None = None,
+    shape_model: dict[str, Any] | None = None,
+    local_data: dict[str, list[dict[str, Any]]] | None = None,
+    attempt: int | None = None,
 ) -> dict[str, Any]:
     """Stage 4: AST-filter and execute each growing prefix when a local executor exists."""
     from .per_stage import CheckpointSpec, run_per_stage_check
@@ -167,13 +222,19 @@ def realize_plan_per_stage(
     if ctx.settings.stub:
         executor = _NoopPrefixExecutor(checkpoint.required_fields_by_stage)
     elif ctx.mongo is not None and ctx.mongo.available():
-        executor = _MongoPrefixExecutor(ctx.mongo)
+        executor = _MongoPrefixExecutor(
+            ctx.mongo,
+            schema=schema,
+            shape_model=shape_model,
+            local_data=local_data,
+        )
     else:
         ctx.log.anomaly(
             kind="exec_error",
             message="local MongoDB unavailable for per-stage solver execution",
             db_id=db_id,
             collection=plan.collection,
+            attempt=attempt,
         )
         return {
             "ok": False,
@@ -184,14 +245,17 @@ def realize_plan_per_stage(
                 "failing_variant": None,
                 "suspect_field": None,
                 "message": "local MongoDB unavailable for per-stage solver execution",
+                "boundary_failure": True,
+                "attempt": attempt,
             },
         }
+    logger = ctx.log.bind(solver_attempt=attempt) if attempt is not None else ctx.log
     result = run_per_stage_check(
         db_id=db_id,
         mql=mql,
         executor=executor,
         checkpoint=checkpoint,
-        logger=ctx.log,
+        logger=logger,
     )
     if result.ok:
         mql = result.final_mql or mql
@@ -302,19 +366,305 @@ def _required_fields_by_stage(
     }
 
 
+_PRESENT_MARKERS = {"present", "exists", "true"}
+_MISSING_MARKERS = {"missing", "absent", "false"}
+
+
+@dataclass(frozen=True)
+class _VariantStratum:
+    variant: str
+    discriminator: dict[str, Any]
+    selector: dict[str, Any]
+    source: str
+
+    def to_log_context(self) -> dict[str, Any]:
+        return {
+            "discriminator": self.discriminator,
+            "selector": self.selector,
+            "source": self.source,
+        }
+
+
 class _MongoPrefixExecutor:
-    def __init__(self, mongo: Any) -> None:
+    def __init__(
+        self,
+        mongo: Any,
+        *,
+        schema: dict[str, Any] | None = None,
+        shape_model: dict[str, Any] | None = None,
+        local_data: dict[str, list[dict[str, Any]]] | None = None,
+    ) -> None:
         self._mongo = mongo
+        self._schema = schema or {}
+        self._shape_model = shape_model or {}
+        self._local_data = local_data or {}
 
     def execute_prefix(self, request: Any) -> Any:
-        docs = self._mongo.norm_exec(request.db_id, request.mql)
-        try:
-            input_count = self._mongo.count(request.db_id, request.collection)
-        except Exception:  # noqa: BLE001 - count is diagnostic; prefix result still matters
-            input_count = None
-        from .per_stage import PrefixExecutionResult
+        from .per_stage import PrefixExecutionResult, VariantExecution
 
-        return PrefixExecutionResult.single_variant(docs, variant="local", input_count=input_count)
+        strata = _variant_strata(
+            request.collection,
+            schema=self._schema,
+            shape_model=self._shape_model,
+            local_data=self._local_data,
+        )
+        if not strata:
+            docs = self._mongo.norm_exec(request.db_id, request.mql)
+            input_count = self._count_variant(request, None)
+            return PrefixExecutionResult.single_variant(
+                docs,
+                variant="unstratified",
+                input_count=input_count,
+            )
+
+        variants: list[VariantExecution] = []
+        for stratum in strata:
+            input_count = self._count_variant(request, stratum)
+            try:
+                docs = self._mongo.norm_exec(request.db_id, _stratified_mql(request, stratum))
+                variants.append(
+                    VariantExecution(
+                        stratum.variant,
+                        tuple(docs),
+                        input_count,
+                        context=stratum.to_log_context(),
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - report variant-scoped executor feedback
+                variants.append(
+                    VariantExecution(
+                        stratum.variant,
+                        (),
+                        input_count,
+                        str(exc)[:500],
+                        {
+                            **stratum.to_log_context(),
+                            "exception_type": type(exc).__name__,
+                        },
+                    )
+                )
+        return PrefixExecutionResult(tuple(variants))
+
+    def _count_variant(self, request: Any, stratum: _VariantStratum | None) -> int | None:
+        local_count = _local_variant_count(
+            self._local_data,
+            request.collection,
+            stratum.discriminator if stratum else {},
+        )
+        if local_count is not None:
+            return local_count
+        try:
+            if stratum is None:
+                return int(self._mongo.count(request.db_id, request.collection))
+            connect = getattr(self._mongo, "_connect", None)
+            db_name = getattr(self._mongo, "_db_name", None)
+            if callable(connect) and callable(db_name):
+                client = connect()
+                return int(
+                    client[db_name(request.db_id)][request.collection].count_documents(
+                        stratum.selector
+                    )
+                )
+        except Exception:  # noqa: BLE001 - counts are diagnostic, not execution truth
+            return None
+        return None
+
+
+def _variant_strata(
+    collection: str,
+    *,
+    schema: dict[str, Any],
+    shape_model: dict[str, Any],
+    local_data: dict[str, list[dict[str, Any]]],
+) -> tuple[_VariantStratum, ...]:
+    raw_variants = _shape_model_variants(shape_model, collection)
+    source = "shape_model"
+    if not raw_variants:
+        raw_variants = _schema_variants(schema, collection)
+        source = "schema"
+    strata = _normalize_variant_strata(raw_variants, source=source)
+    if strata:
+        return strata
+    return _local_witness_strata(local_data, collection)
+
+
+def _shape_model_variants(shape_model: dict[str, Any], collection: str) -> list[Mapping[str, Any]]:
+    collections = shape_model.get("collections")
+    if not isinstance(collections, Mapping):
+        return []
+    node = collections.get(collection)
+    if not isinstance(node, Mapping):
+        return []
+    variants = node.get("variants") or []
+    return [v for v in variants if isinstance(v, Mapping)]
+
+
+def _schema_variants(schema: dict[str, Any], collection: str) -> list[Mapping[str, Any]]:
+    node = _schema_collections(schema).get(collection)
+    if not isinstance(node, Mapping):
+        return []
+    variants = node.get("__variants") or []
+    return [v for v in variants if isinstance(v, Mapping)]
+
+
+def _normalize_variant_strata(
+    raw_variants: list[Mapping[str, Any]],
+    *,
+    source: str,
+) -> tuple[_VariantStratum, ...]:
+    explicit_missing_fields = {
+        str(field)
+        for raw in raw_variants
+        for discriminator in [dict(raw.get("discriminator") or {})]
+        if len(discriminator) == 1
+        for field, marker in discriminator.items()
+        if _marker(marker) in _MISSING_MARKERS
+    }
+    strata: list[_VariantStratum] = []
+    seen: set[tuple[tuple[str, str], ...]] = set()
+    for index, raw in enumerate(raw_variants):
+        discriminator = {str(k): v for k, v in dict(raw.get("discriminator") or {}).items()}
+        if not discriminator:
+            continue
+        variant = str(raw.get("id") or f"v{index}")
+        _append_stratum(strata, seen, variant, discriminator, source)
+        if len(discriminator) == 1:
+            field, marker = next(iter(discriminator.items()))
+            if _marker(marker) in _PRESENT_MARKERS and field not in explicit_missing_fields:
+                _append_stratum(
+                    strata,
+                    seen,
+                    f"{variant}_missing",
+                    {field: "missing"},
+                    source,
+                )
+    return tuple(strata)
+
+
+def _local_witness_strata(
+    local_data: dict[str, list[dict[str, Any]]],
+    collection: str,
+) -> tuple[_VariantStratum, ...]:
+    docs = [doc for doc in local_data.get(collection, []) if isinstance(doc, Mapping)]
+    if len(docs) < 2:
+        return ()
+    fields = sorted(
+        field
+        for field in {key for doc in docs for key in doc if isinstance(key, str)}
+        if field != "_id"
+    )
+    variable_fields = [
+        field
+        for field in fields
+        if 0 < sum(1 for doc in docs if _path_values(doc, (field,))) < len(docs)
+    ][:8]
+    if not variable_fields:
+        return ()
+
+    strata_by_key: dict[tuple[tuple[str, str], ...], dict[str, Any]] = {}
+    for doc in docs:
+        discriminator = {
+            field: "present" if _path_values(doc, (field,)) else "missing"
+            for field in variable_fields
+        }
+        key = tuple(sorted((field, str(marker)) for field, marker in discriminator.items()))
+        strata_by_key.setdefault(key, discriminator)
+
+    strata: list[_VariantStratum] = []
+    for index, discriminator in enumerate(strata_by_key.values()):
+        strata.append(
+            _VariantStratum(
+                variant=f"witness-shape-{index}",
+                discriminator=discriminator,
+                selector=_selector_for_discriminator(discriminator),
+                source="local_witness",
+            )
+        )
+    return tuple(strata)
+
+
+def _append_stratum(
+    strata: list[_VariantStratum],
+    seen: set[tuple[tuple[str, str], ...]],
+    variant: str,
+    discriminator: dict[str, Any],
+    source: str,
+) -> None:
+    key = tuple(sorted((field, str(marker)) for field, marker in discriminator.items()))
+    if key in seen:
+        return
+    seen.add(key)
+    strata.append(
+        _VariantStratum(
+            variant=variant,
+            discriminator=discriminator,
+            selector=_selector_for_discriminator(discriminator),
+            source=source,
+        )
+    )
+
+
+def _selector_for_discriminator(discriminator: Mapping[str, Any]) -> dict[str, Any]:
+    selector: dict[str, Any] = {}
+    for field, marker in discriminator.items():
+        normalized = _marker(marker)
+        if normalized in _PRESENT_MARKERS:
+            selector[str(field)] = {"$exists": True}
+        elif normalized in _MISSING_MARKERS:
+            selector[str(field)] = {"$exists": False}
+        else:
+            selector[str(field)] = marker
+    return selector
+
+
+def _stratified_mql(request: Any, stratum: _VariantStratum) -> str:
+    return render_mql(request.collection, [{"$match": stratum.selector}, *request.pipeline])
+
+
+def _local_variant_count(
+    local_data: dict[str, list[dict[str, Any]]],
+    collection: str,
+    discriminator: Mapping[str, Any],
+) -> int | None:
+    docs = local_data.get(collection)
+    if docs is None:
+        return None
+    return sum(1 for doc in docs if _doc_matches_discriminator(doc, discriminator))
+
+
+def _doc_matches_discriminator(doc: Mapping[str, Any], discriminator: Mapping[str, Any]) -> bool:
+    for field, marker in discriminator.items():
+        values = _path_values(doc, tuple(part for part in str(field).split(".") if part))
+        normalized = _marker(marker)
+        if normalized in _PRESENT_MARKERS:
+            if not values:
+                return False
+        elif normalized in _MISSING_MARKERS:
+            if values:
+                return False
+        elif marker not in values:
+            return False
+    return True
+
+
+def _path_values(current: Any, parts: tuple[str, ...]) -> list[Any]:
+    if not parts:
+        return [current]
+    part, remaining = parts[0], parts[1:]
+    if isinstance(current, Mapping):
+        if part not in current:
+            return []
+        return _path_values(current[part], remaining)
+    if isinstance(current, list):
+        values: list[Any] = []
+        for item in current:
+            values.extend(_path_values(item, parts))
+        return values
+    return []
+
+
+def _marker(value: Any) -> str:
+    return str(value).strip().lower()
 
 
 class _NoopPrefixExecutor:

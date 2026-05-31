@@ -5,12 +5,12 @@ diagnostic_bridge:
   gate_required: true
   gate_pass: true
   sql_bridge:
-    ex: 1
-    qim: 0
+    normexec_equiv_gold: true
+    ast_check_pass: false
     notes: SQL bridge uses COUNT CASE but misses null-exclusion in denominator
   template_bridge:
-    ex: 1
-    qim: 0
+    normexec_equiv_gold: true
+    ast_check_pass: false
     notes: Country-city template approximates ratio with AVG not conditional sum
   functional_sql_solvable: true
   structural_sql_solvable: false

@@ -4,6 +4,16 @@
   "title": "TEND Library Assets",
   "description": "JSON Schemas for per-db and global library-level assets consumed by solvers and evaluators.",
   "$defs": {
+    "mongoFieldName": {
+      "type": "string",
+      "pattern": "^(?!\\$)(?!\\s*$)(?!.*\\.)(?!__variants$).+$",
+      "description": "Mongo-safe field name: non-empty, not whitespace-only, no dot paths, no dollar prefix, and not reserved __variants."
+    },
+    "fieldMap": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/mongoFieldName" },
+      "additionalProperties": { "$ref": "#/$defs/nestedType" }
+    },
     "fieldType": {
       "oneOf": [
         {
@@ -24,10 +34,7 @@
           "required": ["type", "fields"],
           "properties": {
             "type": { "const": "OBJECT" },
-            "fields": {
-              "type": "object",
-              "additionalProperties": { "$ref": "#/$defs/nestedType" }
-            }
+            "fields": { "$ref": "#/$defs/fieldMap" }
           },
           "additionalProperties": false
         }
@@ -53,10 +60,7 @@
           "required": ["type", "fields"],
           "properties": {
             "type": { "const": "OBJECT" },
-            "fields": {
-              "type": "object",
-              "additionalProperties": { "$ref": "#/$defs/nestedType" }
-            }
+            "fields": { "$ref": "#/$defs/fieldMap" }
           },
           "additionalProperties": false
         }
@@ -78,11 +82,13 @@
         "discriminator": {
           "type": "object",
           "minProperties": 1,
+          "propertyNames": { "$ref": "#/$defs/mongoFieldName" },
           "additionalProperties": { "type": "string" }
         },
         "fields": {
           "type": "object",
           "minProperties": 1,
+          "propertyNames": { "$ref": "#/$defs/mongoFieldName" },
           "additionalProperties": { "$ref": "#/$defs/nestedType" }
         },
         "coverage": {
@@ -107,7 +113,7 @@
         }
       },
       "patternProperties": {
-        "^(?!__variants$).+$": { "$ref": "#/$defs/fieldType" }
+        "^(?!\\$)(?!\\s*$)(?!.*\\.)(?!__variants$).+$": { "$ref": "#/$defs/fieldType" }
       },
       "additionalProperties": false
     },
@@ -120,6 +126,7 @@
         "items": {
           "type": "object",
           "required": ["_id"],
+          "propertyNames": { "$ref": "#/$defs/mongoFieldName" },
           "additionalProperties": true
         }
       },
@@ -162,6 +169,11 @@
         "db_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
         "source_spider_tables": {
           "type": "array",
+          "description": "Legacy key retained for compatibility; values are BIRD source table names.",
+          "items": { "type": "string" }
+        },
+        "source_bird_tables": {
+          "type": "array",
           "items": { "type": "string" }
         },
         "collections": {
@@ -192,11 +204,37 @@
             }
           },
           "additionalProperties": false
+        },
+        "heterogenization": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schema_flex": {
+              "type": "string",
+              "enum": ["none", "polymorphic", "attribute_bag", "schema_versioning", "dynamic_key"]
+            },
+            "triggers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["mechanism", "fired", "evidence"],
+                "additionalProperties": false,
+                "properties": {
+                  "mechanism": {
+                    "type": "string",
+                    "enum": ["polymorphic", "sparse", "dynamic_key", "nesting", "version", "type"]
+                  },
+                  "fired": { "type": "boolean" },
+                  "evidence": { "type": "string" }
+                }
+              }
+            }
+          }
         }
       },
       "description": "agent_design_rationale/<db_id>.yaml — SRA output with evidence chain."
     },
-    "spiderDbEntry": {
+    "birdDbEntry": {
       "type": "object",
       "required": [
         "db_id",
@@ -217,20 +255,20 @@
         "selected": { "type": "boolean" },
         "flex_eligible": {
           "type": "boolean",
-          "description": "H1–H4 would-trigger pre-audit result; contributes to selected_flex_ratio for H7/H9 supply-relax."
+          "description": "DAR five-mechanism query-bearing pre-audit result; contributes to flex_eligible_db_ratio for H7/H9 supply-relax."
         },
         "selection_reason": { "type": "string" },
         "reject_reason": { "type": "string" }
       }
     },
-    "spider_db_catalog": {
+    "bird_db_catalog": {
       "type": "object",
-      "required": ["spider_version", "generated_at", "databases"],
+      "required": ["source_version", "generated_at", "databases"],
       "additionalProperties": false,
       "properties": {
-        "spider_version": { "type": "string", "const": "1.0" },
+        "source_version": { "type": "string", "minLength": 1 },
         "generated_at": { "type": "string", "format": "date-time" },
-        "spider_root": { "type": "string" },
+        "bird_root": { "type": "string" },
         "selection_policy": {
           "type": "object",
           "properties": {
@@ -249,16 +287,16 @@
         "databases": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/spiderDbEntry" }
+          "items": { "$ref": "#/$defs/birdDbEntry" }
         }
       },
-      "description": "spider_db_catalog.json — global Spider DB inventory and selection verdict. selected_flex_ratio = count(selected ∧ flex_eligible) / count(selected); when selected_flex_ratio < min_flex_db_ratio (default 0.30), Coverage Controller applies H7/H9 supply-relax (test schema_flex ≠ none floor → max(15%, supply_ceiling); structural_schema_flex floor → max(10%, supply_ceiling × 0.8))."
+      "description": "bird_db_catalog.json — global BIRD mini-dev inventory and query-bearing supply verdict. flex_eligible_db_ratio = count(flex_eligible) / 11; when below 0.30, Coverage Controller applies H7/H9 supply-relax."
     }
   },
   "oneOf": [
     { "$ref": "#/$defs/mongodb_schema" },
     { "$ref": "#/$defs/mongodb_data" },
     { "$ref": "#/$defs/agent_design_rationale" },
-    { "$ref": "#/$defs/spider_db_catalog" }
+    { "$ref": "#/$defs/bird_db_catalog" }
   ]
 }

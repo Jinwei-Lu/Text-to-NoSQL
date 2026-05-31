@@ -67,15 +67,15 @@ Return YAML only. No prose outside the document.
 
 ## few-shot
 
-### Example 1 (transitional anchor · pending BIRD migration)
+### Example 1 (smoke fixture, not production release)
 
-**Input summary**: `db_id = orchestra`, 4 tables, 45 queries, FK chain conductor → orchestra → performance → show. (Transitional anchor carried over from the legacy pipeline; not a BIRD mini-dev library — to be replaced by a real BIRD record, e.g. `financial`.)
+**Input summary**: `db_id = orchestra`, 4 tables, 45 queries, FK chain conductor → orchestra → performance → show. This is a smoke fixture carried over from the legacy pipeline, not a production TEND release record.
 
 **Output excerpt**
 
 ```yaml
 db_id: orchestra
-source_version: "pending-bird-migration"
+source_version: "smoke-fixture"
 generated_at: "2026-05-23T10:00:00Z"
 insufficient_workload: false
 source:
@@ -214,7 +214,7 @@ Validate output against `proposals/schemas/wp_output.schema.json`.
 | Key | Type | Description |
 |---|---|---|
 | `db_id` | string | BIRD db_id |
-| `source_version` | string | Source tag, e.g. `"bird-mini-dev"` |
+| `source_version` | string | Source tag, e.g. `"bird-mini-dev"`; smoke examples must say `"smoke-fixture"` |
 | `generated_at` | string (date-time) | ISO 8601 timestamp |
 | `insufficient_workload` | boolean | true if query_count < 10 |
 | `source` | object | `sqlite_path`, `tables[]`, `query_count` |

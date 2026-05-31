@@ -10,12 +10,10 @@ mql_round_trip_colloquial: |
   ])
 round_trip_verification:
   canonical_pass: true
-  canonical_ex: true
-  canonical_ast_check: true
+  canonical_result_equiv: true
   colloquial_pass: true
-  colloquial_ex: true
-  colloquial_ast_check: true
-  underspec_attribution: null
+  colloquial_result_equiv: true
+  underspec_attribution: smoke fixture canonical and colloquial forms are both result-equivalent
 rtv_pass: true
 rtv_trace:
   retry_count: 0

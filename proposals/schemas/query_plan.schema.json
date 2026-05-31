@@ -1,8 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tend.dev/schemas/query_plan.schema.json",
-  "title": "TEND QPS Agent Output",
-  "description": "Query plan sampled by QPS (Query Plan Sampler); sole upstream intent atom for Phase B.",
+  "title": "ARCHIVAL NON-ACTIVE: TEND Legacy QPS Query Plan Output",
+  "description": "Archival schema for the pre-RAR operator-centric QPS output. Active QPS output is schemas/intent.schema.json.",
+  "deprecated": true,
+  "x-status": "archival-non-active",
   "type": "object",
   "additionalProperties": false,
   "required": ["query_plan", "qps_trace"],
@@ -46,7 +48,7 @@
         },
         "shape_policy": {
           "type": "string",
-          "enum": ["preserve", "augment", "reshape", "reduce"]
+          "enum": ["preserve", "reshape", "reduce"]
         },
         "null_missing_strategy": {
           "type": "string",

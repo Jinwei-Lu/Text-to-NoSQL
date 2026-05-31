@@ -74,7 +74,7 @@ mql_alt: |
   ])
 canonical_form_set:
   must_contain: ["$setWindowFields", "$facet", "$ifNull"]
-  must_not_contain: []
+  must_not_contain: ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function"]
   must_contain_at_root: ["$setWindowFields", "$facet"]
   must_not_contain_at_root: []
 shape_policy: reshape

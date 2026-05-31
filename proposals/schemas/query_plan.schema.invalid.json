@@ -16,6 +16,7 @@
   "qps_trace": {
     "coverage_cell": "L4|structural_pipeline|schema_flex_none",
     "deficit_weight": -0.1,
-    "supply_constrained": false
+    "supply_constrained": false,
+    "skip_reason": "ARCHIVAL NON-ACTIVE invalid fixture; active invalid fixture is intent.schema.invalid.json."
   }
 }

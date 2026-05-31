@@ -8,17 +8,11 @@ from typing import Any
 
 from .llm import Message
 
-# A deterministic schema-flex summary matching the financial present/missing anchor. Stub mode
-# does not execute it, but the record still passes static publish gates.
+# A deterministic sparse-embed preserve query matching the financial present/missing anchor.
+# Stub mode does not execute it, but the record still passes static publish gates.
 _STUB_MQL = (
-    'db.account.aggregate([{ "$addFields": { "loan_variant": { "$cond": ['
-    '{ "$eq": [{ "$type": "$loan" }, "missing"] }, "missing", "present"] }, '
-    '"loan_amount_for_summary": { "$ifNull": ["$loan.amount", 0] } } }, '
-    '{ "$group": { "_id": "$loan_variant", "account_count": { "$sum": 1 }, '
-    '"total_loan_amount": { "$sum": "$loan_amount_for_summary" }, '
-    '"avg_loan_amount": { "$avg": "$loan_amount_for_summary" } } }, '
-    '{ "$project": { "_id": 0, "loan_variant": "$_id", "account_count": 1, '
-    '"total_loan_amount": 1, "avg_loan_amount": 1 } }])'
+    'db.account.aggregate([{ "$addFields": { "loan_amount": { "$cond": ['
+    '{ "$eq": [{ "$type": "$loan" }, "object"] }, "$loan.amount", 0 ] } } }])'
 )
 
 _STUB: dict[str, dict[str, Any]] = {
@@ -37,30 +31,43 @@ _STUB: dict[str, dict[str, Any]] = {
     "sc": {"verdict": "pass", "issues": [], "coverage_gaps": [],
            "suggested_fixes": [], "query_bearing": True},
     "qps": {
-        "intent": {"seed_mechanism": "optional_embed",
-                   "archetype": "schema_flex_variant_summary",
+        "intent": {"seed_mechanism": "sparse_embed",
+                   "seed_signal": {"collection": "account", "field": "loan"},
+                   "archetype": "present_missing_projection",
                    "target_difficulty": "L4",
                    "target_sql_infeasibility_class": "structural_schema_flex",
                    "schema_flex_mode": "polymorphic",
                    "analytical_op": {
-                       "per": "account.loan present/missing variant",
-                       "compute": "count accounts and summarize loan.amount by variant",
+                       "target_field": "loan_amount",
+                       "formula": "IF loan is present THEN loan.amount ELSE 0",
+                       "missing_default": 0,
+                       "preserve_existing": True,
                    },
-                   "shape_policy": "reduce",
+                   "shape_policy": "preserve",
+                   "output": {"fields": ["loan_amount"], "missing": 0},
                    "semantic_properties": ["present/missing both covered"]},
-        "reference_oracle": {"impl": "group accounts by $type(loan) missing vs present"},
+        "reference_oracle": {
+            "template": "optional_embed_projection",
+            "params": {
+                "parent_collection": "account",
+                "embed_field": "loan",
+                "value_path": "amount",
+                "target_field": "loan_amount",
+                "missing_default": 0,
+            },
+        },
     },
-    "ms": {"MQL": _STUB_MQL, "mql_alt": _STUB_MQL, "shape_policy": "reduce",
-           "schema_flex": "optional_embed"},
+    "ms": {"MQL": _STUB_MQL, "mql_alt": _STUB_MQL, "shape_policy": "preserve",
+           "schema_flex": "polymorphic"},
     "mut": {"mutations": [
         {"mutation_id": f"m{i:03d}", "dimension": d, "MQL": _STUB_MQL}
         for i, d in enumerate(["A", "B", "C", "D", "E"], 1)
     ]},
     "nlp": {"nl_queries": {
-        "canonical": "Group accounts by whether the embedded loan subdocument is present or "
-                     "missing, then report the account count plus total and average loan amount "
-                     "for each variant, treating missing loan amounts as 0.",
-        "colloquial": "Split accounts into with-loan and no-loan groups, then summarize loan amounts.",
+        "canonical": "For every account, add loan_amount equal to loan.amount when the account "
+                     "has a loan subdocument and 0 when it does not; keep every existing "
+                     "account field unchanged.",
+        "colloquial": "Show each account with its loan amount, using zero for accounts without loans.",
     }},
     "rtv": {"mql_round_trip_canonical": _STUB_MQL},
     "nnc": {"difficulty": "L4", "sql_infeasibility_class": "structural_schema_flex",

@@ -1,0 +1,22 @@
+{
+  "source_version": "BIRD-mini-dev-1.0",
+  "generated_at": "2026-05-31T19:32:49+00:00",
+  "selection_policy": {
+    "min_tables": 1,
+    "min_queries": 1,
+    "require_non_empty_data": true,
+    "min_flex_db_ratio": 0.3
+  },
+  "databases": [
+    {
+      "db_id": "financial",
+      "domain_id": "finance",
+      "sqlite_path": "/Users/jwlu18/Developer/TEND/minidev/MINIDEV/dev_databases/financial/financial.sqlite",
+      "table_count": 8,
+      "query_count": 32,
+      "selected": true,
+      "flex_eligible": true,
+      "selection_reason": "constructed by tend workflow"
+    }
+  ]
+}

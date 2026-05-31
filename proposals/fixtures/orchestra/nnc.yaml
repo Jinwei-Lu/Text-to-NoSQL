@@ -5,12 +5,12 @@ diagnostic_bridge:
   gate_required: true
   gate_pass: true
   sql_bridge:
-    ex: 0
-    qim: 0
+    normexec_equiv_gold: false
+    ast_check_pass: false
     notes: NL2SQL cannot express facet+window in one pass
   template_bridge:
-    ex: 0
-    qim: 0
+    normexec_equiv_gold: false
+    ast_check_pass: false
     notes: Matched lookup_join template; wrong shape
   functional_sql_solvable: false
   structural_sql_solvable: false

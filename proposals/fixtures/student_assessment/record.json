@@ -5,10 +5,10 @@
     "canonical": "对每位学生，将其各次评估按评估类型分别归一化：written 类型用 written_score 除以 word_count 再乘以 100；oral 类型用 oral_score；practical 类型用 lab_score；取各类型归一化分的最大值作为 final_score；输出 first_name 与 final_score；若 first_name 缺失则显示为 (unknown)；不要求排序。",
     "colloquial": "按不同考核方式算分，看谁综合表现最好。"
   },
-  "MQL": "db.students.aggregate([\n  { $unwind: { path: \"$assessments\", preserveNullAndEmptyArrays: false } },\n  { $addFields: {\n      norm_score: {\n        $switch: {\n          branches: [\n            { case: { $eq: [\"$assessments.__type\", \"written\"] },\n              then: { $multiply: [\n                { $divide: [\n                  { $ifNull: [\"$assessments.written_score\", 0] },\n                  { $max: [{ $ifNull: [\"$assessments.word_count\", 1] }, 1] }\n                ] },\n                100\n              ] } },\n            { case: { $eq: [\"$assessments.__type\", \"oral\"] },\n              then: { $ifNull: [\"$assessments.oral_score\", 0] } },\n            { case: { $eq: [\"$assessments.__type\", \"practical\"] },\n              then: { $ifNull: [\"$assessments.lab_score\", 0] } }\n          ],\n          default: 0\n        }\n      }\n  } },\n  { $group: {\n      _id: \"$_id\",\n      first_name: { $first: { $ifNull: [\"$first_name\", \"(unknown)\"] } },\n      final_score: { $max: \"$norm_score\" }\n  } },\n  { $project: { _id: 0, first_name: 1, final_score: 1 } }\n])",
+  "MQL": "db.students.aggregate([\n  { $unwind: { path: \"$assessments\", preserveNullAndEmptyArrays: false } },\n  { $addFields: {\n      norm_score: {\n        $switch: {\n          branches: [\n            { case: { $eq: [\"$assessments.assessment_type\", \"written\"] },\n              then: { $multiply: [\n                { $divide: [\n                  { $ifNull: [\"$assessments.written_score\", 0] },\n                  { $max: [{ $ifNull: [\"$assessments.word_count\", 1] }, 1] }\n                ] },\n                100\n              ] } },\n            { case: { $eq: [\"$assessments.assessment_type\", \"oral\"] },\n              then: { $ifNull: [\"$assessments.oral_score\", 0] } },\n            { case: { $eq: [\"$assessments.assessment_type\", \"practical\"] },\n              then: { $ifNull: [\"$assessments.lab_score\", 0] } }\n          ],\n          default: 0\n        }\n      }\n  } },\n  { $group: {\n      _id: \"$_id\",\n      first_name: { $first: { $ifNull: [\"$first_name\", \"(unknown)\"] } },\n      final_score: { $max: \"$norm_score\" }\n  } },\n  { $project: { _id: 0, first_name: 1, final_score: 1 } }\n])",
   "canonical_form_set": {
     "must_contain": ["$switch", "$unwind", "$ifNull"],
-    "must_not_contain": ["$setWindowFields", "$facet"],
+    "must_not_contain": ["$sample", "$rand", "$$NOW", "$out", "$merge", "$function", "$setWindowFields", "$facet"],
     "must_contain_at_root": ["$unwind"],
     "must_not_contain_at_root": []
   },
@@ -16,7 +16,7 @@
   "sql_infeasibility_class": "structural_schema_flex",
   "shape_policy": "reshape",
   "schema_flex": "polymorphic",
-  "world_signature": "sha256:d70b6b1e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2",
+  "world_signature": "sha256:09bdae265fe3f36e40b76df68e6043dda251d751eda23b9ae4cd5d2b27130eb3",
   "domain_id": "education",
   "join_depth": 0,
   "aggregation_depth": "medium",

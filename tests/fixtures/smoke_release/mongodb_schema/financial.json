@@ -1,0 +1,88 @@
+{
+  "account": {
+    "_id": "INT",
+    "account_id": "INT",
+    "date": "TEXT",
+    "district_id": "INT",
+    "frequency": "TEXT",
+    "loan": "OBJECT",
+    "__variants": [
+      {
+        "discriminator": {
+          "loan": "present"
+        },
+        "fields": {
+          "loan": "OBJECT"
+        },
+        "coverage": 0.1516,
+        "source_signal": "optional_embed: loan present (682/4500)"
+      },
+      {
+        "discriminator": {
+          "loan": "missing"
+        },
+        "fields": {
+          "loan": "OBJECT"
+        },
+        "coverage": 0.8484,
+        "source_signal": "optional_embed: loan missing (3818/4500)"
+      }
+    ]
+  },
+  "card": {
+    "_id": "INT",
+    "card_id": "INT",
+    "disp_id": "INT",
+    "issued": "TEXT",
+    "type": "TEXT"
+  },
+  "client": {
+    "_id": "INT",
+    "birth_date": "TEXT",
+    "client_id": "INT",
+    "disp": "OBJECT",
+    "district_id": "INT",
+    "gender": "TEXT"
+  },
+  "district": {
+    "A10": "REAL",
+    "A11": "INT",
+    "A12": "REAL",
+    "A13": "REAL",
+    "A14": "INT",
+    "A15": "INT",
+    "A16": "INT",
+    "A2": "TEXT",
+    "A3": "TEXT",
+    "A4": "TEXT",
+    "A5": "TEXT",
+    "A6": "TEXT",
+    "A7": "TEXT",
+    "A8": "INT",
+    "A9": "INT",
+    "_id": "INT",
+    "district_id": "INT"
+  },
+  "order": {
+    "_id": "INT",
+    "account_id": "INT",
+    "account_to": "INT",
+    "amount": "REAL",
+    "bank_to": "TEXT",
+    "k_symbol": "TEXT",
+    "order_id": "INT"
+  },
+  "trans": {
+    "_id": "INT",
+    "account": "INT",
+    "account_id": "INT",
+    "amount": "INT",
+    "balance": "INT",
+    "bank": "TEXT",
+    "date": "TEXT",
+    "k_symbol": "TEXT",
+    "operation": "TEXT",
+    "trans_id": "INT",
+    "type": "TEXT"
+  }
+}

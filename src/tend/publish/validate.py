@@ -68,17 +68,21 @@ def validate_record(
 
     mql = record.get("MQL", "")
     if isinstance(cfs, dict) and isinstance(mql, str) and mql:         # C5 structural half
-        ok, hits = ast_check(mql, cfs)
-        if not ok:
-            iss.append(f"[C5 r{rid}] gold MQL fails its own AST_check: {hits}")
+        try:
+            ok, hits = ast_check(mql, cfs)
+        except Exception as exc:  # noqa: BLE001 - static check failures are record defects
+            iss.append(f"[C5 r{rid}] gold MQL static check errored: {exc}")
+        else:
+            if not ok:
+                iss.append(f"[C5 r{rid}] gold MQL fails its own AST_check: {hits}")
     if executor is not None and snapshot is not None and isinstance(cfs, dict):  # C5 executable
         try:
             if hasattr(executor, "ex_verdict"):
                 ok = executor.ex_verdict(mql, record, snapshot)
+                if not ok:
+                    iss.append(f"[C5 r{rid}] gold MQL is not a gold-class member on its witness")
             else:
-                ok = bool(executor.norm_exec(record["db_id"], mql))
-            if not ok:
-                iss.append(f"[C5 r{rid}] gold MQL is not a gold-class member on its witness")
+                executor.norm_exec(record["db_id"], mql)
         except Exception as exc:  # noqa: BLE001
             iss.append(f"[C5 r{rid}] gold MQL execution check errored: {exc}")
 
@@ -278,7 +282,7 @@ def _validate_release_artifacts(
     if lib is not None:
         catalog_path = out_dir / "bird_db_catalog.json"
         if catalog_path.exists():
-            check(lib_ref("spider_db_catalog"),
+            check(lib_ref("bird_db_catalog"),
                   json.loads(catalog_path.read_text(encoding="utf-8")),
                   "bird_db_catalog.json")
         else:

@@ -98,6 +98,7 @@ def test_mql_schema_ref_gate_allows_nested_and_transient_fields():
     from tend.agents.phase_b import (
         _computed_field_quality_reasons,
         _structural_schema_flex_reasons,
+        _structural_schema_flex_result_reasons,
         _unknown_schema_refs,
     )
 
@@ -109,7 +110,8 @@ def test_mql_schema_ref_gate_allows_nested_and_transient_fields():
                     "type": "OBJECT",
                     "fields": {"amount": "REAL", "duration": "INT"},
                 },
-            }
+            },
+            "trans": {"account_id": "INT", "amount": "REAL", "type": "TEXT"},
         }
     }
     assert _unknown_schema_refs(
@@ -130,6 +132,23 @@ def test_mql_schema_ref_gate_allows_nested_and_transient_fields():
         schema,
         "account",
     ) == []
+    assert _unknown_schema_refs(
+        'db.account.aggregate([{ "$lookup": { "from": "trans", "let": { "aid": "$_id" }, '
+        '"pipeline": [{ "$match": { "$expr": { "$and": ['
+        '{ "$eq": ["$account_id", "$$aid"] }, { "$eq": ["$type", "PRIJEM"] }] } } }, '
+        '{ "$group": { "_id": null, "total": { "$sum": "$amount" } } }, '
+        '{ "$project": { "_id": 0, "total_credit": "$total" } }], '
+        '"as": "_credit" } }])',
+        schema,
+        "account",
+    ) == []
+    assert _unknown_schema_refs(
+        'db.account.aggregate([{ "$lookup": { "from": "trans", '
+        '"pipeline": [{ "$group": { "_id": null, "total": { "$sum": "$bogus" } } }], '
+        '"as": "_credit" } }])',
+        schema,
+        "account",
+    ) == ["trans.bogus"]
     assert _computed_field_quality_reasons(
         [{"_id": 1, "x": 1}, {"_id": 2, "x": None}, {"_id": 3}],
         {"_id"},
@@ -138,9 +157,17 @@ def test_mql_schema_ref_gate_allows_nested_and_transient_fields():
         [{"_id": 1, "x": []}],
         {"_id"},
     ) == ["computed field 'x' produced non-scalar values"]
+    assert _computed_field_quality_reasons(
+        [{"_id": 1, "x": 1, "tmp": 2}],
+        {"_id"},
+        {"x"},
+    ) == [
+        "preserve leaked helper fields: 'tmp'; final preserve output may only add 'x'"
+    ]
     structural_inputs = {
         "target_sql_infeasibility_class": "structural_schema_flex",
         "target_schema_flex": "polymorphic",
+        "intent": {"archetype": "schema_flex_variant_summary"},
     }
     assert _structural_schema_flex_reasons(
         'db.account.aggregate([{ "$addFields": { "x": "$loan.amount" } }])',
@@ -162,6 +189,103 @@ def test_mql_schema_ref_gate_allows_nested_and_transient_fields():
         "account",
         structural_inputs,
     ) == []
+    structural_inputs["intent"]["analytical_op"] = {"target_field": "avg_loan_amount"}
+    assert _structural_schema_flex_result_reasons(
+        [{"variant_label": "present", "count": 1, "avg_loan_amount": 10}],
+        structural_inputs,
+    ) == ["schema_flex_variant_summary result must expose field 'variant'"]
+    assert _structural_schema_flex_result_reasons(
+        [{"variant": "has_loan", "count": 1, "avg_loan_amount": 10}],
+        structural_inputs,
+    ) == [
+        "schema_flex_variant_summary result variant values must be exactly 'present' "
+        "and 'missing', got ['has_loan']"
+    ]
+    assert _structural_schema_flex_result_reasons(
+        [
+            {"variant": "present", "count": 1, "avg_loan_amount": 10},
+            {"variant": "missing", "count": 1, "avg_loan_amount": 0},
+        ],
+        structural_inputs,
+    ) == []
+
+
+def test_qps_contract_rejects_incomplete_oracle_and_null_preserve_default():
+    from tend.agents.phase_b import QueryPlanSampler
+
+    output = {
+        "intent": {
+            "shape_policy": "preserve",
+            "analytical_op": {
+                "target_field": "loan_amount",
+                "missing_default": None,
+            },
+            "output": {"fields": ["_id", "loan_amount"]},
+        },
+        "reference_oracle": {
+            "template": "present_missing_projection",
+            "params": {
+                "parent_collection": "account",
+                "embed_field": "loan",
+                "numerator_path": "loan.amount",
+                "target_field": "loan_amount",
+            },
+        },
+    }
+    violations = QueryPlanSampler().check_contract(
+        None,
+        {
+            "archetype": "subtype_cond_projection",
+            "target_sql_infeasibility_class": "structural_schema_flex",
+        },
+        output,
+    )
+
+    assert (
+        "preserve structural_schema_flex computed fields must use non-null "
+        "missing/default values: analytical_op.missing_default"
+    ) in violations
+    assert (
+        "reference_oracle.params missing required keys: ['denom']"
+    ) in violations
+
+    output["intent"]["analytical_op"] = {
+        "target_field": "loan_amount",
+        "output": {"missing": 0},
+    }
+    output["reference_oracle"]["params"]["denom"] = {
+        "collection": "trans",
+        "local_id": "_id",
+        "foreign_field": "account_id",
+        "sum_field": "amount",
+    }
+    violations = QueryPlanSampler().check_contract(
+        None,
+        {
+            "archetype": "subtype_cond_projection",
+            "target_sql_infeasibility_class": "structural_schema_flex",
+        },
+        output,
+    )
+    assert not any("missing/default" in v for v in violations)
+
+
+def test_ms_prompt_spells_out_present_missing_denominator_zero_value():
+    from tend.agents.phase_b import MqlSynthesizer
+
+    text = MqlSynthesizer().render_inputs(None, {
+        "intent": {"shape_policy": "preserve"},
+        "reference_oracle": {
+            "template": "present_missing_projection",
+            "params": {
+                "target_field": "loan_to_credit_ratio",
+                "absent_value": 0,
+                "denom": {"zero_value": 1},
+            },
+        },
+        "target_sql_infeasibility_class": "structural_schema_flex",
+    })
+    assert "use denom.zero_value (1) as the divisor, not 0 as the final answer" in text
 
 
 def test_world_signature_deterministic():
@@ -207,31 +331,109 @@ def test_complete_rationale_replaces_null_heterogenization():
         sc={"verdict": "accept", "issues": []},
     )
     assert out["heterogenization"]["schema_flex"] == "polymorphic"
+    assert out["heterogenization"]["triggers"][0]["mechanism"] == "sparse"
     assert out["heterogenization"]["triggers"][0]["fired"] is True
 
 
-def test_slots_target_l4_schema_flex():
-    from tend.cli import _slots_for
-    from tend.workflow.flows import DbArtifacts, _target_violations
+def test_phase_a_sc_reviews_dm_artifacts_not_sra_schema(stub_settings, logger):
+    from tend.workflow.flows import _phase_a_one_db
 
-    artifacts = {
-        "financial": DbArtifacts(
+    actual_schema = {"account": {"_id": "INT", "loan": {"type": "OBJECT", "fields": {}}}}
+    actual_data = {"account": [{"_id": 1, "loan": {"amount": 10}}, {"_id": 2}]}
+
+    class _Source:
+        def schema(self, db_id):
+            return SimpleNamespace(
+                domain="finance",
+                sqlite_path=Path("/tmp/financial.sqlite"),
+                table_count=2,
+                tables=["account", "loan"],
+            )
+
+        def workload(self, db_id):
+            return [
+                SimpleNamespace(
+                    question_id=1,
+                    difficulty="simple",
+                    question="Which accounts have loans?",
+                    evidence="loan table is queried with account",
+                    sql="SELECT account_id FROM loan",
+                )
+            ]
+
+    class _WF:
+        def __init__(self):
+            self.ctx = AgentContext(settings=stub_settings, llm=None, log=logger, source=_Source())
+            self.sc_inputs = []
+
+        def context(self, **fields):
+            return self.ctx.bind(**fields)
+
+        async def agent(self, agent_id, inputs, ctx=None):
+            if agent_id == "wp":
+                return {
+                    "scenario_summary": "finance workload with loan-bearing account questions",
+                    "access_patterns": [{"path": "account->loan"}],
+                    "design_constraints": [],
+                }
+            if agent_id == "sra":
+                return {
+                    "mongodb_schema": {"stale_sra": {"made_up": "TEXT"}},
+                    "agent_design_rationale": {"decisions": [{"id": "D01"}]},
+                }
+            if agent_id == "dm":
+                return {
+                    "mongodb_schema": actual_schema,
+                    "mongodb_data": actual_data,
+                    "world_signature": "sha256:" + "1" * 64,
+                    "migration_log": {"embeds": {"account": ["loan"]}, "references": []},
+                }
+            if agent_id == "sc":
+                self.sc_inputs.append(inputs)
+                return {
+                    "verdict": "pass",
+                    "query_bearing": True,
+                    "issues": [],
+                    "coverage_gaps": [],
+                    "suggested_fixes": [],
+                }
+            raise AssertionError(agent_id)
+
+    wf = _WF()
+    art = asyncio.run(_phase_a_one_db(wf, "financial"))
+
+    assert art.mongodb_schema == actual_schema
+    assert art.mongodb_data == actual_data
+    assert wf.sc_inputs
+    assert wf.sc_inputs[0]["mongodb_schema"] == actual_schema
+    assert wf.sc_inputs[0]["mongodb_data"] == actual_data
+    assert "schema" not in wf.sc_inputs[0]
+    assert wf.sc_inputs[0]["query_evidence"][0]["sql"] == "SELECT account_id FROM loan"
+
+
+def test_coverage_request_adapter_targets_l4_schema_flex():
+    from tend.cli import _slot_from_request
+    from tend.source.census import CoverageRequest
+    from tend.workflow.flows import _target_violations
+
+    slot = _slot_from_request(
+        CoverageRequest(
             db_id="financial",
-            mongodb_schema={"account": {"_id": "INT", "__variants": [{}]}},
-            mongodb_data={},
-            rationale={},
-            world_signature="sha256:" + "0" * 64,
-            scenario_summary="",
-            query_bearing=False,
-        )
-    }
-    slots = _slots_for(artifacts, 2)
-    assert [s.db_id for s in slots] == ["financial", "financial"]
-    assert all(s.target_difficulty == "L4" for s in slots)
-    assert all(s.target_sql_infeasibility_class == "structural_schema_flex" for s in slots)
-    assert all(s.target_schema_flex == "polymorphic" for s in slots)
+            mechanism="sparse_embed",
+            archetype="present_missing_projection",
+            target_difficulty="L4",
+            sql_infeasibility_class="structural_schema_flex",
+            shape_policy="preserve",
+        ),
+        record_id=1001,
+    )
+    assert slot.db_id == "financial"
+    assert slot.record_id == 1001
+    assert slot.target_difficulty == "L4"
+    assert slot.target_sql_infeasibility_class == "structural_schema_flex"
+    assert slot.target_schema_flex == "polymorphic"
     assert _target_violations(
-        slots[0],
+        slot,
         {"difficulty": "L0", "sql_infeasibility_class": "feasible"},
         {"schema_flex": "none"},
     ) == [
@@ -239,6 +441,91 @@ def test_slots_target_l4_schema_flex():
         "sql_infeasibility_class 'feasible' != target 'structural_schema_flex'",
         "schema_flex 'none' != target 'polymorphic'",
     ]
+
+
+def test_build_record_preserves_qps_reference_oracle_into_ms(stub_settings, logger):
+    from tend.workflow.flows import CoverageSlot, DbArtifacts, _build_record
+
+    reference = {
+        "template": "group_count",
+        "params": {"collection": "account", "group_by": "frequency"},
+    }
+    data = {"account": [{"_id": 1, "frequency": "monthly"}]}
+    ms_inputs = []
+
+    class _WF:
+        def __init__(self):
+            self.ctx = AgentContext(settings=stub_settings, llm=None, log=logger)
+
+        def context(self, **fields):
+            return self.ctx.bind(**fields)
+
+        async def agent(self, agent_id, inputs, ctx=None):
+            if agent_id == "qps":
+                return {
+                    "intent": {
+                        "seed_mechanism": "baseline",
+                        "archetype": "group_count",
+                        "shape_policy": "reduce",
+                        "analytical_op": {"group_by": "frequency"},
+                    },
+                    "reference_oracle": reference,
+                }
+            if agent_id == "ms":
+                ms_inputs.append(inputs)
+                return {
+                    "gold_locked": True,
+                    "MQL": "db.account.aggregate([])",
+                    "canonical_form_set": {"must_contain": []},
+                    "shape_policy": "reduce",
+                    "schema_flex": "polymorphic",
+                }
+            if agent_id == "mut":
+                return {"mutations": [{"mutation_id": f"m{i}", "MQL": "x"} for i in range(5)]}
+            if agent_id == "pv":
+                return {"pv_pass": True, "property_verification": {}}
+            if agent_id == "nlp":
+                return {"nl_queries": {"canonical": "Group accounts.", "colloquial": "Group them."}}
+            if agent_id == "rtv":
+                return {"rtv_pass": True}
+            if agent_id == "nnc":
+                return {
+                    "gate_pass": True,
+                    "difficulty": "L4",
+                    "sql_infeasibility_class": "structural_schema_flex",
+                }
+            if agent_id == "ra":
+                return {"ra_pass": True}
+            raise AssertionError(agent_id)
+
+    artifacts = {
+        "financial": DbArtifacts(
+            db_id="financial",
+            mongodb_schema={"account": {"_id": "INT", "frequency": "TEXT"}},
+            mongodb_data=data,
+            rationale={},
+            world_signature="sha256:" + "2" * 64,
+            scenario_summary="finance account grouping",
+            query_bearing=True,
+        )
+    }
+    slot = CoverageSlot(
+        db_id="financial",
+        mechanism="baseline",
+        archetype="group_count",
+        record_id=42,
+        target_difficulty="L4",
+        target_sql_infeasibility_class="structural_schema_flex",
+        target_schema_flex="polymorphic",
+    )
+
+    record = asyncio.run(_build_record(_WF(), artifacts, slot))
+
+    assert record is not None
+    assert ms_inputs
+    assert ms_inputs[0]["reference_oracle"] == reference
+    assert ms_inputs[0]["intent"]["reference_oracle"] == reference
+    assert ms_inputs[0]["mongodb_data"] == data
 
 
 def test_nlp_reflux_respects_reshape_shape_policy(stub_settings, logger):
@@ -261,6 +548,7 @@ def test_nlp_reflux_respects_reshape_shape_policy(stub_settings, logger):
         },
     )
     assert "reshape/reduce task" in prompt
+    assert "exact literal values 'present' and 'missing'" in prompt
     assert "do not rewrite it as a per-document add-field task" in prompt
     assert "For this preserve task" not in prompt
     assert _nl_shape_contract_violations(
@@ -269,11 +557,14 @@ def test_nlp_reflux_respects_reshape_shape_policy(stub_settings, logger):
     ) == [
         "reshape canonical NLQ must not describe preserve/add-field semantics",
         "schema_flex_variant_summary canonical NLQ must name output fields: variant, count",
+        "schema_flex_variant_summary canonical NLQ must name exact variant label 'present'",
+        "schema_flex_variant_summary canonical NLQ must name exact variant label 'missing'",
     ]
     assert _nl_shape_contract_violations(
         intent,
         "Summarize account documents by loan presence variant and output variant, count, "
-        "and avg_loan_amount, using 0 for missing loan amounts.",
+        "and avg_loan_amount, using exact variant labels present and missing and 0 for "
+        "missing loan amounts.",
     ) == []
 
 
@@ -385,6 +676,47 @@ def test_workflow_parallel_pipeline_isolation(stub_settings, logger):
     asyncio.run(run())
 
 
+def test_llm_agent_retries_retryable_postprocess_errors(stub_settings, logger):
+    class _RetryPostprocess(LLMAgent):
+        id = "t_retry_postprocess"
+        phase = "B"
+        title = "retry postprocess"
+        prompt_file = "unused.md"
+        contract_retries = 1
+        output_schema = {
+            "type": "object",
+            "required": ["MQL"],
+            "properties": {"MQL": {"type": "string"}},
+            "additionalProperties": True,
+        }
+
+        def prompt_text(self, ctx):
+            return "return a Mongo query"
+
+        def postprocess(self, ctx, inputs, output, result):
+            if output["MQL"] == "bad":
+                raise ResponseParseError("bad generated MQL", context={"preview": "bad"})
+            return {"MQL": output["MQL"], "ok": True}
+
+    responses = iter([{"MQL": "bad"}, {"MQL": "good"}])
+    client = LLMClient(stub_settings, logger)
+    client.set_stub(lambda agent, messages, schema: next(responses))
+    ctx = AgentContext(settings=stub_settings, llm=client, log=logger, phase="B")
+
+    out = asyncio.run(_RetryPostprocess()(ctx, {}))
+    assert out == {"MQL": "good", "ok": True}
+
+    events = [
+        json.loads(line) for line in (logger.run_dir / "events.jsonl").read_text().splitlines()
+    ]
+    retry = next(e for e in events if e["event"] == "agent_postprocess_retry")
+    assert retry["error_type"] == "ResponseParseError"
+    assert retry["reason"] == "bad generated MQL"
+    assert retry["transcript_ref"].endswith(".md")
+    anomalies = (logger.run_dir / "anomalies.jsonl").read_text()
+    assert "bad generated MQL" not in anomalies
+
+
 def test_phase_b_parse_errors_are_gate_failures(stub_settings, logger):
     from tend.agents.phase_b import PropertyVerifier, RoundTripVerifier
 
@@ -436,6 +768,124 @@ def test_phase_b_parse_errors_are_gate_failures(stub_settings, logger):
     assert rtv["rtv_pass"] is False
     assert rtv["rtv_reason"] == (
         "round-trip MQL is not equivalent to gold (round_trip_rows=1, gold_rows=1)"
+    )
+
+
+def test_ms_oracle_divergence_prevents_gold_lock(stub_settings, logger):
+    from tend.agents.phase_b import MqlSynthesizer
+
+    class _Mongo:
+        def available(self):
+            return True
+
+        def norm_exec(self, db_id, mql):
+            return [{"_id": "monthly", "count": 2}]
+
+        def count(self, db_id, collection):
+            return 2
+
+        def sample_fields(self, db_id, collection):
+            return {"_id", "frequency"}
+
+    reference = {
+        "template": "group_count",
+        "params": {"collection": "account", "group_by": "frequency"},
+    }
+    ctx = AgentContext(
+        settings=replace(stub_settings, stub=False),
+        llm=None,
+        log=logger,
+        mongo=_Mongo(),
+        db_id="financial",
+        record_id=1002,
+        phase="B",
+    )
+    out = MqlSynthesizer().postprocess(
+        ctx,
+        {
+            "intent": {"shape_policy": "reduce", "reference_oracle": reference},
+            "reference_oracle": reference,
+            "schema": {"account": {"_id": "INT", "frequency": "TEXT"}},
+            "mongodb_data": {
+                "account": [
+                    {"_id": 1, "frequency": "monthly"},
+                    {"_id": 2, "frequency": "weekly"},
+                ]
+            },
+            "target_sql_infeasibility_class": "feasible",
+            "target_schema_flex": "none",
+        },
+        {
+            "MQL": (
+                'db.account.aggregate([{ "$group": { "_id": "$frequency", '
+                '"count": { "$sum": 1 } } }])'
+            ),
+            "shape_policy": "reduce",
+        },
+        result=None,
+    )
+
+    assert out["gold_locked"] is False
+    assert "reference_oracle divergence" in out["gold_lock_reason"]
+    assert "group_count" in out["gold_lock_reason"]
+
+
+def test_ms_oracle_divergence_reports_target_field_mismatch(stub_settings, logger):
+    from tend.agents.phase_b import MqlSynthesizer
+
+    class _Mongo:
+        def available(self):
+            return True
+
+        def norm_exec(self, db_id, mql):
+            return [{"_id": 1, "loan": {"amount": 90}, "computed_loan_amount": 100}]
+
+        def count(self, db_id, collection):
+            return 1
+
+        def sample_fields(self, db_id, collection):
+            return {"_id", "loan"}
+
+    reference = {
+        "template": "optional_embed_projection",
+        "params": {
+            "parent_collection": "account",
+            "embed_field": "loan",
+            "value_path": "amount",
+            "target_field": "computed_loan_amount",
+            "missing_default": 0,
+        },
+    }
+    ctx = AgentContext(
+        settings=replace(stub_settings, stub=False),
+        llm=None,
+        log=logger,
+        mongo=_Mongo(),
+        db_id="financial",
+        record_id=1003,
+        phase="B",
+    )
+    out = MqlSynthesizer().postprocess(
+        ctx,
+        {
+            "intent": {"shape_policy": "preserve", "reference_oracle": reference},
+            "reference_oracle": reference,
+            "schema": {"account": {"_id": "INT", "loan": {"amount": "INT"}}},
+            "mongodb_data": {"account": [{"_id": 1, "loan": {"amount": 90}}]},
+            "target_sql_infeasibility_class": "feasible",
+            "target_schema_flex": "none",
+        },
+        {
+            "MQL": 'db.account.aggregate([{ "$addFields": { "computed_loan_amount": 100 } }])',
+            "shape_policy": "preserve",
+        },
+        result=None,
+    )
+
+    assert out["gold_locked"] is False
+    assert (
+        "first_mismatch _id=1 field='computed_loan_amount' mql=100 oracle=90"
+        in out["gold_lock_reason"]
     )
 
 

@@ -1,6 +1,6 @@
 """DM — deterministic data migrator (Phase A).
 
-Not an LLM agent: it derives the document-aggregate layout from real BIRD FK structure
+Not an LLM agent: it derives the authoritative document-aggregate layout from real BIRD FK structure
 (:mod:`tend.construct.migrate`), materializes witness documents, computes the
 ``world_signature``, loads the witness into the working MongoDB, and emits a schema that
 is consistent with the data by construction (Gate-SD), including optional-embed
@@ -48,6 +48,7 @@ class DataMigrator(Agent):
         return {
             "mongodb_data": data,
             "mongodb_schema": schema,
+            "schema_authority": "dm_materialized",
             "world_signature": sig,
             "migration_log": {
                 "db_id": db_id,

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from tend.agents import Agent, AgentContext, register
 from tend.config import LLMSettings, Paths, Settings
 from tend.errors import (
     Anomaly,
@@ -15,6 +16,7 @@ from tend.errors import (
 )
 from tend.llm import LLMClient
 from tend.observability import ProgressReporter, setup_logging
+from tend.workflow import Workflow
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -140,6 +142,170 @@ def test_llm_prompt_anomalies_are_written_with_transcripts(tmp_path: Path, monke
     )
     assert overflow_record["transcript_ref"].endswith(".md")
     assert "context length exceeded" in overflow_md
+
+
+def test_llm_diagnostics_include_json_safe_provider_metadata(
+    tmp_path: Path, monkeypatch
+) -> None:
+    log = setup_logging(tmp_path / "run", console=False)
+    client = LLMClient(_stub_settings(tmp_path), log)
+    schema = {
+        "type": "object",
+        "required": ["foo"],
+        "properties": {"foo": {"type": "string"}},
+        "additionalProperties": False,
+    }
+    raw_response = {
+        "id": "chatcmpl-test",
+        "model": "provider-model",
+        "provider_request_id": "req-123",
+        "truncation": {"mode": "disabled"},
+        "choices": [
+            {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": '{"foo":"ok"}',
+                    "refusal": None,
+                },
+            }
+        ],
+    }
+
+    async def raw_call(*_args):
+        return (
+            '{"foo":"ok"}',
+            "stop",
+            {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+            raw_response,
+        )
+
+    async def run() -> str:
+        monkeypatch.setattr(client, "_raw_call", raw_call)
+        result = await client.complete(
+            agent="solver",
+            messages=[{"role": "user", "content": "go"}],
+            schema=schema,
+        )
+        return result.diagnostics_ref
+
+    diagnostics_ref = asyncio.run(run())
+    log.close()
+
+    diagnostics = json.loads((tmp_path / "run" / diagnostics_ref).read_text(encoding="utf-8"))
+    provider_metadata = diagnostics["provider_metadata"]
+    assert provider_metadata["id"] == "chatcmpl-test"
+    assert provider_metadata["finish_reason"] == "stop"
+    assert provider_metadata["truncation"] == {"mode": "disabled"}
+    assert provider_metadata["choices"][0]["finish_reason"] == "stop"
+    assert provider_metadata["choices"][0]["message"]["refusal"] is None
+    assert diagnostics["attempts"][0]["raw_response"]["provider_request_id"] == "req-123"
+
+
+def test_workflow_isolated_raw_exceptions_emit_internal_anomalies(tmp_path: Path) -> None:
+    log = setup_logging(tmp_path / "run", console=False)
+    settings = _stub_settings(tmp_path)
+    client = LLMClient(settings, log)
+    ctx = AgentContext(settings=settings, llm=client, log=log)
+    wf = Workflow(ctx, max_concurrency=2)
+
+    async def ok() -> str:
+        return "ok"
+
+    async def parallel_boom() -> str:
+        raise RuntimeError("parallel raw boom")
+
+    async def stage_boom(_item: str) -> str:
+        raise RuntimeError("pipeline raw boom")
+
+    async def run() -> None:
+        parallel_out = await wf.parallel([ok, parallel_boom], isolate=True)
+        assert parallel_out == ["ok", None]
+        pipeline_out = await wf.pipeline(["case-1"], stage_boom, isolate=True)
+        assert pipeline_out == [None]
+
+    asyncio.run(run())
+    log.close()
+
+    anomalies = _read_jsonl(tmp_path / "run" / "anomalies.jsonl")
+    by_primitive = {record["primitive"]: record for record in anomalies}
+    assert by_primitive["parallel"]["anomaly"] == Anomaly.INTERNAL.value
+    assert by_primitive["parallel"]["index"] == 1
+    assert "parallel_boom" in by_primitive["parallel"]["item_repr"]
+    assert "RuntimeError: parallel raw boom" in by_primitive["parallel"]["traceback"]
+    assert by_primitive["pipeline"]["anomaly"] == Anomaly.INTERNAL.value
+    assert by_primitive["pipeline"]["index"] == 0
+    assert by_primitive["pipeline"]["stage_index"] == 0
+    assert by_primitive["pipeline"]["item_repr"] == "'case-1'"
+    assert "stage_boom" in by_primitive["pipeline"]["stage_repr"]
+    assert "RuntimeError: pipeline raw boom" in by_primitive["pipeline"]["traceback"]
+
+
+def test_agent_progress_task_ids_include_collection_metadata(tmp_path: Path) -> None:
+    @register
+    class ObservabilityTaskIdentityProbe(Agent):
+        id = "obs_task_identity_probe"
+        phase = "SOLVE-1"
+        title = "identity probe"
+
+        async def run(self, ctx: AgentContext, inputs: dict) -> dict:
+            await asyncio.sleep(0)
+            return {"collection": inputs["collection"]}
+
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = ProgressReporter("solver-run", log, enabled=False)
+    settings = _stub_settings(tmp_path)
+    client = LLMClient(settings, log)
+    ctx = AgentContext(
+        settings=settings,
+        llm=client,
+        log=log,
+        progress=progress,
+        db_id="financial",
+        record_id=17,
+        group="solve:financial:17",
+    )
+    wf = Workflow(ctx, max_concurrency=2)
+
+    async def run() -> None:
+        out = await wf.map_agent(
+            "obs_task_identity_probe",
+            [
+                (ctx, {"collection": "account"}),
+                (ctx, {"collection": "loan"}),
+            ],
+            isolate=False,
+        )
+        assert [item["collection"] for item in out] == ["account", "loan"]
+
+    asyncio.run(run())
+    task_ids = sorted(progress._tasks)
+    summary = progress.summary()
+    log.close()
+
+    assert len(task_ids) == 2
+    assert any(task_id.endswith(":collection=account") for task_id in task_ids)
+    assert any(task_id.endswith(":collection=loan") for task_id in task_ids)
+    assert summary["tasks"]["started"] == 2
+    assert summary["tasks"]["ok"] == 2
+
+
+def test_progress_group_total_switches_to_task_units(tmp_path: Path) -> None:
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = ProgressReporter("solver-run", log, enabled=False)
+    progress.add_group("records", "records", phase="B", total=1)
+
+    progress.start_task("task-1", "first agent", group="records")
+    progress.finish_task("task-1")
+    progress.start_task("task-2", "second agent", group="records")
+    progress.finish_task("task-2")
+    summary = progress.summary()
+    log.close()
+
+    assert progress._groups["records"].total is None
+    assert summary["tasks"]["started"] == 2
+    assert summary["tasks"]["ok"] == 2
 
 
 def test_progress_summary_counts_anomalies_by_kind(tmp_path: Path) -> None:

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tend.dev/schemas/canonical_form_set.schema.json",
   "title": "TEND canonical_form_set",
-  "description": "Four-tuple gold-as-class AST membership specification for a record.",
+  "description": "Four-tuple gold-as-class AST membership specification for a record. RAR thin cfs requires the disabled-token set in must_not_contain; must_contain_at_root may be empty.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,35 +16,42 @@
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^\\$[A-Za-z][A-Za-z0-9_]*$"
+        "pattern": "^(\\$\\$NOW|\\$[A-Za-z][A-Za-z0-9_]*)$"
       },
       "uniqueItems": true,
-      "description": "Operators that must appear at any pipeline depth."
+      "description": "Idiom-invariant operators that must appear at any pipeline depth; may be empty."
     },
     "must_not_contain": {
       "type": "array",
+      "allOf": [
+        { "contains": { "const": "$sample" } },
+        { "contains": { "const": "$rand" } },
+        { "contains": { "const": "$$NOW" } },
+        { "contains": { "const": "$out" } },
+        { "contains": { "const": "$merge" } },
+        { "contains": { "const": "$function" } }
+      ],
       "items": {
         "type": "string",
-        "pattern": "^\\$[A-Za-z][A-Za-z0-9_]*$"
+        "pattern": "^(\\$\\$NOW|\\$[A-Za-z][A-Za-z0-9_]*)$"
       },
       "uniqueItems": true,
-      "description": "Operators forbidden at any depth (includes six disabled ops)."
+      "description": "Operators forbidden at any depth; must contain the six disabled-token guards at minimum."
     },
     "must_contain_at_root": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "type": "string",
-        "pattern": "^\\$[A-Za-z][A-Za-z0-9_]*$"
+        "pattern": "^(\\$\\$NOW|\\$[A-Za-z][A-Za-z0-9_]*)$"
       },
       "uniqueItems": true,
-      "description": "Stage operators required at pipeline root."
+      "description": "Stage operators required at pipeline root; may be empty under RAR thin cfs."
     },
     "must_not_contain_at_root": {
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^\\$[A-Za-z][A-Za-z0-9_]*$"
+        "pattern": "^(\\$\\$NOW|\\$[A-Za-z][A-Za-z0-9_]*)$"
       },
       "uniqueItems": true,
       "description": "Stage operators forbidden at pipeline root."

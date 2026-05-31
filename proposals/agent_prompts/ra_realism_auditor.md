@@ -80,9 +80,9 @@ Return JSON matching `output_schema` only.
 
 ## few-shot
 
-### Example 1 · orchestra/1001 · augment for tie + ifNull (transitional anchor · pending BIRD migration)
+### Example 1 · orchestra/1001 · augment for tie + ifNull (smoke fixture, not production release)
 
-**Finding**: Missing conductor with `Name: null`; no performance where rolling_avg equals global median. (orchestra/1001 is the transitional anchor carried over from the legacy pipeline; to be replaced by a real BIRD record, e.g. `financial`.)
+**Finding**: Missing conductor with `Name: null`; no performance where rolling_avg equals global median. This is a smoke fixture, not a production TEND release record.
 
 **Output snippet**
 

@@ -1,17 +1,17 @@
 difficulty: L4
-difficulty_rationale: Per-assessment-type score normalization requires $switch on __type; SQL lacks per-row schema branch on variant field sets.
+difficulty_rationale: Per-assessment-type score normalization requires $switch on assessment_type; SQL lacks per-row schema branch on variant field sets.
 sql_infeasibility_class: structural_schema_flex
 diagnostic_bridge:
   gate_required: true
   gate_pass: true
   sql_bridge:
-    ex: 0
-    qim: 0
+    normexec_equiv_gold: false
+    ast_check_pass: false
     notes: SQL assumes uniform Candidate_Assessments columns; cannot branch on assessment_type field sets
   template_bridge:
-    ex: 0
-    qim: 0
-    notes: Matched group_aggregate template; missing $switch dispatch on __type
+    normexec_equiv_gold: false
+    ast_check_pass: false
+    notes: Matched group_aggregate template; missing $switch dispatch on assessment_type
   functional_sql_solvable: false
   structural_sql_solvable: false
 ambiguity_attack:

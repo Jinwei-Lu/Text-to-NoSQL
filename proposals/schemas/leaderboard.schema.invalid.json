@@ -36,7 +36,7 @@
     "construction_gate_digest": "sha256:bad",
     "evaluation_gate_digest": "sha256:bad",
     "panel_manifest_digest": "sha256:bad",
-    "spider_db_catalog_digest": "sha256:bad",
+    "bird_db_catalog_digest": "sha256:bad",
     "diagnostics_summary": {
       "parse_error_count": 128
     }

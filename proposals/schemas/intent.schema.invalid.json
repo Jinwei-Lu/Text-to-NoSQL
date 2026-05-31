@@ -1,0 +1,21 @@
+{
+  "intent": {
+    "seed_mechanism": "sparse_embed",
+    "seed_signal": {},
+    "archetype": "present_missing_projection",
+    "domain_framing": {},
+    "analytical_op": {},
+    "shape_policy": "augment",
+    "semantic_properties": [],
+    "reference_oracle": {
+      "template": "",
+      "params": {}
+    },
+    "target_difficulty": "L4"
+  },
+  "qps_trace": {
+    "coverage_cell": "",
+    "deficit_weight": -0.1,
+    "supply_constrained": false
+  }
+}

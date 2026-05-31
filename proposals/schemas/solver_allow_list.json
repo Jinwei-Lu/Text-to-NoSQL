@@ -46,7 +46,7 @@
     "mongodb_schema/<db_id>.json",
     "mongodb_data/<db_id>.json",
     "agent_design_rationale/<db_id>.yaml",
-    "spider_db_catalog.json"
+    "bird_db_catalog.json"
   ],
   "witness_sample_limit": {
     "scope": "heterogeneity_planning_and_query_realization",
@@ -60,9 +60,9 @@
     "sets": {
       "A_evaluated": "solver under test (self)",
       "B_frozen_panels": "20 frozen reference models (4 panels × 5)",
-      "C_construction_pool": "Construction Agent LLM pool {QPS, MS, MUT, PV, NLP, RTV, NNC, RA}"
+      "C_construction_pool": "Construction Agent LLM model IDs used by {QPS, MS, MUT, PV, NLP, RTV, NNC, RA}"
     },
-    "construction_agents": ["QPS", "MS", "MUT", "PV", "NLP", "RTV", "NNC", "RA"],
+    "construction_model_ids": ["deepseek-v4-flash"],
     "solver_invariant": [
       "S_solver ∩ B_frozen = ∅",
       "S_solver ∩ C_construction_pool = ∅"
@@ -75,12 +75,36 @@
   },
   "frozen_panel_manifest_ref": "audit/reference_panel/manifest_<release>.json",
   "frozen_panels": {
-    "small": [],
-    "medium": [],
-    "large": [],
-    "frontier": []
+    "small": [
+      "llama-3.2-1b",
+      "phi-mini",
+      "gemma-2-2b",
+      "qwen-2.5-3b",
+      "tinyllama-chat"
+    ],
+    "medium": [
+      "gpt-3.5-turbo",
+      "llama-3-8b",
+      "mistral-7b-instruct",
+      "qwen-2.5-7b",
+      "gemma-2-9b"
+    ],
+    "large": [
+      "deepseek-v3",
+      "claude-3.5-sonnet",
+      "gpt-4-turbo",
+      "llama-3.1-70b",
+      "mistral-large"
+    ],
+    "frontier": [
+      "claude-4-opus",
+      "gpt-5",
+      "gemini-3",
+      "grok-4",
+      "deepseek-v4"
+    ]
   },
-  "frozen_panel_note": "Populate frozen_panels.* from audit/reference_panel/manifest_<release>.json at release time; empty arrays are placeholders until manifest is published.",
+  "frozen_panel_note": "frozen_panels.* is the release-pinned 4-panel manifest used for solver disjointness; non-stub evaluation fails closed if any required panel is missing or empty.",
   "stages": {
     "shape_comprehension": {
       "owner_agent": "LLM Agent · perception mode (concurrent map-reduce probes; may use a same-family small model when cost-sensitive)",
@@ -105,7 +129,7 @@
     },
     "intent_formalization": {
       "owner_agent": "LLM Agent · cognition mode",
-      "inputs": ["NLQ", "S_hat"],
+      "inputs": ["NLQ", "S_hat", "bounded_checkpoint_feedback"],
       "outputs": ["logical_spec (paradigm-neutral; includes self-inferred shape_policy + target_fields)"],
       "readable": [
         "test.json:nl_queries",
@@ -124,7 +148,7 @@
     },
     "heterogeneity_planning": {
       "owner_agent": "LLM Agent · cognition mode (crux ★)",
-      "inputs": ["logical_spec", "S_hat"],
+      "inputs": ["logical_spec", "S_hat", "bounded_checkpoint_feedback", "disclosed_witness_digest"],
       "outputs": ["physical_plan (Mongo pipeline skeleton + variant_handling)"],
       "readable": [
         "mongodb_schema/<db_id>.json",

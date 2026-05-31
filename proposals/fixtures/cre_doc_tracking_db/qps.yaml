@@ -1,21 +1,19 @@
-query_plan:
-  primary_pattern: dynamic_key_aggregation
-  operator_graph:
-    stages: ["$project", "$unwind", "$match", "$group", "$sort", "$group", "$project"]
-    dependencies:
-      - $objectToArray unfold metrics object
-      - filter keys weight and priority
-      - rank by avg_value descending
+intent:
+  seed_mechanism: dynamic_key
+  seed_signal:
+    collection: documents
+    field: metrics
+    keys: [weight, priority]
+  archetype: dynamic_key_top_metric
+  domain_framing:
+    entity_noun: document
+    metric_noun: metric value
+  analytical_op:
+    unfold: metrics key/value pairs
+    filter_keys: [weight, priority]
+    aggregate: average value per key
+    output: top metric by average value
   shape_policy: reshape
-  null_missing_strategy: none
-  target_difficulty: L4
-  schema_flex_mode: dynamic_key
-  join_depth_target: 0
-  aggregation_depth_target: medium
-  target_fields:
-    - document_id
-    - metrics
-    - title
   semantic_properties:
     - id: key_filter_weight_priority
       expect: only weight and priority keys enter aggregation
@@ -23,8 +21,15 @@ query_plan:
       expect: output is single top_metric object with highest avg
     - id: objectToArray_required
       expect: dynamic keys treated as values not static columns
+  reference_oracle:
+    template: dynamic_key_top_metric
+    params:
+      collection: documents
+      object_field: metrics
+      keys: [weight, priority]
+  target_difficulty: L4
 qps_trace:
-  coverage_cell: L4|structural_schema_flex|schema_flex_dynamic_key
+  coverage_cell: dynamic_key|dynamic_key_top_metric|documents
   deficit_weight: 0.20
   supply_constrained: false
-  pattern_rationale: scenario_summary emphasizes EAV attribute aggregation; H4 dynamic-key metrics on documents
+  rationale: Smoke fixture; EAV-style metrics require dynamic-key handling.
