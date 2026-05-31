@@ -1,0 +1,19 @@
+# TEND — active construction/evaluation pipeline (src/ + tests/)
+# Canonical set, mirrors release/TEND-smoke-v10/toolchain/infra/pip/requirements.txt
+openai>=1.30
+structlog>=24.1
+rich>=13.7
+pyyaml>=6.0
+pymongo>=4.6
+jsonschema>=4.21
+sqlglot>=25.0
+json5>=0.9
+pytest>=8.0
+
+# Legacy SMART/ reproduction extras (numeric + tokenizer stack)
+numpy>=1.26
+pandas>=2.2
+scipy>=1.13
+tiktoken>=0.7
+tqdm>=4.66
+httpx>=0.27

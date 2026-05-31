@@ -1,0 +1,4552 @@
+{
+  "source": "minidev 11 dbs + mini_dev_sqlite.json (500 q); workload = minidev only",
+  "thresholds": {
+    "poly_distinct": [
+      2,
+      8
+    ],
+    "sparse_null": [
+      0.05,
+      0.95
+    ],
+    "embed_cover_max": 0.9,
+    "l4_target_ratio": 0.3
+  },
+  "global": {
+    "dbs": 11,
+    "flex_eligible_dbs": 9,
+    "flex_eligible_db_ratio": 0.818,
+    "l4_supply_instances": 153,
+    "l4_qb_instances_conservative": 56,
+    "structural_schema_flex_supply_instances": 153,
+    "max_total_records_at_L4_30pct": 510,
+    "max_total_records_at_L4_30pct_conservative": 186,
+    "note": "l4_supply_instances = (query-bearing mech instance x L4 archetype) cells = optimistic intent-slot ceiling. l4_qb_instances_conservative = distinct query-bearing structural instances (no archetype multiplier) = floor. True dedup'd L4 record yield lies between, after Gate-QB."
+  },
+  "databases": {
+    "california_schools": {
+      "domain": "education",
+      "table_count": 3,
+      "query_count": 30,
+      "mechanisms": {
+        "polymorphic": [
+          {
+            "table": "schools",
+            "discriminator_col": "StatusType",
+            "distinct": 4,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "discriminator_col": "Charter",
+            "distinct": 2,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "discriminator_col": "FundingType",
+            "distinct": 3,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "discriminator_col": "Virtual",
+            "distinct": 3,
+            "has_enum": true,
+            "sql_cond_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "discriminator_col": "Magnet",
+            "distinct": 2,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          }
+        ],
+        "sparse_scalar": [
+          {
+            "table": "frpm",
+            "col": "NSLP Provision Status",
+            "null_rate": 0.815,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "frpm",
+            "col": "Charter School Number",
+            "null_rate": 0.883,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "frpm",
+            "col": "Charter Funding Type",
+            "null_rate": 0.883,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "satscores",
+            "col": "sname",
+            "null_rate": 0.229,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "satscores",
+            "col": "AvgScrRead",
+            "null_rate": 0.263,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "satscores",
+            "col": "AvgScrMath",
+            "null_rate": 0.263,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "satscores",
+            "col": "AvgScrWrite",
+            "null_rate": 0.263,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "satscores",
+            "col": "NumGE1500",
+            "null_rate": 0.263,
+            "sql_refs": 4,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "NCESDist",
+            "null_rate": 0.058,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "schools",
+            "col": "NCESSchool",
+            "null_rate": 0.285,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "schools",
+            "col": "School",
+            "null_rate": 0.077,
+            "sql_refs": 13,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "Phone",
+            "null_rate": 0.337,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "Website",
+            "null_rate": 0.606,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "schools",
+            "col": "OpenDate",
+            "null_rate": 0.077,
+            "sql_refs": 4,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "ClosedDate",
+            "null_rate": 0.678,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "Charter",
+            "null_rate": 0.077,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "CharterNum",
+            "null_rate": 0.898,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "FundingType",
+            "null_rate": 0.907,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "SOC",
+            "null_rate": 0.077,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "SOCType",
+            "null_rate": 0.077,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "schools",
+            "col": "EdOpsCode",
+            "null_rate": 0.323,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "EdOpsName",
+            "null_rate": 0.323,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "schools",
+            "col": "EILCode",
+            "null_rate": 0.077,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "schools",
+            "col": "EILName",
+            "null_rate": 0.077,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "schools",
+            "col": "GSoffered",
+            "null_rate": 0.219,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "GSserved",
+            "null_rate": 0.325,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "Virtual",
+            "null_rate": 0.388,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "Magnet",
+            "null_rate": 0.4,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "Latitude",
+            "null_rate": 0.273,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "schools",
+            "col": "Longitude",
+            "null_rate": 0.273,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "AdmFName1",
+            "null_rate": 0.338,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "AdmLName1",
+            "null_rate": 0.338,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "schools",
+            "col": "AdmEmail1",
+            "null_rate": 0.34,
+            "sql_refs": 1,
+            "query_bearing": true
+          }
+        ],
+        "sparse_embed": [
+          {
+            "child_table": "frpm",
+            "fk_col": "CDSCode",
+            "parent_table": "schools",
+            "coverage": 0.565,
+            "sql_refs_child": 16,
+            "query_bearing": true
+          },
+          {
+            "child_table": "satscores",
+            "fk_col": "cds",
+            "parent_table": "schools",
+            "coverage": 0.128,
+            "sql_refs_child": 13,
+            "query_bearing": true
+          }
+        ],
+        "dynamic_key": [],
+        "versioning": [
+          {
+            "table": "schools",
+            "query_bearing": true
+          }
+        ]
+      },
+      "query_bearing_counts": {
+        "polymorphic": 5,
+        "sparse_scalar": 24,
+        "sparse_embed": 2,
+        "dynamic_key": 0,
+        "versioning": 1
+      },
+      "archetype_instances": [
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "versioning",
+          "archetype": "cross_version_agg",
+          "tier": "L3"
+        }
+      ],
+      "l4_qb_instances_conservative": 7,
+      "l4_supply_instances": 19,
+      "structural_schema_flex_supply_instances": 19,
+      "audit_only": {
+        "type_drift": []
+      }
+    },
+    "card_games": {
+      "domain": "games",
+      "table_count": 6,
+      "query_count": 52,
+      "mechanisms": {
+        "polymorphic": [
+          {
+            "table": "cards",
+            "discriminator_col": "borderColor",
+            "distinct": 5,
+            "has_enum": true,
+            "sql_cond_refs": 5,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "discriminator_col": "frameVersion",
+            "distinct": 5,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "discriminator_col": "hasContentWarning",
+            "distinct": 2,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "discriminator_col": "isPromo",
+            "distinct": 2,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "discriminator_col": "isStorySpotlight",
+            "distinct": 2,
+            "has_enum": true,
+            "sql_cond_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "discriminator_col": "isTextless",
+            "distinct": 2,
+            "has_enum": true,
+            "sql_cond_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "legalities",
+            "discriminator_col": "status",
+            "distinct": 3,
+            "has_enum": true,
+            "sql_cond_refs": 8,
+            "query_bearing": true
+          }
+        ],
+        "sparse_scalar": [
+          {
+            "table": "cards",
+            "col": "cardKingdomFoilId",
+            "null_rate": 0.491,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "col": "cardKingdomId",
+            "null_rate": 0.24,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "col": "colorIdentity",
+            "null_rate": 0.11,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "colors",
+            "null_rate": 0.221,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "col": "edhrecRank",
+            "null_rate": 0.084,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "col": "flavorText",
+            "null_rate": 0.458,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "col": "frameEffects",
+            "null_rate": 0.948,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "keywords",
+            "null_rate": 0.637,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "leadershipSkills",
+            "null_rate": 0.934,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "manaCost",
+            "null_rate": 0.129,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "col": "mcmId",
+            "null_rate": 0.141,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "mcmMetaId",
+            "null_rate": 0.315,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "mtgArenaId",
+            "null_rate": 0.897,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "mtgoFoilId",
+            "null_rate": 0.571,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "mtgoId",
+            "null_rate": 0.434,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "multiverseId",
+            "null_rate": 0.26,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "col": "originalText",
+            "null_rate": 0.275,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "originalType",
+            "null_rate": 0.26,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "col": "power",
+            "null_rate": 0.539,
+            "sql_refs": 5,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "col": "promoTypes",
+            "null_rate": 0.892,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "purchaseUrls",
+            "null_rate": 0.112,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "subtypes",
+            "null_rate": 0.391,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "col": "supertypes",
+            "null_rate": 0.862,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "cards",
+            "col": "tcgplayerProductId",
+            "null_rate": 0.116,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "toughness",
+            "null_rate": 0.539,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "variations",
+            "null_rate": 0.848,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "cards",
+            "col": "watermark",
+            "null_rate": 0.922,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "foreign_data",
+            "col": "multiverseid",
+            "null_rate": 0.168,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "sets",
+            "col": "block",
+            "null_rate": 0.506,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "sets",
+            "col": "booster",
+            "null_rate": 0.75,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "sets",
+            "col": "mcmId",
+            "null_rate": 0.635,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "sets",
+            "col": "mcmName",
+            "null_rate": 0.635,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "sets",
+            "col": "mtgoCode",
+            "null_rate": 0.71,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "sets",
+            "col": "parentCode",
+            "null_rate": 0.721,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "sets",
+            "col": "tcgplayerGroupId",
+            "null_rate": 0.528,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "set_translations",
+            "col": "translation",
+            "null_rate": 0.191,
+            "sql_refs": 6,
+            "query_bearing": true
+          }
+        ],
+        "sparse_embed": [],
+        "dynamic_key": [],
+        "versioning": []
+      },
+      "query_bearing_counts": {
+        "polymorphic": 7,
+        "sparse_scalar": 16,
+        "sparse_embed": 0,
+        "dynamic_key": 0,
+        "versioning": 0
+      },
+      "archetype_instances": [
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        }
+      ],
+      "l4_qb_instances_conservative": 7,
+      "l4_supply_instances": 21,
+      "structural_schema_flex_supply_instances": 21,
+      "audit_only": {
+        "type_drift": []
+      }
+    },
+    "codebase_community": {
+      "domain": "community",
+      "table_count": 8,
+      "query_count": 49,
+      "mechanisms": {
+        "polymorphic": [],
+        "sparse_scalar": [
+          {
+            "table": "postHistory",
+            "col": "UserId",
+            "null_rate": 0.07,
+            "sql_refs": 17,
+            "query_bearing": true
+          },
+          {
+            "table": "posts",
+            "col": "AcceptedAnswerId",
+            "null_rate": 0.84,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "posts",
+            "col": "ViewCount",
+            "null_rate": 0.533,
+            "sql_refs": 8,
+            "query_bearing": true
+          },
+          {
+            "table": "posts",
+            "col": "Title",
+            "null_rate": 0.533,
+            "sql_refs": 10,
+            "query_bearing": true
+          },
+          {
+            "table": "posts",
+            "col": "Tags",
+            "null_rate": 0.533,
+            "sql_refs": 5,
+            "query_bearing": true
+          },
+          {
+            "table": "posts",
+            "col": "AnswerCount",
+            "null_rate": 0.533,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "posts",
+            "col": "FavoriteCount",
+            "null_rate": 0.856,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "posts",
+            "col": "LastEditorUserId",
+            "null_rate": 0.515,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "posts",
+            "col": "LastEditDate",
+            "null_rate": 0.51,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "posts",
+            "col": "ParentId",
+            "null_rate": 0.481,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "tags",
+            "col": "ExcerptPostId",
+            "null_rate": 0.422,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "tags",
+            "col": "WikiPostId",
+            "null_rate": 0.422,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "users",
+            "col": "WebsiteUrl",
+            "null_rate": 0.799,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "users",
+            "col": "Location",
+            "null_rate": 0.71,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "users",
+            "col": "AboutMe",
+            "null_rate": 0.767,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "users",
+            "col": "Age",
+            "null_rate": 0.794,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "users",
+            "col": "ProfileImageUrl",
+            "null_rate": 0.591,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "votes",
+            "col": "UserId",
+            "null_rate": 0.912,
+            "sql_refs": 17,
+            "query_bearing": true
+          }
+        ],
+        "sparse_embed": [
+          {
+            "child_table": "postLinks",
+            "fk_col": "RelatedPostId",
+            "parent_table": "posts",
+            "coverage": 0.056,
+            "sql_refs_child": 1,
+            "query_bearing": true
+          },
+          {
+            "child_table": "postLinks",
+            "fk_col": "PostId",
+            "parent_table": "posts",
+            "coverage": 0.083,
+            "sql_refs_child": 1,
+            "query_bearing": true
+          },
+          {
+            "child_table": "posts",
+            "fk_col": "ParentId",
+            "parent_table": "posts",
+            "coverage": 0.315,
+            "sql_refs_child": 34,
+            "query_bearing": true
+          },
+          {
+            "child_table": "tags",
+            "fk_col": "ExcerptPostId",
+            "parent_table": "posts",
+            "coverage": 0.006,
+            "sql_refs_child": 5,
+            "query_bearing": true
+          },
+          {
+            "child_table": "votes",
+            "fk_col": "UserId",
+            "parent_table": "users",
+            "coverage": 0.013,
+            "sql_refs_child": 5,
+            "query_bearing": true
+          },
+          {
+            "child_table": "votes",
+            "fk_col": "PostId",
+            "parent_table": "posts",
+            "coverage": 0.093,
+            "sql_refs_child": 5,
+            "query_bearing": true
+          }
+        ],
+        "dynamic_key": [],
+        "versioning": []
+      },
+      "query_bearing_counts": {
+        "polymorphic": 0,
+        "sparse_scalar": 12,
+        "sparse_embed": 6,
+        "dynamic_key": 0,
+        "versioning": 0
+      },
+      "archetype_instances": [
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        }
+      ],
+      "l4_qb_instances_conservative": 6,
+      "l4_supply_instances": 12,
+      "structural_schema_flex_supply_instances": 12,
+      "audit_only": {
+        "type_drift": []
+      }
+    },
+    "debit_card_specializing": {
+      "domain": "finance",
+      "table_count": 5,
+      "query_count": 30,
+      "mechanisms": {
+        "polymorphic": [],
+        "sparse_scalar": [],
+        "sparse_embed": [],
+        "dynamic_key": [],
+        "versioning": []
+      },
+      "query_bearing_counts": {
+        "polymorphic": 0,
+        "sparse_scalar": 0,
+        "sparse_embed": 0,
+        "dynamic_key": 0,
+        "versioning": 0
+      },
+      "archetype_instances": [],
+      "l4_qb_instances_conservative": 0,
+      "l4_supply_instances": 0,
+      "structural_schema_flex_supply_instances": 0,
+      "audit_only": {
+        "type_drift": []
+      }
+    },
+    "european_football_2": {
+      "domain": "sports",
+      "table_count": 7,
+      "query_count": 51,
+      "mechanisms": {
+        "polymorphic": [
+          {
+            "table": "Player_Attributes",
+            "discriminator_col": "preferred_foot",
+            "distinct": 2,
+            "has_enum": true,
+            "sql_cond_refs": 4,
+            "query_bearing": true
+          },
+          {
+            "table": "Player_Attributes",
+            "discriminator_col": "attacking_work_rate",
+            "distinct": 8,
+            "has_enum": true,
+            "sql_cond_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "Team_Attributes",
+            "discriminator_col": "chanceCreationPassingClass",
+            "distinct": 3,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          }
+        ],
+        "sparse_scalar": [
+          {
+            "table": "Team_Attributes",
+            "col": "buildUpPlayDribbling",
+            "null_rate": 0.665,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_X1",
+            "null_rate": 0.07,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_X2",
+            "null_rate": 0.07,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_X3",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_X4",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_X5",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_X6",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_X7",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_X8",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_X9",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_X10",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_X11",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_X1",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_X2",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_X3",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_X4",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_X5",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_X6",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_X7",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_X8",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_X9",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_X10",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_X11",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_Y1",
+            "null_rate": 0.07,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_Y2",
+            "null_rate": 0.07,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_Y3",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_Y4",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_Y5",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_Y6",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_Y7",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_Y8",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_Y9",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_Y10",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_Y11",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_Y1",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_Y2",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_Y3",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_Y4",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_Y5",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_Y6",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_Y7",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_Y8",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_Y9",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_Y10",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_Y11",
+            "null_rate": 0.071,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_2",
+            "null_rate": 0.051,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_4",
+            "null_rate": 0.051,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_5",
+            "null_rate": 0.051,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_6",
+            "null_rate": 0.051,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_8",
+            "null_rate": 0.05,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_10",
+            "null_rate": 0.055,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "home_player_11",
+            "null_rate": 0.06,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_4",
+            "null_rate": 0.051,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_5",
+            "null_rate": 0.051,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_6",
+            "null_rate": 0.051,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_8",
+            "null_rate": 0.052,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_9",
+            "null_rate": 0.051,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_10",
+            "null_rate": 0.055,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "away_player_11",
+            "null_rate": 0.06,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "goal",
+            "null_rate": 0.453,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "shoton",
+            "null_rate": 0.453,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "shotoff",
+            "null_rate": 0.453,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "foulcommit",
+            "null_rate": 0.453,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "card",
+            "null_rate": 0.453,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "cross",
+            "null_rate": 0.453,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "corner",
+            "null_rate": 0.453,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "possession",
+            "null_rate": 0.453,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "B365H",
+            "null_rate": 0.13,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "B365D",
+            "null_rate": 0.13,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "B365A",
+            "null_rate": 0.13,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "BWH",
+            "null_rate": 0.131,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "BWD",
+            "null_rate": 0.131,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "BWA",
+            "null_rate": 0.131,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "IWH",
+            "null_rate": 0.133,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "IWD",
+            "null_rate": 0.133,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "IWA",
+            "null_rate": 0.133,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "LBH",
+            "null_rate": 0.132,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "LBD",
+            "null_rate": 0.132,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "LBA",
+            "null_rate": 0.132,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "PSH",
+            "null_rate": 0.57,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "PSD",
+            "null_rate": 0.57,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "PSA",
+            "null_rate": 0.57,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "WHH",
+            "null_rate": 0.131,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "WHD",
+            "null_rate": 0.131,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "WHA",
+            "null_rate": 0.131,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "SJH",
+            "null_rate": 0.342,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "SJD",
+            "null_rate": 0.342,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "SJA",
+            "null_rate": 0.342,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "VCH",
+            "null_rate": 0.131,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "VCD",
+            "null_rate": 0.131,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "VCA",
+            "null_rate": 0.131,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "GBH",
+            "null_rate": 0.455,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "GBD",
+            "null_rate": 0.455,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "GBA",
+            "null_rate": 0.455,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "BSH",
+            "null_rate": 0.455,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "BSD",
+            "null_rate": 0.455,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Match",
+            "col": "BSA",
+            "null_rate": 0.455,
+            "sql_refs": 0,
+            "query_bearing": false
+          }
+        ],
+        "sparse_embed": [],
+        "dynamic_key": [],
+        "versioning": [
+          {
+            "table": "Match",
+            "query_bearing": true
+          }
+        ]
+      },
+      "query_bearing_counts": {
+        "polymorphic": 3,
+        "sparse_scalar": 0,
+        "sparse_embed": 0,
+        "dynamic_key": 0,
+        "versioning": 1
+      },
+      "archetype_instances": [
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "versioning",
+          "archetype": "cross_version_agg",
+          "tier": "L3"
+        }
+      ],
+      "l4_qb_instances_conservative": 3,
+      "l4_supply_instances": 9,
+      "structural_schema_flex_supply_instances": 9,
+      "audit_only": {
+        "type_drift": []
+      }
+    },
+    "financial": {
+      "domain": "finance",
+      "table_count": 8,
+      "query_count": 32,
+      "mechanisms": {
+        "polymorphic": [
+          {
+            "table": "card",
+            "discriminator_col": "type",
+            "distinct": 3,
+            "has_enum": true,
+            "sql_cond_refs": 4,
+            "query_bearing": true
+          },
+          {
+            "table": "client",
+            "discriminator_col": "gender",
+            "distinct": 2,
+            "has_enum": true,
+            "sql_cond_refs": 12,
+            "query_bearing": true
+          },
+          {
+            "table": "disp",
+            "discriminator_col": "type",
+            "distinct": 2,
+            "has_enum": true,
+            "sql_cond_refs": 4,
+            "query_bearing": true
+          },
+          {
+            "table": "loan",
+            "discriminator_col": "duration",
+            "distinct": 5,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "loan",
+            "discriminator_col": "status",
+            "distinct": 4,
+            "has_enum": true,
+            "sql_cond_refs": 5,
+            "query_bearing": true
+          },
+          {
+            "table": "trans",
+            "discriminator_col": "type",
+            "distinct": 3,
+            "has_enum": true,
+            "sql_cond_refs": 4,
+            "query_bearing": true
+          },
+          {
+            "table": "trans",
+            "discriminator_col": "operation",
+            "distinct": 5,
+            "has_enum": true,
+            "sql_cond_refs": 2,
+            "query_bearing": true
+          }
+        ],
+        "sparse_scalar": [
+          {
+            "table": "trans",
+            "col": "operation",
+            "null_rate": 0.173,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "trans",
+            "col": "k_symbol",
+            "null_rate": 0.456,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "trans",
+            "col": "bank",
+            "null_rate": 0.741,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "trans",
+            "col": "account",
+            "null_rate": 0.72,
+            "sql_refs": 21,
+            "query_bearing": true
+          }
+        ],
+        "sparse_embed": [
+          {
+            "child_table": "card",
+            "fk_col": "disp_id",
+            "parent_table": "disp",
+            "coverage": 0.166,
+            "sql_refs_child": 1,
+            "query_bearing": true
+          },
+          {
+            "child_table": "loan",
+            "fk_col": "account_id",
+            "parent_table": "account",
+            "coverage": 0.152,
+            "sql_refs_child": 10,
+            "query_bearing": true
+          }
+        ],
+        "dynamic_key": [],
+        "versioning": []
+      },
+      "query_bearing_counts": {
+        "polymorphic": 7,
+        "sparse_scalar": 3,
+        "sparse_embed": 2,
+        "dynamic_key": 0,
+        "versioning": 0
+      },
+      "archetype_instances": [
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        }
+      ],
+      "l4_qb_instances_conservative": 9,
+      "l4_supply_instances": 25,
+      "structural_schema_flex_supply_instances": 25,
+      "audit_only": {
+        "type_drift": []
+      }
+    },
+    "formula_1": {
+      "domain": "sports",
+      "table_count": 13,
+      "query_count": 66,
+      "mechanisms": {
+        "polymorphic": [],
+        "sparse_scalar": [
+          {
+            "table": "drivers",
+            "col": "code",
+            "null_rate": 0.901,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "races",
+            "col": "time",
+            "null_rate": 0.757,
+            "sql_refs": 17,
+            "query_bearing": true
+          },
+          {
+            "table": "qualifying",
+            "col": "q2",
+            "null_rate": 0.513,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "qualifying",
+            "col": "q3",
+            "null_rate": 0.708,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "results",
+            "col": "position",
+            "null_rate": 0.445,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "results",
+            "col": "time",
+            "null_rate": 0.75,
+            "sql_refs": 17,
+            "query_bearing": true
+          },
+          {
+            "table": "results",
+            "col": "milliseconds",
+            "null_rate": 0.75,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "results",
+            "col": "fastestLap",
+            "null_rate": 0.785,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "results",
+            "col": "rank",
+            "null_rate": 0.779,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "results",
+            "col": "fastestLapTime",
+            "null_rate": 0.785,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "results",
+            "col": "fastestLapSpeed",
+            "null_rate": 0.785,
+            "sql_refs": 4,
+            "query_bearing": true
+          }
+        ],
+        "sparse_embed": [],
+        "dynamic_key": [],
+        "versioning": []
+      },
+      "query_bearing_counts": {
+        "polymorphic": 0,
+        "sparse_scalar": 11,
+        "sparse_embed": 0,
+        "dynamic_key": 0,
+        "versioning": 0
+      },
+      "archetype_instances": [
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        }
+      ],
+      "l4_qb_instances_conservative": 0,
+      "l4_supply_instances": 0,
+      "structural_schema_flex_supply_instances": 0,
+      "audit_only": {
+        "type_drift": []
+      }
+    },
+    "student_club": {
+      "domain": "education",
+      "table_count": 8,
+      "query_count": 48,
+      "mechanisms": {
+        "polymorphic": [
+          {
+            "table": "event",
+            "discriminator_col": "status",
+            "distinct": 3,
+            "has_enum": true,
+            "sql_cond_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "zip_code",
+            "discriminator_col": "type",
+            "distinct": 3,
+            "has_enum": true,
+            "sql_cond_refs": 5,
+            "query_bearing": true
+          },
+          {
+            "table": "budget",
+            "discriminator_col": "event_status",
+            "distinct": 3,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "income",
+            "discriminator_col": "amount",
+            "distinct": 4,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "member",
+            "discriminator_col": "t_shirt_size",
+            "distinct": 4,
+            "has_enum": true,
+            "sql_cond_refs": 3,
+            "query_bearing": true
+          }
+        ],
+        "sparse_scalar": [
+          {
+            "table": "event",
+            "col": "notes",
+            "null_rate": 0.524,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "event",
+            "col": "location",
+            "null_rate": 0.143,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "income",
+            "col": "notes",
+            "null_rate": 0.917,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "income",
+            "col": "link_to_member",
+            "null_rate": 0.083,
+            "sql_refs": 14,
+            "query_bearing": true
+          }
+        ],
+        "sparse_embed": [
+          {
+            "child_table": "expense",
+            "fk_col": "link_to_member",
+            "parent_table": "member",
+            "coverage": 0.091,
+            "sql_refs_child": 14,
+            "query_bearing": true
+          },
+          {
+            "child_table": "expense",
+            "fk_col": "link_to_budget",
+            "parent_table": "budget",
+            "coverage": 0.462,
+            "sql_refs_child": 14,
+            "query_bearing": true
+          },
+          {
+            "child_table": "member",
+            "fk_col": "zip",
+            "parent_table": "zip_code",
+            "coverage": 0.001,
+            "sql_refs_child": 23,
+            "query_bearing": true
+          },
+          {
+            "child_table": "member",
+            "fk_col": "link_to_major",
+            "parent_table": "major",
+            "coverage": 0.23,
+            "sql_refs_child": 23,
+            "query_bearing": true
+          }
+        ],
+        "dynamic_key": [],
+        "versioning": []
+      },
+      "query_bearing_counts": {
+        "polymorphic": 5,
+        "sparse_scalar": 4,
+        "sparse_embed": 4,
+        "dynamic_key": 0,
+        "versioning": 0
+      },
+      "archetype_instances": [
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        }
+      ],
+      "l4_qb_instances_conservative": 9,
+      "l4_supply_instances": 23,
+      "structural_schema_flex_supply_instances": 23,
+      "audit_only": {
+        "type_drift": []
+      }
+    },
+    "superhero": {
+      "domain": "entertainment",
+      "table_count": 10,
+      "query_count": 52,
+      "mechanisms": {
+        "polymorphic": [
+          {
+            "table": "alignment",
+            "discriminator_col": "alignment",
+            "distinct": 4,
+            "has_enum": true,
+            "sql_cond_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "attribute",
+            "discriminator_col": "attribute_name",
+            "distinct": 6,
+            "has_enum": true,
+            "sql_cond_refs": 8,
+            "query_bearing": true
+          }
+        ],
+        "sparse_scalar": [
+          {
+            "table": "superhero",
+            "col": "full_name",
+            "null_rate": 0.163,
+            "sql_refs": 4,
+            "query_bearing": true
+          },
+          {
+            "table": "superhero",
+            "col": "height_cm",
+            "null_rate": 0.077,
+            "sql_refs": 7,
+            "query_bearing": true
+          },
+          {
+            "table": "superhero",
+            "col": "weight_kg",
+            "null_rate": 0.085,
+            "sql_refs": 4,
+            "query_bearing": true
+          }
+        ],
+        "sparse_embed": [],
+        "dynamic_key": [],
+        "versioning": []
+      },
+      "query_bearing_counts": {
+        "polymorphic": 2,
+        "sparse_scalar": 3,
+        "sparse_embed": 0,
+        "dynamic_key": 0,
+        "versioning": 0
+      },
+      "archetype_instances": [
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        }
+      ],
+      "l4_qb_instances_conservative": 2,
+      "l4_supply_instances": 6,
+      "structural_schema_flex_supply_instances": 6,
+      "audit_only": {
+        "type_drift": []
+      }
+    },
+    "thrombosis_prediction": {
+      "domain": "medical",
+      "table_count": 3,
+      "query_count": 50,
+      "mechanisms": {
+        "polymorphic": [
+          {
+            "table": "Examination",
+            "discriminator_col": "KCT",
+            "distinct": 2,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Examination",
+            "discriminator_col": "RVVT",
+            "distinct": 2,
+            "has_enum": true,
+            "sql_cond_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "Examination",
+            "discriminator_col": "LAC",
+            "distinct": 2,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Examination",
+            "discriminator_col": "Thrombosis",
+            "distinct": 4,
+            "has_enum": true,
+            "sql_cond_refs": 4,
+            "query_bearing": true
+          },
+          {
+            "table": "Patient",
+            "discriminator_col": "SEX",
+            "distinct": 3,
+            "has_enum": true,
+            "sql_cond_refs": 16,
+            "query_bearing": true
+          },
+          {
+            "table": "Patient",
+            "discriminator_col": "Admission",
+            "distinct": 4,
+            "has_enum": true,
+            "sql_cond_refs": 5,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "discriminator_col": "RNP",
+            "distinct": 8,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "discriminator_col": "SM",
+            "distinct": 5,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "discriminator_col": "SC170",
+            "distinct": 5,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "discriminator_col": "SSB",
+            "distinct": 6,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "discriminator_col": "CENTROMEA",
+            "distinct": 2,
+            "has_enum": true,
+            "sql_cond_refs": 1,
+            "query_bearing": true
+          }
+        ],
+        "sparse_scalar": [
+          {
+            "table": "Examination",
+            "col": "ID",
+            "null_rate": 0.34,
+            "sql_refs": 45,
+            "query_bearing": true
+          },
+          {
+            "table": "Examination",
+            "col": "ANA",
+            "null_rate": 0.179,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Examination",
+            "col": "ANA Pattern",
+            "null_rate": 0.387,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Examination",
+            "col": "Diagnosis",
+            "null_rate": 0.226,
+            "sql_refs": 14,
+            "query_bearing": true
+          },
+          {
+            "table": "Examination",
+            "col": "KCT",
+            "null_rate": 0.802,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Examination",
+            "col": "RVVT",
+            "null_rate": 0.802,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "Examination",
+            "col": "LAC",
+            "null_rate": 0.764,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Examination",
+            "col": "Symptoms",
+            "null_rate": 0.887,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "Patient",
+            "col": "Description",
+            "null_rate": 0.174,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "Patient",
+            "col": "First Date",
+            "null_rate": 0.203,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "GOT",
+            "null_rate": 0.189,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "GPT",
+            "null_rate": 0.189,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "LDH",
+            "null_rate": 0.187,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "ALP",
+            "null_rate": 0.198,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Laboratory",
+            "col": "TP",
+            "null_rate": 0.201,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Laboratory",
+            "col": "ALB",
+            "null_rate": 0.204,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "UA",
+            "null_rate": 0.202,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "UN",
+            "null_rate": 0.192,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "CRE",
+            "null_rate": 0.191,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "T-BIL",
+            "null_rate": 0.308,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "T-CHO",
+            "null_rate": 0.233,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "TG",
+            "null_rate": 0.537,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "CPK",
+            "null_rate": 0.639,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "GLU",
+            "null_rate": 0.877,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "WBC",
+            "null_rate": 0.131,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "RBC",
+            "null_rate": 0.131,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "HGB",
+            "null_rate": 0.131,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "HCT",
+            "null_rate": 0.131,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "PLT",
+            "null_rate": 0.188,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "U-PRO",
+            "null_rate": 0.305,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Laboratory",
+            "col": "IGG",
+            "null_rate": 0.807,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "IGA",
+            "null_rate": 0.807,
+            "sql_refs": 2,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "IGM",
+            "null_rate": 0.807,
+            "sql_refs": 3,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "CRP",
+            "null_rate": 0.176,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "RA",
+            "null_rate": 0.795,
+            "sql_refs": 1,
+            "query_bearing": true
+          },
+          {
+            "table": "Laboratory",
+            "col": "RF",
+            "null_rate": 0.76,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Laboratory",
+            "col": "C3",
+            "null_rate": 0.607,
+            "sql_refs": 0,
+            "query_bearing": false
+          },
+          {
+            "table": "Laboratory",
+            "col": "C4",
+            "null_rate": 0.607,
+            "sql_refs": 0,
+            "query_bearing": false
+          }
+        ],
+        "sparse_embed": [
+          {
+            "child_table": "Examination",
+            "fk_col": "ID",
+            "parent_table": "Patient",
+            "coverage": 0.056,
+            "sql_refs_child": 12,
+            "query_bearing": true
+          }
+        ],
+        "dynamic_key": [],
+        "versioning": [
+          {
+            "table": "Laboratory",
+            "query_bearing": true
+          }
+        ]
+      },
+      "query_bearing_counts": {
+        "polymorphic": 11,
+        "sparse_scalar": 32,
+        "sparse_embed": 1,
+        "dynamic_key": 0,
+        "versioning": 1
+      },
+      "archetype_instances": [
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "existence_count",
+          "tier": "L2"
+        },
+        {
+          "mechanism": "sparse_scalar",
+          "archetype": "null_coalesce_agg",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "present_missing_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "sparse_embed",
+          "archetype": "has_vs_absent_compare",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "versioning",
+          "archetype": "cross_version_agg",
+          "tier": "L3"
+        }
+      ],
+      "l4_qb_instances_conservative": 12,
+      "l4_supply_instances": 35,
+      "structural_schema_flex_supply_instances": 35,
+      "audit_only": {
+        "type_drift": []
+      }
+    },
+    "toxicology": {
+      "domain": "chemistry",
+      "table_count": 4,
+      "query_count": 40,
+      "mechanisms": {
+        "polymorphic": [
+          {
+            "table": "bond",
+            "discriminator_col": "bond_type",
+            "distinct": 3,
+            "has_enum": true,
+            "sql_cond_refs": 15,
+            "query_bearing": true
+          }
+        ],
+        "sparse_scalar": [],
+        "sparse_embed": [],
+        "dynamic_key": [],
+        "versioning": []
+      },
+      "query_bearing_counts": {
+        "polymorphic": 1,
+        "sparse_scalar": 0,
+        "sparse_embed": 0,
+        "dynamic_key": 0,
+        "versioning": 0
+      },
+      "archetype_instances": [
+        {
+          "mechanism": "polymorphic",
+          "archetype": "per_subtype_agg",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_cond_projection",
+          "tier": "L4"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "cross_subtype_compare",
+          "tier": "L3"
+        },
+        {
+          "mechanism": "polymorphic",
+          "archetype": "subtype_specific_field",
+          "tier": "L4"
+        }
+      ],
+      "l4_qb_instances_conservative": 1,
+      "l4_supply_instances": 3,
+      "structural_schema_flex_supply_instances": 3,
+      "audit_only": {
+        "type_drift": []
+      }
+    }
+  }
+}

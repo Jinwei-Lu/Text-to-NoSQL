@@ -107,7 +107,7 @@
         }
       },
       "patternProperties": {
-        "^(?!__variants$)[A-Za-z_][A-Za-z0-9_]*$": { "$ref": "#/$defs/fieldType" }
+        "^(?!__variants$).+$": { "$ref": "#/$defs/fieldType" }
       },
       "additionalProperties": false
     },

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tend"
+version = "0.1.0"
+description = "TEND — Text-to-NoSQL benchmark construction pipeline (BIRD-anchored, schema-less MongoDB)"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.30",
+    "structlog>=24.1",
+    "rich>=13.7",
+    "pyyaml>=6.0",
+    "pymongo>=4.6",
+    "jsonschema>=4.21",
+    "sqlglot>=25.0",
+    "json5>=0.9",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+tend = "tend.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tend = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

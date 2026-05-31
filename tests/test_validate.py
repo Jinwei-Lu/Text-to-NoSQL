@@ -1,0 +1,174 @@
+"""Tests for the release/record validator (Session A: tend.publish.validate)."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import yaml
+
+from tend.execution import world_signature
+from tend.execution.ast_check import DISABLED_OPERATORS, DISABLED_SYSTEM_VARS
+from tend.publish import validate_composition, validate_record, validate_record_jsonschema, validate_release
+
+_SIX = sorted(DISABLED_OPERATORS | DISABLED_SYSTEM_VARS)
+
+
+def _valid_record(**over):
+    rec = {
+        "record_id": 1, "db_id": "financial",
+        "nl_queries": {"canonical": "for each account attach the ratio", "colloquial": "label each"},
+        "MQL": ('db.account.aggregate([{"$lookup":{"from":"trans","localField":"_id",'
+                '"foreignField":"account_id","as":"t"}},{"$addFields":{"x":1}}])'),
+        "canonical_form_set": {
+            "must_contain": ["$lookup"], "must_not_contain": _SIX,
+            "must_contain_at_root": ["$lookup"], "must_not_contain_at_root": ["$group", "$unwind"]},
+        "difficulty": "L4", "sql_infeasibility_class": "structural_schema_flex",
+        "shape_policy": "preserve", "world_signature": "sha256:" + "0" * 64,
+        "schema_flex": "polymorphic",
+    }
+    rec.update(over)
+    return rec
+
+
+def test_valid_record_passes():
+    assert validate_record(_valid_record()) == []
+
+
+def test_c6_missing_disabled_ops():
+    rec = _valid_record(canonical_form_set={
+        "must_contain": ["$lookup"], "must_not_contain": ["$unwind"],   # not the 6
+        "must_contain_at_root": ["$lookup"], "must_not_contain_at_root": []})
+    iss = validate_record(rec)
+    assert any("C6" in i for i in iss)
+
+
+def test_c7_bad_difficulty():
+    assert any("C7" in i for i in validate_record(_valid_record(difficulty="L9")))
+
+
+def test_c9_structural_requires_l4_and_flex():
+    rec = _valid_record(difficulty="L2", schema_flex="none")
+    iss = validate_record(rec)
+    assert any("C9" in i and "L4" in i for i in iss)
+    assert any("C9" in i and "schema_flex" in i for i in iss)
+
+
+def test_c2_nl_queries_shape():
+    rec = _valid_record(nl_queries={"canonical": "x"})   # missing colloquial
+    assert any("C2" in i for i in validate_record(rec))
+
+
+def test_composition_constraints():
+    # 10 records: 4 L4 (all ssf+flex), 5 L2, 1 L0 -> L4=40%, L0=10% (H8 fail)
+    recs = []
+    for i in range(4):
+        recs.append(_valid_record(record_id=i, db_id=f"d{i%11}"))
+    for i in range(5):
+        recs.append(_valid_record(record_id=10 + i, db_id=f"d{i%11}", difficulty="L2",
+                                   sql_infeasibility_class="feasible", schema_flex=None))
+    recs.append(_valid_record(record_id=99, db_id="d0", difficulty="L0",
+                              sql_infeasibility_class="feasible", schema_flex=None))
+    rep = validate_composition(recs, require_all_dbs=False)
+    assert rep.l4_ratio == 0.4 and rep.l0_ratio == 0.1
+    assert not rep.ok and any("H8" in v for v in rep.violations)   # L0 10% > 5%
+
+
+def test_jsonschema_against_record_schema():
+    schema = Path("proposals/schemas/record.schema.json")
+    if not schema.exists():
+        return
+    # the proposals' valid example must validate
+    import json
+    valid = Path("proposals/schemas/record.schema.valid.json")
+    if valid.exists():
+        rec = json.loads(valid.read_text(encoding="utf-8"))
+        assert validate_record_jsonschema(rec, schema) == []
+        assert not any("C6" in issue for issue in validate_record(rec))
+
+
+def test_validate_release_checks_artifacts_and_signature(tmp_path: Path):
+    out = tmp_path / "release"
+    db = "financial"
+    data = {
+        "account": [{"_id": 1, "account_id": 1, "loan": {"amount": 100}}],
+        "trans": [{"_id": 10, "account_id": 1, "type": "PRIJEM", "amount": 50}],
+    }
+    mql = (
+        'db.account.aggregate([{ "$lookup": { "from": "trans", "localField": "_id", '
+        '"foreignField": "account_id", "as": "t" } }])'
+    )
+    rec = _valid_record(
+        MQL=mql,
+        canonical_form_set={
+            "must_contain": ["$lookup"],
+            "must_not_contain": _SIX,
+            "must_contain_at_root": ["$lookup"],
+            "must_not_contain_at_root": ["$group", "$unwind"],
+        },
+        world_signature=world_signature(data),
+    )
+    schema = {
+        "account": {
+            "_id": "INT",
+            "account_id": "INT",
+            "loan": "OBJECT",
+            "__variants": [
+                {
+                    "discriminator": {"loan": "present"},
+                    "fields": {"loan": "OBJECT"},
+                    "coverage": 1.0,
+                    "source_signal": "test",
+                },
+                {
+                    "discriminator": {"loan": "missing"},
+                    "fields": {"loan": "OBJECT"},
+                    "coverage": 0.0,
+                    "source_signal": "test",
+                },
+            ],
+        },
+        "trans": {"_id": "INT", "account_id": "INT", "type": "TEXT", "amount": "REAL"},
+    }
+    adr = {
+        "db_id": db,
+        "source_spider_tables": ["account", "trans"],
+        "patterns_applied": ["embed", "polymorphic"],
+        "rationale_summary": "test rationale",
+        "decisions": [{"id": "D01", "type": "embed", "rationale": "test"}],
+        "anti_pattern_checks": {"pass": True, "issues": []},
+    }
+    catalog = {
+        "spider_version": "1.0",
+        "generated_at": "2026-06-01T00:00:00+00:00",
+        "databases": [{
+            "db_id": db,
+            "domain_id": "finance",
+            "sqlite_path": "minidev/MINIDEV/dev_databases/financial/financial.sqlite",
+            "table_count": 8,
+            "query_count": 32,
+            "selected": True,
+            "flex_eligible": True,
+        }],
+    }
+
+    (out / "mongodb_data").mkdir(parents=True)
+    (out / "mongodb_schema").mkdir()
+    (out / "agent_design_rationale").mkdir()
+    (out / "test.json").write_text(json.dumps([rec]), encoding="utf-8")
+    (out / "TEND.json").write_text(json.dumps([rec]), encoding="utf-8")
+    (out / "mongodb_data" / f"{db}.json").write_text(json.dumps(data), encoding="utf-8")
+    (out / "mongodb_schema" / f"{db}.json").write_text(json.dumps(schema), encoding="utf-8")
+    (out / "agent_design_rationale" / f"{db}.yaml").write_text(
+        yaml.safe_dump(adr), encoding="utf-8"
+    )
+    (out / "bird_db_catalog.json").write_text(json.dumps(catalog), encoding="utf-8")
+
+    report = validate_release(out, schemas_dir="proposals/schemas", require_all_dbs=False)
+    assert report.ok, report.summary() + "\n" + "\n".join(report.file_violations)
+
+    bad = dict(rec, world_signature="sha256:" + "1" * 64)
+    (out / "test.json").write_text(json.dumps([bad]), encoding="utf-8")
+    (out / "TEND.json").write_text(json.dumps([bad]), encoding="utf-8")
+    report = validate_release(out, schemas_dir="proposals/schemas", require_all_dbs=False)
+    assert not report.ok
+    assert any("world_signature" in issue for issue in report.record_violations)

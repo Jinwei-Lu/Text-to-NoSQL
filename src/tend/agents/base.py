@@ -1,0 +1,251 @@
+"""Agent contract: lifecycle wrapper, shared context, LLM agent base, and registry.
+
+Two layers:
+
+  * :class:`Agent` — the abstract unit of work. Its :meth:`Agent.__call__` is the uniform
+    lifecycle: bind logging context, open a progress task, time the run, and convert any
+    failure into a logged anomaly + a failed progress task. Subclass and implement
+    :meth:`Agent.run` for deterministic stages (DM, detectors).
+
+  * :class:`LLMAgent` — adds the standard "prompt -> model -> validated JSON -> contract"
+    flow: it loads the methodology prompt once, calls the model with the output schema
+    (the client handles transport/JSON/schema repair), then runs :meth:`check_contract`
+    with a bounded feedback-repair loop for *semantic* violations the schema can't express.
+
+The :data:`REGISTRY` lets the workflow look agents up by id without importing each module.
+"""
+from __future__ import annotations
+
+import json
+import time
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Any, ClassVar
+
+from ..config import Settings
+from ..errors import ContractViolationError, PromptAnomalyError, TendError, wrap_unexpected
+from ..llm import LLMClient, Message
+from ..observability import ProgressReporter, RunLogger
+
+
+@dataclass
+class AgentContext:
+    """Shared services + the identifiers an agent is currently scoped to.
+
+    Cheap to :meth:`bind` per db/record; the bound ``log`` carries those identifiers so
+    every event/anomaly is attributable without the agent threading them by hand.
+    """
+
+    settings: Settings
+    llm: LLMClient
+    log: RunLogger
+    progress: ProgressReporter | None = None
+    source: Any = None                      # BirdSource (Phase A); avoids an import cycle
+    mongo: Any = None                       # MongoExecutor (set once execution layer lands)
+    db_id: str | None = None
+    record_id: int | None = None
+    phase: str = "A"
+    group: str | None = None                # progress group id (defaults to db_id)
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def bind(self, **fields: Any) -> "AgentContext":
+        log = self.log
+        binders = {k: v for k, v in fields.items()
+                   if k in ("db_id", "record_id", "phase") and v is not None}
+        if binders:
+            log = log.bind(**binders)
+        return replace(self, log=log, **{k: v for k, v in fields.items()
+                                         if k in {f.name for f in self.__dataclass_fields__.values()}})
+
+
+REGISTRY: dict[str, type["Agent"]] = {}
+
+
+def register(cls: type["Agent"]) -> type["Agent"]:
+    """Class decorator: add an agent to the global registry keyed by ``cls.id``."""
+    if not getattr(cls, "id", None):
+        raise ValueError(f"{cls.__name__} must define a non-empty class var `id`")
+    if cls.id in REGISTRY and REGISTRY[cls.id] is not cls:
+        raise ValueError(f"duplicate agent id: {cls.id}")
+    REGISTRY[cls.id] = cls
+    return cls
+
+
+def get_agent(agent_id: str) -> "Agent":
+    try:
+        return REGISTRY[agent_id]()
+    except KeyError as exc:
+        raise KeyError(f"no agent registered as {agent_id!r}; known={sorted(REGISTRY)}") from exc
+
+
+class Agent(ABC):
+    """Abstract unit of work with a uniform observability lifecycle."""
+
+    id: ClassVar[str] = ""
+    phase: ClassVar[str] = "A"
+    title: ClassVar[str] = ""
+
+    @abstractmethod
+    async def run(self, ctx: AgentContext, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Do the work and return the validated output dict. Raise a TendError on failure."""
+
+    async def __call__(self, ctx: AgentContext, inputs: dict[str, Any]) -> dict[str, Any]:
+        ctx = ctx.bind(phase=self.phase)
+        log = ctx.log.bind(agent=self.id)
+        ctx = replace(ctx, log=log)
+        group = ctx.group or ctx.db_id or self.phase
+        task_id = ":".join(filter(None, [self.id, ctx.db_id, _s(ctx.record_id)])) or self.id
+        if ctx.progress:
+            ctx.progress.start_task(task_id, self.title or self.id, group=group)
+        log.info("agent_start", title=self.title)
+        t0 = time.monotonic()
+        try:
+            out = await self.run(ctx, inputs)
+        except TendError as err:
+            err.with_context(agent=self.id, db_id=ctx.db_id, record_id=ctx.record_id)
+            if not err.logged:
+                log.anomaly(err)
+            if ctx.progress:
+                ctx.progress.finish_task(task_id, ok=False,
+                                         anomaly=err.anomaly.value if err.anomaly else None)
+            log.error("agent_failed", elapsed_s=round(time.monotonic() - t0, 3),
+                      anomaly=err.anomaly.value if err.anomaly else None)
+            raise
+        except Exception as exc:  # noqa: BLE001 - coerce stray errors into typed anomalies
+            err = wrap_unexpected(exc, agent=self.id, db_id=ctx.db_id, record_id=ctx.record_id)
+            log.anomaly(err)
+            if ctx.progress:
+                ctx.progress.finish_task(task_id, ok=False, anomaly="internal")
+            raise err from exc
+        elapsed = round(time.monotonic() - t0, 3)
+        if ctx.progress:
+            ctx.progress.finish_task(task_id, ok=True)
+        log.info("agent_done", elapsed_s=elapsed)
+        return out
+
+
+class LLMAgent(Agent):
+    """Base for prompt-driven agents: prompt -> model(schema) -> contract-checked output."""
+
+    #: filename under proposals/agent_prompts/ (e.g. "wp_workload_profiler.md")
+    prompt_file: ClassVar[str] = ""
+    #: JSON Schema the model output must satisfy (validated by the client)
+    output_schema: ClassVar[dict[str, Any]] = {}
+    #: max semantic-contract repair turns (separate from the client's JSON/schema repair)
+    contract_retries: ClassVar[int] = 2
+    #: sampling temperature override (None -> settings default)
+    temperature: ClassVar[float | None] = None
+
+    _prompt_cache: ClassVar[dict[str, str]] = {}
+
+    # ------------------------------------------------------------------ #
+    def prompt_text(self, ctx: AgentContext) -> str:
+        if self.prompt_file not in self._prompt_cache:
+            path = ctx.settings.paths.agent_prompts / self.prompt_file
+            if not path.exists():
+                raise PromptAnomalyError(
+                    "agent prompt not found",
+                    context={
+                        "agent": self.id,
+                        "prompt_file": self.prompt_file,
+                        "prompt_path": str(path),
+                    },
+                )
+            try:
+                self._prompt_cache[self.prompt_file] = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                raise PromptAnomalyError(
+                    "agent prompt could not be read",
+                    context={
+                        "agent": self.id,
+                        "prompt_file": self.prompt_file,
+                        "prompt_path": str(path),
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                ) from exc
+        return self._prompt_cache[self.prompt_file]
+
+    def build_messages(self, ctx: AgentContext, inputs: dict[str, Any]) -> list[Message]:
+        """Default message construction; override to customize framing per agent."""
+        system = self.prompt_text(ctx)
+        schema_note = ""
+        if self.output_schema:
+            schema_note = ("\n\nReturn ONLY a single JSON object conforming to this schema "
+                           "(no prose, no code fences):\n"
+                           + json.dumps(self.output_schema, ensure_ascii=False))
+        user = self.render_inputs(ctx, inputs) + schema_note
+        return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+    def render_inputs(self, ctx: AgentContext, inputs: dict[str, Any]) -> str:
+        """How the structured inputs are presented to the model. Override as needed."""
+        head = f"# Task for agent {self.id} ({self.title})\n"
+        ctx_line = ""
+        if ctx.db_id:
+            ctx_line += f"db_id: {ctx.db_id}\n"
+        if ctx.record_id is not None:
+            ctx_line += f"record_id: {ctx.record_id}\n"
+        body = "\n## Inputs\n```json\n" + json.dumps(inputs, ensure_ascii=False, indent=2) + "\n```"
+        return head + ctx_line + body
+
+    def check_contract(
+        self, ctx: AgentContext, inputs: dict[str, Any], output: dict[str, Any]
+    ) -> list[str]:
+        """Return a list of semantic-contract violations (empty = pass). Override per agent.
+
+        These are checks the JSON Schema cannot express (e.g. "mutations must EX-fail",
+        ">=5 mutations", "every variant is dispatched"). Non-empty triggers a feedback
+        repair turn up to :attr:`contract_retries`.
+        """
+        return []
+
+    async def run(self, ctx: AgentContext, inputs: dict[str, Any]) -> dict[str, Any]:
+        messages = self.build_messages(ctx, inputs)
+        schema = self.output_schema or None
+        for attempt in range(self.contract_retries + 1):
+            result = await ctx.llm.complete(
+                agent=self.id, messages=messages, logger=ctx.log,
+                schema=schema, temperature=self.temperature,
+            )
+            output = result.data if schema else {"text": result.text}
+            violations = self.check_contract(ctx, inputs, output)
+            if not violations:
+                ctx.log.info(
+                    "agent_contract_ok",
+                    agent=self.id,
+                    call_id=result.call_id,
+                    transcript_ref=result.transcript_ref,
+                    diagnostics_ref=result.diagnostics_ref,
+                )
+                return self.postprocess(ctx, inputs, output, result)
+            if attempt >= self.contract_retries:
+                raise ContractViolationError(
+                    "agent output failed semantic contract",
+                    context={"agent": self.id, "violations": violations,
+                             "transcript_ref": result.transcript_ref,
+                             "diagnostics_ref": result.diagnostics_ref},
+                )
+            ctx.progress and ctx.progress.retry_task(
+                ":".join(filter(None, [self.id, ctx.db_id, _s(ctx.record_id)])),
+                detail=f"contract retry {attempt + 1}")
+            ctx.log.warning("agent_contract_retry", agent=self.id, attempt=attempt + 1,
+                            violations=violations)
+            messages = messages + [
+                {"role": "assistant", "content": result.text},
+                {"role": "user", "content": "Your output violated these requirements:\n"
+                 + "\n".join(f"  - {v}" for v in violations)
+                 + "\nReturn a corrected JSON object."},
+            ]
+        raise ContractViolationError("unreachable", context={"agent": self.id})
+
+    def postprocess(
+        self, ctx: AgentContext, inputs: dict[str, Any], output: dict[str, Any],
+        result: Any,
+    ) -> dict[str, Any]:
+        """Hook to enrich/annotate the validated output before returning. Default: passthrough."""
+        return output
+
+
+def _s(v: Any) -> str:
+    return "" if v is None else str(v)

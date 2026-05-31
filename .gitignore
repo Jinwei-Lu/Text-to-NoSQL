@@ -1,10 +1,19 @@
 # ============================================================
-# Paper：作为独立子仓库维护，不纳入主仓库版本控制
+# Local machine / editor state
 # ============================================================
-Paper/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Generated CodeGraph state. Keep project Cursor settings trackable.
+/.codegraph/
+/.cursor/rules/codegraph.mdc
 
 # ============================================================
-# Python
+# Python bytecode, build output, and test caches
 # ============================================================
 __pycache__/
 *.py[cod]
@@ -12,80 +21,109 @@ __pycache__/
 *.so
 .Python
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
 wheels/
+.eggs/
 *.egg-info/
-.installed.cfg
 *.egg
+.installed.cfg
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.nox/
+.tox/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # ============================================================
-# Jupyter Notebook
+# Jupyter
 # ============================================================
 .ipynb_checkpoints/
 *.nbconvert.ipynb
 
 # ============================================================
-# Virtual Environments
+# Virtual environments and local secrets
 # ============================================================
 .env
+.env.*
+!.env.example
 .venv/
 venv/
 ENV/
 env/
 
-# ============================================================
-# IDE / Editor
-# ============================================================
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
+*.key
+*.pem
+secrets.json
 
 # ============================================================
-# Logs / Cache
+# Logs and generic local caches
 # ============================================================
 *.log
 .cache/
 cache/
-.mypy_cache/
-.pytest_cache/
-.ruff_cache/
+.uv-cache/
 
 # ============================================================
-# 模型权重 / 大文件 (按需下载，详见 README)
+# Local datasets and copied legacy artifacts
+# ============================================================
+/minidev/
+/dev_20240627/
+/spider/
+/data/
+
+/TEND/
+/mongodb_schema/
+/mongodb_data/
+/SLM_data/
+/SLM_prediction/
+/SLM_data_cross_domain/
+/SLM_prediction_cross_domain/
+/seq2seq_data/
+/transformer_data/
+/tend_src/
+/SMART/
+/NoSQL_Demo/
+/gnn_model/
+/project/
+/build_data/
+/debug/
+/method/
+
+# Paper assets live outside this source repo.
+/Paper/
+/paper/
+/paper_demo/
+/paper_WWW/
+/latex/
+/imgs/
+/review/
+
+# ============================================================
+# Model weights / large binary artifacts
 # ============================================================
 Llama-3.2-1B/*.bin
 Llama-3.2-1B/*.safetensors
-Llama-3.2-1B/model-*.safetensors
 *.pth
 *.pt
 *.ckpt
+*.onnx
+*.gguf
 
 # ============================================================
-# 实验输出 / 中间产物
+# Generated benchmark, experiment, and analysis output
 # ============================================================
-vector_store/
-results/
-output/
-outputs/
-runs/
-wandb/
-
-# ============================================================
-# 凭据 (避免误提交 API key)
-# ============================================================
-.env.local
-.env.*.local
-*.key
-secrets.json
+/release/
+/vector_store/
+/results/
+/error_case/
+/error_analysis/
+/output/
+/outputs/
+/runs/
+/wandb/
