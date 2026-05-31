@@ -1,0 +1,59 @@
+{
+  "difficulty": "L4",
+  "difficulty_rationale": "Schema-flex dispatch requires NoSQL-native branching.",
+  "sql_infeasibility_class": "structural_schema_flex",
+  "diagnostic_bridge": {
+    "sql_bridge": {
+      "ex": 0,
+      "qim": 0,
+      "notes": "d_bridge_llm"
+    },
+    "template_bridge": {
+      "ex": 0,
+      "qim": 0,
+      "notes": "Matched polymorphic_dispatch template"
+    },
+    "gate_required": true,
+    "gate_pass": true,
+    "functional_sql_solvable": false,
+    "structural_sql_solvable": false
+  },
+  "functional_sql_solvable": false,
+  "structural_sql_solvable": false,
+  "ambiguity_attack": {
+    "parse_count": 3,
+    "equivalent_to_gold_count": 0,
+    "pass": true,
+    "inconclusive": true,
+    "models": [
+      "deepseek-v4-flash",
+      "deepseek-v4-flash",
+      "deepseek-v4-flash"
+    ],
+    "parses": [
+      {
+        "equivalent_to_gold": false,
+        "model": "deepseek-v4-flash",
+        "parse_failed": true
+      },
+      {
+        "equivalent_to_gold": false,
+        "model": "deepseek-v4-flash",
+        "parse_failed": true
+      },
+      {
+        "equivalent_to_gold": false,
+        "model": "deepseek-v4-flash",
+        "parse_failed": true
+      }
+    ]
+  },
+  "canonical_form_set_check": {
+    "pass": true,
+    "violations": []
+  },
+  "nnc_verdict": {
+    "pass": true,
+    "blocking_reasons": []
+  }
+}

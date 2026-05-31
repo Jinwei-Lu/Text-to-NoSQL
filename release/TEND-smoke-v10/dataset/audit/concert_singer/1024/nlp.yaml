@@ -1,0 +1,11 @@
+{
+  "nl_queries": {
+    "canonical": "For each concert, compute the rolling average of the concert name (treating missing names as 0) over a window of the current and two previous documents, partitioned by the document identifier, and return only the rolling average value.",
+    "colloquial": "Show the rolling average of concert names."
+  },
+  "nlp_trace": {
+    "canonical_no_dollar_ops": true,
+    "colloquial_no_field_names": true,
+    "single_intent_check": true
+  }
+}

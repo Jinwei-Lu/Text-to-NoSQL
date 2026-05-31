@@ -1,0 +1,11 @@
+{
+  "nl_queries": {
+    "canonical": "Retrieve the first non-null value from each document in the All_Documents collection by checking the payload's v2 field; if that is missing or null, fall back to the v1 field, and if that is also missing or null, use the legacy field. Return only that value for each document.",
+    "colloquial": "Get the current value from each document, using the newest version if available."
+  },
+  "nlp_trace": {
+    "canonical_no_dollar_ops": true,
+    "colloquial_no_field_names": true,
+    "single_intent_check": true
+  }
+}

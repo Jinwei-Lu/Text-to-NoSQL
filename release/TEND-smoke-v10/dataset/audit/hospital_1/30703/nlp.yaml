@@ -1,0 +1,12 @@
+{
+  "nl_queries": {
+    "canonical": "List all departments that have a Department field present in the Affiliated_With records.",
+    "colloquial": "What departments are there?"
+  },
+  "nlp_trace": {
+    "rationale": "The MQL filters documents where the 'Department' field exists and then projects only that field. The canonical query explicitly describes the existence check and the source collection, using domain vocabulary from the scenario. The colloquial query omits schema details and technical constraints, relying on the common understanding of 'departments' as entities in the hospital domain, while preserving the single intent of enumerating available departments.",
+    "canonical_no_dollar_ops": true,
+    "colloquial_no_field_names": true,
+    "single_intent_check": true
+  }
+}

@@ -1,0 +1,1453 @@
+[
+  {
+    "record_id": 1001,
+    "db_id": "orchestra",
+    "nl_queries": {
+      "canonical": "For each conductor, calculate the moving average of attendance across their last three performances (ordered by Performance_ID), treating missing attendance as 0. Then, find the median of these final moving averages across all conductors. Return the names and final moving averages of conductors whose final moving average is above the median.",
+      "colloquial": "Which conductors have above-median attendance in their latest three performances?"
+    },
+    "MQL": "db.conductor.aggregate([\n  {\n    \"$unwind\": {\n      \"path\": \"$orchestra\",\n      \"preserveNullAndEmptyArrays\": false\n    }\n  },\n  {\n    \"$unwind\": {\n      \"path\": \"$orchestra.performance\",\n      \"preserveNullAndEmptyArrays\": false\n    }\n  },\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\": \"$_id\",\n      \"sortBy\": {\n        \"orchestra.performance.Performance_ID\": 1\n      },\n      \"output\": {\n        \"moving_avg_attendance\": {\n          \"$avg\": {\n            \"$ifNull\": [\n              \"$orchestra.performance.Attendance\",\n              0\n            ]\n          },\n          \"window\": {\n            \"documents\": [\n              -2,\n              0\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$group\": {\n      \"_id\": \"$_id\",\n      \"Name\": {\n        \"$first\": {\n          \"$ifNull\": [\n            \"$Name\",\n            \"(unknown)\"\n          ]\n        }\n      },\n      \"last_window_avg\": {\n        \"$last\": \"$moving_avg_attendance\"\n      }\n    }\n  },\n  {\n    \"$facet\": {\n      \"per_conductor\": [\n        {\n          \"$project\": {\n            \"_id\": 0,\n            \"Name\": 1,\n            \"last_window_avg\": 1\n          }\n        }\n      ],\n      \"global_median\": [\n        {\n          \"$sort\": {\n            \"last_window_avg\": 1\n          }\n        },\n        {\n          \"$group\": {\n            \"_id\": null,\n            \"vals\": {\n              \"$push\": \"$last_window_avg\"\n            }\n          }\n        },\n        {\n          \"$project\": {\n            \"_id\": 0,\n            \"median\": {\n              \"$arrayElemAt\": [\n                \"$vals\",\n                {\n                  \"$floor\": {\n                    \"$divide\": [\n                      {\n                        \"$size\": \"$vals\"\n                      },\n                      2\n                    ]\n                  }\n                }\n              ]\n            }\n          }\n        }\n      ]\n    }\n  },\n  {\n    \"$project\": {\n      \"kept\": {\n        \"$filter\": {\n          \"input\": \"$per_conductor\",\n          \"as\": \"c\",\n          \"cond\": {\n            \"$gt\": [\n              \"$$c.last_window_avg\",\n              {\n                \"$arrayElemAt\": [\n                  \"$global_median.median\",\n                  0\n                ]\n              }\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$unwind\": \"$kept\"\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Name\": \"$kept.Name\",\n      \"last_window_avg\": \"$kept.last_window_avg\"\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$facet",
+        "$ifNull",
+        "$setWindowFields"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$facet",
+        "$setWindowFields"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_pipeline",
+    "schema_flex": "none",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:52087da4c35c009f6604a9f5021121c61274383dbcaa4c52b59d1a140522befb",
+    "domain_id": "orchestra",
+    "join_depth": 0,
+    "aggregation_depth": "deep",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/orchestra.yaml",
+    "property_verification_ref": "audit/orchestra/1001/pv.yaml",
+    "round_trip_ref": "audit/orchestra/1001/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/orchestra/1001/nnc.yaml",
+    "mutations_ref": "audit/orchestra/1001/mutations.json"
+  },
+  {
+    "record_id": 1002,
+    "db_id": "orchestra",
+    "nl_queries": {
+      "canonical": "Which conductors have a moving average attendance (over their last three performances, with missing attendance treated as 0) that is greater than the median moving average attendance across all conductors?",
+      "colloquial": "Which conductors are above the median in terms of recent attendance?"
+    },
+    "MQL": "db.conductor.aggregate([\n  {\n    \"$unwind\": {\n      \"path\": \"$orchestra\",\n      \"preserveNullAndEmptyArrays\": false\n    }\n  },\n  {\n    \"$unwind\": {\n      \"path\": \"$orchestra.performance\",\n      \"preserveNullAndEmptyArrays\": false\n    }\n  },\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\": \"$_id\",\n      \"sortBy\": {\n        \"orchestra.performance.Performance_ID\": 1\n      },\n      \"output\": {\n        \"moving_avg_attendance\": {\n          \"$avg\": {\n            \"$ifNull\": [\n              \"$orchestra.performance.Attendance\",\n              0\n            ]\n          },\n          \"window\": {\n            \"documents\": [\n              -2,\n              0\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$group\": {\n      \"_id\": \"$_id\",\n      \"Name\": {\n        \"$first\": {\n          \"$ifNull\": [\n            \"$Name\",\n            \"(unknown)\"\n          ]\n        }\n      },\n      \"last_window_avg\": {\n        \"$last\": \"$moving_avg_attendance\"\n      }\n    }\n  },\n  {\n    \"$facet\": {\n      \"per_conductor\": [\n        {\n          \"$project\": {\n            \"_id\": 0,\n            \"Name\": 1,\n            \"last_window_avg\": 1\n          }\n        }\n      ],\n      \"global_median\": [\n        {\n          \"$sort\": {\n            \"last_window_avg\": 1\n          }\n        },\n        {\n          \"$group\": {\n            \"_id\": null,\n            \"vals\": {\n              \"$push\": \"$last_window_avg\"\n            }\n          }\n        },\n        {\n          \"$project\": {\n            \"_id\": 0,\n            \"median\": {\n              \"$arrayElemAt\": [\n                \"$vals\",\n                {\n                  \"$floor\": {\n                    \"$divide\": [\n                      {\n                        \"$size\": \"$vals\"\n                      },\n                      2\n                    ]\n                  }\n                }\n              ]\n            }\n          }\n        }\n      ]\n    }\n  },\n  {\n    \"$project\": {\n      \"kept\": {\n        \"$filter\": {\n          \"input\": \"$per_conductor\",\n          \"as\": \"c\",\n          \"cond\": {\n            \"$gt\": [\n              \"$$c.last_window_avg\",\n              {\n                \"$arrayElemAt\": [\n                  \"$global_median.median\",\n                  0\n                ]\n              }\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$unwind\": \"$kept\"\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Name\": \"$kept.Name\",\n      \"last_window_avg\": \"$kept.last_window_avg\"\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$facet",
+        "$ifNull",
+        "$setWindowFields"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$facet",
+        "$setWindowFields"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_pipeline",
+    "schema_flex": "none",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:52087da4c35c009f6604a9f5021121c61274383dbcaa4c52b59d1a140522befb",
+    "domain_id": "orchestra",
+    "join_depth": 0,
+    "aggregation_depth": "deep",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/orchestra.yaml",
+    "property_verification_ref": "audit/orchestra/1002/pv.yaml",
+    "round_trip_ref": "audit/orchestra/1002/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/orchestra/1002/nnc.yaml",
+    "mutations_ref": "audit/orchestra/1002/mutations.json"
+  },
+  {
+    "record_id": 1004,
+    "db_id": "concert_singer",
+    "nl_queries": {
+      "canonical": "For each concert, convert its attributes array into an object where each attribute name becomes a key and its corresponding value becomes the value, returning only that object.",
+      "colloquial": "Turn the attribute list into a dictionary."
+    },
+    "MQL": "db.concert.aggregate([\n  {\n    \"$addFields\": {\n      \"bag_map\": {\n        \"$arrayToObject\": {\n          \"$map\": {\n            \"input\": \"$attributes\",\n            \"as\": \"a\",\n            \"in\": {\n              \"k\": \"$$a.name\",\n              \"v\": \"$$a.value\"\n            }\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"bag_map\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$arrayToObject",
+        "$map"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "attribute_bag",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:d30ef9584805d89bc7ce61d5e6e7217e79cab291ccef1c5c6fe3356fe651095b",
+    "domain_id": "concert",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/concert_singer.yaml",
+    "property_verification_ref": "audit/concert_singer/1004/pv.yaml",
+    "round_trip_ref": "audit/concert_singer/1004/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/concert_singer/1004/nnc.yaml",
+    "mutations_ref": "audit/concert_singer/1004/mutations.json"
+  },
+  {
+    "record_id": 1005,
+    "db_id": "orchestra",
+    "nl_queries": {
+      "canonical": "Which conductors have a three-performance moving average attendance (with missing attendance replaced by zero) that exceeds the global median of all conductors' three-performance moving averages?",
+      "colloquial": "Which conductors have above-median attendance over their recent concerts?"
+    },
+    "MQL": "db.conductor.aggregate([\n  {\n    \"$unwind\": {\n      \"path\": \"$orchestra\",\n      \"preserveNullAndEmptyArrays\": false\n    }\n  },\n  {\n    \"$unwind\": {\n      \"path\": \"$orchestra.performance\",\n      \"preserveNullAndEmptyArrays\": false\n    }\n  },\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\": \"$_id\",\n      \"sortBy\": {\n        \"orchestra.performance.Performance_ID\": 1\n      },\n      \"output\": {\n        \"moving_avg_attendance\": {\n          \"$avg\": {\n            \"$ifNull\": [\n              \"$orchestra.performance.Attendance\",\n              0\n            ]\n          },\n          \"window\": {\n            \"documents\": [\n              -2,\n              0\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$group\": {\n      \"_id\": \"$_id\",\n      \"Name\": {\n        \"$first\": {\n          \"$ifNull\": [\n            \"$Name\",\n            \"(unknown)\"\n          ]\n        }\n      },\n      \"last_window_avg\": {\n        \"$last\": \"$moving_avg_attendance\"\n      }\n    }\n  },\n  {\n    \"$facet\": {\n      \"per_conductor\": [\n        {\n          \"$project\": {\n            \"_id\": 0,\n            \"Name\": 1,\n            \"last_window_avg\": 1\n          }\n        }\n      ],\n      \"global_median\": [\n        {\n          \"$sort\": {\n            \"last_window_avg\": 1\n          }\n        },\n        {\n          \"$group\": {\n            \"_id\": null,\n            \"vals\": {\n              \"$push\": \"$last_window_avg\"\n            }\n          }\n        },\n        {\n          \"$project\": {\n            \"_id\": 0,\n            \"median\": {\n              \"$arrayElemAt\": [\n                \"$vals\",\n                {\n                  \"$floor\": {\n                    \"$divide\": [\n                      {\n                        \"$size\": \"$vals\"\n                      },\n                      2\n                    ]\n                  }\n                }\n              ]\n            }\n          }\n        }\n      ]\n    }\n  },\n  {\n    \"$project\": {\n      \"kept\": {\n        \"$filter\": {\n          \"input\": \"$per_conductor\",\n          \"as\": \"c\",\n          \"cond\": {\n            \"$gt\": [\n              \"$$c.last_window_avg\",\n              {\n                \"$arrayElemAt\": [\n                  \"$global_median.median\",\n                  0\n                ]\n              }\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$unwind\": \"$kept\"\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Name\": \"$kept.Name\",\n      \"last_window_avg\": \"$kept.last_window_avg\"\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$facet",
+        "$ifNull",
+        "$setWindowFields"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$facet",
+        "$setWindowFields"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_pipeline",
+    "schema_flex": "none",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:52087da4c35c009f6604a9f5021121c61274383dbcaa4c52b59d1a140522befb",
+    "domain_id": "orchestra",
+    "join_depth": 0,
+    "aggregation_depth": "deep",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/orchestra.yaml",
+    "property_verification_ref": "audit/orchestra/1005/pv.yaml",
+    "round_trip_ref": "audit/orchestra/1005/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/orchestra/1005/nnc.yaml",
+    "mutations_ref": "audit/orchestra/1005/mutations.json"
+  },
+  {
+    "record_id": 1006,
+    "db_id": "flight_2",
+    "nl_queries": {
+      "canonical": "Retrieve the payload field from each airline record, ensuring that any polymorphic variations in the data type of the payload are resolved and the field is returned as-is.",
+      "colloquial": "What details do we have for each airline?"
+    },
+    "MQL": "db.airlines.aggregate([\n  {\n    \"$addFields\": {\n      \"resolved\": {\n        \"$switch\": {\n          \"branches\": [\n            {\n              \"case\": {\n                \"$eq\": [\n                  {\n                    \"$type\": \"$payload\"\n                  },\n                  \"object\"\n                ]\n              },\n              \"then\": \"$payload\"\n            }\n          ],\n          \"default\": \"$payload\"\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"resolved\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$switch",
+        "$type"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields",
+        "$project"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "polymorphic",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:3d9012a504e1db788167d396fea56741ceffd625c0bef89968190cec40990fd6",
+    "domain_id": "flight",
+    "join_depth": 0,
+    "aggregation_depth": "medium",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/flight_2.yaml",
+    "property_verification_ref": "audit/flight_2/1006/pv.yaml",
+    "round_trip_ref": "audit/flight_2/1006/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/flight_2/1006/nnc.yaml",
+    "mutations_ref": "audit/flight_2/1006/mutations.json"
+  },
+  {
+    "record_id": 1007,
+    "db_id": "student_assessment",
+    "nl_queries": {
+      "canonical": "For each address document, transform its array of key-value pair objects (each containing a name and a value) into a single embedded object where each unique name becomes a field and its corresponding value becomes the field value. Output only that new object, discarding the original document identifier.",
+      "colloquial": "Convert each address's list of property pairs into a single flat record with those properties as separate fields."
+    },
+    "MQL": "db.Addresses.aggregate([\n  {\n    \"$addFields\": {\n      \"bag_map\": {\n        \"$arrayToObject\": {\n          \"$map\": {\n            \"input\": \"$attributes\",\n            \"as\": \"a\",\n            \"in\": {\n              \"k\": \"$$a.name\",\n              \"v\": \"$$a.value\"\n            }\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"bag_map\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$arrayToObject",
+        "$map"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "attribute_bag",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:36ee6513df425e487658619ca3e06e4028341d4b7354d23798b0b66bd909f07f",
+    "domain_id": "student",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/student_assessment.yaml",
+    "property_verification_ref": "audit/student_assessment/1007/pv.yaml",
+    "round_trip_ref": "audit/student_assessment/1007/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/student_assessment/1007/nnc.yaml",
+    "mutations_ref": "audit/student_assessment/1007/mutations.json"
+  },
+  {
+    "record_id": 1008,
+    "db_id": "world_1",
+    "nl_queries": {
+      "canonical": "For each city, extract the most recent value from the payload, checking the v2 field first, then v1, then the legacy field, and output only that value.",
+      "colloquial": "What is the value for each city?"
+    },
+    "MQL": "db.city.aggregate([\n  {\n    \"$addFields\": {\n      \"value\": {\n        \"$ifNull\": [\n          \"$payload.v2\",\n          {\n            \"$ifNull\": [\n              \"$payload.v1\",\n              \"$payload.legacy\"\n            ]\n          }\n        ]\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"value\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$ifNull"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields",
+        "$project"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "schema_versioning",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:ca6f1eb38d074740949d7b473e1be4347697044e277d005688c9fde946eb914f",
+    "domain_id": "world",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/world_1.yaml",
+    "property_verification_ref": "audit/world_1/1008/pv.yaml",
+    "round_trip_ref": "audit/world_1/1008/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/world_1/1008/nnc.yaml",
+    "mutations_ref": "audit/world_1/1008/mutations.json"
+  },
+  {
+    "record_id": 1009,
+    "db_id": "orchestra",
+    "nl_queries": {
+      "canonical": "Which conductors have a moving average of attendance over their last three performances (with missing attendance counted as zero) that is above the median of all such moving averages?",
+      "colloquial": "Which conductors are above the average in attendance based on their recent performances?"
+    },
+    "MQL": "db.conductor.aggregate([\n  {\n    \"$unwind\": {\n      \"path\": \"$orchestra\",\n      \"preserveNullAndEmptyArrays\": false\n    }\n  },\n  {\n    \"$unwind\": {\n      \"path\": \"$orchestra.performance\",\n      \"preserveNullAndEmptyArrays\": false\n    }\n  },\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\": \"$_id\",\n      \"sortBy\": {\n        \"orchestra.performance.Performance_ID\": 1\n      },\n      \"output\": {\n        \"moving_avg_attendance\": {\n          \"$avg\": {\n            \"$ifNull\": [\n              \"$orchestra.performance.Attendance\",\n              0\n            ]\n          },\n          \"window\": {\n            \"documents\": [\n              -2,\n              0\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$group\": {\n      \"_id\": \"$_id\",\n      \"Name\": {\n        \"$first\": {\n          \"$ifNull\": [\n            \"$Name\",\n            \"(unknown)\"\n          ]\n        }\n      },\n      \"last_window_avg\": {\n        \"$last\": \"$moving_avg_attendance\"\n      }\n    }\n  },\n  {\n    \"$facet\": {\n      \"per_conductor\": [\n        {\n          \"$project\": {\n            \"_id\": 0,\n            \"Name\": 1,\n            \"last_window_avg\": 1\n          }\n        }\n      ],\n      \"global_median\": [\n        {\n          \"$sort\": {\n            \"last_window_avg\": 1\n          }\n        },\n        {\n          \"$group\": {\n            \"_id\": null,\n            \"vals\": {\n              \"$push\": \"$last_window_avg\"\n            }\n          }\n        },\n        {\n          \"$project\": {\n            \"_id\": 0,\n            \"median\": {\n              \"$arrayElemAt\": [\n                \"$vals\",\n                {\n                  \"$floor\": {\n                    \"$divide\": [\n                      {\n                        \"$size\": \"$vals\"\n                      },\n                      2\n                    ]\n                  }\n                }\n              ]\n            }\n          }\n        }\n      ]\n    }\n  },\n  {\n    \"$project\": {\n      \"kept\": {\n        \"$filter\": {\n          \"input\": \"$per_conductor\",\n          \"as\": \"c\",\n          \"cond\": {\n            \"$gt\": [\n              \"$$c.last_window_avg\",\n              {\n                \"$arrayElemAt\": [\n                  \"$global_median.median\",\n                  0\n                ]\n              }\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$unwind\": \"$kept\"\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Name\": \"$kept.Name\",\n      \"last_window_avg\": \"$kept.last_window_avg\"\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$facet",
+        "$ifNull",
+        "$setWindowFields"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$facet",
+        "$setWindowFields"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_pipeline",
+    "schema_flex": "none",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:52087da4c35c009f6604a9f5021121c61274383dbcaa4c52b59d1a140522befb",
+    "domain_id": "orchestra",
+    "join_depth": 0,
+    "aggregation_depth": "deep",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/orchestra.yaml",
+    "property_verification_ref": "audit/orchestra/1009/pv.yaml",
+    "round_trip_ref": "audit/orchestra/1009/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/orchestra/1009/nnc.yaml",
+    "mutations_ref": "audit/orchestra/1009/mutations.json"
+  },
+  {
+    "record_id": 1010,
+    "db_id": "orchestra",
+    "nl_queries": {
+      "canonical": "Which conductors have a moving average attendance over their last three performances, with missing attendance treated as zero, that exceeds the median of all conductors' last moving average attendance?",
+      "colloquial": "Which conductors have above-median recent attendance?"
+    },
+    "MQL": "db.conductor.aggregate([\n  {\n    \"$unwind\": {\n      \"path\": \"$orchestra\",\n      \"preserveNullAndEmptyArrays\": false\n    }\n  },\n  {\n    \"$unwind\": {\n      \"path\": \"$orchestra.performance\",\n      \"preserveNullAndEmptyArrays\": false\n    }\n  },\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\": \"$_id\",\n      \"sortBy\": {\n        \"orchestra.performance.Performance_ID\": 1\n      },\n      \"output\": {\n        \"moving_avg_attendance\": {\n          \"$avg\": {\n            \"$ifNull\": [\n              \"$orchestra.performance.Attendance\",\n              0\n            ]\n          },\n          \"window\": {\n            \"documents\": [\n              -2,\n              0\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$group\": {\n      \"_id\": \"$_id\",\n      \"Name\": {\n        \"$first\": {\n          \"$ifNull\": [\n            \"$Name\",\n            \"(unknown)\"\n          ]\n        }\n      },\n      \"last_window_avg\": {\n        \"$last\": \"$moving_avg_attendance\"\n      }\n    }\n  },\n  {\n    \"$facet\": {\n      \"per_conductor\": [\n        {\n          \"$project\": {\n            \"_id\": 0,\n            \"Name\": 1,\n            \"last_window_avg\": 1\n          }\n        }\n      ],\n      \"global_median\": [\n        {\n          \"$sort\": {\n            \"last_window_avg\": 1\n          }\n        },\n        {\n          \"$group\": {\n            \"_id\": null,\n            \"vals\": {\n              \"$push\": \"$last_window_avg\"\n            }\n          }\n        },\n        {\n          \"$project\": {\n            \"_id\": 0,\n            \"median\": {\n              \"$arrayElemAt\": [\n                \"$vals\",\n                {\n                  \"$floor\": {\n                    \"$divide\": [\n                      {\n                        \"$size\": \"$vals\"\n                      },\n                      2\n                    ]\n                  }\n                }\n              ]\n            }\n          }\n        }\n      ]\n    }\n  },\n  {\n    \"$project\": {\n      \"kept\": {\n        \"$filter\": {\n          \"input\": \"$per_conductor\",\n          \"as\": \"c\",\n          \"cond\": {\n            \"$gt\": [\n              \"$$c.last_window_avg\",\n              {\n                \"$arrayElemAt\": [\n                  \"$global_median.median\",\n                  0\n                ]\n              }\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$unwind\": \"$kept\"\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Name\": \"$kept.Name\",\n      \"last_window_avg\": \"$kept.last_window_avg\"\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$facet",
+        "$ifNull",
+        "$setWindowFields"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$facet",
+        "$setWindowFields"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_pipeline",
+    "schema_flex": "none",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:52087da4c35c009f6604a9f5021121c61274383dbcaa4c52b59d1a140522befb",
+    "domain_id": "orchestra",
+    "join_depth": 0,
+    "aggregation_depth": "deep",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/orchestra.yaml",
+    "property_verification_ref": "audit/orchestra/1010/pv.yaml",
+    "round_trip_ref": "audit/orchestra/1010/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/orchestra/1010/nnc.yaml",
+    "mutations_ref": "audit/orchestra/1010/mutations.json"
+  },
+  {
+    "record_id": 1011,
+    "db_id": "concert_singer",
+    "nl_queries": {
+      "canonical": "List the names of all concerts that have a concert name present.",
+      "colloquial": "What are the names of all concerts?"
+    },
+    "MQL": "db.concert.aggregate([\n  {\n    \"$match\": {\n      \"concert_Name\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"concert_Name\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:d30ef9584805d89bc7ce61d5e6e7217e79cab291ccef1c5c6fe3356fe651095b",
+    "domain_id": "concert",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/concert_singer.yaml",
+    "property_verification_ref": "audit/concert_singer/1011/pv.yaml",
+    "round_trip_ref": "audit/concert_singer/1011/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/concert_singer/1011/nnc.yaml",
+    "mutations_ref": "audit/concert_singer/1011/mutations.json"
+  },
+  {
+    "record_id": 1012,
+    "db_id": "student_assessment",
+    "nl_queries": {
+      "canonical": "Get the values of the 'line_1' field from all Addresses documents where the 'line_1' field is present.",
+      "colloquial": "Show me the first address line for addresses that have one."
+    },
+    "MQL": "db.Addresses.aggregate([\n  {\n    \"$match\": {\n      \"line_1\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"line_1\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:36ee6513df425e487658619ca3e06e4028341d4b7354d23798b0b66bd909f07f",
+    "domain_id": "student",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/student_assessment.yaml",
+    "property_verification_ref": "audit/student_assessment/1012/pv.yaml",
+    "round_trip_ref": "audit/student_assessment/1012/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/student_assessment/1012/nnc.yaml",
+    "mutations_ref": "audit/student_assessment/1012/mutations.json"
+  },
+  {
+    "record_id": 1014,
+    "db_id": "concert_singer",
+    "nl_queries": {
+      "canonical": "Find all concerts that have a name defined, and return only the names of those concerts.",
+      "colloquial": "List the names of concerts."
+    },
+    "MQL": "db.concert.aggregate([\n  {\n    \"$match\": {\n      \"concert_Name\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"concert_Name\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:d30ef9584805d89bc7ce61d5e6e7217e79cab291ccef1c5c6fe3356fe651095b",
+    "domain_id": "concert",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/concert_singer.yaml",
+    "property_verification_ref": "audit/concert_singer/1014/pv.yaml",
+    "round_trip_ref": "audit/concert_singer/1014/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/concert_singer/1014/nnc.yaml",
+    "mutations_ref": "audit/concert_singer/1014/mutations.json"
+  },
+  {
+    "record_id": 1017,
+    "db_id": "world_1",
+    "nl_queries": {
+      "canonical": "Return the population numbers for all cities that have a population recorded.",
+      "colloquial": "Show me the population figures for cities."
+    },
+    "MQL": "db.city.aggregate([\n  {\n    \"$match\": {\n      \"Population\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Population\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:ca6f1eb38d074740949d7b473e1be4347697044e277d005688c9fde946eb914f",
+    "domain_id": "world",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/world_1.yaml",
+    "property_verification_ref": "audit/world_1/1017/pv.yaml",
+    "round_trip_ref": "audit/world_1/1017/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/world_1/1017/nnc.yaml",
+    "mutations_ref": "audit/world_1/1017/mutations.json"
+  },
+  {
+    "record_id": 1018,
+    "db_id": "world_1",
+    "nl_queries": {
+      "canonical": "Retrieve the population for each city that has a population recorded.",
+      "colloquial": "What are the populations of cities?"
+    },
+    "MQL": "db.city.aggregate([\n  {\n    \"$match\": {\n      \"Population\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Population\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:ca6f1eb38d074740949d7b473e1be4347697044e277d005688c9fde946eb914f",
+    "domain_id": "world",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/world_1.yaml",
+    "property_verification_ref": "audit/world_1/1018/pv.yaml",
+    "round_trip_ref": "audit/world_1/1018/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/world_1/1018/nnc.yaml",
+    "mutations_ref": "audit/world_1/1018/mutations.json"
+  },
+  {
+    "record_id": 1020,
+    "db_id": "flight_2",
+    "nl_queries": {
+      "canonical": "List all airline names from the airlines table where the airline name is present (not null or missing).",
+      "colloquial": "List all airlines."
+    },
+    "MQL": "db.airlines.aggregate([\n  {\n    \"$match\": {\n      \"Airline\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Airline\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:3d9012a504e1db788167d396fea56741ceffd625c0bef89968190cec40990fd6",
+    "domain_id": "flight",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/flight_2.yaml",
+    "property_verification_ref": "audit/flight_2/1020/pv.yaml",
+    "round_trip_ref": "audit/flight_2/1020/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/flight_2/1020/nnc.yaml",
+    "mutations_ref": "audit/flight_2/1020/mutations.json"
+  },
+  {
+    "record_id": 1021,
+    "db_id": "student_assessment",
+    "nl_queries": {
+      "canonical": "List all addresses where the address line 1 field is present, and return only the address line 1 value.",
+      "colloquial": "Get all street addresses that are filled in."
+    },
+    "MQL": "db.Addresses.aggregate([\n  {\n    \"$match\": {\n      \"line_1\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"line_1\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:36ee6513df425e487658619ca3e06e4028341d4b7354d23798b0b66bd909f07f",
+    "domain_id": "student",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/student_assessment.yaml",
+    "property_verification_ref": "audit/student_assessment/1021/pv.yaml",
+    "round_trip_ref": "audit/student_assessment/1021/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/student_assessment/1021/nnc.yaml",
+    "mutations_ref": "audit/student_assessment/1021/mutations.json"
+  },
+  {
+    "record_id": 1022,
+    "db_id": "concert_singer",
+    "nl_queries": {
+      "canonical": "For each concert, compute the rolling average of its numeric field over a window consisting of the current and the two preceding records (based on the document order), replacing any null values in that field with 0, and return only that rolling average value.",
+      "colloquial": "What is the rolling average of each concert's data over the last few records, treating missing values as zero?"
+    },
+    "MQL": "db.concert.aggregate([\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\": \"$_id\",\n      \"sortBy\": {\n        \"_id\": 1\n      },\n      \"output\": {\n        \"rolling_avg\": {\n          \"$avg\": {\n            \"$ifNull\": [\n              \"$concert_Name\",\n              0\n            ]\n          },\n          \"window\": {\n            \"documents\": [\n              -2,\n              0\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"rolling_avg\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$ifNull",
+        "$setWindowFields"
+      ],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$setWindowFields"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_pipeline",
+    "schema_flex": "none",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:d30ef9584805d89bc7ce61d5e6e7217e79cab291ccef1c5c6fe3356fe651095b",
+    "domain_id": "concert",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/concert_singer.yaml",
+    "property_verification_ref": "audit/concert_singer/1022/pv.yaml",
+    "round_trip_ref": "audit/concert_singer/1022/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/concert_singer/1022/nnc.yaml",
+    "mutations_ref": "audit/concert_singer/1022/mutations.json"
+  },
+  {
+    "record_id": 1023,
+    "db_id": "flight_2",
+    "nl_queries": {
+      "canonical": "List all airline names where the Airline field exists.",
+      "colloquial": "What airlines are there?"
+    },
+    "MQL": "db.airlines.aggregate([\n  {\n    \"$match\": {\n      \"Airline\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Airline\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:3d9012a504e1db788167d396fea56741ceffd625c0bef89968190cec40990fd6",
+    "domain_id": "flight",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/flight_2.yaml",
+    "property_verification_ref": "audit/flight_2/1023/pv.yaml",
+    "round_trip_ref": "audit/flight_2/1023/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/flight_2/1023/nnc.yaml",
+    "mutations_ref": "audit/flight_2/1023/mutations.json"
+  },
+  {
+    "record_id": 1024,
+    "db_id": "concert_singer",
+    "nl_queries": {
+      "canonical": "For each concert, compute the rolling average of the concert name (treating missing names as 0) over a window of the current and two previous documents, partitioned by the document identifier, and return only the rolling average value.",
+      "colloquial": "Show the rolling average of concert names."
+    },
+    "MQL": "db.concert.aggregate([\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\": \"$_id\",\n      \"sortBy\": {\n        \"_id\": 1\n      },\n      \"output\": {\n        \"rolling_avg\": {\n          \"$avg\": {\n            \"$ifNull\": [\n              \"$concert_Name\",\n              0\n            ]\n          },\n          \"window\": {\n            \"documents\": [\n              -2,\n              0\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"rolling_avg\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$ifNull",
+        "$setWindowFields"
+      ],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$setWindowFields"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_pipeline",
+    "schema_flex": "none",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:d30ef9584805d89bc7ce61d5e6e7217e79cab291ccef1c5c6fe3356fe651095b",
+    "domain_id": "concert",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/concert_singer.yaml",
+    "property_verification_ref": "audit/concert_singer/1024/pv.yaml",
+    "round_trip_ref": "audit/concert_singer/1024/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/concert_singer/1024/nnc.yaml",
+    "mutations_ref": "audit/concert_singer/1024/mutations.json"
+  },
+  {
+    "record_id": 1025,
+    "db_id": "world_1",
+    "nl_queries": {
+      "canonical": "For each city (partitioned by its unique identifier), compute the rolling average of its population over the current and the two preceding documents when ordered by identifier, replacing any missing or null population values with zero. Return only the resulting rolling average values.",
+      "colloquial": "What are the rolling average populations for each city?"
+    },
+    "MQL": "db.city.aggregate([\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\": \"$_id\",\n      \"sortBy\": {\n        \"_id\": 1\n      },\n      \"output\": {\n        \"rolling_avg\": {\n          \"$avg\": {\n            \"$ifNull\": [\n              \"$Population\",\n              0\n            ]\n          },\n          \"window\": {\n            \"documents\": [\n              -2,\n              0\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"rolling_avg\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$ifNull",
+        "$setWindowFields"
+      ],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$setWindowFields"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_pipeline",
+    "schema_flex": "none",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:ca6f1eb38d074740949d7b473e1be4347697044e277d005688c9fde946eb914f",
+    "domain_id": "world",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/world_1.yaml",
+    "property_verification_ref": "audit/world_1/1025/pv.yaml",
+    "round_trip_ref": "audit/world_1/1025/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/world_1/1025/nnc.yaml",
+    "mutations_ref": "audit/world_1/1025/mutations.json"
+  },
+  {
+    "record_id": 1026,
+    "db_id": "world_1",
+    "nl_queries": {
+      "canonical": "For each city, calculate the rolling average of its Population over a window that includes the current city and the two preceding cities when sorted by the city's identifier, treating any missing Population values as zero, and output only the rolling average.",
+      "colloquial": "What is the three-city rolling average of the main metric for each city, using the current and the two previous cities?"
+    },
+    "MQL": "db.city.aggregate([\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\": \"$_id\",\n      \"sortBy\": {\n        \"_id\": 1\n      },\n      \"output\": {\n        \"rolling_avg\": {\n          \"$avg\": {\n            \"$ifNull\": [\n              \"$Population\",\n              0\n            ]\n          },\n          \"window\": {\n            \"documents\": [\n              -2,\n              0\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"rolling_avg\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$ifNull",
+        "$setWindowFields"
+      ],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$setWindowFields"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_pipeline",
+    "schema_flex": "none",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:ca6f1eb38d074740949d7b473e1be4347697044e277d005688c9fde946eb914f",
+    "domain_id": "world",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/world_1.yaml",
+    "property_verification_ref": "audit/world_1/1026/pv.yaml",
+    "round_trip_ref": "audit/world_1/1026/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/world_1/1026/nnc.yaml",
+    "mutations_ref": "audit/world_1/1026/mutations.json"
+  },
+  {
+    "record_id": 30600,
+    "db_id": "baseball_1",
+    "nl_queries": {
+      "canonical": "Retrieve the payload field for each all-star entry, resolving any polymorphic type by outputting the field unchanged regardless of whether it is an object or another type.",
+      "colloquial": "Show me the data from the all-star entries."
+    },
+    "MQL": "db.all_star.aggregate([\n  {\n    \"$addFields\": {\n      \"resolved\": {\n        \"$switch\": {\n          \"branches\": [\n            {\n              \"case\": {\n                \"$eq\": [\n                  {\n                    \"$type\": \"$payload\"\n                  },\n                  \"object\"\n                ]\n              },\n              \"then\": \"$payload\"\n            }\n          ],\n          \"default\": \"$payload\"\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"resolved\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$switch",
+        "$type"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields",
+        "$project"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "polymorphic",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:b69ce5e33df513d59d0f6053d8fbc7bb3887539fad54e7ee644edf1c3605dd28",
+    "domain_id": "baseball",
+    "join_depth": 0,
+    "aggregation_depth": "medium",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/baseball_1.yaml",
+    "property_verification_ref": "audit/baseball_1/30600/pv.yaml",
+    "round_trip_ref": "audit/baseball_1/30600/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/baseball_1/30600/nnc.yaml",
+    "mutations_ref": "audit/baseball_1/30600/mutations.json"
+  },
+  {
+    "record_id": 30601,
+    "db_id": "baseball_1",
+    "nl_queries": {
+      "canonical": "For each record in the all_star collection, output the payload field after resolving any polymorphic typing (when the payload is an object it is taken directly, otherwise it is also taken directly), and exclude the document identifier.",
+      "colloquial": "Get the details for all All-Star players."
+    },
+    "MQL": "db.all_star.aggregate([\n  {\n    \"$addFields\": {\n      \"resolved\": {\n        \"$switch\": {\n          \"branches\": [\n            {\n              \"case\": {\n                \"$eq\": [\n                  {\n                    \"$type\": \"$payload\"\n                  },\n                  \"object\"\n                ]\n              },\n              \"then\": \"$payload\"\n            }\n          ],\n          \"default\": \"$payload\"\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"resolved\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$switch",
+        "$type"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields",
+        "$project"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "polymorphic",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:b69ce5e33df513d59d0f6053d8fbc7bb3887539fad54e7ee644edf1c3605dd28",
+    "domain_id": "baseball",
+    "join_depth": 0,
+    "aggregation_depth": "medium",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/baseball_1.yaml",
+    "property_verification_ref": "audit/baseball_1/30601/pv.yaml",
+    "round_trip_ref": "audit/baseball_1/30601/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/baseball_1/30601/nnc.yaml",
+    "mutations_ref": "audit/baseball_1/30601/mutations.json"
+  },
+  {
+    "record_id": 30602,
+    "db_id": "baseball_1",
+    "nl_queries": {
+      "canonical": "Retrieve the payload field from every All-Star record, resolving any polymorphic representation (whether stored as an object or a string) into a uniform output.",
+      "colloquial": "Show me the All-Star data, no matter how it's stored."
+    },
+    "MQL": "db.all_star.aggregate([\n  {\n    \"$addFields\": {\n      \"resolved\": {\n        \"$switch\": {\n          \"branches\": [\n            {\n              \"case\": {\n                \"$eq\": [\n                  {\n                    \"$type\": \"$payload\"\n                  },\n                  \"object\"\n                ]\n              },\n              \"then\": \"$payload\"\n            }\n          ],\n          \"default\": \"$payload\"\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"resolved\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$switch",
+        "$type"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields",
+        "$project"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "polymorphic",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:b69ce5e33df513d59d0f6053d8fbc7bb3887539fad54e7ee644edf1c3605dd28",
+    "domain_id": "baseball",
+    "join_depth": 0,
+    "aggregation_depth": "medium",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/baseball_1.yaml",
+    "property_verification_ref": "audit/baseball_1/30602/pv.yaml",
+    "round_trip_ref": "audit/baseball_1/30602/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/baseball_1/30602/nnc.yaml",
+    "mutations_ref": "audit/baseball_1/30602/mutations.json"
+  },
+  {
+    "record_id": 30603,
+    "db_id": "baseball_1",
+    "nl_queries": {
+      "canonical": "List all year values from the all-star records where the year field exists.",
+      "colloquial": "What years are in the all-star data?"
+    },
+    "MQL": "db.all_star.aggregate([\n  {\n    \"$match\": {\n      \"year\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"year\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:b69ce5e33df513d59d0f6053d8fbc7bb3887539fad54e7ee644edf1c3605dd28",
+    "domain_id": "baseball",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/baseball_1.yaml",
+    "property_verification_ref": "audit/baseball_1/30603/pv.yaml",
+    "round_trip_ref": "audit/baseball_1/30603/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/baseball_1/30603/nnc.yaml",
+    "mutations_ref": "audit/baseball_1/30603/mutations.json"
+  },
+  {
+    "record_id": 30604,
+    "db_id": "baseball_1",
+    "nl_queries": {
+      "canonical": "Retrieve all years from the all_star records where the year field is present (i.e., not missing).",
+      "colloquial": "What years are recorded in the all-star data?"
+    },
+    "MQL": "db.all_star.aggregate([\n  {\n    \"$match\": {\n      \"year\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"year\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:b69ce5e33df513d59d0f6053d8fbc7bb3887539fad54e7ee644edf1c3605dd28",
+    "domain_id": "baseball",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/baseball_1.yaml",
+    "property_verification_ref": "audit/baseball_1/30604/pv.yaml",
+    "round_trip_ref": "audit/baseball_1/30604/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/baseball_1/30604/nnc.yaml",
+    "mutations_ref": "audit/baseball_1/30604/mutations.json"
+  },
+  {
+    "record_id": 30802,
+    "db_id": "assets_maintenance",
+    "nl_queries": {
+      "canonical": "Get the value from Asset_Parts documents by taking payload.v2 if present, otherwise payload.v1 if present, otherwise payload.legacy, and return only that value.",
+      "colloquial": "Get the most recent available value from the asset part records."
+    },
+    "MQL": "db.Asset_Parts.aggregate([\n  {\n    \"$addFields\": {\n      \"value\": {\n        \"$ifNull\": [\n          \"$payload.v2\",\n          {\n            \"$ifNull\": [\n              \"$payload.v1\",\n              \"$payload.legacy\"\n            ]\n          }\n        ]\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"value\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$ifNull"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields",
+        "$project"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "schema_versioning",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:c6766b7665ed6969510e53076413c5b6425202df29dd326a6e86e15fb75c2d0b",
+    "domain_id": "assets",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/assets_maintenance.yaml",
+    "property_verification_ref": "audit/assets_maintenance/30802/pv.yaml",
+    "round_trip_ref": "audit/assets_maintenance/30802/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/assets_maintenance/30802/nnc.yaml",
+    "mutations_ref": "audit/assets_maintenance/30802/mutations.json"
+  },
+  {
+    "record_id": 30803,
+    "db_id": "assets_maintenance",
+    "nl_queries": {
+      "canonical": "Retrieve the part_id field from all documents in the Asset Parts collection that have a part_id field present.",
+      "colloquial": "Show me all the parts."
+    },
+    "MQL": "db.Asset_Parts.aggregate([\n  {\n    \"$match\": {\n      \"part_id\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"part_id\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:c6766b7665ed6969510e53076413c5b6425202df29dd326a6e86e15fb75c2d0b",
+    "domain_id": "assets",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/assets_maintenance.yaml",
+    "property_verification_ref": "audit/assets_maintenance/30803/pv.yaml",
+    "round_trip_ref": "audit/assets_maintenance/30803/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/assets_maintenance/30803/nnc.yaml",
+    "mutations_ref": "audit/assets_maintenance/30803/mutations.json"
+  },
+  {
+    "record_id": 30804,
+    "db_id": "assets_maintenance",
+    "nl_queries": {
+      "canonical": "Return all part_id values from the Asset Parts collection where the part_id field exists.",
+      "colloquial": "List all part identifiers."
+    },
+    "MQL": "db.Asset_Parts.aggregate([\n  {\n    \"$match\": {\n      \"part_id\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"part_id\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:c6766b7665ed6969510e53076413c5b6425202df29dd326a6e86e15fb75c2d0b",
+    "domain_id": "assets",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/assets_maintenance.yaml",
+    "property_verification_ref": "audit/assets_maintenance/30804/pv.yaml",
+    "round_trip_ref": "audit/assets_maintenance/30804/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/assets_maintenance/30804/nnc.yaml",
+    "mutations_ref": "audit/assets_maintenance/30804/mutations.json"
+  },
+  {
+    "record_id": 30900,
+    "db_id": "department_store",
+    "nl_queries": {
+      "canonical": "For each address, compute the rolling average of the address details over the current and two previous documents ordered by document ID, with any missing address details replaced by zero, and return only that average.",
+      "colloquial": "What is the running average of details for each address?"
+    },
+    "MQL": "db.Addresses.aggregate([\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\": \"$_id\",\n      \"sortBy\": {\n        \"_id\": 1\n      },\n      \"output\": {\n        \"rolling_avg\": {\n          \"$avg\": {\n            \"$ifNull\": [\n              \"$address_details\",\n              0\n            ]\n          },\n          \"window\": {\n            \"documents\": [\n              -2,\n              0\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"rolling_avg\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$ifNull",
+        "$setWindowFields"
+      ],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$setWindowFields"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_pipeline",
+    "schema_flex": "none",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:8acfc17dbbcce7093f1a086d65f1ce73430c0dfb97b40c47fb0f63dd16804a40",
+    "domain_id": "department",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/department_store.yaml",
+    "property_verification_ref": "audit/department_store/30900/pv.yaml",
+    "round_trip_ref": "audit/department_store/30900/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/department_store/30900/nnc.yaml",
+    "mutations_ref": "audit/department_store/30900/mutations.json"
+  },
+  {
+    "record_id": 30901,
+    "db_id": "department_store",
+    "nl_queries": {
+      "canonical": "For each address document, compute the rolling average of the address_details field over a window comprising the current document and the two preceding documents within the same partition (partitioned by the document's unique ID), treating any missing address_details as 0.",
+      "colloquial": "Show me the average of address details for each address, using 0 if the value is missing."
+    },
+    "MQL": "db.Addresses.aggregate([\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\": \"$_id\",\n      \"sortBy\": {\n        \"_id\": 1\n      },\n      \"output\": {\n        \"rolling_avg\": {\n          \"$avg\": {\n            \"$ifNull\": [\n              \"$address_details\",\n              0\n            ]\n          },\n          \"window\": {\n            \"documents\": [\n              -2,\n              0\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"rolling_avg\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$ifNull",
+        "$setWindowFields"
+      ],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$setWindowFields"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_pipeline",
+    "schema_flex": "none",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:8acfc17dbbcce7093f1a086d65f1ce73430c0dfb97b40c47fb0f63dd16804a40",
+    "domain_id": "department",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/department_store.yaml",
+    "property_verification_ref": "audit/department_store/30901/pv.yaml",
+    "round_trip_ref": "audit/department_store/30901/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/department_store/30901/nnc.yaml",
+    "mutations_ref": "audit/department_store/30901/mutations.json"
+  },
+  {
+    "record_id": 30902,
+    "db_id": "department_store",
+    "nl_queries": {
+      "canonical": "Retrieve the resolved payload data from each address record by checking whether the payload field contains an embedded object; if so use that object directly, otherwise use the payload value as is.",
+      "colloquial": "Show the stored information for each address."
+    },
+    "MQL": "db.Addresses.aggregate([\n  {\n    \"$addFields\": {\n      \"resolved\": {\n        \"$switch\": {\n          \"branches\": [\n            {\n              \"case\": {\n                \"$eq\": [\n                  {\n                    \"$type\": \"$payload\"\n                  },\n                  \"object\"\n                ]\n              },\n              \"then\": \"$payload\"\n            }\n          ],\n          \"default\": \"$payload\"\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"resolved\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$switch",
+        "$type"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields",
+        "$project"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "polymorphic",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:8acfc17dbbcce7093f1a086d65f1ce73430c0dfb97b40c47fb0f63dd16804a40",
+    "domain_id": "department",
+    "join_depth": 0,
+    "aggregation_depth": "medium",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/department_store.yaml",
+    "property_verification_ref": "audit/department_store/30902/pv.yaml",
+    "round_trip_ref": "audit/department_store/30902/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/department_store/30902/nnc.yaml",
+    "mutations_ref": "audit/department_store/30902/mutations.json"
+  },
+  {
+    "record_id": 30903,
+    "db_id": "department_store",
+    "nl_queries": {
+      "canonical": "Retrieve the address details for all addresses that have address details recorded.",
+      "colloquial": "Show me the address details."
+    },
+    "MQL": "db.Addresses.aggregate([\n  {\n    \"$match\": {\n      \"address_details\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"address_details\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:8acfc17dbbcce7093f1a086d65f1ce73430c0dfb97b40c47fb0f63dd16804a40",
+    "domain_id": "department",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/department_store.yaml",
+    "property_verification_ref": "audit/department_store/30903/pv.yaml",
+    "round_trip_ref": "audit/department_store/30903/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/department_store/30903/nnc.yaml",
+    "mutations_ref": "audit/department_store/30903/mutations.json"
+  },
+  {
+    "record_id": 30904,
+    "db_id": "department_store",
+    "nl_queries": {
+      "canonical": "Retrieve the address_details field for all documents in the Addresses collection where the address_details field exists.",
+      "colloquial": "Which addresses have a details section filled in?"
+    },
+    "MQL": "db.Addresses.aggregate([\n  {\n    \"$match\": {\n      \"address_details\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"address_details\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:8acfc17dbbcce7093f1a086d65f1ce73430c0dfb97b40c47fb0f63dd16804a40",
+    "domain_id": "department",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/department_store.yaml",
+    "property_verification_ref": "audit/department_store/30904/pv.yaml",
+    "round_trip_ref": "audit/department_store/30904/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/department_store/30904/nnc.yaml",
+    "mutations_ref": "audit/department_store/30904/mutations.json"
+  }
+]

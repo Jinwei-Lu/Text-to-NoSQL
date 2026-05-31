@@ -1,0 +1,43 @@
+property_verification:
+  gold_ex: false
+  gold_normexec_non_bot: true
+  mql_alt_ex_equiv: false
+  ast_check_gold: true
+  ast_check_alt: true
+  semantic_properties:
+  - id: result_cardinality_gte_2
+    pass: false
+    notes: gold NormExec returned BOT
+  - id: ifNull_attendance
+    pass: true
+  - id: window_partition_per_conductor
+    pass: false
+    notes: gold NormExec returned BOT
+  - id: global_median_tie_possible
+    pass: false
+    notes: gold NormExec returned BOT
+  mutations_ex_all_reject: true
+  mutation_results:
+  - mutation_id: m001
+    ex: false
+    ast_check: true
+  - mutation_id: m002
+    ex: false
+    ast_check: true
+  - mutation_id: m003
+    ex: false
+    ast_check: true
+  - mutation_id: m004
+    ex: false
+    ast_check: true
+  - mutation_id: m005
+    ex: false
+    ast_check: true
+pv_pass: false
+pv_trace:
+  blocking_failures:
+  - semantic_property:result_cardinality_gte_2
+  - semantic_property:window_partition_per_conductor
+  - semantic_property:global_median_tie_possible
+  - gold_ex
+  reflux_target: MS

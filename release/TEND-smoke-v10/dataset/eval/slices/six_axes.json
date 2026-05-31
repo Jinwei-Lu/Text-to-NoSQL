@@ -1,0 +1,122 @@
+{
+  "domain": {
+    "cre": {
+      "EM": 1.0,
+      "QSM": 1.0,
+      "QFC": 1.0,
+      "EX": 1.0,
+      "EFM": 1.0,
+      "EVM": 1.0,
+      "QIM": 1.0
+    },
+    "hospital": {
+      "EM": 1.0,
+      "QSM": 1.0,
+      "QFC": 1.0,
+      "EX": 1.0,
+      "EFM": 1.0,
+      "EVM": 1.0,
+      "QIM": 1.0
+    }
+  },
+  "join_depth": {
+    "0": {
+      "EM": 1.0,
+      "QSM": 1.0,
+      "QFC": 1.0,
+      "EX": 1.0,
+      "EFM": 1.0,
+      "EVM": 1.0,
+      "QIM": 1.0
+    }
+  },
+  "aggregation_depth": {
+    "medium": {
+      "EM": 1.0,
+      "QSM": 1.0,
+      "QFC": 1.0,
+      "EX": 1.0,
+      "EFM": 1.0,
+      "EVM": 1.0,
+      "QIM": 1.0
+    },
+    "shallow": {
+      "EM": 1.0,
+      "QSM": 1.0,
+      "QFC": 1.0,
+      "EX": 1.0,
+      "EFM": 1.0,
+      "EVM": 1.0,
+      "QIM": 1.0
+    }
+  },
+  "schema_pattern": {
+    "embed": {
+      "EM": 1.0,
+      "QSM": 1.0,
+      "QFC": 1.0,
+      "EX": 1.0,
+      "EFM": 1.0,
+      "EVM": 1.0,
+      "QIM": 1.0
+    }
+  },
+  "schema_flex": {
+    "attribute_bag": {
+      "EM": 1.0,
+      "QSM": 1.0,
+      "QFC": 1.0,
+      "EX": 1.0,
+      "EFM": 1.0,
+      "EVM": 1.0,
+      "QIM": 1.0
+    },
+    "none": {
+      "EM": 1.0,
+      "QSM": 1.0,
+      "QFC": 1.0,
+      "EX": 1.0,
+      "EFM": 1.0,
+      "EVM": 1.0,
+      "QIM": 1.0
+    },
+    "polymorphic": {
+      "EM": 1.0,
+      "QSM": 1.0,
+      "QFC": 1.0,
+      "EX": 1.0,
+      "EFM": 1.0,
+      "EVM": 1.0,
+      "QIM": 1.0
+    },
+    "schema_versioning": {
+      "EM": 1.0,
+      "QSM": 1.0,
+      "QFC": 1.0,
+      "EX": 1.0,
+      "EFM": 1.0,
+      "EVM": 1.0,
+      "QIM": 1.0
+    }
+  },
+  "difficulty_tier": {
+    "L1": {
+      "EM": 1.0,
+      "QSM": 1.0,
+      "QFC": 1.0,
+      "EX": 1.0,
+      "EFM": 1.0,
+      "EVM": 1.0,
+      "QIM": 1.0
+    },
+    "L4": {
+      "EM": 1.0,
+      "QSM": 1.0,
+      "QFC": 1.0,
+      "EX": 1.0,
+      "EFM": 1.0,
+      "EVM": 1.0,
+      "QIM": 1.0
+    }
+  }
+}

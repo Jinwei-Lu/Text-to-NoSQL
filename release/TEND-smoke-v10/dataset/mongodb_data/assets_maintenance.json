@@ -1,0 +1,139 @@
+{
+  "Asset_Parts": [
+    {
+      "_id": 5,
+      "part_id": 3,
+      "payload": {
+        "part_id": 3
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_0"
+    },
+    {
+      "_id": 3,
+      "part_id": 3,
+      "payload": {
+        "part_id": 3
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_1"
+    },
+    {
+      "_id": 10,
+      "part_id": 1,
+      "payload": {
+        "part_id": 1
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_2"
+    },
+    {
+      "_id": 1,
+      "part_id": 2,
+      "payload": {
+        "part_id": 2
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_3"
+    },
+    {
+      "_id": "3__row4",
+      "part_id": 1,
+      "payload": {
+        "part_id": 1
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_4"
+    },
+    {
+      "_id": "1__row5",
+      "part_id": 3,
+      "payload": {
+        "part_id": 3
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_5"
+    },
+    {
+      "_id": 6,
+      "part_id": 2,
+      "payload": {
+        "part_id": 2
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_6"
+    },
+    {
+      "_id": 2,
+      "part_id": 3,
+      "payload": {
+        "part_id": 3
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_7"
+    },
+    {
+      "_id": "3__row8",
+      "part_id": 2,
+      "payload": {
+        "part_id": 2
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_8"
+    },
+    {
+      "_id": "2__row9",
+      "part_id": 2,
+      "payload": {
+        "part_id": 2
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_9"
+    },
+    {
+      "_id": "3__row10",
+      "part_id": 3,
+      "payload": {
+        "part_id": 3
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_10"
+    },
+    {
+      "_id": 15,
+      "part_id": 3,
+      "payload": {
+        "part_id": 3
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_11"
+    },
+    {
+      "_id": 4,
+      "part_id": 1,
+      "payload": {
+        "part_id": 1
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_12"
+    },
+    {
+      "_id": 14,
+      "part_id": 1,
+      "payload": {
+        "part_id": 1
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_13"
+    },
+    {
+      "_id": "15__row14",
+      "part_id": 2,
+      "payload": {
+        "part_id": 2
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_14"
+    }
+  ]
+}

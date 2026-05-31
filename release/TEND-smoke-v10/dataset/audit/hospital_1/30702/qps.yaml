@@ -1,0 +1,24 @@
+query_plan:
+  primary_pattern: attribute_bag_unfold
+  operator_graph:
+    stages:
+    - $match
+    - $unwind
+    - $group
+    - $project
+  shape_policy: reshape
+  null_missing_strategy: none
+  target_difficulty: L4
+  schema_flex_mode: attribute_bag
+  join_depth_target: 0
+  aggregation_depth_target: medium
+  target_fields:
+  - Affiliated_With.field
+  semantic_properties:
+  - id: non_empty_result
+    expect: at least one document returned
+qps_trace:
+  coverage_cell: L1|feasible|schema_flex_none
+  deficit_weight: 0.1
+  supply_constrained: false
+  pattern_rationale: fallback plan for attribute_bag_unfold on hospital_1

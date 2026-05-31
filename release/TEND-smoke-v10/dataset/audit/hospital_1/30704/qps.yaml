@@ -1,0 +1,22 @@
+query_plan:
+  primary_pattern: simple_filter
+  operator_graph:
+    stages:
+    - $match
+    - $project
+  shape_policy: preserve
+  null_missing_strategy: none
+  target_difficulty: L1
+  schema_flex_mode: none
+  join_depth_target: 0
+  aggregation_depth_target: shallow
+  target_fields:
+  - Affiliated_With.field
+  semantic_properties:
+  - id: non_empty_result
+    expect: at least one document returned
+qps_trace:
+  coverage_cell: L1|feasible|schema_flex_none
+  deficit_weight: 0.1
+  supply_constrained: false
+  pattern_rationale: fallback plan for simple_filter on hospital_1

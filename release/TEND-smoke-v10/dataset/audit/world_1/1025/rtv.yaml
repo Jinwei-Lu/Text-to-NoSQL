@@ -1,0 +1,18 @@
+{
+  "mql_round_trip_canonical": "db.city.aggregate([\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\": \"$_id\",\n      \"sortBy\": {\n        \"_id\": 1\n      },\n      \"output\": {\n        \"rolling_avg\": {\n          \"$avg\": {\n            \"$ifNull\": [\n              \"$Population\",\n              0\n            ]\n          },\n          \"window\": {\n            \"documents\": [\n              -2,\n              0\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"rolling_avg\": 1\n    }\n  }\n])",
+  "mql_round_trip_colloquial": "db.city.aggregate([\n  {\n    \"$group\": {\n      \"_id\": null,\n      \"avgPopulation\": { \"$avg\": \"$Population\" }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"rolling_avg\": \"$avgPopulation\"\n    }\n  }\n])",
+  "round_trip_verification": {
+    "canonical_pass": true,
+    "canonical_ex": true,
+    "canonical_ast_check": true,
+    "colloquial_pass": false,
+    "colloquial_ex": false,
+    "colloquial_ast_check": false,
+    "underspec_attribution": "colloquial omits window size, median filter, and ifNull coalesce detail"
+  },
+  "rtv_pass": true,
+  "rtv_trace": {
+    "retry_count": 0,
+    "reflux_recommendation": null
+  }
+}

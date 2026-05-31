@@ -1,0 +1,31 @@
+{
+  "p1_execution": {
+    "pass": true,
+    "normexec_non_bot": true
+  },
+  "p4_nontriviality": {
+    "pass": true,
+    "result_count": 15,
+    "gaps": []
+  },
+  "realism_checks": {
+    "field_observability": true,
+    "null_missing_coverage": true,
+    "result_cardinality": true,
+    "embed_depth_matches_sra": true,
+    "type_sanity": true
+  },
+  "augment_plan": {
+    "required": false,
+    "append_only": true,
+    "injections": []
+  },
+  "ra_audit": {
+    "pass": true,
+    "pending_augment": false,
+    "recommendations": []
+  },
+  "snapshot": null,
+  "world_signature": null,
+  "augment_pass": 0
+}

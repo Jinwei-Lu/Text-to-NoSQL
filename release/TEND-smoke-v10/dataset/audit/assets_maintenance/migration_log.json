@@ -1,0 +1,171 @@
+{
+  "db_id": "assets_maintenance",
+  "generated_at": "2026-05-31T13:26:56Z",
+  "source_sqlite": "database/assets_maintenance/assets_maintenance.sqlite",
+  "target_collections": [
+    "Asset_Parts"
+  ],
+  "world_signature": "sha256:c6766b7665ed6969510e53076413c5b6425202df29dd326a6e86e15fb75c2d0b",
+  "stats": {
+    "source_rows": 15,
+    "target_documents": 15,
+    "tables_migrated": 1
+  },
+  "entries": [
+    {
+      "entry_id": "M0001",
+      "source_table": "Asset_Parts",
+      "source_pk": "5",
+      "target_collection": "Asset_Parts",
+      "target_id": 5,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0002",
+      "source_table": "Asset_Parts",
+      "source_pk": "3",
+      "target_collection": "Asset_Parts",
+      "target_id": 3,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0003",
+      "source_table": "Asset_Parts",
+      "source_pk": "10",
+      "target_collection": "Asset_Parts",
+      "target_id": 10,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0004",
+      "source_table": "Asset_Parts",
+      "source_pk": "1",
+      "target_collection": "Asset_Parts",
+      "target_id": 1,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0005",
+      "source_table": "Asset_Parts",
+      "source_pk": "3",
+      "target_collection": "Asset_Parts",
+      "target_id": "3__row4",
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0006",
+      "source_table": "Asset_Parts",
+      "source_pk": "1",
+      "target_collection": "Asset_Parts",
+      "target_id": "1__row5",
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0007",
+      "source_table": "Asset_Parts",
+      "source_pk": "6",
+      "target_collection": "Asset_Parts",
+      "target_id": 6,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0008",
+      "source_table": "Asset_Parts",
+      "source_pk": "2",
+      "target_collection": "Asset_Parts",
+      "target_id": 2,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0009",
+      "source_table": "Asset_Parts",
+      "source_pk": "3",
+      "target_collection": "Asset_Parts",
+      "target_id": "3__row8",
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0010",
+      "source_table": "Asset_Parts",
+      "source_pk": "2",
+      "target_collection": "Asset_Parts",
+      "target_id": "2__row9",
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0011",
+      "source_table": "Asset_Parts",
+      "source_pk": "3",
+      "target_collection": "Asset_Parts",
+      "target_id": "3__row10",
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0012",
+      "source_table": "Asset_Parts",
+      "source_pk": "15",
+      "target_collection": "Asset_Parts",
+      "target_id": 15,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0013",
+      "source_table": "Asset_Parts",
+      "source_pk": "4",
+      "target_collection": "Asset_Parts",
+      "target_id": 4,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0014",
+      "source_table": "Asset_Parts",
+      "source_pk": "14",
+      "target_collection": "Asset_Parts",
+      "target_id": 14,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0015",
+      "source_table": "Asset_Parts",
+      "source_pk": "15",
+      "target_collection": "Asset_Parts",
+      "target_id": "15__row14",
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    }
+  ],
+  "integrity_checks": {
+    "referential_pass": true,
+    "row_count_reconciled": true,
+    "orphan_refs": 0
+  }
+}

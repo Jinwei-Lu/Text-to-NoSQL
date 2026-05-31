@@ -1,0 +1,58 @@
+MQL: "db.concert.aggregate([\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\"\
+  : \"$_id\",\n      \"sortBy\": {\n        \"_id\": 1\n      },\n      \"output\"\
+  : {\n        \"rolling_avg\": {\n          \"$avg\": {\n            \"$ifNull\"\
+  : [\n              \"$concert_Name\",\n              0\n            ]\n        \
+  \  },\n          \"window\": {\n            \"documents\": [\n              -2,\n\
+  \              0\n            ]\n          }\n        }\n      }\n    }\n  },\n\
+  \  {\n    \"$project\": {\n      \"_id\": 0,\n      \"rolling_avg\": 1\n    }\n\
+  \  }\n])"
+mql_alt: "db.concert.aggregate([\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\"\
+  : \"$_id\",\n      \"sortBy\": {\n        \"_id\": 1\n      },\n      \"output\"\
+  : {\n        \"rolling_avg\": {\n          \"$avg\": {\n            \"$ifNull\"\
+  : [\n              \"$concert_Name\",\n              0\n            ]\n        \
+  \  },\n          \"window\": {\n            \"documents\": [\n              -2,\n\
+  \              0\n            ]\n          }\n        }\n      }\n    }\n  },\n\
+  \  {\n    \"$project\": {\n      \"_id\": 0,\n      \"rolling_avg\": 1\n    }\n\
+  \  }\n])"
+canonical_form_set:
+  must_contain:
+  - $ifNull
+  - $setWindowFields
+  must_not_contain:
+  - $facet
+  - $function
+  - $merge
+  - $out
+  - $rand
+  - $sample
+  must_contain_at_root:
+  - $setWindowFields
+  must_not_contain_at_root: []
+shape_policy: reshape
+join_depth: 0
+aggregation_depth: shallow
+synthesis_trace:
+  primary_path: direct_compile
+  mql_primary: "db.concert.aggregate([\n  {\n    \"$setWindowFields\": {\n      \"\
+    partitionBy\": \"$_id\",\n      \"sortBy\": {\n        \"_id\": 1\n      },\n\
+    \      \"output\": {\n        \"rolling_avg\": {\n          \"$avg\": {\n    \
+    \        \"$ifNull\": [\n              \"$concert_Name\",\n              0\n \
+    \           ]\n          },\n          \"window\": {\n            \"documents\"\
+    : [\n              -2,\n              0\n            ]\n          }\n        }\n\
+    \      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"rolling_avg\"\
+    : 1\n    }\n  }\n])"
+  mql_alt: "db.concert.aggregate([\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\"\
+    : \"$_id\",\n      \"sortBy\": {\n        \"_id\": 1\n      },\n      \"output\"\
+    : {\n        \"rolling_avg\": {\n          \"$avg\": {\n            \"$ifNull\"\
+    : [\n              \"$concert_Name\",\n              0\n            ]\n      \
+    \    },\n          \"window\": {\n            \"documents\": [\n             \
+    \ -2,\n              0\n            ]\n          }\n        }\n      }\n    }\n\
+    \  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"rolling_avg\": 1\n\
+    \    }\n  }\n])"
+  converged: true
+  llm_rewrite: false
+  acceptance_mode: dual_path_converged
+  normexec_equiv: true
+  ast_check_primary: true
+  ast_check_alt: true
+  gold_selection: mql_primary

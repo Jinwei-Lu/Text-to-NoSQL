@@ -1,0 +1,46 @@
+MQL: "db.All_Documents.aggregate([\n  {\n    \"$addFields\": {\n      \"value\": {\n\
+  \        \"$ifNull\": [\n          \"$payload.v2\",\n          {\n            \"\
+  $ifNull\": [\n              \"$payload.v1\",\n              \"$payload.legacy\"\n\
+  \            ]\n          }\n        ]\n      }\n    }\n  },\n  {\n    \"$project\"\
+  : {\n      \"_id\": 0,\n      \"value\": 1\n    }\n  }\n])"
+mql_alt: "db.All_Documents.aggregate([\n  {\n    \"$addFields\": {\n      \"value\"\
+  : {\n        \"$ifNull\": [\n          \"$payload.v2\",\n          {\n         \
+  \   \"$ifNull\": [\n              \"$payload.v1\",\n              \"$payload.legacy\"\
+  \n            ]\n          }\n        ]\n      }\n    }\n  },\n  {\n    \"$project\"\
+  : {\n      \"_id\": 0,\n      \"value\": 1\n    }\n  }\n])"
+canonical_form_set:
+  must_contain:
+  - $ifNull
+  must_not_contain:
+  - $function
+  - $merge
+  - $out
+  - $rand
+  - $sample
+  must_contain_at_root:
+  - $addFields
+  - $project
+  must_not_contain_at_root: []
+shape_policy: reshape
+join_depth: 0
+aggregation_depth: shallow
+synthesis_trace:
+  primary_path: direct_compile
+  mql_primary: "db.All_Documents.aggregate([\n  {\n    \"$addFields\": {\n      \"\
+    value\": {\n        \"$ifNull\": [\n          \"$payload.v2\",\n          {\n\
+    \            \"$ifNull\": [\n              \"$payload.v1\",\n              \"\
+    $payload.legacy\"\n            ]\n          }\n        ]\n      }\n    }\n  },\n\
+    \  {\n    \"$project\": {\n      \"_id\": 0,\n      \"value\": 1\n    }\n  }\n\
+    ])"
+  mql_alt: "db.All_Documents.aggregate([\n  {\n    \"$addFields\": {\n      \"value\"\
+    : {\n        \"$ifNull\": [\n          \"$payload.v2\",\n          {\n       \
+    \     \"$ifNull\": [\n              \"$payload.v1\",\n              \"$payload.legacy\"\
+    \n            ]\n          }\n        ]\n      }\n    }\n  },\n  {\n    \"$project\"\
+    : {\n      \"_id\": 0,\n      \"value\": 1\n    }\n  }\n])"
+  converged: true
+  llm_rewrite: false
+  acceptance_mode: dual_path_converged
+  normexec_equiv: true
+  ast_check_primary: true
+  ast_check_alt: true
+  gold_selection: mql_primary

@@ -1,0 +1,131 @@
+{
+  "db_id": "hospital_1",
+  "generated_at": "2026-05-31T13:27:11Z",
+  "source_sqlite": "database/hospital_1/hospital_1.sqlite",
+  "target_collections": [
+    "Affiliated_With"
+  ],
+  "world_signature": "sha256:3852f45ce7f62a2bcea62c00335840fa74bf0472938b36b72aa07eb8637a76a3",
+  "stats": {
+    "source_rows": 11,
+    "target_documents": 11,
+    "tables_migrated": 1
+  },
+  "entries": [
+    {
+      "entry_id": "M0001",
+      "source_table": "Affiliated_With",
+      "source_pk": "1",
+      "target_collection": "Affiliated_With",
+      "target_id": 1,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0002",
+      "source_table": "Affiliated_With",
+      "source_pk": "2",
+      "target_collection": "Affiliated_With",
+      "target_id": 2,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0003",
+      "source_table": "Affiliated_With",
+      "source_pk": "3",
+      "target_collection": "Affiliated_With",
+      "target_id": 3,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0004",
+      "source_table": "Affiliated_With",
+      "source_pk": "3",
+      "target_collection": "Affiliated_With",
+      "target_id": "3__row3",
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0005",
+      "source_table": "Affiliated_With",
+      "source_pk": "4",
+      "target_collection": "Affiliated_With",
+      "target_id": 4,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0006",
+      "source_table": "Affiliated_With",
+      "source_pk": "5",
+      "target_collection": "Affiliated_With",
+      "target_id": 5,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0007",
+      "source_table": "Affiliated_With",
+      "source_pk": "6",
+      "target_collection": "Affiliated_With",
+      "target_id": 6,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0008",
+      "source_table": "Affiliated_With",
+      "source_pk": "7",
+      "target_collection": "Affiliated_With",
+      "target_id": 7,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0009",
+      "source_table": "Affiliated_With",
+      "source_pk": "7",
+      "target_collection": "Affiliated_With",
+      "target_id": "7__row8",
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0010",
+      "source_table": "Affiliated_With",
+      "source_pk": "8",
+      "target_collection": "Affiliated_With",
+      "target_id": 8,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    },
+    {
+      "entry_id": "M0011",
+      "source_table": "Affiliated_With",
+      "source_pk": "9",
+      "target_collection": "Affiliated_With",
+      "target_id": 9,
+      "operation": "root_insert",
+      "target_path": null,
+      "embedded_children": []
+    }
+  ],
+  "integrity_checks": {
+    "referential_pass": true,
+    "row_count_reconciled": true,
+    "orphan_refs": 0
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "nl_queries": {
+    "canonical": "List all year values from the all-star records where the year field exists.",
+    "colloquial": "What years are in the all-star data?"
+  },
+  "nlp_trace": {
+    "canonical_no_dollar_ops": true,
+    "colloquial_no_field_names": true,
+    "single_intent_check": true
+  }
+}

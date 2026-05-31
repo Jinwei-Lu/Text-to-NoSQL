@@ -1,0 +1,129 @@
+{
+  "db_id": "hospital_1",
+  "record_id": 30702,
+  "status": "ok",
+  "ok": true,
+  "gate_pass": true,
+  "nlp": {
+    "nl_queries": {
+      "canonical": "For each affiliation record, convert its list of attributes into a dictionary where each attribute name becomes a key and its value becomes the corresponding value, and return only that dictionary, excluding the record identifier.",
+      "colloquial": "Can you show me each affiliation's properties as a simple key-value pair?"
+    },
+    "nlp_trace": {
+      "rationale": "The MQL uses $addFields to create a new field 'bag_map' by applying $map to the 'attributes' array to produce key-value pairs, then $arrayToObject to turn them into a single object, and finally $project to output only that object. The query plan confirms an attribute_bag_unfold pattern with no filtering or aggregation, just reshaping. The canonical L1 NLQ describes this transformation in schema-naive terms (avoiding $ operators) and explicitly mentions excluding the _id field as per the project. The colloquial L0 NLQ underspecifies the operation, using everyday language ('properties' for attributes, 'key-value pair' for the object) without naming any schema fields, and captures the single intent of retrieving a simplified view of each affiliation's attribute data.",
+      "details": "The query returns a document for each affiliation with a single field mapping attribute names to values. Since the plan indicates non_empty_result, the NLQs assume at least one such record exists. The scenario summary (hospital_1) suggests common queries involve entities and attributes, so 'affiliation' is an appropriate domain term. The colloquial avoids field names like 'attributes' to comply with the no-schema-field-names rule.",
+      "canonical_no_dollar_ops": true,
+      "colloquial_no_field_names": true,
+      "single_intent_check": true
+    }
+  },
+  "rtv": {
+    "mql_round_trip_canonical": "db.Affiliated_With.aggregate([\n  {\n    \"$addFields\": {\n      \"bag_map\": {\n        \"$arrayToObject\": {\n          \"$map\": {\n            \"input\": \"$attributes\",\n            \"as\": \"a\",\n            \"in\": {\n              \"k\": \"$$a.name\",\n              \"v\": \"$$a.value\"\n            }\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"bag_map\": 1\n    }\n  }\n])",
+    "mql_round_trip_colloquial": "db.Affiliated_With.find({})",
+    "round_trip_verification": {
+      "canonical_pass": true,
+      "canonical_ex": true,
+      "canonical_ast_check": true,
+      "colloquial_pass": false,
+      "colloquial_ex": false,
+      "colloquial_ast_check": false,
+      "underspec_attribution": "colloquial omits window size, median filter, and ifNull coalesce detail"
+    },
+    "rtv_pass": true,
+    "rtv_trace": {
+      "retry_count": 0,
+      "reflux_recommendation": null
+    }
+  },
+  "nnc": {
+    "difficulty": "L4",
+    "difficulty_rationale": "Aligned with query_plan.target_difficulty=L4.",
+    "sql_infeasibility_class": "performative",
+    "diagnostic_bridge": {
+      "sql_bridge": {
+        "ex": 0,
+        "qim": 0,
+        "notes": "d_bridge_llm"
+      },
+      "template_bridge": {
+        "ex": 0,
+        "qim": 0,
+        "notes": "Matched simple_filter_projection template"
+      },
+      "gate_required": true,
+      "gate_pass": true,
+      "functional_sql_solvable": false,
+      "structural_sql_solvable": false
+    },
+    "functional_sql_solvable": false,
+    "structural_sql_solvable": false,
+    "ambiguity_attack": {
+      "parse_count": 3,
+      "equivalent_to_gold_count": 0,
+      "pass": true,
+      "inconclusive": true,
+      "models": [
+        "deepseek-v4-flash",
+        "deepseek-v4-flash",
+        "deepseek-v4-flash"
+      ],
+      "parses": [
+        {
+          "equivalent_to_gold": false,
+          "model": "deepseek-v4-flash",
+          "parse_failed": true
+        },
+        {
+          "equivalent_to_gold": false,
+          "model": "deepseek-v4-flash",
+          "parse_failed": true
+        },
+        {
+          "equivalent_to_gold": false,
+          "model": "deepseek-v4-flash",
+          "parse_failed": true
+        }
+      ]
+    },
+    "canonical_form_set_check": {
+      "pass": true,
+      "violations": []
+    },
+    "nnc_verdict": {
+      "pass": true,
+      "blocking_reasons": []
+    }
+  },
+  "ra": {
+    "p1_execution": {
+      "pass": true,
+      "normexec_non_bot": true
+    },
+    "p4_nontriviality": {
+      "pass": true,
+      "result_count": 11,
+      "gaps": []
+    },
+    "realism_checks": {
+      "field_observability": true,
+      "null_missing_coverage": true,
+      "result_cardinality": true,
+      "embed_depth_matches_sra": true,
+      "type_sanity": true
+    },
+    "augment_plan": {
+      "required": false,
+      "append_only": true,
+      "injections": []
+    },
+    "ra_audit": {
+      "pass": true,
+      "pending_augment": false,
+      "recommendations": []
+    },
+    "snapshot": null,
+    "world_signature": null,
+    "augment_pass": 0
+  },
+  "audit_dir": "C:\\Users\\LuJiaWei\\Desktop\\Text-to-NoSQL\\out\\audit\\hospital_1\\30702"
+}

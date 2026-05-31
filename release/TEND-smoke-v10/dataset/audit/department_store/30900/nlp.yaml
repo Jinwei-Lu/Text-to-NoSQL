@@ -1,0 +1,11 @@
+{
+  "nl_queries": {
+    "canonical": "For each address, compute the rolling average of the address details over the current and two previous documents ordered by document ID, with any missing address details replaced by zero, and return only that average.",
+    "colloquial": "What is the running average of details for each address?"
+  },
+  "nlp_trace": {
+    "canonical_no_dollar_ops": true,
+    "colloquial_no_field_names": true,
+    "single_intent_check": true
+  }
+}

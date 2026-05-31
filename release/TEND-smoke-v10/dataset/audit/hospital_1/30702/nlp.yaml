@@ -1,0 +1,13 @@
+{
+  "nl_queries": {
+    "canonical": "For each affiliation record, convert its list of attributes into a dictionary where each attribute name becomes a key and its value becomes the corresponding value, and return only that dictionary, excluding the record identifier.",
+    "colloquial": "Can you show me each affiliation's properties as a simple key-value pair?"
+  },
+  "nlp_trace": {
+    "rationale": "The MQL uses $addFields to create a new field 'bag_map' by applying $map to the 'attributes' array to produce key-value pairs, then $arrayToObject to turn them into a single object, and finally $project to output only that object. The query plan confirms an attribute_bag_unfold pattern with no filtering or aggregation, just reshaping. The canonical L1 NLQ describes this transformation in schema-naive terms (avoiding $ operators) and explicitly mentions excluding the _id field as per the project. The colloquial L0 NLQ underspecifies the operation, using everyday language ('properties' for attributes, 'key-value pair' for the object) without naming any schema fields, and captures the single intent of retrieving a simplified view of each affiliation's attribute data.",
+    "details": "The query returns a document for each affiliation with a single field mapping attribute names to values. Since the plan indicates non_empty_result, the NLQs assume at least one such record exists. The scenario summary (hospital_1) suggests common queries involve entities and attributes, so 'affiliation' is an appropriate domain term. The colloquial avoids field names like 'attributes' to comply with the no-schema-field-names rule.",
+    "canonical_no_dollar_ops": true,
+    "colloquial_no_field_names": true,
+    "single_intent_check": true
+  }
+}

@@ -1,0 +1,344 @@
+[
+  {
+    "record_id": 1003,
+    "db_id": "cre_doc_tracking_db",
+    "nl_queries": {
+      "canonical": "Retrieve the payload field from all documents in the All_Documents collection, applying a type check that returns the payload unchanged regardless of its type, and output only the payload under the name 'resolved'.",
+      "colloquial": "Show me the content of every document."
+    },
+    "MQL": "db.All_Documents.aggregate([\n  {\n    \"$addFields\": {\n      \"resolved\": {\n        \"$switch\": {\n          \"branches\": [\n            {\n              \"case\": {\n                \"$eq\": [\n                  {\n                    \"$type\": \"$payload\"\n                  },\n                  \"object\"\n                ]\n              },\n              \"then\": \"$payload\"\n            }\n          ],\n          \"default\": \"$payload\"\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"resolved\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$switch",
+        "$type"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields",
+        "$project"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "polymorphic",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:c038e6af692eaa6a7ed56431596fafc9519b536cd344ebc232cf6d94225a5b8c",
+    "domain_id": "cre",
+    "join_depth": 0,
+    "aggregation_depth": "medium",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/cre_doc_tracking_db.yaml",
+    "property_verification_ref": "audit/cre_doc_tracking_db/1003/pv.yaml",
+    "round_trip_ref": "audit/cre_doc_tracking_db/1003/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/cre_doc_tracking_db/1003/nnc.yaml",
+    "mutations_ref": "audit/cre_doc_tracking_db/1003/mutations.json"
+  },
+  {
+    "record_id": 1013,
+    "db_id": "cre_doc_tracking_db",
+    "nl_queries": {
+      "canonical": "Retrieve the payload of each document, handling polymorphic types by returning the payload value directly regardless of whether it is an object or another primitive type.",
+      "colloquial": "What data do the documents contain?"
+    },
+    "MQL": "db.All_Documents.aggregate([\n  {\n    \"$addFields\": {\n      \"resolved\": {\n        \"$switch\": {\n          \"branches\": [\n            {\n              \"case\": {\n                \"$eq\": [\n                  {\n                    \"$type\": \"$payload\"\n                  },\n                  \"object\"\n                ]\n              },\n              \"then\": \"$payload\"\n            }\n          ],\n          \"default\": \"$payload\"\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"resolved\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$switch",
+        "$type"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields",
+        "$project"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "polymorphic",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:c038e6af692eaa6a7ed56431596fafc9519b536cd344ebc232cf6d94225a5b8c",
+    "domain_id": "cre",
+    "join_depth": 0,
+    "aggregation_depth": "medium",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/cre_doc_tracking_db.yaml",
+    "property_verification_ref": "audit/cre_doc_tracking_db/1013/pv.yaml",
+    "round_trip_ref": "audit/cre_doc_tracking_db/1013/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/cre_doc_tracking_db/1013/nnc.yaml",
+    "mutations_ref": "audit/cre_doc_tracking_db/1013/mutations.json"
+  },
+  {
+    "record_id": 1015,
+    "db_id": "cre_doc_tracking_db",
+    "nl_queries": {
+      "canonical": "Get the stored date for all documents that have a recorded stored date.",
+      "colloquial": "Show me the dates documents were stored."
+    },
+    "MQL": "db.All_Documents.aggregate([\n  {\n    \"$match\": {\n      \"Date_Stored\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Date_Stored\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:c038e6af692eaa6a7ed56431596fafc9519b536cd344ebc232cf6d94225a5b8c",
+    "domain_id": "cre",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/cre_doc_tracking_db.yaml",
+    "property_verification_ref": "audit/cre_doc_tracking_db/1015/pv.yaml",
+    "round_trip_ref": "audit/cre_doc_tracking_db/1015/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/cre_doc_tracking_db/1015/nnc.yaml",
+    "mutations_ref": "audit/cre_doc_tracking_db/1015/mutations.json"
+  },
+  {
+    "record_id": 1016,
+    "db_id": "cre_doc_tracking_db",
+    "nl_queries": {
+      "canonical": "Find all documents that have a Date_Stored field and retrieve only the Date_Stored values.",
+      "colloquial": "Show me the stored dates for documents that have one."
+    },
+    "MQL": "db.All_Documents.aggregate([\n  {\n    \"$match\": {\n      \"Date_Stored\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Date_Stored\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:c038e6af692eaa6a7ed56431596fafc9519b536cd344ebc232cf6d94225a5b8c",
+    "domain_id": "cre",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/cre_doc_tracking_db.yaml",
+    "property_verification_ref": "audit/cre_doc_tracking_db/1016/pv.yaml",
+    "round_trip_ref": "audit/cre_doc_tracking_db/1016/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/cre_doc_tracking_db/1016/nnc.yaml",
+    "mutations_ref": "audit/cre_doc_tracking_db/1016/mutations.json"
+  },
+  {
+    "record_id": 1019,
+    "db_id": "cre_doc_tracking_db",
+    "nl_queries": {
+      "canonical": "Retrieve the first non-null value from each document in the All_Documents collection by checking the payload's v2 field; if that is missing or null, fall back to the v1 field, and if that is also missing or null, use the legacy field. Return only that value for each document.",
+      "colloquial": "Get the current value from each document, using the newest version if available."
+    },
+    "MQL": "db.All_Documents.aggregate([\n  {\n    \"$addFields\": {\n      \"value\": {\n        \"$ifNull\": [\n          \"$payload.v2\",\n          {\n            \"$ifNull\": [\n              \"$payload.v1\",\n              \"$payload.legacy\"\n            ]\n          }\n        ]\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"value\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$ifNull"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields",
+        "$project"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "schema_versioning",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:c038e6af692eaa6a7ed56431596fafc9519b536cd344ebc232cf6d94225a5b8c",
+    "domain_id": "cre",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/cre_doc_tracking_db.yaml",
+    "property_verification_ref": "audit/cre_doc_tracking_db/1019/pv.yaml",
+    "round_trip_ref": "audit/cre_doc_tracking_db/1019/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/cre_doc_tracking_db/1019/nnc.yaml",
+    "mutations_ref": "audit/cre_doc_tracking_db/1019/mutations.json"
+  },
+  {
+    "record_id": 30702,
+    "db_id": "hospital_1",
+    "nl_queries": {
+      "canonical": "For each affiliation record, convert its list of attributes into a dictionary where each attribute name becomes a key and its value becomes the corresponding value, and return only that dictionary, excluding the record identifier.",
+      "colloquial": "Can you show me each affiliation's properties as a simple key-value pair?"
+    },
+    "MQL": "db.Affiliated_With.aggregate([\n  {\n    \"$addFields\": {\n      \"bag_map\": {\n        \"$arrayToObject\": {\n          \"$map\": {\n            \"input\": \"$attributes\",\n            \"as\": \"a\",\n            \"in\": {\n              \"k\": \"$$a.name\",\n              \"v\": \"$$a.value\"\n            }\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"bag_map\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [
+        "$arrayToObject",
+        "$map"
+      ],
+      "must_not_contain": [
+        "$function",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample"
+      ],
+      "must_contain_at_root": [
+        "$addFields"
+      ],
+      "must_not_contain_at_root": []
+    },
+    "difficulty": "L4",
+    "sql_infeasibility_class": "structural_schema_flex",
+    "schema_flex": "attribute_bag",
+    "shape_policy": "reshape",
+    "world_signature": "sha256:3852f45ce7f62a2bcea62c00335840fa74bf0472938b36b72aa07eb8637a76a3",
+    "domain_id": "hospital",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/hospital_1.yaml",
+    "property_verification_ref": "audit/hospital_1/30702/pv.yaml",
+    "round_trip_ref": "audit/hospital_1/30702/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/hospital_1/30702/nnc.yaml",
+    "mutations_ref": "audit/hospital_1/30702/mutations.json"
+  },
+  {
+    "record_id": 30703,
+    "db_id": "hospital_1",
+    "nl_queries": {
+      "canonical": "List all departments that have a Department field present in the Affiliated_With records.",
+      "colloquial": "What departments are there?"
+    },
+    "MQL": "db.Affiliated_With.aggregate([\n  {\n    \"$match\": {\n      \"Department\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Department\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:3852f45ce7f62a2bcea62c00335840fa74bf0472938b36b72aa07eb8637a76a3",
+    "domain_id": "hospital",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/hospital_1.yaml",
+    "property_verification_ref": "audit/hospital_1/30703/pv.yaml",
+    "round_trip_ref": "audit/hospital_1/30703/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/hospital_1/30703/nnc.yaml",
+    "mutations_ref": "audit/hospital_1/30703/mutations.json"
+  },
+  {
+    "record_id": 30704,
+    "db_id": "hospital_1",
+    "nl_queries": {
+      "canonical": "List all departments from the Affiliated_With table where the Department field exists (is not missing).",
+      "colloquial": "Show me the departments."
+    },
+    "MQL": "db.Affiliated_With.aggregate([\n  {\n    \"$match\": {\n      \"Department\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Department\": 1\n    }\n  }\n])",
+    "canonical_form_set": {
+      "must_contain": [],
+      "must_not_contain": [
+        "$facet",
+        "$function",
+        "$graphLookup",
+        "$group",
+        "$merge",
+        "$out",
+        "$rand",
+        "$sample",
+        "$setWindowFields"
+      ],
+      "must_contain_at_root": [
+        "$match",
+        "$project"
+      ],
+      "must_not_contain_at_root": [
+        "$group",
+        "$unwind"
+      ]
+    },
+    "difficulty": "L1",
+    "sql_infeasibility_class": "feasible",
+    "schema_flex": "none",
+    "shape_policy": "preserve",
+    "world_signature": "sha256:3852f45ce7f62a2bcea62c00335840fa74bf0472938b36b72aa07eb8637a76a3",
+    "domain_id": "hospital",
+    "join_depth": 0,
+    "aggregation_depth": "shallow",
+    "schema_pattern": "embed",
+    "agent_design_rationale_ref": "agent_design_rationale/hospital_1.yaml",
+    "property_verification_ref": "audit/hospital_1/30704/pv.yaml",
+    "round_trip_ref": "audit/hospital_1/30704/rtv.yaml",
+    "_diagnostic_bridge_ref": "audit/hospital_1/30704/nnc.yaml",
+    "mutations_ref": "audit/hospital_1/30704/mutations.json"
+  }
+]

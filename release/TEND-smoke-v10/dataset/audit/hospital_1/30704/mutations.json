@@ -1,0 +1,46 @@
+{
+  "record_id": 30704,
+  "db_id": "hospital_1",
+  "mutations": [
+    {
+      "mutation_id": "m001",
+      "dimension": "A",
+      "subaxis": "drop_must_contain_op",
+      "description": "A/drop_must_contain_op mutation",
+      "MQL": "db.Affiliated_With.aggregate([{\"$unwind\": {\"path\": \"$orchestra\"}}, {\"$setWindowFields\": {\"partitionBy\": \"$_id\", \"output\": {\"moving_avg_attendance\": {\"$avg\": {\"$ifNull\": [\"$orchestra.performance.Attendance\", 0]}}}}}])",
+      "expected_reject": true
+    },
+    {
+      "mutation_id": "m002",
+      "dimension": "B",
+      "subaxis": "drop_output_key",
+      "description": "B/drop_output_key mutation",
+      "MQL": "db.Affiliated_With.aggregate([{\"$project\": {\"_id\": 0, \"Name\": 1}}])",
+      "expected_reject": true
+    },
+    {
+      "mutation_id": "m003",
+      "dimension": "C",
+      "subaxis": "drop_ifNull",
+      "description": "C/drop_ifNull mutation",
+      "MQL": "db.Affiliated_With.aggregate([\n  {\n    \"$match\": {\n      \"Department\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Department\": 1\n    }\n  }\n])",
+      "expected_reject": true
+    },
+    {
+      "mutation_id": "m004",
+      "dimension": "D",
+      "subaxis": "inject_disabled_op",
+      "description": "D/inject_disabled_op mutation",
+      "MQL": "db.Affiliated_With.aggregate([\n  {\n    \"$match\": {\n      \"Department\": {\n        \"$exists\": true\n      }\n    }\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Department\": 1\n    }\n  }\n])",
+      "expected_reject": true
+    },
+    {
+      "mutation_id": "m005",
+      "dimension": "E",
+      "subaxis": "assume_uniform_schema",
+      "description": "E/assume_uniform_schema mutation",
+      "MQL": "db.Affiliated_With.aggregate([{\"$group\": {\"_id\": \"$_id\", \"last_window_avg\": {\"$avg\": \"$orchestra.performance.Attendance\"}}}])",
+      "expected_reject": true
+    }
+  ]
+}

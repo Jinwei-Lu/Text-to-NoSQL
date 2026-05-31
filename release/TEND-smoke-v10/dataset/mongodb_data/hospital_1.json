@@ -1,0 +1,125 @@
+{
+  "Affiliated_With": [
+    {
+      "_id": 1,
+      "Department": 1,
+      "PrimaryAffiliation": 1,
+      "payload": {
+        "Department": 1,
+        "PrimaryAffiliation": 1
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_0"
+    },
+    {
+      "_id": 2,
+      "Department": 1,
+      "PrimaryAffiliation": 1,
+      "payload": {
+        "Department": 1,
+        "PrimaryAffiliation": 1
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_1"
+    },
+    {
+      "_id": 3,
+      "Department": 1,
+      "PrimaryAffiliation": 0,
+      "payload": {
+        "Department": 1,
+        "PrimaryAffiliation": 0
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_2"
+    },
+    {
+      "_id": "3__row3",
+      "Department": 2,
+      "PrimaryAffiliation": 1,
+      "payload": {
+        "Department": 2,
+        "PrimaryAffiliation": 1
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_3"
+    },
+    {
+      "_id": 4,
+      "Department": 1,
+      "PrimaryAffiliation": 1,
+      "payload": {
+        "Department": 1,
+        "PrimaryAffiliation": 1
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_4"
+    },
+    {
+      "_id": 5,
+      "Department": 1,
+      "PrimaryAffiliation": 1,
+      "payload": {
+        "Department": 1,
+        "PrimaryAffiliation": 1
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_5"
+    },
+    {
+      "_id": 6,
+      "Department": 2,
+      "PrimaryAffiliation": 1,
+      "payload": {
+        "Department": 2,
+        "PrimaryAffiliation": 1
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_6"
+    },
+    {
+      "_id": 7,
+      "Department": 1,
+      "PrimaryAffiliation": 0,
+      "payload": {
+        "Department": 1,
+        "PrimaryAffiliation": 0
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_7"
+    },
+    {
+      "_id": "7__row8",
+      "Department": 2,
+      "PrimaryAffiliation": 1,
+      "payload": {
+        "Department": 2,
+        "PrimaryAffiliation": 1
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_8"
+    },
+    {
+      "_id": 8,
+      "Department": 1,
+      "PrimaryAffiliation": 1,
+      "payload": {
+        "Department": 1,
+        "PrimaryAffiliation": 1
+      },
+      "__type": "variant_b",
+      "field_b": "field_b_9"
+    },
+    {
+      "_id": 9,
+      "Department": 3,
+      "PrimaryAffiliation": 1,
+      "payload": {
+        "Department": 3,
+        "PrimaryAffiliation": 1
+      },
+      "__type": "variant_a",
+      "field_a": "field_a_10"
+    }
+  ]
+}

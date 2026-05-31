@@ -1,0 +1,529 @@
+{
+  "db_id": "orchestra",
+  "record_id": 1001,
+  "status": "ok",
+  "ok": true,
+  "gate_pass": true,
+  "nlp": {
+    "nl_queries": {
+      "canonical": "For each conductor, calculate the moving average of attendance across their last three performances (ordered by Performance_ID), treating missing attendance as 0. Then, find the median of these final moving averages across all conductors. Return the names and final moving averages of conductors whose final moving average is above the median.",
+      "colloquial": "Which conductors have above-median attendance in their latest three performances?"
+    },
+    "nlp_trace": {
+      "canonical_no_dollar_ops": true,
+      "colloquial_no_field_names": false,
+      "single_intent_check": true
+    }
+  },
+  "rtv": {
+    "mql_round_trip_canonical": "db.conductor.aggregate([\n  {\n    \"$unwind\": {\n      \"path\": \"$orchestra\",\n      \"preserveNullAndEmptyArrays\": false\n    }\n  },\n  {\n    \"$unwind\": {\n      \"path\": \"$orchestra.performance\",\n      \"preserveNullAndEmptyArrays\": false\n    }\n  },\n  {\n    \"$setWindowFields\": {\n      \"partitionBy\": \"$_id\",\n      \"sortBy\": {\n        \"orchestra.performance.Performance_ID\": 1\n      },\n      \"output\": {\n        \"moving_avg_attendance\": {\n          \"$avg\": {\n            \"$ifNull\": [\n              \"$orchestra.performance.Attendance\",\n              0\n            ]\n          },\n          \"window\": {\n            \"documents\": [\n              -2,\n              0\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$group\": {\n      \"_id\": \"$_id\",\n      \"Name\": {\n        \"$first\": {\n          \"$ifNull\": [\n            \"$Name\",\n            \"(unknown)\"\n          ]\n        }\n      },\n      \"last_window_avg\": {\n        \"$last\": \"$moving_avg_attendance\"\n      }\n    }\n  },\n  {\n    \"$facet\": {\n      \"per_conductor\": [\n        {\n          \"$project\": {\n            \"_id\": 0,\n            \"Name\": 1,\n            \"last_window_avg\": 1\n          }\n        }\n      ],\n      \"global_median\": [\n        {\n          \"$sort\": {\n            \"last_window_avg\": 1\n          }\n        },\n        {\n          \"$group\": {\n            \"_id\": null,\n            \"vals\": {\n              \"$push\": \"$last_window_avg\"\n            }\n          }\n        },\n        {\n          \"$project\": {\n            \"_id\": 0,\n            \"median\": {\n              \"$arrayElemAt\": [\n                \"$vals\",\n                {\n                  \"$floor\": {\n                    \"$divide\": [\n                      {\n                        \"$size\": \"$vals\"\n                      },\n                      2\n                    ]\n                  }\n                }\n              ]\n            }\n          }\n        }\n      ]\n    }\n  },\n  {\n    \"$project\": {\n      \"kept\": {\n        \"$filter\": {\n          \"input\": \"$per_conductor\",\n          \"as\": \"c\",\n          \"cond\": {\n            \"$gt\": [\n              \"$$c.last_window_avg\",\n              {\n                \"$arrayElemAt\": [\n                  \"$global_median.median\",\n                  0\n                ]\n              }\n            ]\n          }\n        }\n      }\n    }\n  },\n  {\n    \"$unwind\": \"$kept\"\n  },\n  {\n    \"$project\": {\n      \"_id\": 0,\n      \"Name\": \"$kept.Name\",\n      \"last_window_avg\": \"$kept.last_window_avg\"\n    }\n  }\n])",
+    "mql_round_trip_colloquial": "db.conductor.find({})",
+    "round_trip_verification": {
+      "canonical_pass": true,
+      "canonical_ex": true,
+      "canonical_ast_check": true,
+      "colloquial_pass": false,
+      "colloquial_ex": false,
+      "colloquial_ast_check": false,
+      "underspec_attribution": "colloquial omits window size, median filter, and ifNull coalesce detail"
+    },
+    "rtv_pass": true,
+    "rtv_trace": {
+      "retry_count": 2,
+      "reflux_recommendation": "NLP"
+    }
+  },
+  "nnc": {
+    "difficulty": "L4",
+    "difficulty_rationale": "Partitioned window plus facet-global median is structural translation-lossy in SQL.",
+    "sql_infeasibility_class": "structural_pipeline",
+    "diagnostic_bridge": {
+      "sql_bridge": {
+        "ex": 0,
+        "qim": 0,
+        "notes": "d_bridge_llm"
+      },
+      "template_bridge": {
+        "ex": 0,
+        "qim": 0,
+        "notes": "Matched window_moving_avg template"
+      },
+      "gate_required": true,
+      "gate_pass": true,
+      "functional_sql_solvable": false,
+      "structural_sql_solvable": false
+    },
+    "functional_sql_solvable": false,
+    "structural_sql_solvable": false,
+    "ambiguity_attack": {
+      "parse_count": 3,
+      "equivalent_to_gold_count": 1,
+      "pass": true,
+      "inconclusive": false,
+      "models": [
+        "deepseek-v4-flash",
+        "deepseek-v4-flash",
+        "deepseek-v4-flash"
+      ],
+      "parses": [
+        {
+          "stages": [
+            {
+              "$sort": {
+                "Performance_ID": 1
+              }
+            },
+            {
+              "$setWindowFields": {
+                "partitionBy": "$Conductor",
+                "sortBy": {
+                  "Performance_ID": 1
+                },
+                "output": {
+                  "moving_avg": {
+                    "$avg": "$attendance",
+                    "window": {
+                      "documents": [
+                        -2,
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "$group": {
+                "_id": "$Conductor",
+                "final_moving_avg": {
+                  "$last": "$moving_avg"
+                },
+                "name": {
+                  "$first": "$Conductor"
+                }
+              }
+            },
+            {
+              "$group": {
+                "_id": null,
+                "median_avg": {
+                  "$median": {
+                    "input": "$final_moving_avg"
+                  }
+                },
+                "conductors_data": {
+                  "$push": {
+                    "name": "$name",
+                    "avg": "$final_moving_avg"
+                  }
+                }
+              }
+            },
+            {
+              "$unwind": "$conductors_data"
+            },
+            {
+              "$match": {
+                "$expr": {
+                  "$gt": [
+                    "$conductors_data.avg",
+                    "$median_avg"
+                  ]
+                }
+              }
+            },
+            {
+              "$project": {
+                "_id": 0,
+                "name": "$conductors_data.name",
+                "final_moving_average": "$conductors_data.avg"
+              }
+            }
+          ]
+        },
+        {
+          "equivalent_to_gold": false,
+          "model": "deepseek-v4-flash",
+          "parse_failed": true
+        },
+        {
+          "equivalent_to_gold": false,
+          "model": "deepseek-v4-flash",
+          "parse_failed": true
+        }
+      ]
+    },
+    "canonical_form_set_check": {
+      "pass": true,
+      "violations": []
+    },
+    "nnc_verdict": {
+      "pass": true,
+      "blocking_reasons": []
+    }
+  },
+  "ra": {
+    "p1_execution": {
+      "pass": true,
+      "normexec_non_bot": true
+    },
+    "p4_nontriviality": {
+      "pass": true,
+      "result_count": 5,
+      "gaps": []
+    },
+    "realism_checks": {
+      "field_observability": true,
+      "null_missing_coverage": true,
+      "result_cardinality": true,
+      "embed_depth_matches_sra": true,
+      "type_sanity": true
+    },
+    "augment_plan": {
+      "required": true,
+      "append_only": true,
+      "injections": [
+        {
+          "gap_type": "null_name_ifnull",
+          "collection": "conductor",
+          "doc_sketch": {
+            "Name": null,
+            "orchestra": [
+              {
+                "performance": [
+                  {
+                    "Attendance": 50,
+                    "Performance_ID": 1
+                  }
+                ]
+              }
+            ]
+          },
+          "reason": "Activate $ifNull on Name"
+        }
+      ]
+    },
+    "ra_audit": {
+      "pass": true,
+      "pending_augment": false,
+      "recommendations": []
+    },
+    "snapshot": {
+      "conductor": [
+        {
+          "_id": 1,
+          "Name": "Antal Doráti",
+          "Age": 40,
+          "Nationality": "USA",
+          "Year_of_Work": 10,
+          "orchestra": [
+            {
+              "Orchestra": "London Symphony Orchestra",
+              "Record_Company": "Mercury Records",
+              "Year_of_Founded": 2003.0,
+              "Major_Record_Format": "CD",
+              "performance": [
+                {
+                  "Performance_ID": 1,
+                  "Type": "Auditions 1",
+                  "Date": "9 June",
+                  "Official_ratings_(millions)": 5.2,
+                  "Weekly_rank": "12",
+                  "Share": "22.7%",
+                  "Attendance": 1026.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "_id": 2,
+          "Name": "Igor Stravinsky",
+          "Age": 41,
+          "Nationality": "UK",
+          "Year_of_Work": 11,
+          "orchestra": [
+            {
+              "Orchestra": "Columbia Symphony Orchestra",
+              "Record_Company": "Columbia Masterworks",
+              "Year_of_Founded": 2009.0,
+              "Major_Record_Format": "CD / LP",
+              "performance": [
+                {
+                  "Performance_ID": 2,
+                  "Type": "Auditions 2",
+                  "Date": "10 June",
+                  "Official_ratings_(millions)": 6.73,
+                  "Weekly_rank": "8",
+                  "Share": "28.0%",
+                  "Attendance": 695.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "_id": 3,
+          "Name": "Colin Davis",
+          "Age": 42,
+          "Nationality": "USA",
+          "Year_of_Work": 6,
+          "orchestra": [
+            {
+              "Orchestra": "Royal Concertgebouw Orchestra",
+              "Record_Company": "Philips",
+              "Year_of_Founded": 2008.0,
+              "Major_Record_Format": "CD",
+              "performance": [
+                {
+                  "Performance_ID": 3,
+                  "Type": "Auditions 3",
+                  "Date": "11 June",
+                  "Official_ratings_(millions)": 7.28,
+                  "Weekly_rank": "15",
+                  "Share": "29.4%",
+                  "Attendance": 555.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "_id": 4,
+          "Name": "Paul Jorgensen",
+          "Age": 43,
+          "Nationality": "UK",
+          "Year_of_Work": 11,
+          "orchestra": [
+            {
+              "Orchestra": "Royal Danish Orchestra",
+              "Record_Company": "Kultur",
+              "Year_of_Founded": 2002.0,
+              "Major_Record_Format": "DVD",
+              "performance": [
+                {
+                  "Performance_ID": 4,
+                  "Type": "Auditions 4",
+                  "Date": "12 June",
+                  "Official_ratings_(millions)": 7.39,
+                  "Weekly_rank": "13",
+                  "Share": "29.3%",
+                  "Attendance": 1925.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "_id": 5,
+          "Name": "Antal Brown",
+          "Age": 43,
+          "Nationality": "USA",
+          "Year_of_Work": 20,
+          "orchestra": [
+            {
+              "Orchestra": "Detroit Symphony Orchestra",
+              "Record_Company": "Decca Records",
+              "Year_of_Founded": 2002.0,
+              "Major_Record_Format": "CD",
+              "performance": [
+                {
+                  "Performance_ID": 5,
+                  "Type": "Auditions 5",
+                  "Date": "13 June",
+                  "Official_ratings_(millions)": 7.51,
+                  "Weekly_rank": "11",
+                  "Share": "29.2%",
+                  "Attendance": 2431.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "_id": 6,
+          "Name": "Charles Dutoit",
+          "Age": 43,
+          "Nationality": "France",
+          "Year_of_Work": 12,
+          "orchestra": [
+            {
+              "Orchestra": "Montreal Symphony Orchestra",
+              "Record_Company": "Decca Records",
+              "Year_of_Founded": 2004.0,
+              "Major_Record_Format": "CD",
+              "performance": [
+                {
+                  "Performance_ID": 6,
+                  "Type": "Semi-final 2",
+                  "Date": "15 June",
+                  "Official_ratings_(millions)": 9.28,
+                  "Weekly_rank": "8",
+                  "Share": "38.1%"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "_id": 7,
+          "Name": "Gerard Schwarz",
+          "Age": 50,
+          "Nationality": "USA",
+          "Year_of_Work": 20,
+          "orchestra": [
+            {
+              "Orchestra": "Seattle Symphony Orchestra",
+              "Record_Company": "Delos Records",
+              "Year_of_Founded": 2002.0,
+              "Major_Record_Format": "CD",
+              "performance": [
+                {
+                  "Performance_ID": 7,
+                  "Type": "Semi-final 3",
+                  "Date": "16 June",
+                  "Official_ratings_(millions)": 9.29,
+                  "Weekly_rank": "7",
+                  "Share": "40.9%"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "_id": 8,
+          "Name": "Pierre Boulez",
+          "Age": 49,
+          "Nationality": "UK",
+          "Year_of_Work": 11,
+          "orchestra": [
+            {
+              "Orchestra": "Chicago Symphony Orchestra",
+              "Record_Company": "Deutsche Grammophon",
+              "Year_of_Founded": 2003.0,
+              "Major_Record_Format": "CD",
+              "performance": [
+                {
+                  "Performance_ID": 8,
+                  "Type": "Live final",
+                  "Date": "17 June",
+                  "Official_ratings_(millions)": 11.58,
+                  "Weekly_rank": "1",
+                  "Share": "43.7%"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "_id": 9,
+          "Name": "Valeri Gergiev",
+          "Age": 47,
+          "Nationality": "USA",
+          "Year_of_Work": 16,
+          "orchestra": [
+            {
+              "Orchestra": "Kirov Orchestra",
+              "Record_Company": "Philips Classics Records",
+              "Year_of_Founded": 2008.0,
+              "Major_Record_Format": "CD",
+              "performance": [
+                {
+                  "Performance_ID": 9,
+                  "Type": "Live final results",
+                  "Date": "17 June",
+                  "Official_ratings_(millions)": 11.45,
+                  "Weekly_rank": "2",
+                  "Share": "44.7%"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "_id": 10,
+          "Name": "Robert Craft",
+          "Age": 63,
+          "Nationality": "UK",
+          "Year_of_Work": 21,
+          "orchestra": [
+            {
+              "Orchestra": "Philharmonia Orchestra",
+              "Record_Company": "Koch Records / Naxos Records",
+              "Year_of_Founded": 2006.0,
+              "Major_Record_Format": "CD",
+              "performance": [
+                {
+                  "Performance_ID": 10,
+                  "Type": "Series average",
+                  "Date": "2007",
+                  "Official_ratings_(millions)": 8.38,
+                  "Weekly_rank": "TBC",
+                  "Share": "34%"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "_id": 11,
+          "Name": "Seiji Ozawa",
+          "Age": 43,
+          "Nationality": "USA",
+          "Year_of_Work": 10,
+          "orchestra": [
+            {
+              "Orchestra": "Orchestre de Paris",
+              "Record_Company": "EMI",
+              "Year_of_Founded": 2007.0,
+              "Major_Record_Format": "CD",
+              "performance": [
+                {
+                  "Performance_ID": 11,
+                  "Type": "Semi-final 1",
+                  "Date": "14 June",
+                  "Official_ratings_(millions)": 8.36,
+                  "Weekly_rank": "9",
+                  "Share": "34.0%"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "_id": 12,
+          "Name": "Michael Tilson Thomas",
+          "Age": 42,
+          "Nationality": "France",
+          "Year_of_Work": 12,
+          "orchestra": [
+            {
+              "Orchestra": "San Francisco Symphony Orchestra",
+              "Record_Company": "RCA",
+              "Year_of_Founded": 2008.0,
+              "Major_Record_Format": "CD",
+              "performance": []
+            }
+          ]
+        },
+        {
+          "Name": null,
+          "orchestra": [
+            {
+              "performance": [
+                {
+                  "Attendance": 50,
+                  "Performance_ID": 1
+                }
+              ]
+            }
+          ],
+          "_id": 13
+        }
+      ]
+    },
+    "world_signature": "sha256:7d46227bc08d85a0b7042b91c3e17cc8092a275d1c5c4d71e71bb36d0ddce4e2",
+    "augment_pass": 1
+  },
+  "audit_dir": "C:\\Users\\LuJiaWei\\Desktop\\Text-to-NoSQL\\out\\audit\\orchestra\\1001"
+}

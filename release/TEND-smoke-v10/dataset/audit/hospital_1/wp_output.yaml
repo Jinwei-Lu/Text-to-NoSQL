@@ -1,0 +1,64 @@
+db_id: hospital_1
+spider_version: '1.0'
+generated_at: '2026-05-31T13:26:37Z'
+insufficient_workload: false
+source:
+  sqlite_path: database/hospital_1/hospital_1.sqlite
+  tables:
+  - Affiliated_With
+  - Appointment
+  - Block
+  - Department
+  - Medication
+  - Nurse
+  - On_Call
+  - Patient
+  - Physician
+  - Prescribes
+  - Procedures
+  - Room
+  - Stay
+  - Trained_In
+  - Undergoes
+  query_count: 100
+workload_summary: 'Spider workload for hospital_1: 100 queries across 15 tables.'
+scenario_summary: Domain anchored on hospital_1. Typical questions compare entities,
+  filter by attributes, rank by metrics, aggregate counts or averages, and join related
+  records across tables.
+access_patterns:
+- pattern_id: AP01
+  type: nested_traversal
+  tables:
+  - Affiliated_With
+  - Appointment
+  - Block
+  join_path: null
+  frequency: 0.5
+  example_query_ids:
+  - 1
+  nl_hints:
+  - traverse related entities for filtering or projection
+  sql_operators:
+  - JOIN
+  - SELECT
+hot_fields:
+- path: Affiliated_With.id
+  access_count: 50
+co_location_signals:
+- entities:
+  - Affiliated_With
+  - Appointment
+  co_access_rate: 0.7
+  note: co-access inferred from join queries
+join_depth_distribution:
+  '0': 0.1
+  '1': 0.3
+  '2': 0.4
+  3+: 0.2
+aggregation_depth_distribution:
+  shallow: 0.4
+  medium: 0.35
+  deep: 0.25
+design_constraints:
+- Preserve hot-path fields reachable without deep $lookup chains.
+- Keep primary entity roots aligned with highest-frequency access patterns.
