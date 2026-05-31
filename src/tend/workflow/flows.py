@@ -423,4 +423,26 @@ def _complete_rationale(
                 }
             ],
         }
+    else:
+        hetero = out["heterogenization"]
+        if isinstance(hetero, dict):
+            hetero["schema_flex"] = _release_schema_flex_value(
+                hetero.get("schema_flex"),
+                has_variants=has_variants,
+            )
     return out
+
+
+def _release_schema_flex_value(value: Any, *, has_variants: bool) -> str:
+    allowed = {"none", "polymorphic", "attribute_bag", "schema_versioning", "dynamic_key"}
+    mapping = {
+        "sparse": "polymorphic",
+        "optional": "polymorphic",
+        "optional_embed": "polymorphic",
+        "version": "schema_versioning",
+        "versioning": "schema_versioning",
+    }
+    normalized = mapping.get(str(value), str(value)) if value is not None else ""
+    if normalized in allowed:
+        return normalized
+    return "polymorphic" if has_variants else "none"

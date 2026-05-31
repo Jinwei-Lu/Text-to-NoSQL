@@ -334,6 +334,23 @@ def test_complete_rationale_replaces_null_heterogenization():
     assert out["heterogenization"]["triggers"][0]["mechanism"] == "sparse"
     assert out["heterogenization"]["triggers"][0]["fired"] is True
 
+    out = _complete_rationale(
+        db_id="financial",
+        rationale={
+            "heterogenization": {
+                "schema_flex": "sparse",
+                "triggers": [
+                    {"mechanism": "sparse", "fired": True, "evidence": "optional loan embed"}
+                ],
+            }
+        },
+        schema={"account": {"_id": "INT", "__variants": [{"discriminator": {"loan": "present"}}]}},
+        migration_log={},
+        source_schema=None,
+        sc={"verdict": "accept", "issues": []},
+    )
+    assert out["heterogenization"]["schema_flex"] == "polymorphic"
+
 
 def test_phase_a_sc_reviews_dm_artifacts_not_sra_schema(stub_settings, logger):
     from tend.workflow.flows import _phase_a_one_db
