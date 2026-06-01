@@ -16,6 +16,7 @@ Two jobs, both zero-LLM:
 """
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import math
 from dataclasses import asdict, dataclass, field
@@ -81,10 +82,27 @@ class Census:
 def run_census(source: BirdSource, *, db_ids: list[str] | None = None) -> Census:
     """Scan the BIRD dbs and produce the supply census."""
     db_ids = db_ids or list(source.db_ids)
+    root = source.root
     dbs: dict[str, DbCensus] = {}
-    for db_id in db_ids:
-        schema = source.schema(db_id)
-        mechs = detect_mechanisms(source, db_id)
+    if db_ids:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(db_ids)) as pool:
+            for db_id, dbc in pool.map(lambda db: (db, _census_one_db(root, db)), db_ids):
+                dbs[db_id] = dbc
+    n = len(dbs) or 1
+    flex_ratio = sum(1 for d in dbs.values() if d.flex_eligible) / n
+    return Census(
+        databases=dbs, flex_eligible_db_ratio=flex_ratio,
+        supply_relax=flex_ratio < MIN_FLEX_DB_RATIO,
+        l4_supply_cells=sum(d.l4_supply_cells for d in dbs.values()),
+        ssf_supply_cells=sum(d.ssf_supply_cells for d in dbs.values()),
+    )
+
+
+def _census_one_db(root: Any, db_id: str) -> DbCensus:
+    worker_source = BirdSource(root)
+    try:
+        schema = worker_source.schema(db_id)
+        mechs = detect_mechanisms(worker_source, db_id)
         qb = [m for m in mechs if m.query_bearing]
         l4_cells = ssf_cells = 0
         for m in qb:
@@ -96,21 +114,19 @@ def run_census(source: BirdSource, *, db_ids: list[str] | None = None) -> Census
         counts: dict[str, int] = {}
         for m in qb:
             counts[m.mechanism] = counts.get(m.mechanism, 0) + 1
-        dbs[db_id] = DbCensus(
-            db_id=db_id, domain=schema.domain, table_count=schema.table_count,
-            query_count=len(source.workload(db_id)),
-            mechanisms=[m.to_dict() for m in mechs], query_bearing_counts=counts,
-            l4_supply_cells=l4_cells, ssf_supply_cells=ssf_cells,
+        return DbCensus(
+            db_id=db_id,
+            domain=schema.domain,
+            table_count=schema.table_count,
+            query_count=len(worker_source.workload(db_id)),
+            mechanisms=[m.to_dict() for m in mechs],
+            query_bearing_counts=counts,
+            l4_supply_cells=l4_cells,
+            ssf_supply_cells=ssf_cells,
             flex_eligible=any(m.structural for m in qb),
         )
-    n = len(dbs) or 1
-    flex_ratio = sum(1 for d in dbs.values() if d.flex_eligible) / n
-    return Census(
-        databases=dbs, flex_eligible_db_ratio=flex_ratio,
-        supply_relax=flex_ratio < MIN_FLEX_DB_RATIO,
-        l4_supply_cells=sum(d.l4_supply_cells for d in dbs.values()),
-        ssf_supply_cells=sum(d.ssf_supply_cells for d in dbs.values()),
-    )
+    finally:
+        worker_source.close()
 
 
 # --------------------------------------------------------------------------- #

@@ -1,6 +1,7 @@
 """Runtime workflow for SMART ablation studies."""
 from __future__ import annotations
 
+import asyncio
 import json
 import traceback
 from dataclasses import asdict, dataclass, field, replace
@@ -137,21 +138,54 @@ async def run_ablation_suite(
         )
         return []
 
-    outputs: list[dict[str, Any]] = []
     if wf.ctx.progress:
         wf.ctx.progress.phase("ABLATION")
+
+    work: list[
+        tuple[int, AblationSpec, dict[str, Any], dict[str, Any], dict[str, Any] | None]
+    ] = []
     for record, schema, data in inputs:
         for spec in specs:
-            result = await run_ablation_record(
-                wf,
-                spec,
-                record,
-                schema,
-                local_data=data,
-                r_max=r_max,
-                witness_k=witness_k,
-            )
-            outputs.append(result.to_json())
+            work.append((len(work), spec, record, schema, data))
+
+    async def run_one(
+        batch_index: int,
+        spec: AblationSpec,
+        record: dict[str, Any],
+        schema: dict[str, Any],
+        data: dict[str, list[dict[str, Any]]] | None,
+    ) -> tuple[int, dict[str, Any]]:
+        result = await run_ablation_record(
+            wf,
+            spec,
+            record,
+            schema,
+            local_data=data,
+            r_max=r_max,
+            witness_k=witness_k,
+            batch_index=batch_index,
+        )
+        payload = result.to_json()
+        payload["batch_index"] = batch_index
+        payload["work_item_id"] = (
+            f"ablation:{batch_index}:{spec.id}:{record.get('db_id')}:"
+            f"{record.get('record_id')}"
+        )
+        return batch_index, payload
+
+    tasks = [
+        asyncio.create_task(run_one(batch_index, spec, record, schema, data))
+        for batch_index, spec, record, schema, data in work
+    ]
+    try:
+        completed = await asyncio.gather(*tasks)
+    except Exception:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+    outputs = [payload for _, payload in sorted(completed, key=lambda item: item[0])]
     log.info("ablation_suite_done", outputs=len(outputs), ablations=len(specs))
     return outputs
 
@@ -165,16 +199,19 @@ async def run_ablation_record(
     local_data: dict[str, list[dict[str, Any]]] | None = None,
     r_max: int = 2,
     witness_k: int = 3,
+    batch_index: int | None = None,
 ) -> AblationPrediction | AblationFailure:
     db_id = str(record.get("db_id") or "")
     record_id = record.get("record_id")
-    options = _runtime_options(spec, r_max=r_max, witness_k=witness_k)
+    options = _runtime_options(spec, r_max=r_max, witness_k=witness_k,
+                               batch_index=batch_index)
     base_log = wf.ctx.log.bind(
         component="ablation_runner",
         ablation_id=spec.id,
         solver_variant=options.solver_variant,
         db_id=db_id,
         record_id=record_id,
+        batch_index=batch_index,
     )
     base_log.info(
         "ablation_record_start",
@@ -278,25 +315,48 @@ async def run_ablation_record(
         )
 
 
-def _runtime_options(spec: AblationSpec, *, r_max: int, witness_k: int) -> SmartSolveOptions:
+def _runtime_options(
+    spec: AblationSpec,
+    *,
+    r_max: int,
+    witness_k: int,
+    batch_index: int | None = None,
+) -> SmartSolveOptions:
     options = spec.options
     effective_r_max = options.r_max if options.r_max is not None else r_max
     effective_witness_k = options.witness_k if options.witness_k is not None else witness_k
+    prefix = (
+        f"ablation:{batch_index}:{spec.id}"
+        if batch_index is not None
+        else f"ablation:{spec.id}"
+    )
     return replace(
         options,
         solver_variant=spec.id,
         r_max=max(0, effective_r_max),
         witness_k=max(0, effective_witness_k),
-        progress_group_prefix=f"ablation:{spec.id}",
-        progress_work_item_id=spec.id,
+        progress_group_prefix=prefix,
+        progress_work_item_id=f"batch_index={batch_index}" if batch_index is not None else spec.id,
     )
 
 
 def _variant_workflow(wf: Workflow, spec: AblationSpec, options: SmartSolveOptions) -> Workflow:
+    batch_index = None
+    if options.progress_work_item_id and options.progress_work_item_id.startswith("batch_index="):
+        batch_index = options.progress_work_item_id.partition("=")[2]
     ctx = replace(
         wf.ctx,
-        log=wf.ctx.log.bind(ablation_id=spec.id, solver_variant=options.solver_variant),
-        extra={**wf.ctx.extra, "ablation_id": spec.id, "solver_options": options.to_json()},
+        log=wf.ctx.log.bind(
+            ablation_id=spec.id,
+            solver_variant=options.solver_variant,
+            batch_index=batch_index,
+        ),
+        extra={
+            **wf.ctx.extra,
+            "ablation_id": spec.id,
+            "batch_index": batch_index,
+            "solver_options": options.to_json(),
+        },
     )
     return Workflow(ctx, max_concurrency=wf.ctx.settings.llm.max_concurrency)
 

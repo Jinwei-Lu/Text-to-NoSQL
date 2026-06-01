@@ -231,12 +231,11 @@ def _metadata_refusal(provider_metadata: dict[str, Any] | None) -> Any | None:
 
 
 class LLMClient:
-    """Async, concurrency-limited, transcripting LLM client shared across all agents."""
+    """Async transcripting LLM client shared across all agents."""
 
     def __init__(self, settings: Settings, logger: RunLogger) -> None:
         self._s = settings
         self._log = logger
-        self._sem = asyncio.Semaphore(settings.llm.max_concurrency)
         self._stub_fn: StubFn | None = None
         self._client: Any = None
         if not settings.stub:
@@ -443,14 +442,13 @@ class LLMClient:
     ) -> tuple[str, str | None, dict[str, int], Any]:
         if self._s.stub:
             return self._stub_call(agent, convo)
-        async with self._sem:
-            try:
-                resp = await self._client.chat.completions.create(
-                    model=model, messages=convo, temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-            except Exception as exc:  # noqa: BLE001 - mapped to typed anomalies below
-                raise self._map_provider_error(exc) from exc
+        try:
+            resp = await self._client.chat.completions.create(
+                model=model, messages=convo, temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except Exception as exc:  # noqa: BLE001 - mapped to typed anomalies below
+            raise self._map_provider_error(exc) from exc
         choice = resp.choices[0]
         text = choice.message.content or ""
         usage = {

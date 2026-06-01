@@ -1,7 +1,7 @@
-"""The orchestration engine — concurrency-limited primitives for spawning sub-agents.
+"""The orchestration engine - unbounded primitives for spawning sub-agents.
 
 Mirrors the agent/parallel/pipeline model: every ``agent(...)`` call dynamically spawns a
-sub-agent task (one LLM/deterministic Agent invocation), bounded by a global semaphore.
+sub-agent task (one LLM/deterministic Agent invocation).
 ``parallel`` is a barrier with failure isolation (a failed thunk -> ``None``); ``pipeline``
 runs each item through stages independently (no barrier) so a slow item never blocks the
 fast ones. Expected agent failures are already logged by the Agent lifecycle; raw
@@ -28,8 +28,7 @@ class Workflow:
                  name: str = "tend") -> None:
         self.ctx = ctx
         self.name = name
-        cap = max_concurrency or ctx.settings.llm.max_concurrency
-        self._sem = asyncio.Semaphore(max(1, cap))
+        self.max_concurrency = max_concurrency
         self._spawned = 0
 
     # ------------------------------------------------------------------ #
@@ -58,7 +57,7 @@ class Workflow:
         isolate: bool = False,
     ) -> dict[str, Any] | None:
         """Spawn one sub-agent. Returns its validated output, or ``None`` if ``isolate``
-        and it failed. Concurrency is bounded by the engine semaphore."""
+        and it failed. Agent calls are not throughput-limited by the engine."""
         actx = ctx or self.ctx
         if group is not None or work_item_id is not None:
             actx = replace(
@@ -68,13 +67,12 @@ class Workflow:
             )
         agent = get_agent(agent_id)
         self._spawned += 1
-        async with self._sem:
-            try:
-                return await agent(actx, inputs)
-            except TendError:
-                if isolate:
-                    return None
-                raise
+        try:
+            return await agent(actx, inputs)
+        except TendError:
+            if isolate:
+                return None
+            raise
 
     async def parallel(self, thunks: list[Thunk], *, isolate: bool = True) -> list[Any]:
         """Barrier fan-out. With ``isolate`` (default), a thunk that raises yields ``None``

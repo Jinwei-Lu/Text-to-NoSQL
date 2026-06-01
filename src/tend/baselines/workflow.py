@@ -1,6 +1,7 @@
 """Runtime workflow for constrained LLM baselines."""
 from __future__ import annotations
 
+import asyncio
 import json
 import traceback
 from dataclasses import asdict, dataclass, field
@@ -107,20 +108,51 @@ async def run_baseline_suite(
         )
         return []
 
-    outputs: list[dict[str, Any]] = []
     if wf.ctx.progress:
         wf.ctx.progress.phase("BASELINE")
+
+    work: list[tuple[int, BaselineSpec, dict, dict, dict | None]] = []
     for record, schema, data in inputs:
         for spec in specs:
-            result = await run_baseline_record(
-                wf,
-                spec,
-                record,
-                schema,
-                local_data=data,
-                witness_k=witness_k,
-            )
-            outputs.append(result.to_json())
+            work.append((len(work), spec, record, schema, data))
+
+    async def run_one(
+        batch_index: int,
+        spec: BaselineSpec,
+        record: dict,
+        schema: dict,
+        data: dict | None,
+    ) -> tuple[int, dict[str, Any]]:
+        result = await run_baseline_record(
+            wf,
+            spec,
+            record,
+            schema,
+            local_data=data,
+            witness_k=witness_k,
+            batch_index=batch_index,
+        )
+        payload = result.to_json()
+        payload["batch_index"] = batch_index
+        payload["work_item_id"] = (
+            f"baseline:{batch_index}:{spec.id}:{record.get('db_id')}:"
+            f"{record.get('record_id')}"
+        )
+        return batch_index, payload
+
+    tasks = [
+        asyncio.create_task(run_one(batch_index, spec, record, schema, data))
+        for batch_index, spec, record, schema, data in work
+    ]
+    try:
+        completed = await asyncio.gather(*tasks)
+    except Exception:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+    outputs = [payload for _, payload in sorted(completed, key=lambda item: item[0])]
     log.info("baseline_suite_done", outputs=len(outputs), baselines=len(specs))
     return outputs
 
@@ -133,8 +165,11 @@ async def run_baseline_record(
     *,
     local_data: dict[str, list[dict[str, Any]]] | None = None,
     witness_k: int = 3,
+    batch_index: int | None = None,
 ) -> BaselinePrediction | BaselineFailure:
-    base_log = wf.ctx.log.bind(component="baseline_runner", baseline_id=spec.id)
+    base_log = wf.ctx.log.bind(
+        component="baseline_runner", baseline_id=spec.id, batch_index=batch_index
+    )
     boundary = SolverBoundary.from_settings(wf.ctx.settings, logger=base_log)
     safe = boundary.sanitize_test_record(record)
     db_id = str(safe["db_id"])
@@ -163,10 +198,15 @@ async def run_baseline_record(
         schema_summary=schema_summary,
         nlq=nlq,
     )
+    group_prefix = (
+        f"baseline:{batch_index}:{spec.id}"
+        if batch_index is not None
+        else f"baseline:{spec.id}"
+    )
     group = (
-        f"baseline:{spec.id}:{db_id}:{record_id}"
+        f"{group_prefix}:{db_id}:{record_id}"
         if record_id is not None
-        else f"baseline:{spec.id}:{db_id}"
+        else f"{group_prefix}:{db_id}"
     )
     if wf.ctx.progress:
         wf.ctx.progress.add_group(
@@ -176,8 +216,16 @@ async def run_baseline_record(
             total=len(spec.steps),
         )
 
-    ctx = wf.context(db_id=db_id, record_id=record_id, group=group, phase="BASELINE")
-    log = ctx.log.bind(component="baseline_runner", baseline_id=spec.id)
+    ctx = wf.context(
+        db_id=db_id,
+        record_id=record_id,
+        group=group,
+        phase="BASELINE",
+        work_item_id=f"batch_index={batch_index}" if batch_index is not None else None,
+        extra={**wf.ctx.extra, "batch_index": batch_index},
+    )
+    log = ctx.log.bind(component="baseline_runner", baseline_id=spec.id,
+                       batch_index=batch_index)
     log.info(
         "baseline_record_start",
         title=spec.title,
@@ -193,7 +241,9 @@ async def run_baseline_record(
             if spec.id == "static_self_debug" and step.id == "repair":
                 static_feedback = _static_feedback(state.get("MQL"))
                 state["static_feedback"] = static_feedback
-            output, trace = await _run_step(ctx, spec, step, prompt_ctx, state, group)
+            output, trace = await _run_step(
+                ctx, spec, step, prompt_ctx, state, group, batch_index=batch_index
+            )
             traces.append(trace)
             state.update(output)
 
@@ -279,14 +329,22 @@ async def _run_step(
     prompt_ctx: BaselinePromptContext,
     state: dict[str, Any],
     group: str,
+    *,
+    batch_index: int | None = None,
 ) -> tuple[dict[str, Any], BaselineStepTrace]:
+    prefix = (
+        f"baseline:{batch_index}:{spec.id}"
+        if batch_index is not None
+        else f"baseline:{spec.id}"
+    )
     task_id = (
-        f"baseline:{spec.id}:{prompt_ctx.record.get('db_id')}:"
+        f"{prefix}:{prompt_ctx.record.get('db_id')}:"
         f"{prompt_ctx.record.get('record_id')}:{step.id}"
     )
     if ctx.progress:
         ctx.progress.start_task(task_id, step.title, group=group)
-    log = ctx.log.bind(agent=step.agent, baseline_id=spec.id, baseline_step=step.id)
+    log = ctx.log.bind(agent=step.agent, baseline_id=spec.id, baseline_step=step.id,
+                       batch_index=batch_index)
     log.info("baseline_step_start", title=step.title)
     try:
         messages = step.build_messages(prompt_ctx, state)

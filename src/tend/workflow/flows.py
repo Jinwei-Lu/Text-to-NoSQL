@@ -9,6 +9,7 @@ that own them, so the flow stays a readable coordinator.
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -64,7 +65,7 @@ class CoverageSlot:
 
 
 # --------------------------------------------------------------------------- #
-# Phase A — DataWorld construction (per db: WP -> SRA -> DM -> SC*)
+# Phase A - DataWorld construction (per db: WP || DM -> SRA -> SC*)
 # --------------------------------------------------------------------------- #
 async def run_phase_a(wf: Workflow, db_ids: list[str]) -> dict[str, DbArtifacts]:
     """Build Tier-1 assets for each db, in parallel across dbs."""
@@ -83,17 +84,23 @@ async def _phase_a_one_db(wf: Workflow, db_id: str) -> DbArtifacts:
     ctx = wf.context(db_id=db_id, group=db_id)
     ctx.log.info("phase_a_db_start", db_id=db_id)
 
-    wp = await wf.agent("wp", {"db_id": db_id}, ctx=ctx)
-    assert wp is not None  # non-isolated within the db chain; failure aborts this db
+    wp_task = asyncio.create_task(wf.agent("wp", {"db_id": db_id}, ctx=ctx))
+    dm_task = asyncio.create_task(wf.agent("dm", {"db_id": db_id}, ctx=ctx))
+    try:
+        wp = await wp_task
+        assert wp is not None  # non-isolated within the db chain; failure aborts this db
 
-    sra = await wf.agent("sra", {"wp_output": wp, "db_id": db_id}, ctx=ctx)
-    assert sra is not None
+        sra = await wf.agent("sra", {"wp_output": wp, "db_id": db_id}, ctx=ctx)
+        assert sra is not None
 
-    dm = await wf.agent("dm", {
-        "db_id": db_id,
-        "sra_rationale": sra.get("agent_design_rationale", {}),
-    }, ctx=ctx)
-    assert dm is not None
+        dm = await dm_task
+        assert dm is not None
+    except Exception:
+        for task in (wp_task, dm_task):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(wp_task, dm_task, return_exceptions=True)
+        raise
 
     # DM's schema is authoritative (consistent with the migrated data by construction, Gate-SD)
     source_schema = ctx.source.schema(db_id) if ctx.source else None
@@ -215,47 +222,81 @@ async def _build_record(
     if not ms or not ms.get("gold_locked"):
         return _drop(ctx, "ms", "gold not locked", detail=(ms or {}).get("gold_lock_reason"))
 
-    # MUT + PV (P3 discriminative power); PV reject -> MUT regenerate with feedback
-    mut = await wf.agent("mut", {
-        "intent": intent, "MQL": ms["MQL"], "canonical_form_set": ms["canonical_form_set"],
-    }, ctx=ctx)
-    pv = await wf.agent("pv", {"MQL": ms["MQL"], "mutations": (mut or {}).get("mutations", []),
-                               "intent": intent}, ctx=ctx)
-    mut_rounds = 0
-    while (not pv or not pv.get("pv_pass")) and mut_rounds < MUT_MAX_ROUNDS:
-        mut_rounds += 1
-        pv_detail = (pv or {}).get("property_verification", {})
-        ctx.log.warning("pv_reject", round=mut_rounds, detail=pv_detail)
+    async def mutation_branch() -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        ctx.log.info("phase_b_branch_start", branch="mut_pv")
         mut = await wf.agent("mut", {
-            "intent": intent, "MQL": ms["MQL"],
-            "canonical_form_set": ms["canonical_form_set"], "pv_feedback": pv_detail,
+            "intent": intent, "MQL": ms["MQL"], "canonical_form_set": ms["canonical_form_set"],
         }, ctx=ctx)
-        pv = await wf.agent("pv", {"MQL": ms["MQL"], "mutations": (mut or {}).get("mutations", []),
-                                   "intent": intent}, ctx=ctx)
+        pv = await wf.agent(
+            "pv",
+            {"MQL": ms["MQL"], "mutations": (mut or {}).get("mutations", []), "intent": intent},
+            ctx=ctx,
+        )
+        mut_rounds = 0
+        while (not pv or not pv.get("pv_pass")) and mut_rounds < MUT_MAX_ROUNDS:
+            mut_rounds += 1
+            pv_detail = (pv or {}).get("property_verification", {})
+            ctx.log.warning("pv_reject", branch="mut_pv", round=mut_rounds, detail=pv_detail)
+            mut = await wf.agent("mut", {
+                "intent": intent, "MQL": ms["MQL"],
+                "canonical_form_set": ms["canonical_form_set"], "pv_feedback": pv_detail,
+            }, ctx=ctx)
+            pv = await wf.agent(
+                "pv",
+                {
+                    "MQL": ms["MQL"],
+                    "mutations": (mut or {}).get("mutations", []),
+                    "intent": intent,
+                },
+                ctx=ctx,
+            )
+        return mut, pv
+
+    async def nl_branch() -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        ctx.log.info("phase_b_branch_start", branch="nlp_rtv")
+        nlp_inputs = {
+            "intent": intent,
+            "scenario_summary": art.scenario_summary,
+            "MQL": ms["MQL"],
+            "result_fields": ms.get("result_fields"),
+        }
+        nlp = await wf.agent("nlp", nlp_inputs, ctx=ctx)
+        rtv = await wf.agent("rtv", {"nl_queries": (nlp or {}).get("nl_queries"),
+                                     "MQL": ms["MQL"], "schema": art.mongodb_schema}, ctx=ctx)
+        rounds = 0
+        while (not rtv or not rtv.get("rtv_pass")) and rounds < RTV_MAX_ROUNDS:
+            rounds += 1
+            ctx.log.warning("rtv_reject", branch="nlp_rtv", round=rounds,
+                            reason=(rtv or {}).get("rtv_reason"))
+            nlp = await wf.agent("nlp", {**nlp_inputs, "rtv_feedback": rtv}, ctx=ctx)
+            rtv = await wf.agent("rtv", {"nl_queries": (nlp or {}).get("nl_queries"),
+                                         "MQL": ms["MQL"], "schema": art.mongodb_schema}, ctx=ctx)
+        return nlp, rtv
+
+    async def ra_branch() -> dict[str, Any] | None:
+        ctx.log.info("phase_b_branch_start", branch="ra")
+        return await wf.agent("ra", {"MQL": ms["MQL"], "intent": intent}, ctx=ctx)
+
+    mutation_task = asyncio.create_task(mutation_branch())
+    nl_task = asyncio.create_task(nl_branch())
+    ra_task = asyncio.create_task(ra_branch())
+    try:
+        (_mut, pv), (nlp, rtv), ra = await asyncio.gather(mutation_task, nl_task, ra_task)
+    except Exception:
+        for task in (mutation_task, nl_task, ra_task):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(mutation_task, nl_task, ra_task, return_exceptions=True)
+        raise
+
     if not pv or not pv.get("pv_pass"):
         return _drop(ctx, "pv", "mutations not discriminative / gold trivial",
                      detail=(pv or {}).get("property_verification"))
-
-    # NLP -> RTV (P2 intent uniqueness); RTV canonical fail -> NLP rewrite
-    nlp_inputs = {
-        "intent": intent,
-        "scenario_summary": art.scenario_summary,
-        "MQL": ms["MQL"],
-        "result_fields": ms.get("result_fields"),
-    }
-    nlp = await wf.agent("nlp", nlp_inputs, ctx=ctx)
-    rtv = await wf.agent("rtv", {"nl_queries": (nlp or {}).get("nl_queries"),
-                                 "MQL": ms["MQL"], "schema": art.mongodb_schema}, ctx=ctx)
-    rounds = 0
-    while (not rtv or not rtv.get("rtv_pass")) and rounds < RTV_MAX_ROUNDS:
-        rounds += 1
-        ctx.log.warning("rtv_reject", round=rounds, reason=(rtv or {}).get("rtv_reason"))
-        nlp = await wf.agent("nlp", {**nlp_inputs, "rtv_feedback": rtv}, ctx=ctx)
-        rtv = await wf.agent("rtv", {"nl_queries": (nlp or {}).get("nl_queries"),
-                                     "MQL": ms["MQL"], "schema": art.mongodb_schema}, ctx=ctx)
     if not rtv or not rtv.get("rtv_pass"):
         return _drop(ctx, "rtv", "canonical NLQ does not round-trip to gold",
                      detail=(rtv or {}).get("rtv_reason"))
+    if not ra or not ra.get("ra_pass"):
+        return _drop(ctx, "ra", "realism / P4 non-triviality failed")
 
     # NNC: difficulty + dual-bridge gate
     nnc = await wf.agent("nnc", {
@@ -272,12 +313,6 @@ async def _build_record(
     if target_violations:
         return _drop(ctx, "coverage_target", "record missed requested composition cell",
                      detail=target_violations)
-
-    # RA: realism / P4 non-triviality
-    ra = await wf.agent("ra", {"MQL": ms["MQL"], "nl_queries": nlp["nl_queries"],
-                               "intent": intent}, ctx=ctx)
-    if not ra or not ra.get("ra_pass"):
-        return _drop(ctx, "ra", "realism / P4 non-triviality failed")
 
     record = {
         "record_id": slot.record_id,

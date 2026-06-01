@@ -157,7 +157,7 @@ OPENAI_BASE_URL=...
 TEND_MONGO_URI=mongodb://localhost:27017
 TEND_BIRD_ROOT=minidev/MINIDEV
 TEND_MODEL=deepseek-v4-flash
-TEND_LLM_MAX_CONCURRENCY=16
+TEND_LLM_MAX_CONCURRENCY=16  # legacy/compat only; default runtime is unbounded
 TEND_QUIET=0
 ```
 

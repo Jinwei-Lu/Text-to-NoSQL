@@ -7,6 +7,7 @@ Deterministic publish gate. ``validate_record`` checks one record's field contra
 """
 from __future__ import annotations
 
+import concurrent.futures
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -119,9 +120,15 @@ def validate_record(
 
 def validate_record_jsonschema(record: dict[str, Any], schema_path: Path) -> list[str]:
     """Validate a record against proposals/schemas/record.schema.json."""
+    schema = json.loads(Path(schema_path).read_text(encoding="utf-8"))
+    return _validate_record_jsonschema_with_schema(record, schema)
+
+
+def _validate_record_jsonschema_with_schema(
+    record: dict[str, Any], schema: dict[str, Any]
+) -> list[str]:
     import jsonschema
 
-    schema = json.loads(Path(schema_path).read_text(encoding="utf-8"))
     validator = jsonschema.Draft202012Validator(schema)
     return [f"[jsonschema r{record.get('record_id','?')}] {e.message} at /{'/'.join(map(str,e.path))}"
             for e in validator.iter_errors(record)]
@@ -222,21 +229,38 @@ def validate_release(
     schema_path = schemas_path / "record.schema.json" if schemas_path else None
     snapshots: dict[str, Any] = {}
     for r in records:
-        snap = None
         db = r.get("db_id")
-        if db:
-            if db not in snapshots:
-                p = out_dir / "mongodb_data" / f"{db}.json"
-                snapshots[db] = json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
-            snap = snapshots[db]
-            if snap is not None and r.get("world_signature") != world_signature(snap):
-                rec_viol.append(
-                    f"[C4 r{r.get('record_id','?')}] world_signature does not match "
-                    f"mongodb_data/{db}.json"
-                )
-        rec_viol += validate_record(r, executor=executor, snapshot=snap, refs_base=out_dir)
-        if schema_path and schema_path.exists():
-            sch_viol += validate_record_jsonschema(r, schema_path)
+        if db and db not in snapshots:
+            p = out_dir / "mongodb_data" / f"{db}.json"
+            snapshots[db] = json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+    record_schema = (
+        json.loads(schema_path.read_text(encoding="utf-8"))
+        if schema_path and schema_path.exists()
+        else None
+    )
+
+    def validate_one(index_record: tuple[int, dict[str, Any]]) -> tuple[int, list[str], list[str]]:
+        index, r = index_record
+        local_rec: list[str] = []
+        local_sch: list[str] = []
+        db = r.get("db_id")
+        snap = snapshots.get(db) if db else None
+        if db and snap is not None and r.get("world_signature") != world_signature(snap):
+            local_rec.append(
+                f"[C4 r{r.get('record_id','?')}] world_signature does not match "
+                f"mongodb_data/{db}.json"
+            )
+        local_rec += validate_record(r, executor=executor, snapshot=snap, refs_base=out_dir)
+        if record_schema is not None:
+            local_sch += _validate_record_jsonschema_with_schema(r, record_schema)
+        return index, local_rec, local_sch
+
+    if records:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(records)) as pool:
+            record_results = list(pool.map(validate_one, enumerate(records)))
+        for _, local_rec, local_sch in sorted(record_results, key=lambda item: item[0]):
+            rec_viol += local_rec
+            sch_viol += local_sch
 
     comp = validate_composition(records, supply_relax=supply_relax, require_all_dbs=require_all_dbs)
 
@@ -262,42 +286,59 @@ def _validate_release_artifacts(
     except ImportError:
         return ["[schema] jsonschema is not installed; cannot validate release artifacts"]
 
-    issues: list[str] = []
     lib_path = schemas_dir / "library.schema.json"
     adr_path = schemas_dir / "agent_design_rationale.schema.json"
     lib = json.loads(lib_path.read_text(encoding="utf-8")) if lib_path.exists() else None
     adr_schema = json.loads(adr_path.read_text(encoding="utf-8")) if adr_path.exists() else None
 
-    def check(schema: dict[str, Any], obj: Any, label: str) -> None:
+    def check(schema: dict[str, Any], obj: Any, label: str) -> list[str]:
         validator = jsonschema.Draft202012Validator(schema)
+        issues: list[str] = []
         for err in validator.iter_errors(obj):
             path = "/".join(map(str, err.path))
             issues.append(f"[schema {label}] {err.message} at /{path}")
+        return issues
 
     def lib_ref(name: str) -> dict[str, Any]:
         assert lib is not None
         return {"$schema": lib.get("$schema"), "$defs": lib.get("$defs", {}),
                 "$ref": f"#/$defs/{name}"}
 
+    issues: list[str] = []
     if lib is not None:
         catalog_path = out_dir / "bird_db_catalog.json"
         if catalog_path.exists():
-            check(lib_ref("bird_db_catalog"),
-                  json.loads(catalog_path.read_text(encoding="utf-8")),
-                  "bird_db_catalog.json")
+            issues += check(
+                lib_ref("bird_db_catalog"),
+                json.loads(catalog_path.read_text(encoding="utf-8")),
+                "bird_db_catalog.json",
+            )
         else:
             issues.append("[C4] missing bird_db_catalog.json")
 
-    for db in db_ids:
+    def check_db(db: str) -> list[str]:
+        db_issues: list[str] = []
         if lib is not None:
             for sub, ref in (("mongodb_schema", "mongodb_schema"), ("mongodb_data", "mongodb_data")):
                 path = out_dir / sub / f"{db}.json"
                 if path.exists():
-                    check(lib_ref(ref), json.loads(path.read_text(encoding="utf-8")),
-                          f"{sub}/{db}.json")
+                    db_issues += check(
+                        lib_ref(ref),
+                        json.loads(path.read_text(encoding="utf-8")),
+                        f"{sub}/{db}.json",
+                    )
         if adr_schema is not None:
             path = out_dir / "agent_design_rationale" / f"{db}.yaml"
             if path.exists():
-                check(adr_schema, yaml.safe_load(path.read_text(encoding="utf-8")),
-                      f"agent_design_rationale/{db}.yaml")
+                db_issues += check(
+                    adr_schema,
+                    yaml.safe_load(path.read_text(encoding="utf-8")),
+                    f"agent_design_rationale/{db}.yaml",
+                )
+        return db_issues
+
+    if db_ids:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(db_ids)) as pool:
+            for db_issues in pool.map(check_db, db_ids):
+                issues += db_issues
     return issues

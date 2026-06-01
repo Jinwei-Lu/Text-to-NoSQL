@@ -8,6 +8,7 @@ whole pipeline (workflow + logging + progress + feedback loops) is exercisable o
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -200,6 +201,7 @@ class MqlSynthesizer(LLMAgent):
     title = "MS · MQL Synthesizer"
     prompt_file = "ms_mql_synthesizer.md"
     output_schema = _MS_SCHEMA
+    offload_postprocess = True
 
     def render_inputs(self, ctx: AgentContext, inputs: dict[str, Any]) -> str:
         import json
@@ -410,23 +412,27 @@ class PropertyVerifier(Agent):
             return {"pv_pass": True, "verified_mutations": muts,
                     "property_verification": {"mode": "stub"}}
         try:
-            gold = ctx.mongo.norm_exec(ctx.db_id, mql)
+            gold = await asyncio.to_thread(ctx.mongo.norm_exec, ctx.db_id, mql)
         except TendError as exc:
             return {"pv_pass": False, "verified_mutations": [],
                     "property_verification": {"gold_exec_error": exc.message}}
         # P3: keep only mutations that EX-fail (change the result). Equivalent rewrites
         # (e.g. $addFields<->$project) are NOT wrong, so they are pruned, not fatal — the
         # record passes when >=5 genuinely discriminating mutations remain. P4: gold non-empty.
-        discriminating: list[dict] = []
-        non_discriminating: list[str] = []
-        for m in muts:
+        async def check_mutation(m: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
             try:
-                rm = ctx.mongo.norm_exec(ctx.db_id, m["MQL"])
+                rm = await asyncio.to_thread(ctx.mongo.norm_exec, ctx.db_id, m["MQL"])
                 fails = not equiv_rec(gold, rm, order_sensitive=_ORDER_INSENSITIVE)
             except TendError:
                 fails = True                    # a mutation that errors is sufficiently wrong
+            return fails, m
+
+        outcomes = await asyncio.gather(*(check_mutation(m) for m in muts))
+        discriminating: list[dict] = []
+        non_discriminating: list[str] = []
+        for fails, mutation in outcomes:
             (discriminating if fails else non_discriminating).append(
-                m if fails else m["mutation_id"])
+                mutation if fails else mutation["mutation_id"])
         pv_pass = bool(gold) and len(discriminating) >= 5
         return {
             "pv_pass": pv_pass,
@@ -591,6 +597,7 @@ class RoundTripVerifier(LLMAgent):
     prompt_file = "rtv_round_trip_verifier.md"
     output_schema = _RTV_SCHEMA
     temperature = 0.0
+    offload_postprocess = True
 
     def render_inputs(self, ctx: AgentContext, inputs: dict[str, Any]) -> str:
         nlq = inputs.get("nl_queries", {})
@@ -690,9 +697,12 @@ class RealismAuditor(Agent):
     title = "RA · Realism Auditor"
 
     async def run(self, ctx: AgentContext, inputs: dict[str, Any]) -> dict[str, Any]:
-        mql = inputs["MQL"]
         if ctx.settings.stub or ctx.mongo is None or not ctx.mongo.available():
             return {"ra_pass": True, "ra_audit": {"mode": "stub"}}
+        return await asyncio.to_thread(self._run_sync, ctx, inputs)
+
+    def _run_sync(self, ctx: AgentContext, inputs: dict[str, Any]) -> dict[str, Any]:
+        mql = inputs["MQL"]
         try:
             collection, _ = parse_pipeline(mql)
             res = ctx.mongo.norm_exec(ctx.db_id, mql)

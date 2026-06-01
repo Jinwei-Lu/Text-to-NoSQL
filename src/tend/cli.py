@@ -25,6 +25,7 @@ from .baselines import BASELINE_IDS, run_baseline_suite
 from .config import Settings
 from .dataset import write_catalog, write_phase_a, write_records
 from .errors import Anomaly, TendError, wrap_unexpected
+from .evaluation import EvaluationOutput, evaluate_predictions
 from .execution.mongo import MongoExecutor
 from .llm import LLMClient
 from .observability import make_reporter, new_run_id, setup_logging
@@ -83,6 +84,18 @@ def build_solver_runtime(settings: Settings, *, run_kind: str = "solver") -> Run
     llm = LLMClient(settings, log)
     if settings.stub:
         llm.set_stub(stub_fn)
+    mongo = MongoExecutor(settings, log)
+    ctx = AgentContext(settings=settings, llm=llm, log=log, progress=progress,
+                       source=None, mongo=mongo)
+    return Runtime(settings, ctx, Workflow(ctx), progress, log, None, mongo)
+
+
+def build_evaluation_runtime(settings: Settings) -> Runtime:
+    run_dir = settings.run_dir
+    log = setup_logging(run_dir, console=False)
+    log.info("evaluation_run_start", run_id=settings.run_id, model=settings.llm.model)
+    progress = make_reporter(settings.run_id, log, enabled=not settings.quiet)
+    llm = LLMClient(settings, log)
     mongo = MongoExecutor(settings, log)
     ctx = AgentContext(settings=settings, llm=llm, log=log, progress=progress,
                        source=None, mongo=mongo)
@@ -227,6 +240,32 @@ async def _preload_solver_witnesses(
     return set(loaded)
 
 
+async def _evaluate_outputs(
+    rt: Runtime,
+    *,
+    dataset_dir: Path,
+    predictions_path: Path,
+    experiment_kind: str,
+    out_dir: Path | None = None,
+    max_workers: int = 8,
+) -> EvaluationOutput:
+    """Run proposal-05 evaluation while keeping progress and logs in the run."""
+    if out_dir is None:
+        out_dir = rt.settings.run_dir / "evaluation" / experiment_kind
+    return await asyncio.to_thread(
+        evaluate_predictions,
+        dataset_dir=dataset_dir,
+        predictions_path=predictions_path,
+        out_dir=out_dir,
+        experiment_kind=experiment_kind,
+        run_id=rt.settings.run_id,
+        logger=rt.log,
+        progress=rt.progress,
+        executor=rt.mongo,
+        max_workers=max_workers,
+    )
+
+
 async def _run_solve(
     rt: Runtime,
     *,
@@ -236,10 +275,14 @@ async def _run_solve(
     limit: int,
     r_max: int,
     witness_k: int,
+    evaluate: bool = True,
+    eval_out_dir: Path | None = None,
+    eval_workers: int = 8,
 ) -> int:
     predictions: list[dict] = []
     failures: list[dict] = []
     failed: TendError | None = None
+    evaluation: EvaluationOutput | None = None
     summary: dict = {}
     try:
         inputs = load_solver_release_inputs(
@@ -330,17 +373,36 @@ async def _run_solve(
             with failures_path.open("w", encoding="utf-8") as fp:
                 for item in failures:
                     fp.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
+        if evaluate and predictions:
+            with rt.progress:
+                evaluation = await _evaluate_outputs(
+                    rt,
+                    dataset_dir=dataset_dir,
+                    predictions_path=out_path,
+                    experiment_kind="solver",
+                    out_dir=eval_out_dir,
+                    max_workers=eval_workers,
+                )
         summary = rt.progress.summary() if hasattr(rt.progress, "summary") else {}
         failed_run = (
             failed is not None
             or bool(failures)
             or not predictions
+            or (evaluation is not None and not evaluation.ok)
             or summary.get("anomaly_total", 0) > 0
         )
         rt.log.info("solver_run_done", status="failed" if failed_run else "ok",
                     predictions=len(predictions), failures=len(failures),
                     output=str(out_path), failures_output=str(failures_path), **summary)
-        _print_solve_summary(rt, predictions, failures, summary, out_path, failures_path)
+        _print_solve_summary(
+            rt,
+            predictions,
+            failures,
+            summary,
+            out_path,
+            failures_path,
+            evaluation,
+        )
         if rt.source is not None:
             rt.source.close()
         rt.mongo.close()
@@ -358,9 +420,13 @@ async def _run_baseline(
     record_id: int | None,
     limit: int,
     witness_k: int,
+    evaluate: bool = True,
+    eval_out_dir: Path | None = None,
+    eval_workers: int = 8,
 ) -> int:
     outputs: list[dict] = []
     failed: TendError | None = None
+    evaluation: EvaluationOutput | None = None
     summary: dict = {}
     try:
         with rt.progress:
@@ -404,18 +470,37 @@ async def _run_baseline(
             with failures_path.open("w", encoding="utf-8") as fp:
                 for output in failures:
                     fp.write(json.dumps(output, ensure_ascii=False, default=str) + "\n")
+        if evaluate and predictions:
+            with rt.progress:
+                evaluation = await _evaluate_outputs(
+                    rt,
+                    dataset_dir=dataset_dir,
+                    predictions_path=out_path,
+                    experiment_kind="baseline",
+                    out_dir=eval_out_dir,
+                    max_workers=eval_workers,
+                )
         summary = rt.progress.summary() if hasattr(rt.progress, "summary") else {}
         failed_run = (
             failed is not None
             or not predictions
             or bool(failures)
+            or (evaluation is not None and not evaluation.ok)
             or summary.get("anomaly_total", 0) > 0
         )
         rt.log.info("baseline_run_done", status="failed" if failed_run else "ok",
                     outputs=len(outputs), predictions=len(predictions),
                     failures=len(failures), output=str(out_path),
                     failures_output=str(failures_path), **summary)
-        _print_baseline_summary(rt, predictions, failures, summary, out_path, failures_path)
+        _print_baseline_summary(
+            rt,
+            predictions,
+            failures,
+            summary,
+            out_path,
+            failures_path,
+            evaluation,
+        )
         if rt.source is not None:
             rt.source.close()
         rt.mongo.close()
@@ -434,9 +519,13 @@ async def _run_ablation(
     limit: int,
     r_max: int,
     witness_k: int,
+    evaluate: bool = True,
+    eval_out_dir: Path | None = None,
+    eval_workers: int = 8,
 ) -> int:
     outputs: list[dict] = []
     failed: TendError | None = None
+    evaluation: EvaluationOutput | None = None
     summary: dict = {}
     try:
         with rt.progress:
@@ -482,11 +571,22 @@ async def _run_ablation(
             with failures_path.open("w", encoding="utf-8") as fp:
                 for output in failures:
                     fp.write(json.dumps(output, ensure_ascii=False, default=str) + "\n")
+        if evaluate and predictions:
+            with rt.progress:
+                evaluation = await _evaluate_outputs(
+                    rt,
+                    dataset_dir=dataset_dir,
+                    predictions_path=out_path,
+                    experiment_kind="ablation",
+                    out_dir=eval_out_dir,
+                    max_workers=eval_workers,
+                )
         summary = rt.progress.summary() if hasattr(rt.progress, "summary") else {}
         failed_run = (
             failed is not None
             or not predictions
             or bool(failures)
+            or (evaluation is not None and not evaluation.ok)
             or summary.get("anomaly_total", 0) > 0
         )
         import json
@@ -500,6 +600,7 @@ async def _run_ablation(
             "failures": len(failures),
             "by_ablation": _count_by(predictions, "ablation_id"),
             "failed_by_ablation": _count_by(failures, "ablation_id"),
+            "evaluation": evaluation.report if evaluation else None,
             "progress": summary,
             "output": str(out_path),
             "failures_output": str(failures_path),
@@ -517,6 +618,7 @@ async def _run_ablation(
             out_path,
             failures_path,
             summary_path,
+            evaluation,
         )
         if rt.source is not None:
             rt.source.close()
@@ -545,7 +647,15 @@ def _print_summary(rt, artifacts, records, summary, out_dir) -> None:
     print("=" * 64)
 
 
-def _print_solve_summary(rt, predictions, failures, summary, out_path, failures_path) -> None:
+def _print_solve_summary(
+    rt,
+    predictions,
+    failures,
+    summary,
+    out_path,
+    failures_path,
+    evaluation: EvaluationOutput | None = None,
+) -> None:
     print("\n" + "=" * 64)
     print(f"TEND solve · run {rt.settings.run_id} · "
           f"{'STUB' if rt.settings.stub else 'LIVE ' + rt.settings.llm.model}")
@@ -562,10 +672,19 @@ def _print_solve_summary(rt, predictions, failures, summary, out_path, failures_
     print(f"  output : {out_path}")
     if failures:
         print(f"  failures output : {failures_path}")
+    _print_evaluation_block(evaluation)
     print("=" * 64)
 
 
-def _print_baseline_summary(rt, predictions, failures, summary, out_path, failures_path) -> None:
+def _print_baseline_summary(
+    rt,
+    predictions,
+    failures,
+    summary,
+    out_path,
+    failures_path,
+    evaluation: EvaluationOutput | None = None,
+) -> None:
     print("\n" + "=" * 64)
     print(f"TEND baselines · run {rt.settings.run_id} · "
           f"{'STUB' if rt.settings.stub else 'LIVE ' + rt.settings.llm.model}")
@@ -588,6 +707,7 @@ def _print_baseline_summary(rt, predictions, failures, summary, out_path, failur
     print(f"  output : {out_path}")
     if failures:
         print(f"  failures output : {failures_path}")
+    _print_evaluation_block(evaluation)
     print("=" * 64)
 
 
@@ -599,6 +719,7 @@ def _print_ablation_summary(
     out_path,
     failures_path,
     summary_path,
+    evaluation: EvaluationOutput | None = None,
 ) -> None:
     print("\n" + "=" * 64)
     print(f"TEND ablation · run {rt.settings.run_id} · "
@@ -619,7 +740,18 @@ def _print_ablation_summary(
     print(f"  summary: {summary_path}")
     if failures:
         print(f"  failures output : {failures_path}")
+    _print_evaluation_block(evaluation)
     print("=" * 64)
+
+
+def _print_evaluation_block(evaluation: EvaluationOutput | None) -> None:
+    if evaluation is None:
+        print("  evaluation : not run")
+        return
+    scores = evaluation.report.get("scores", {})
+    print(f"  evaluation : {evaluation.status} EX={scores.get('EX', 0.0)} "
+          f"QIM={scores.get('QIM', 0.0)}")
+    print(f"  eval report: {evaluation.paths.report_md}")
 
 
 def _count_by(items: list[dict], key: str) -> dict[str, int]:
@@ -745,6 +877,64 @@ def _run_publish(settings: Settings, *, dataset_dir: Path, out_dir: Path) -> int
     return 0
 
 
+async def _run_evaluate(
+    rt: Runtime,
+    *,
+    dataset_dir: Path,
+    predictions_path: Path,
+    kind: str,
+    out_dir: Path | None,
+    workers: int,
+) -> int:
+    evaluation: EvaluationOutput | None = None
+    failed: TendError | None = None
+    try:
+        with rt.progress:
+            evaluation = await _evaluate_outputs(
+                rt,
+                dataset_dir=dataset_dir,
+                predictions_path=predictions_path,
+                experiment_kind=kind,
+                out_dir=out_dir or rt.settings.run_dir / "evaluation" / kind,
+                max_workers=workers,
+            )
+    except TendError as err:
+        failed = err
+        if not err.logged:
+            rt.log.anomaly(err)
+        rt.log.error("evaluation_run_failed", error_type=type(err).__name__,
+                     message=err.message, anomaly=err.anomaly.value if err.anomaly else None)
+    except Exception as exc:  # noqa: BLE001 - final CLI boundary
+        failed = wrap_unexpected(exc, stage="evaluate")
+        rt.log.anomaly(failed)
+        rt.log.error("evaluation_run_failed", error_type=type(failed).__name__,
+                     message=failed.message,
+                     anomaly=failed.anomaly.value if failed.anomaly else None)
+    finally:
+        summary = rt.progress.summary() if hasattr(rt.progress, "summary") else {}
+        failed_run = (
+            failed is not None
+            or evaluation is None
+            or not evaluation.ok
+            or summary.get("anomaly_total", 0) > 0
+        )
+        rt.log.info("evaluation_run_done", status="failed" if failed_run else "ok", **summary)
+        print("\n" + "=" * 64)
+        print(f"TEND evaluate · run {rt.settings.run_id}")
+        print(f"  predictions : {predictions_path}")
+        print(f"  dataset     : {dataset_dir}")
+        print(f"  anomalies   : {summary.get('anomaly_total', 0)} "
+              f"{summary.get('anomalies_by_kind', {})}")
+        _print_evaluation_block(evaluation)
+        print(f"  logs        : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl")
+        print("=" * 64)
+        if rt.source is not None:
+            rt.source.close()
+        rt.mongo.close()
+        rt.log.close()
+    return 1 if failed_run else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="tend",
@@ -782,6 +972,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="prompt witness disclosure limit")
     s.add_argument("--stub", action="store_true", help="offline mode (no live LLM)")
     s.add_argument("--quiet", action="store_true", help="disable the live progress UI")
+    s.add_argument("--no-eval", action="store_true",
+                   help="skip automatic proposal-05 evaluation after solving")
+    s.add_argument("--eval-out", default=None, help="override automatic evaluation output dir")
+    s.add_argument("--eval-workers", type=int, default=8,
+                   help="parallel worker count for automatic evaluation")
     s.add_argument("--run-id", default=None)
 
     b = sub.add_parser("baseline", help="run constrained LLM baselines")
@@ -796,6 +991,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="public witness sample count for baselines that use samples")
     b.add_argument("--stub", action="store_true", help="offline mode (no live LLM)")
     b.add_argument("--quiet", action="store_true", help="disable the live progress UI")
+    b.add_argument("--no-eval", action="store_true",
+                   help="skip automatic proposal-05 evaluation after baseline generation")
+    b.add_argument("--eval-out", default=None, help="override automatic evaluation output dir")
+    b.add_argument("--eval-workers", type=int, default=8,
+                   help="parallel worker count for automatic evaluation")
     b.add_argument("--run-id", default=None)
 
     a = sub.add_parser("ablation", help="run SMART solver ablation study")
@@ -811,7 +1011,23 @@ def main(argv: list[str] | None = None) -> int:
                    help="prompt witness sample count for ablations that use samples")
     a.add_argument("--stub", action="store_true", help="offline mode (no live LLM)")
     a.add_argument("--quiet", action="store_true", help="disable the live progress UI")
+    a.add_argument("--no-eval", action="store_true",
+                   help="skip automatic proposal-05 evaluation after ablation generation")
+    a.add_argument("--eval-out", default=None, help="override automatic evaluation output dir")
+    a.add_argument("--eval-workers", type=int, default=8,
+                   help="parallel worker count for automatic evaluation")
     a.add_argument("--run-id", default=None)
+
+    e = sub.add_parser("evaluate", help="evaluate a prediction JSONL with proposal-05 metrics")
+    e.add_argument("--dataset-dir", required=True, help="release dataset dir")
+    e.add_argument("--predictions", required=True, help="prediction JSONL file")
+    e.add_argument("--kind", default="manual",
+                   help="experiment kind label: solver, baseline, ablation, or manual")
+    e.add_argument("--out", default=None,
+                   help="evaluation output dir (default: runs/<run_id>/evaluation/<kind>)")
+    e.add_argument("--workers", type=int, default=8, help="parallel evaluator workers")
+    e.add_argument("--quiet", action="store_true", help="disable the live progress UI")
+    e.add_argument("--run-id", default=None)
 
     args = parser.parse_args(argv)
 
@@ -840,6 +1056,16 @@ def main(argv: list[str] | None = None) -> int:
             dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
             out_dir=_resolve_repo_path(settings, args.out),
         )
+    if args.command == "evaluate":
+        rt = build_evaluation_runtime(settings)
+        return asyncio.run(_run_evaluate(
+            rt,
+            dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
+            predictions_path=_resolve_repo_path(settings, args.predictions),
+            kind=args.kind,
+            out_dir=_resolve_repo_path(settings, args.out) if args.out else None,
+            workers=args.workers,
+        ))
     if args.command == "construct":
         rt = build_runtime(settings)
         if rt.source is None:
@@ -862,6 +1088,9 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             r_max=args.r_max,
             witness_k=args.witness_k,
+            evaluate=not args.no_eval,
+            eval_out_dir=_resolve_repo_path(settings, args.eval_out) if args.eval_out else None,
+            eval_workers=args.eval_workers,
         ))
     if args.command == "baseline":
         rt = build_solver_runtime(settings, run_kind="baseline")
@@ -877,6 +1106,9 @@ def main(argv: list[str] | None = None) -> int:
             record_id=args.record_id,
             limit=args.limit,
             witness_k=args.witness_k,
+            evaluate=not args.no_eval,
+            eval_out_dir=_resolve_repo_path(settings, args.eval_out) if args.eval_out else None,
+            eval_workers=args.eval_workers,
         ))
     if args.command == "ablation":
         rt = build_solver_runtime(settings, run_kind="ablation")
@@ -893,6 +1125,9 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             r_max=args.r_max,
             witness_k=args.witness_k,
+            evaluate=not args.no_eval,
+            eval_out_dir=_resolve_repo_path(settings, args.eval_out) if args.eval_out else None,
+            eval_workers=args.eval_workers,
         ))
     parser.error("unknown command")
     return 2

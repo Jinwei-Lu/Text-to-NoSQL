@@ -75,6 +75,8 @@ def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Pa
 
     assert len(outputs) == len(ABLATION_IDS)
     assert {item["ablation_id"] for item in outputs} == set(ABLATION_IDS)
+    assert sorted(item["batch_index"] for item in outputs) == list(range(len(ABLATION_IDS)))
+    assert all(item["work_item_id"].startswith("ablation:") for item in outputs)
     assert all(item["status"] == "ok" for item in outputs)
     assert all(item["result_type"] == "ablation_prediction" for item in outputs)
     assert all(item["disclosure"]["solver_disclosure"]["backbone"] == "deepseek-v4-flash"
@@ -108,6 +110,7 @@ def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Pa
     assert len(llm_ok) == len(ABLATION_IDS) * 2
     for event in llm_ok:
         assert event["ablation_id"] in ABLATION_IDS
+        assert event["batch_index"] is not None
         transcript_ref = event["transcript_ref"]
         diagnostics_ref = event["diagnostics_ref"]
         assert transcript_ref.endswith(".md")

@@ -16,6 +16,8 @@ The :data:`REGISTRY` lets the workflow look agents up by id without importing ea
 """
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 import time
 from abc import ABC, abstractmethod
@@ -137,6 +139,8 @@ class LLMAgent(Agent):
     contract_retries: ClassVar[int] = 2
     #: sampling temperature override (None -> settings default)
     temperature: ClassVar[float | None] = None
+    #: run postprocess in a worker thread when the hook performs blocking local IO/execution
+    offload_postprocess: ClassVar[bool] = False
 
     _prompt_cache: ClassVar[dict[str, str]] = {}
 
@@ -220,7 +224,14 @@ class LLMAgent(Agent):
                     diagnostics_ref=result.diagnostics_ref,
                 )
                 try:
-                    return self.postprocess(ctx, inputs, output, result)
+                    if self.offload_postprocess:
+                        return await asyncio.to_thread(
+                            self.postprocess, ctx, inputs, output, result
+                        )
+                    processed = self.postprocess(ctx, inputs, output, result)
+                    if inspect.isawaitable(processed):
+                        processed = await processed
+                    return processed
                 except TendError as err:
                     if not err.retryable or attempt >= self.contract_retries:
                         raise
