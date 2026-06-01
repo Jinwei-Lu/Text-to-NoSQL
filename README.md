@@ -6,7 +6,8 @@ TEND 是一个面向 MongoDB 的 Text-to-NoSQL 基准构造与评测工作区。
 
 - `src/tend/` 是当前活跃的构造、验证、执行、日志和求解器代码。
 - `proposals/` 存放方法论文档、提示词契约、JSON Schema、烟测夹具以及运行时代码实现的发布标准。
-- `baselines/` 存放用于复现实验的旧版基线脚本，包括 zero-shot、ICL、RAG、self-debugging 和 SQL-to-NoSQL 转换实验。
+- `src/tend/baselines/` 是当前活跃的受限 LLM baseline runtime，可通过 `tend baseline` 运行。
+- `baselines/` 存放 legacy/reproduction 脚本，包括 zero-shot、ICL、RAG、self-debugging 和 SQL-to-NoSQL 转换实验。
 
 仓库中 `proposals/fixtures/` 和 `tests/fixtures/` 下的夹具都是烟测夹具。它们适合做契约和管线连通性检查，但不是生产基准发布版本。生产发布版本应由构造流水线生成，并通过 `tend publish` 的发布验证。
 
@@ -38,6 +39,7 @@ TEND 关注那些很难通过机械 SQL 翻译得到的 MongoDB 查询。构造�
 | `tend.execution` | 解析 MQL，扫描禁用 operator，派生 canonical form set，加载/执行 MongoDB witness，归一化结果并计算 world signature。 |
 | `tend.publish` | 校验发布记录、schema 夹具、必需文件和测试集组成约束。 |
 | `tend.solver` | 实现 SMART 参考求解器，包括 solver 可见边界、分阶段契约、逐 stage 执行检查和类型化失败。 |
+| `tend.baselines` | 实现受限 LLM baseline 套件，包括 direct、schema-direct、SQL-pivot、plan-then-MQL、ReAct-lite 和 static self-debug。 |
 | `tend.observability` | 写入文件优先的 JSONL 日志、异常、Markdown LLM transcript、诊断 JSON，以及可选的 rich 进度 UI。 |
 
 更细的模块级说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
@@ -82,6 +84,23 @@ workflow 对已知反馈环使用有界重试，包括 SC->SRA、MS gold-lock re
 4. Query realization 渲染 MQL，检查禁用 operator，并在本地 MongoDB executor 可用时逐 stage 执行 prefix。
 
 solver 边界会在构建 prompt 之前移除禁止泄露的 gold/audit 字段，例如 `MQL`、`canonical_form_set` 和 `*_ref`。solver 终止失败会写成类型化的 `solver_failure` JSONL 记录，而不是写入伪造查询。
+
+## 活跃 Baseline Runtime
+
+`tend baseline` 运行一组有意受限的 LLM baseline，用于和 SMART solver 做实验对照。它们共享和 solver 相同的数据读取、gold-field redaction、日志、异常和终端进度系统，但不会使用 SMART 的 shape-specific 多阶段规划、逐 stage execution feedback 或 gold/audit 信息。
+
+当前内置 6 个 baseline：
+
+| baseline id | 说明 | 主要限制 |
+| --- | --- | --- |
+| `direct` | NLQ + compact schema summary 一步生成 MQL。 | one-shot、无 witness、无 repair。 |
+| `schema_direct` | NLQ + full public schema 一步生成 MQL。 | one-shot、无 execution feedback。 |
+| `sql_pivot` | 先生成 SQL sketch，再把 SQL sketch 翻译为 MQL。 | 受 SQL bottleneck 限制，不做 schema-flex planner。 |
+| `plan_then_mql` | 先生成简短 query plan，再一次性转成 MQL。 | 单计划、无 self-debug、无 per-stage 检查。 |
+| `react_lite` | 模拟一个 ReAct thought/observation turn，再生成最终 MQL。 | 只有一轮 ReAct，observation 只来自 public schema/sample digest。 |
+| `static_self_debug` | 先 draft MQL，再用静态 parser/operator feedback 修一次。 | 只用静态反馈，不使用 MongoDB execution feedback。 |
+
+baseline prompt 只读取 release 可见信息：`nl_queries.canonical`、`db_id`、公开 MongoDB schema，以及可选的 public witness digest。它们不会把 `MQL`、`canonical_form_set`、`shape_policy`、`*_ref` 或其他 gold/audit 字段放进 prompt。运行结果会披露 `uses_gold_mql=false`、`uses_execution_feedback=false` 和 disjointness 检查信息。baseline 失败会写成 `baseline_failure`，不会伪造 MQL。
 
 ## 仓库结构
 
@@ -155,6 +174,7 @@ python -m tend construct --help
 python -m tend validate --help
 python -m tend publish --help
 python -m tend solve --help
+python -m tend baseline --help
 ```
 
 ### 构造
@@ -235,6 +255,41 @@ python -m tend solve \
 - `solver_failures.jsonl` 存放类型化终止失败；
 - 同时写入标准的 `events.jsonl`、`anomalies.jsonl` 和 LLM transcripts。
 
+### Baseline
+
+在 release 风格的数据集上运行全部受限 baseline：
+
+```bash
+python -m tend baseline \
+  --dataset-dir tests/fixtures/smoke_release \
+  --db-id financial \
+  --record-id 1001 \
+  --baselines all \
+  --stub \
+  --quiet
+```
+
+只运行部分 baseline：
+
+```bash
+python -m tend baseline \
+  --dataset-dir tests/fixtures/smoke_release \
+  --baselines direct,schema_direct,react_lite \
+  --stub \
+  --quiet
+```
+
+输出会写到 run 目录：
+
+- `baseline_predictions.jsonl` 存放成功 baseline 预测；
+- `baseline_failures.jsonl` 存放类型化 baseline 失败；
+- `events.jsonl` 记录每个 baseline step、LLM call、最终 run 状态和 progress 统计；
+- `anomalies.jsonl` 是排障入口；
+- `llm/<baseline_agent>/<call_id>.md` 是人类/agent 可读 prompt/response；
+- `llm/<baseline_agent>/<call_id>.diagnostics.json` 保存完整结构化诊断。
+
+`tend baseline` 使用和 `tend solve` 相同的 run-scoped observability。每个 LLM call 的事件和 diagnostics 都带 `baseline_id`、`baseline_step`、`db_id`、`record_id`、`transcript_ref` 和 `diagnostics_ref`，便于 Claude Code 直接定位 prompt 构造错误、schema validation 错误、parse 错误或 provider 异常。
+
 ## 输出和日志
 
 除非显式传入 `--run-id`，每次运行都会生成类似 `run-20260601-013355-a1b2` 的 run id。
@@ -245,6 +300,10 @@ runs/<run_id>/
   anomalies.jsonl
   llm/<agent>/<call_id>.md
   llm/<agent>/<call_id>.diagnostics.json
+  solver_predictions.jsonl
+  solver_failures.jsonl
+  baseline_predictions.jsonl
+  baseline_failures.jsonl
   dataset/
     mongodb_schema/<db_id>.json
     mongodb_data/<db_id>.json
@@ -283,6 +342,8 @@ python -m pytest
 ```bash
 python -m pytest tests/test_validate.py
 python -m pytest tests/test_solver_workflow.py
+python -m pytest tests/test_baselines.py
+python -m pytest tests/test_cli.py
 python -m pytest tests/test_pipeline.py
 ```
 
@@ -290,7 +351,9 @@ python -m pytest tests/test_pipeline.py
 
 ## 基线实验
 
-`baselines/` 目录存放的是用于复现实验的脚本，不是活跃构造流水线：
+活跃 baseline runtime 位于 `src/tend/baselines/`，通过 `tend baseline` 运行。它继承主 runtime 的日志、异常、LLM transcript、diagnostics sidecar 和终端进度系统，是当前推荐的 baseline 实验入口。
+
+顶层 `baselines/` 目录存放的是 legacy/reproduction 脚本，不是活跃构造流水线：
 
 - `zero-shot/` 直接根据 schema 和 NLQ 提示模型。
 - `ICL/` 添加 in-context examples。
@@ -298,7 +361,7 @@ python -m pytest tests/test_pipeline.py
 - `self_debug/` 围绕生成的 MQL 做迭代 self-debugging。
 - `SQL_to_NoSQL/` 使用 SQL、SQL schema、MongoDB schema，以及内置 SQL-to-Mongo converter grammar 做 SQL-assisted baseline。
 
-这些脚本适合比较实验；活跃 CLI、契约、observability、发布验证和 SMART solver 都在 `src/tend/` 下。
+这些 legacy 脚本适合复现实验历史结果；新的论文/leaderboard 对照实验应优先使用 `tend baseline`，因为它会明确执行 solver-visible boundary、输出 disclosure，并把每次 LLM 调用记录为 Markdown transcript 与 diagnostics JSON。
 
 ## 开发说明
 

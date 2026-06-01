@@ -138,6 +138,45 @@ def test_solve_with_dataset_dir_does_not_require_bird(
     )
 
 
+def test_baseline_with_dataset_dir_does_not_require_bird(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setenv("TEND_BIRD_ROOT", str(tmp_path / "missing-bird"))
+
+    def fail_bird_source(*_args, **_kwargs):
+        raise AssertionError("baseline should not construct BirdSource")
+
+    async def fake_run_baseline(rt, **kwargs):
+        captured["source"] = rt.source
+        captured["dataset_dir"] = kwargs["dataset_dir"]
+        captured["baselines"] = kwargs["baselines"]
+        rt.mongo.close()
+        rt.log.close()
+        return 0
+
+    monkeypatch.setattr(cli, "BirdSource", fail_bird_source)
+    monkeypatch.setattr(cli, "_run_baseline", fake_run_baseline)
+
+    assert cli.main([
+        "baseline",
+        "--dataset-dir",
+        "tests/fixtures/smoke_release",
+        "--baselines",
+        "direct,schema_direct",
+        "--stub",
+        "--quiet",
+        "--run-id",
+        "baseline-no-bird",
+    ]) == 0
+    assert captured["source"] is None
+    assert captured["baselines"] == "direct,schema_direct"
+    assert captured["dataset_dir"] == (
+        config_module._find_repo_root() / "tests" / "fixtures" / "smoke_release"
+    )
+
+
 def test_run_solve_writes_failures_separately(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -156,7 +195,15 @@ def test_run_solve_writes_failures_separately(
     log = setup_logging(tmp_path / "run", console=False)
     progress = make_reporter(settings.run_id, log, enabled=False)
     ctx = AgentContext(settings=settings, llm=None, log=log, progress=progress, mongo=None)
-    rt = cli.Runtime(settings, ctx, Workflow(ctx), progress, log, None, SimpleNamespace(close=lambda: None))
+    rt = cli.Runtime(
+        settings,
+        ctx,
+        Workflow(ctx),
+        progress,
+        log,
+        None,
+        SimpleNamespace(close=lambda: None),
+    )
 
     class FakeFailure:
         def to_json(self) -> dict:

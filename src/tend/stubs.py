@@ -174,4 +174,43 @@ _STUB: dict[str, dict[str, Any]] = {
 
 def stub_fn(agent: str, messages: list[Message], schema: dict | None) -> dict[str, Any]:
     """Return canned output for ``agent`` (falls back to an empty object)."""
+    if agent.startswith("baseline_"):
+        if agent.endswith("_sql"):
+            return {
+                "SQL": (
+                    "SELECT account.*, CASE WHEN loan.account_id IS NOT NULL THEN "
+                    "loan.amount / GREATEST(SUM(CASE WHEN trans.type = 'PRIJEM' "
+                    "THEN trans.amount ELSE 0 END), 1) ELSE 0 END AS loan_to_credit_ratio "
+                    "FROM account LEFT JOIN loan ON loan.account_id = account._id "
+                    "LEFT JOIN trans ON trans.account_id = account._id GROUP BY account._id"
+                ),
+                "notes": "Relational sketch used only by the SQL pivot baseline.",
+            }
+        if agent.endswith("_plan"):
+            return {
+                "target_collection": "account",
+                "steps": [
+                    "Start from account.",
+                    "Lookup credit transactions from trans where type is PRIJEM.",
+                    "Attach loan_to_credit_ratio with 0 for accounts without loan.",
+                    "Remove helper lookup array.",
+                ],
+                "risks": ["Sparse loan embed may be missed by direct baselines."],
+            }
+        if agent.endswith("_think"):
+            return {
+                "thoughts": [
+                    "The query is per account and must preserve accounts without loans.",
+                    "A lookup over trans is needed for credit_sum.",
+                ],
+                "needed_observations": [
+                    "account contains sparse loan embeds",
+                    "trans.type uses PRIJEM for credit transactions",
+                ],
+            }
+        return {
+            "MQL": _STUB_MQL,
+            "rationale": "Deterministic stub MQL for offline baseline plumbing.",
+            "assumptions": ["financial mini-dev stub case"],
+        }
     return _STUB.get(agent, {"_stub": True, "agent": agent})
