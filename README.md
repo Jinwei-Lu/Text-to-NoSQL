@@ -7,7 +7,6 @@ TEND 是一个面向 MongoDB 的 Text-to-NoSQL 基准构造与评测工作区。
 - `src/tend/` 是当前活跃的构造、验证、执行、日志和求解器代码。
 - `proposals/` 存放方法论文档、提示词契约、JSON Schema、烟测夹具以及运行时代码实现的发布标准。
 - `src/tend/baselines/` 是当前活跃的受限 LLM baseline runtime，可通过 `tend baseline` 运行。
-- `baselines/` 存放 legacy/reproduction 脚本，包括 zero-shot、ICL、RAG、self-debugging 和 SQL-to-NoSQL 转换实验。
 
 仓库中 `proposals/fixtures/` 和 `tests/fixtures/` 下的夹具都是烟测夹具。它们适合做契约和管线连通性检查，但不是生产基准发布版本。生产发布版本应由构造流水线生成，并通过 `tend publish` 的发布验证。
 
@@ -112,7 +111,6 @@ proposals/                   方法论文档、agent prompts、schemas、烟测�
 proposals/agent_prompts/     LLM-backed agents 使用的提示词契约
 proposals/schemas/           JSON Schemas、valid/invalid 夹具、solver allow-list
 proposals/fixtures/          proposal 烟测夹具，不是生产发布数据
-baselines/                   legacy/reproduction 基线脚本
 runs/                        本地运行输出和日志
 release/TEND-dataset/        默认生产发布目标目录
 minidev/MINIDEV/             期望的 BIRD mini-dev 源数据根目录，如果本机存在
@@ -353,15 +351,7 @@ python -m pytest tests/test_pipeline.py
 
 活跃 baseline runtime 位于 `src/tend/baselines/`，通过 `tend baseline` 运行。它继承主 runtime 的日志、异常、LLM transcript、diagnostics sidecar 和终端进度系统，是当前推荐的 baseline 实验入口。
 
-顶层 `baselines/` 目录存放的是 legacy/reproduction 脚本，不是活跃构造流水线：
-
-- `zero-shot/` 直接根据 schema 和 NLQ 提示模型。
-- `ICL/` 添加 in-context examples。
-- `RAG/` 在生成前检索相关示例。
-- `self_debug/` 围绕生成的 MQL 做迭代 self-debugging。
-- `SQL_to_NoSQL/` 使用 SQL、SQL schema、MongoDB schema，以及内置 SQL-to-Mongo converter grammar 做 SQL-assisted baseline。
-
-这些 legacy 脚本适合复现实验历史结果；新的论文/leaderboard 对照实验应优先使用 `tend baseline`，因为它会明确执行 solver-visible boundary、输出 disclosure，并把每次 LLM 调用记录为 Markdown transcript 与 diagnostics JSON。
+新的论文/leaderboard 对照实验应优先使用 `tend baseline`，因为它会明确执行 solver-visible boundary、输出 disclosure，并把每次 LLM 调用记录为 Markdown transcript 与 diagnostics JSON。
 
 ## 开发说明
 
