@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .agents import AgentContext
+from .ablations import ABLATION_IDS, run_ablation_suite
 from .baselines import BASELINE_IDS, run_baseline_suite
 from .config import Settings
 from .dataset import write_catalog, write_phase_a, write_records
@@ -34,6 +35,7 @@ from .stubs import stub_fn
 from .solver.workflow import (
     DEFAULT_R_MAX,
     DEFAULT_WITNESS_K,
+    SmartSolveOptions,
     load_solver_release_inputs,
     smart_solve_record,
 )
@@ -199,6 +201,32 @@ async def _run_construct(rt: Runtime, db_ids: list[str], phase: str, n_records: 
     return 1 if failed or summary.get("anomaly_total", 0) else 0
 
 
+async def _preload_solver_witnesses(
+    rt: Runtime,
+    inputs: list[tuple[dict, dict, dict | None]],
+) -> set[str]:
+    """Load each db witness once before record-level solver fan-out."""
+    if rt.settings.stub or rt.mongo is None or not rt.mongo.available():
+        return set()
+    by_db: dict[str, dict] = {}
+    for record, _schema, data in inputs:
+        db = str(record.get("db_id"))
+        if db and data and db not in by_db:
+            by_db[db] = data
+    if not by_db:
+        return set()
+
+    async def load_one(db: str, data: dict) -> str:
+        await asyncio.to_thread(rt.mongo.load_witness, db, data)
+        return db
+
+    loaded = await asyncio.gather(
+        *(load_one(db, data) for db, data in sorted(by_db.items()))
+    )
+    rt.log.info("solver_witness_preloaded", db_ids=loaded, db_count=len(loaded))
+    return set(loaded)
+
+
 async def _run_solve(
     rt: Runtime,
     *,
@@ -230,7 +258,15 @@ async def _run_solve(
             )
         with rt.progress:
             rt.workflow.phase("SOLVE")
-            for record, schema, data in inputs:
+            preloaded_dbs = await _preload_solver_witnesses(rt, inputs)
+
+            async def solve_one(
+                batch_index: int,
+                record: dict,
+                schema: dict,
+                data: dict | None,
+            ) -> tuple[int, dict]:
+                db = str(record.get("db_id"))
                 result = await smart_solve_record(
                     rt.workflow,
                     record,
@@ -238,8 +274,29 @@ async def _run_solve(
                     local_data=data,
                     r_max=r_max,
                     witness_k=witness_k,
+                    options=SmartSolveOptions(
+                        progress_work_item_id=f"batch_index={batch_index}",
+                    ),
+                    witness_preloaded=db in preloaded_dbs,
                 )
                 payload = result.to_json()
+                payload["batch_index"] = batch_index
+                payload["work_item_id"] = f"solve:{batch_index}:{db}:{record.get('record_id')}"
+                return batch_index, payload
+
+            tasks = [
+                asyncio.create_task(solve_one(index, record, schema, data))
+                for index, (record, schema, data) in enumerate(inputs)
+            ]
+            try:
+                solved = await asyncio.gather(*tasks)
+            except Exception:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+            for _, payload in sorted(solved, key=lambda item: item[0]):
                 if payload.get("result_type") == "solver_failure":
                     failures.append(payload)
                 else:
@@ -367,6 +424,108 @@ async def _run_baseline(
     return 1 if failed_run else 0
 
 
+async def _run_ablation(
+    rt: Runtime,
+    *,
+    dataset_dir: Path,
+    ablations: str,
+    db_id: str | None,
+    record_id: int | None,
+    limit: int,
+    r_max: int,
+    witness_k: int,
+) -> int:
+    outputs: list[dict] = []
+    failed: TendError | None = None
+    summary: dict = {}
+    try:
+        with rt.progress:
+            outputs = await run_ablation_suite(
+                rt.workflow,
+                dataset_dir=dataset_dir,
+                ablation_selection=ablations,
+                db_id=db_id,
+                record_id=record_id,
+                limit=limit,
+                r_max=r_max,
+                witness_k=witness_k,
+            )
+    except TendError as err:
+        failed = err
+        if not err.logged:
+            rt.log.anomaly(err)
+        rt.log.error("ablation_run_failed", error_type=type(err).__name__,
+                     message=err.message, anomaly=err.anomaly.value if err.anomaly else None)
+    except Exception as exc:  # noqa: BLE001 - final CLI boundary
+        failed = wrap_unexpected(exc, stage="ablation")
+        rt.log.anomaly(failed)
+        rt.log.error("ablation_run_failed", error_type=type(failed).__name__,
+                     message=failed.message,
+                     anomaly=failed.anomaly.value if failed.anomaly else None)
+    finally:
+        out_path = rt.settings.run_dir / "ablation_predictions.jsonl"
+        failures_path = rt.settings.run_dir / "ablation_failures.jsonl"
+        summary_path = rt.settings.run_dir / "ablation_summary.json"
+        predictions = [item for item in outputs if item.get("status") == "ok"]
+        failures = [item for item in outputs if item.get("status") != "ok"]
+        if predictions:
+            import json
+
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with out_path.open("w", encoding="utf-8") as fp:
+                for output in predictions:
+                    fp.write(json.dumps(output, ensure_ascii=False, default=str) + "\n")
+        if failures:
+            import json
+
+            failures_path.parent.mkdir(parents=True, exist_ok=True)
+            with failures_path.open("w", encoding="utf-8") as fp:
+                for output in failures:
+                    fp.write(json.dumps(output, ensure_ascii=False, default=str) + "\n")
+        summary = rt.progress.summary() if hasattr(rt.progress, "summary") else {}
+        failed_run = (
+            failed is not None
+            or not predictions
+            or bool(failures)
+            or summary.get("anomaly_total", 0) > 0
+        )
+        import json
+
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(json.dumps({
+            "run_id": rt.settings.run_id,
+            "status": "failed" if failed_run else "ok",
+            "outputs": len(outputs),
+            "predictions": len(predictions),
+            "failures": len(failures),
+            "by_ablation": _count_by(predictions, "ablation_id"),
+            "failed_by_ablation": _count_by(failures, "ablation_id"),
+            "progress": summary,
+            "output": str(out_path),
+            "failures_output": str(failures_path),
+        }, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        rt.log.info("ablation_run_done", status="failed" if failed_run else "ok",
+                    outputs=len(outputs), predictions=len(predictions),
+                    failures=len(failures), output=str(out_path),
+                    failures_output=str(failures_path), summary_output=str(summary_path),
+                    **summary)
+        _print_ablation_summary(
+            rt,
+            predictions,
+            failures,
+            summary,
+            out_path,
+            failures_path,
+            summary_path,
+        )
+        if rt.source is not None:
+            rt.source.close()
+        rt.mongo.close()
+        rt.log.close()
+
+    return 1 if failed_run else 0
+
+
 def _print_summary(rt, artifacts, records, summary, out_dir) -> None:
     print("\n" + "=" * 64)
     print(f"TEND construct · run {rt.settings.run_id} · "
@@ -430,6 +589,45 @@ def _print_baseline_summary(rt, predictions, failures, summary, out_path, failur
     if failures:
         print(f"  failures output : {failures_path}")
     print("=" * 64)
+
+
+def _print_ablation_summary(
+    rt,
+    predictions,
+    failures,
+    summary,
+    out_path,
+    failures_path,
+    summary_path,
+) -> None:
+    print("\n" + "=" * 64)
+    print(f"TEND ablation · run {rt.settings.run_id} · "
+          f"{'STUB' if rt.settings.stub else 'LIVE ' + rt.settings.llm.model}")
+    print(f"  predictions : {len(predictions)}")
+    print(f"  ablations : {_count_by(predictions, 'ablation_id')}")
+    print(f"  failures  : {len(failures)}")
+    for item in predictions[:5]:
+        print(f"    {item.get('ablation_id')} #{item.get('record_id')} "
+              f"{item.get('db_id')} attempts={item.get('attempts')} "
+              f"mql={str(item.get('MQL', ''))[:80]}")
+    for item in failures[:5]:
+        print(f"    failure {item.get('ablation_id')} #{item.get('record_id')} "
+              f"{item.get('error_code')}: {str(item.get('message', ''))[:80]}")
+    print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
+    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl")
+    print(f"  output : {out_path}")
+    print(f"  summary: {summary_path}")
+    if failures:
+        print(f"  failures output : {failures_path}")
+    print("=" * 64)
+
+
+def _count_by(items: list[dict], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        value = str(item.get(key))
+        counts[value] = counts.get(value, 0) + 1
+    return counts
 
 
 def _resolve_repo_path(settings: Settings, path: str | Path) -> Path:
@@ -600,6 +798,21 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--quiet", action="store_true", help="disable the live progress UI")
     b.add_argument("--run-id", default=None)
 
+    a = sub.add_parser("ablation", help="run SMART solver ablation study")
+    a.add_argument("--dataset-dir", default=None,
+                   help="release dataset dir (default: release/TEND-dataset)")
+    a.add_argument("--ablations", default="all",
+                   help=f"comma-separated ablation ids or all; known={','.join(ABLATION_IDS)}")
+    a.add_argument("--db-id", default=None, help="optional db_id filter")
+    a.add_argument("--record-id", type=int, default=None, help="optional record_id filter")
+    a.add_argument("--limit", type=int, default=1, help="max records per ablation")
+    a.add_argument("--r-max", type=int, default=DEFAULT_R_MAX, help="SMART fallback limit")
+    a.add_argument("--witness-k", type=int, default=DEFAULT_WITNESS_K,
+                   help="prompt witness sample count for ablations that use samples")
+    a.add_argument("--stub", action="store_true", help="offline mode (no live LLM)")
+    a.add_argument("--quiet", action="store_true", help="disable the live progress UI")
+    a.add_argument("--run-id", default=None)
+
     args = parser.parse_args(argv)
 
     overrides = {}
@@ -612,7 +825,7 @@ def main(argv: list[str] | None = None) -> int:
         run_id=run_id,
         overrides=overrides,
         require_bird=args.command == "construct",
-        require_llm=args.command in {"construct", "solve", "baseline"},
+        require_llm=args.command in {"construct", "solve", "baseline", "ablation"},
     )
 
     if args.command == "validate":
@@ -663,6 +876,22 @@ def main(argv: list[str] | None = None) -> int:
             db_id=args.db_id,
             record_id=args.record_id,
             limit=args.limit,
+            witness_k=args.witness_k,
+        ))
+    if args.command == "ablation":
+        rt = build_solver_runtime(settings, run_kind="ablation")
+        dataset_dir = _resolve_repo_path(
+            settings,
+            args.dataset_dir if args.dataset_dir else PRODUCTION_RELEASE_DIR,
+        )
+        return asyncio.run(_run_ablation(
+            rt,
+            dataset_dir=dataset_dir,
+            ablations=args.ablations,
+            db_id=args.db_id,
+            record_id=args.record_id,
+            limit=args.limit,
+            r_max=args.r_max,
             witness_k=args.witness_k,
         ))
     parser.error("unknown command")

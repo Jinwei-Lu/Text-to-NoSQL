@@ -1,12 +1,14 @@
 """SMART solver workflow from proposals/06_solution_design.md."""
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
-from ..errors import Anomaly
+from ..errors import Anomaly, PromptAnomalyError, TendError
 from ..workflow import Workflow
 from . import agents as _agents  # noqa: F401 - import registers SMART agents
 from .contracts import LogicalSpec, PhysicalPlan, SolverDisclosure, SolverPrediction
@@ -14,6 +16,34 @@ from .guards import SolverBoundary, render_mql
 
 DEFAULT_R_MAX = 2
 DEFAULT_WITNESS_K = 3
+ExecutionMode = Literal["per_stage", "whole_query", "static"]
+
+
+@dataclass(frozen=True)
+class SmartSolveOptions:
+    """Runtime switches used by SMART ablations.
+
+    Defaults preserve the reference solver. Ablation runners pass explicit options so
+    every run records which mechanism was disabled without forking the solver path.
+    """
+
+    solver_variant: str = "full_smart"
+    execution_mode: ExecutionMode = "per_stage"
+    use_shape_comprehension: bool = True
+    use_schema_variants: bool = True
+    use_colloquial_nlq: bool = True
+    use_intent_contracts: bool = True
+    use_preserve_guard: bool = True
+    require_variant_handling: bool = True
+    use_variant_stratification: bool = True
+    allow_local_witness_strata: bool = True
+    r_max: int | None = None
+    witness_k: int | None = None
+    progress_group_prefix: str = "solve"
+    progress_work_item_id: str | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -44,38 +74,77 @@ async def smart_solve_record(
     local_data: dict[str, list[dict[str, Any]]] | None = None,
     r_max: int = DEFAULT_R_MAX,
     witness_k: int = DEFAULT_WITNESS_K,
+    options: SmartSolveOptions | None = None,
+    witness_preloaded: bool = False,
 ) -> SolverPrediction | SolverFailure:
     """Solve one TEND record using the SMART four-stage reference workflow.
 
     The record may be a release ``test.json`` record. It is sanitized before any stage sees
     it so gold fields such as ``MQL`` and ``shape_policy`` cannot leak into prompts.
     """
-    base_log = wf.ctx.log.bind(component="smart_solver")
+    options = options or SmartSolveOptions()
+    effective_r_max = _effective_r_max(options, r_max)
+    effective_witness_k = _effective_witness_k(options, witness_k)
+    schema_for_solver = _strip_schema_variants(schema) if not options.use_schema_variants else schema
+    base_log = wf.ctx.log.bind(component="smart_solver", solver_variant=options.solver_variant)
     boundary = SolverBoundary.from_settings(wf.ctx.settings, logger=base_log)
     safe = boundary.sanitize_test_record(record)
     db_id = str(safe["db_id"])
     record_id = safe.get("record_id")
-    nlq = _canonical_nlq(safe)
-    colloquial = (safe.get("nl_queries") or {}).get("colloquial", "")
-    disclosure = boundary.disclosure(wf.ctx.settings, r_max=r_max, witness_k=witness_k)
+    nlq = _canonical_nlq(safe, use_colloquial=options.use_colloquial_nlq)
+    colloquial = (
+        (safe.get("nl_queries") or {}).get("colloquial", "")
+        if options.use_colloquial_nlq
+        else ""
+    )
+    disclosure = boundary.disclosure(
+        wf.ctx.settings,
+        r_max=effective_r_max,
+        witness_k=effective_witness_k,
+    )
     base_log.info("smart_solver_start", db_id=db_id, record_id=record_id,
-                  disclosure=disclosure.to_json())
+                  disclosure=disclosure.to_json(), solver_options=options.to_json())
 
-    group = f"solve:{db_id}:{record_id}" if record_id is not None else f"solve:{db_id}"
+    prefix = options.progress_group_prefix.strip(":") or "solve"
+    group = f"{prefix}:{db_id}:{record_id}" if record_id is not None else f"{prefix}:{db_id}"
     if wf.ctx.progress:
         wf.ctx.progress.add_group(group, f"solve {db_id}/{record_id}", phase="SOLVE", total=5)
-    ctx = wf.context(db_id=db_id, record_id=record_id, group=group, phase="SOLVE")
+    ctx = wf.context(
+        db_id=db_id,
+        record_id=record_id,
+        group=group,
+        phase="SOLVE",
+        work_item_id=options.progress_work_item_id,
+        extra={
+            **wf.ctx.extra,
+            "solver_options": options.to_json(),
+            "solver_use_intent_contracts": options.use_intent_contracts,
+            "solver_use_preserve_guard": options.use_preserve_guard,
+            "solver_require_variant_handling": options.require_variant_handling,
+        },
+    )
 
-    shape_model = await comprehend_shapes(wf, ctx, nlq, schema)
-    witness_digest = build_witness_digest(local_data, witness_k)
+    if options.use_shape_comprehension:
+        shape_model = await comprehend_shapes(wf, ctx, nlq, schema_for_solver)
+    else:
+        shape_model = collapsed_shape_model(schema_for_solver)
+        ctx.log.info(
+            "smart_solver_shape_ablation",
+            reason="shape comprehension disabled; using collapsed schema view",
+            collections=sorted(shape_model.get("collections", {})),
+        )
+    witness_data = local_data if effective_witness_k > 0 else None
+    witness_digest = build_witness_digest(witness_data, effective_witness_k)
+    if effective_witness_k == 0:
+        ctx.log.info("smart_solver_witness_ablation", reason="prompt witness digest disabled")
     feedback: dict[str, Any] | None = None
     feedback_log: list[dict[str, Any]] = []
     logical_spec: dict[str, Any] = {}
     physical_plan: dict[str, Any] = {}
 
-    _load_local_data_if_available(ctx, db_id, local_data)
+    _load_local_data_if_available(ctx, db_id, local_data, witness_preloaded=witness_preloaded)
 
-    for attempt in range(r_max + 1):
+    for attempt in range(effective_r_max + 1):
         ctx.log.info("smart_solver_attempt", attempt=attempt, feedback=feedback)
         logical_spec = await wf.agent(
             "smart_intent",
@@ -99,17 +168,38 @@ async def smart_solve_record(
         assert physical_plan is not None
         plan = PhysicalPlan.from_json(physical_plan)
 
-        realization = realize_plan_per_stage(
-            ctx,
-            boundary,
-            db_id=db_id,
-            plan=plan,
-            target_fields=spec.target_fields,
-            schema=schema,
-            shape_model=shape_model,
-            local_data=local_data,
-            attempt=attempt,
-        )
+        if options.execution_mode == "per_stage":
+            realization = await asyncio.to_thread(
+                realize_plan_per_stage,
+                ctx,
+                boundary,
+                db_id=db_id,
+                plan=plan,
+                target_fields=spec.target_fields,
+                schema=schema_for_solver,
+                shape_model=shape_model,
+                local_data=local_data,
+                attempt=attempt,
+                variant_stratification=options.use_variant_stratification,
+                allow_local_witness_strata=options.allow_local_witness_strata,
+            )
+        elif options.execution_mode == "whole_query":
+            realization = await asyncio.to_thread(
+                realize_plan_whole_query,
+                ctx,
+                boundary,
+                db_id=db_id,
+                plan=plan,
+                attempt=attempt,
+            )
+        else:
+            realization = realize_plan_static(
+                ctx,
+                boundary,
+                db_id=db_id,
+                plan=plan,
+                attempt=attempt,
+            )
         if realization["ok"]:
             mql = realization["mql"]
             ctx.log.info("smart_solver_done", attempts=attempt + 1, mql_preview=mql[:300])
@@ -143,11 +233,11 @@ async def smart_solve_record(
             )
 
     terminal_feedback = feedback_log[-1] if feedback_log else None
-    ctx.log.warning("smart_solver_abandon", attempts=r_max + 1, feedback=feedback_log)
+    ctx.log.warning("smart_solver_abandon", attempts=effective_r_max + 1, feedback=feedback_log)
     ctx.log.anomaly(
         kind=Anomaly.SOLVER_EXHAUSTED,
         message="solver exhausted all realization attempts",
-        attempts=r_max + 1,
+        attempts=effective_r_max + 1,
         feedback=feedback_log,
         terminal_feedback=terminal_feedback,
     )
@@ -208,6 +298,8 @@ def realize_plan_per_stage(
     shape_model: dict[str, Any] | None = None,
     local_data: dict[str, list[dict[str, Any]]] | None = None,
     attempt: int | None = None,
+    variant_stratification: bool = True,
+    allow_local_witness_strata: bool = True,
 ) -> dict[str, Any]:
     """Stage 4: AST-filter and execute each growing prefix when a local executor exists."""
     from .per_stage import CheckpointSpec, run_per_stage_check
@@ -227,6 +319,8 @@ def realize_plan_per_stage(
             schema=schema,
             shape_model=shape_model,
             local_data=local_data,
+            variant_stratification=variant_stratification,
+            allow_local_witness_strata=allow_local_witness_strata,
         )
     else:
         ctx.log.anomaly(
@@ -263,6 +357,116 @@ def realize_plan_per_stage(
         return {"ok": True, "mql": mql, "feedback": None}
     feedback = result.feedback.to_log_context() if result.feedback else None
     return {"ok": False, "mql": None, "feedback": feedback}
+
+
+def realize_plan_whole_query(
+    ctx: Any,
+    boundary: SolverBoundary,
+    *,
+    db_id: str,
+    plan: PhysicalPlan,
+    attempt: int | None = None,
+) -> dict[str, Any]:
+    """Ablation realization: execute only the full query, without prefix checkpoints."""
+    boundary.assert_stage_can_use_tool("query_realization", "mongo_executor")
+    mql = render_mql(plan.collection, [stage.stage for stage in plan.stages])
+    try:
+        boundary.assert_no_disabled(mql)
+    except TendError as err:
+        return _realization_boundary_failure(err, attempt=attempt)
+    if ctx.settings.stub:
+        ctx.log.info(
+            "smart_solver_whole_query_stub",
+            attempt=attempt,
+            collection=plan.collection,
+            stages=len(plan.stages),
+        )
+        return {"ok": True, "mql": mql, "feedback": None}
+    if ctx.mongo is None or not ctx.mongo.available():
+        ctx.log.anomaly(
+            kind=Anomaly.EXEC_ERROR,
+            message="local MongoDB unavailable for whole-query solver execution",
+            db_id=db_id,
+            collection=plan.collection,
+            attempt=attempt,
+        )
+        return {
+            "ok": False,
+            "mql": None,
+            "feedback": {
+                "error_code": "EXEC_ERROR",
+                "stage_index": len(plan.stages),
+                "failing_variant": None,
+                "suspect_field": None,
+                "message": "local MongoDB unavailable for whole-query solver execution",
+                "boundary_failure": True,
+                "attempt": attempt,
+            },
+        }
+    try:
+        docs = ctx.mongo.norm_exec(db_id, mql)
+    except Exception as exc:  # noqa: BLE001 - executor feedback is an ablation signal
+        return {
+            "ok": False,
+            "mql": None,
+            "feedback": {
+                "error_code": "EXEC_ERROR",
+                "stage_index": len(plan.stages),
+                "failing_variant": None,
+                "suspect_field": None,
+                "message": str(exc)[:500],
+                "boundary_failure": True,
+                "attempt": attempt,
+            },
+        }
+    ctx.log.info(
+        "smart_solver_whole_query_done",
+        attempt=attempt,
+        collection=plan.collection,
+        stages=len(plan.stages),
+        output_rows=len(docs),
+    )
+    return {"ok": True, "mql": mql, "feedback": None}
+
+
+def realize_plan_static(
+    ctx: Any,
+    boundary: SolverBoundary,
+    *,
+    db_id: str,
+    plan: PhysicalPlan,
+    attempt: int | None = None,
+) -> dict[str, Any]:
+    """Ablation realization: render MQL and apply only static disabled-operator guards."""
+    mql = render_mql(plan.collection, [stage.stage for stage in plan.stages])
+    try:
+        boundary.assert_no_disabled(mql)
+    except TendError as err:
+        return _realization_boundary_failure(err, attempt=attempt)
+    ctx.log.info(
+        "smart_solver_static_realization",
+        db_id=db_id,
+        attempt=attempt,
+        collection=plan.collection,
+        stages=len(plan.stages),
+    )
+    return {"ok": True, "mql": mql, "feedback": None}
+
+
+def _realization_boundary_failure(err: TendError, *, attempt: int | None) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "mql": None,
+        "feedback": {
+            "error_code": err.anomaly.value if err.anomaly else "BOUNDARY_ERROR",
+            "stage_index": err.context.get("stage_index"),
+            "failing_variant": None,
+            "suspect_field": None,
+            "message": err.message,
+            "boundary_failure": True,
+            "attempt": attempt,
+        },
+    }
 
 
 def load_solver_release_inputs(
@@ -330,15 +534,88 @@ def _string_values_in_sample(docs: list[dict[str, Any]]) -> dict[str, list[str]]
     return {key: sorted(vals)[:8] for key, vals in sorted(values.items())}
 
 
-def _canonical_nlq(record: dict[str, Any]) -> str:
+def collapsed_shape_model(schema: dict[str, Any]) -> dict[str, Any]:
+    """Return a flat, variant-free shape model for shape-ablation runs."""
+    collections: dict[str, Any] = {}
+    for name, raw in sorted(_schema_collections(schema).items()):
+        fields = raw.get("fields") if isinstance(raw, Mapping) else None
+        if isinstance(fields, Mapping):
+            field_names = sorted(str(field) for field in fields)
+        elif isinstance(fields, list):
+            field_names = sorted(str(field) for field in fields)
+        elif isinstance(raw, Mapping):
+            field_names = sorted(
+                str(key)
+                for key in raw
+                if not str(key).startswith("__") and key not in {"doc_count", "schema_flex"}
+            )
+        else:
+            field_names = []
+        collections[str(name)] = {
+            "variants": [{"id": "*", "discriminator": {}, "coverage": 1.0, "fields": {}}],
+            "field_locus": {
+                field: [{"variant": "*", "path": field, "type": "unknown", "presence": "always"}]
+                for field in field_names
+            },
+            "doc_count": raw.get("doc_count") if isinstance(raw, Mapping) else None,
+        }
+    return {
+        "collections": collections,
+        "coverage_gaps": ["ablation:shape_comprehension_disabled"],
+        "shape_flex_signature": [],
+    }
+
+
+def _canonical_nlq(record: dict[str, Any], *, use_colloquial: bool = True) -> str:
     nl_queries = record.get("nl_queries")
     if isinstance(nl_queries, dict):
-        return str(nl_queries.get("canonical") or nl_queries.get("colloquial") or "")
-    return str(record.get("NLQ") or record.get("query") or "")
+        candidates = [nl_queries.get("canonical")]
+        if use_colloquial:
+            candidates.append(nl_queries.get("colloquial"))
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate
+    for key in ("NLQ", "query"):
+        candidate = record.get(key)
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate
+    raise PromptAnomalyError(
+        "solver record missing natural language question",
+        context={"record_id": record.get("record_id"), "db_id": record.get("db_id")},
+    )
 
 
-def _load_local_data_if_available(ctx: Any, db_id: str, data: dict[str, list[dict[str, Any]]] | None) -> None:
+def _strip_schema_variants(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _strip_schema_variants(child)
+            for key, child in value.items()
+            if key not in {"__variants", "schema_flex"}
+        }
+    if isinstance(value, list):
+        return [_strip_schema_variants(item) for item in value]
+    return value
+
+
+def _effective_r_max(options: SmartSolveOptions, fallback: int) -> int:
+    return max(0, options.r_max if options.r_max is not None else fallback)
+
+
+def _effective_witness_k(options: SmartSolveOptions, fallback: int) -> int:
+    return max(0, options.witness_k if options.witness_k is not None else fallback)
+
+
+def _load_local_data_if_available(
+    ctx: Any,
+    db_id: str,
+    data: dict[str, list[dict[str, Any]]] | None,
+    *,
+    witness_preloaded: bool = False,
+) -> None:
     if not data or ctx.mongo is None or ctx.settings.stub:
+        return
+    if witness_preloaded:
+        ctx.log.info("smart_solver_witness_reuse", db_id=db_id)
         return
     if not ctx.mongo.available():
         ctx.log.warning("smart_solver_mongo_unavailable", db_id=db_id)
@@ -393,20 +670,29 @@ class _MongoPrefixExecutor:
         schema: dict[str, Any] | None = None,
         shape_model: dict[str, Any] | None = None,
         local_data: dict[str, list[dict[str, Any]]] | None = None,
+        variant_stratification: bool = True,
+        allow_local_witness_strata: bool = True,
     ) -> None:
         self._mongo = mongo
         self._schema = schema or {}
         self._shape_model = shape_model or {}
         self._local_data = local_data or {}
+        self._variant_stratification = variant_stratification
+        self._allow_local_witness_strata = allow_local_witness_strata
 
     def execute_prefix(self, request: Any) -> Any:
         from .per_stage import PrefixExecutionResult, VariantExecution
 
-        strata = _variant_strata(
-            request.collection,
-            schema=self._schema,
-            shape_model=self._shape_model,
-            local_data=self._local_data,
+        strata = (
+            _variant_strata(
+                request.collection,
+                schema=self._schema,
+                shape_model=self._shape_model,
+                local_data=self._local_data,
+                allow_local_witness=self._allow_local_witness_strata,
+            )
+            if self._variant_stratification
+            else ()
         )
         if not strata:
             docs = self._mongo.norm_exec(request.db_id, request.mql)
@@ -417,32 +703,30 @@ class _MongoPrefixExecutor:
                 input_count=input_count,
             )
 
-        variants: list[VariantExecution] = []
-        for stratum in strata:
+        def execute_stratum(stratum: _VariantStratum) -> VariantExecution:
             input_count = self._count_variant(request, stratum)
             try:
                 docs = self._mongo.norm_exec(request.db_id, _stratified_mql(request, stratum))
-                variants.append(
-                    VariantExecution(
-                        stratum.variant,
-                        tuple(docs),
-                        input_count,
-                        context=stratum.to_log_context(),
-                    )
+                return VariantExecution(
+                    stratum.variant,
+                    tuple(docs),
+                    input_count,
+                    context=stratum.to_log_context(),
                 )
             except Exception as exc:  # noqa: BLE001 - report variant-scoped executor feedback
-                variants.append(
-                    VariantExecution(
-                        stratum.variant,
-                        (),
-                        input_count,
-                        str(exc)[:500],
-                        {
-                            **stratum.to_log_context(),
-                            "exception_type": type(exc).__name__,
-                        },
-                    )
+                return VariantExecution(
+                    stratum.variant,
+                    (),
+                    input_count,
+                    str(exc)[:500],
+                    {
+                        **stratum.to_log_context(),
+                        "exception_type": type(exc).__name__,
+                    },
                 )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(strata)) as pool:
+            variants = list(pool.map(execute_stratum, strata))
         return PrefixExecutionResult(tuple(variants))
 
     def _count_variant(self, request: Any, stratum: _VariantStratum | None) -> int | None:
@@ -476,6 +760,7 @@ def _variant_strata(
     schema: dict[str, Any],
     shape_model: dict[str, Any],
     local_data: dict[str, list[dict[str, Any]]],
+    allow_local_witness: bool = True,
 ) -> tuple[_VariantStratum, ...]:
     raw_variants = _shape_model_variants(shape_model, collection)
     source = "shape_model"
@@ -485,7 +770,9 @@ def _variant_strata(
     strata = _normalize_variant_strata(raw_variants, source=source)
     if strata:
         return strata
-    return _local_witness_strata(local_data, collection)
+    if allow_local_witness:
+        return _local_witness_strata(local_data, collection)
+    return ()
 
 
 def _shape_model_variants(shape_model: dict[str, Any], collection: str) -> list[Mapping[str, Any]]:

@@ -177,6 +177,45 @@ def test_baseline_with_dataset_dir_does_not_require_bird(
     )
 
 
+def test_ablation_with_dataset_dir_does_not_require_bird(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setenv("TEND_BIRD_ROOT", str(tmp_path / "missing-bird"))
+
+    def fail_bird_source(*_args, **_kwargs):
+        raise AssertionError("ablation should not construct BirdSource")
+
+    async def fake_run_ablation(rt, **kwargs):
+        captured["source"] = rt.source
+        captured["dataset_dir"] = kwargs["dataset_dir"]
+        captured["ablations"] = kwargs["ablations"]
+        rt.mongo.close()
+        rt.log.close()
+        return 0
+
+    monkeypatch.setattr(cli, "BirdSource", fail_bird_source)
+    monkeypatch.setattr(cli, "_run_ablation", fake_run_ablation)
+
+    assert cli.main([
+        "ablation",
+        "--dataset-dir",
+        "tests/fixtures/smoke_release",
+        "--ablations",
+        "full_smart,no_shape_model",
+        "--stub",
+        "--quiet",
+        "--run-id",
+        "ablation-no-bird",
+    ]) == 0
+    assert captured["source"] is None
+    assert captured["ablations"] == "full_smart,no_shape_model"
+    assert captured["dataset_dir"] == (
+        config_module._find_repo_root() / "tests" / "fixtures" / "smoke_release"
+    )
+
+
 def test_run_solve_writes_failures_separately(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

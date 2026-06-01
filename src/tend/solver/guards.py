@@ -48,8 +48,7 @@ class SolverBoundary:
     def sanitize_test_record(self, record: dict[str, Any]) -> dict[str, Any]:
         """Return a solver-visible record with every forbidden gold/audit field removed."""
         forbidden = set(self.allow_list.get("test_record_forbidden_fields", []))
-        removed = sorted(k for k in record if k in forbidden or k.endswith("_ref"))
-        safe = {k: v for k, v in record.items() if k not in removed}
+        safe, removed = _redact_forbidden_fields(record, forbidden=forbidden)
         if removed and self.logger:
             self.logger.info("solver_forbidden_fields_redacted", fields=removed)
         return safe
@@ -250,3 +249,36 @@ def _dedupe_model_ids(models: list[str]) -> list[str]:
         seen.add(normalized)
         out.append(str(model).strip())
     return out
+
+
+def _redact_forbidden_fields(value: Any, *, forbidden: set[str], path: str = "") -> tuple[Any, list[str]]:
+    if isinstance(value, dict):
+        clean: dict[str, Any] = {}
+        removed: list[str] = []
+        for key, child in value.items():
+            key_text = str(key)
+            child_path = f"{path}.{key_text}" if path else key_text
+            if key_text in forbidden or key_text.endswith("_ref"):
+                removed.append(child_path)
+                continue
+            clean_child, child_removed = _redact_forbidden_fields(
+                child,
+                forbidden=forbidden,
+                path=child_path,
+            )
+            clean[key] = clean_child
+            removed.extend(child_removed)
+        return clean, sorted(removed)
+    if isinstance(value, list):
+        clean_items: list[Any] = []
+        removed: list[str] = []
+        for index, child in enumerate(value):
+            clean_child, child_removed = _redact_forbidden_fields(
+                child,
+                forbidden=forbidden,
+                path=f"{path}[{index}]",
+            )
+            clean_items.append(clean_child)
+            removed.extend(child_removed)
+        return clean_items, sorted(removed)
+    return value, []

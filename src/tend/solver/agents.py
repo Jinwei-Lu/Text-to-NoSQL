@@ -139,6 +139,9 @@ class SmartIntentFormalizer(LLMAgent):
         )
 
     def check_contract(self, ctx, inputs, output) -> list[str]:
+        extra = getattr(ctx, "extra", {}) if ctx is not None else {}
+        if extra.get("solver_use_intent_contracts") is False:
+            return []
         violations: list[str] = []
         inferred = infer_shape_policy(str(inputs.get("nlq", "")))
         if inferred == "preserve" and output.get("shape_policy") != "preserve":
@@ -193,10 +196,14 @@ class SmartNosqlPlanner(LLMAgent):
         )
 
     def check_contract(self, ctx, inputs, output) -> list[str]:
+        extra = getattr(ctx, "extra", {}) if ctx is not None else {}
         violations: list[str] = []
         logical = inputs.get("logical_spec", {})
         stages = _normalized_stage_items(output.get("stages", []))
-        if logical.get("shape_policy") == "preserve":
+        if (
+            logical.get("shape_policy") == "preserve"
+            and extra.get("solver_use_preserve_guard") is not False
+        ):
             root_ops = [next(iter(s.get("stage", {}) or {}), "") for s in stages]
             for op in ("$group", "$unwind"):
                 if op in root_ops:
@@ -248,7 +255,10 @@ class SmartNosqlPlanner(LLMAgent):
             inputs.get("witness_digest", {}),
         )
         violations.extend(literal_violations)
-        if not output.get("variant_handling"):
+        if (
+            not output.get("variant_handling")
+            and extra.get("solver_require_variant_handling") is not False
+        ):
             flex = inputs.get("shape_model", {}).get("shape_flex_signature", [])
             if flex:
                 violations.append("shape-flex plans must declare variant_handling")
