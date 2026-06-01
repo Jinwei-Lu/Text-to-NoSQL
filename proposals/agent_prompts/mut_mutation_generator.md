@@ -34,8 +34,6 @@ Generate plausible wrong mutations for the following gold record.
 
 | Field | Value |
 |---|---|
-| db_id | {{db_id}} |
-| record_id | {{record_id}} |
 
 **intent**
 

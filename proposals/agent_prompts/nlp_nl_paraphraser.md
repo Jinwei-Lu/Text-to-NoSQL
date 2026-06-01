@@ -35,8 +35,6 @@ Paraphrase the following locked intent into canonical and colloquial NLQ.
 
 | Field | Value |
 |---|---|
-| db_id | {{db_id}} |
-| record_id | {{record_id}} |
 
 **intent**
 

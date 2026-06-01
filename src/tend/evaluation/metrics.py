@@ -192,17 +192,23 @@ def evaluate_predictions(
             logger=log,
         )
 
-    if executor is None or not _executor_available(executor):
+    if executor is None:
+        available, unavailable_reason = False, "no evaluation executor was provided"
+    else:
+        available, unavailable_reason = _executor_available(executor)
+    if not available:
+        message = "evaluation executor unavailable; cannot run proposal 05 NormExec"
         log.anomaly(
             kind=Anomaly.EXEC_ERROR,
-            message="evaluation executor unavailable; cannot run proposal 05 NormExec",
+            message=message,
             predictions_path=str(predictions_path),
+            reason=unavailable_reason,
         )
         return _write_failed_report(
             paths,
             run_id=run_id,
             experiment_kind=experiment_kind,
-            message="evaluation executor unavailable; cannot run proposal 05 NormExec",
+            message=f"{message} ({unavailable_reason})" if unavailable_reason else message,
             error_code=Anomaly.EXEC_ERROR.value,
             logger=log,
         )
@@ -336,14 +342,17 @@ def _load_predictions(path: Path) -> list[dict[str, Any]]:
     return out
 
 
-def _executor_available(executor: EvaluationExecutor) -> bool:
+def _executor_available(executor: EvaluationExecutor) -> tuple[bool, str | None]:
+    """Return ``(available, reason)``; ``reason`` carries WHY the executor is unusable."""
     available = getattr(executor, "available", None)
     if callable(available):
         try:
-            return bool(available())
-        except Exception:
-            return False
-    return True
+            if available():
+                return True, None
+            return False, "executor.available() returned False"
+        except Exception as exc:  # noqa: BLE001 - surface the cause to anomalies.jsonl
+            return False, f"{type(exc).__name__}: {exc}"
+    return True, None
 
 
 def _load_witnesses(
@@ -497,6 +506,15 @@ def _score_one_prediction(
             run_id=run_id,
             system_id=system_id,
         )
+        if (row.get("diagnostics") or {}).get("error_code") == "record_not_found":
+            log.anomaly(
+                kind=Anomaly.INTERNAL,
+                message="prediction does not match a release record",
+                error_code="record_not_found",
+                db_id=db_id,
+                record_id=record_id,
+                system_id=system_id,
+            )
         if progress:
             metrics = row.get("metrics", {})
             progress.finish_task(
@@ -614,7 +632,10 @@ def _score_one_prediction_inner(
             order_sensitive=order_sensitive,
         )
         metrics["EFM"] = int(_field_match(aligned_pred, aligned_gold))
-        metrics["EVM"] = int(metrics["EFM"] and _value_match(aligned_pred, aligned_gold))
+        metrics["EVM"] = int(
+            metrics["EFM"]
+            and _value_match(aligned_pred, aligned_gold, order_sensitive=order_sensitive)
+        )
         diagnostics["result_rows"] = {
             "predicted": len(predicted_result),
             "gold": len(gold_result),
@@ -804,11 +825,28 @@ def _field_match(predicted: list[dict[str, Any]], gold: list[dict[str, Any]]) ->
     return True
 
 
-def _value_match(predicted: list[dict[str, Any]], gold: list[dict[str, Any]]) -> bool:
+def _value_match(
+    predicted: list[dict[str, Any]],
+    gold: list[dict[str, Any]],
+    *,
+    order_sensitive: bool,
+) -> bool:
     keys: set[str] = set()
     for row in [*predicted, *gold]:
         if isinstance(row, dict):
             keys.update(str(key) for key in row)
+    if order_sensitive:
+        # ``_align_results`` leaves the lists unsorted when order matters, so compare
+        # row-by-row positionally; an order-wrong answer must not earn EVM credit.
+        if len(predicted) != len(gold):
+            return False
+        for left, right in zip(predicted, gold):
+            for key in keys:
+                left_value = _value_key(left.get(key)) if isinstance(left, dict) else None
+                right_value = _value_key(right.get(key)) if isinstance(right, dict) else None
+                if left_value != right_value:
+                    return False
+        return True
     for key in keys:
         predicted_values = Counter(
             _value_key(row.get(key)) for row in predicted if isinstance(row, dict)

@@ -208,7 +208,7 @@ def test_workflow_isolated_raw_exceptions_emit_internal_anomalies(tmp_path: Path
     settings = _stub_settings(tmp_path)
     client = LLMClient(settings, log)
     ctx = AgentContext(settings=settings, llm=client, log=log)
-    wf = Workflow(ctx, max_concurrency=2)
+    wf = Workflow(ctx)
 
     async def ok() -> str:
         return "ok"
@@ -266,7 +266,7 @@ def test_agent_progress_task_ids_include_collection_metadata(tmp_path: Path) -> 
         record_id=17,
         group="solve:financial:17",
     )
-    wf = Workflow(ctx, max_concurrency=2)
+    wf = Workflow(ctx)
 
     async def run() -> None:
         out = await wf.map_agent(

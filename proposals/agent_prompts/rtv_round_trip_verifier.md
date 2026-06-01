@@ -31,8 +31,6 @@ Verify round-trip closure for the following NLQ pair.
 
 | Field | Value |
 |---|---|
-| db_id | {{db_id}} |
-| record_id | {{record_id}} |
 
 **Gold MQL**
 

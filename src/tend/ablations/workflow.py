@@ -141,6 +141,8 @@ async def run_ablation_suite(
     if wf.ctx.progress:
         wf.ctx.progress.phase("ABLATION")
 
+    preloaded_dbs = await _preload_ablation_witnesses(wf, inputs, log)
+
     work: list[
         tuple[int, AblationSpec, dict[str, Any], dict[str, Any], dict[str, Any] | None]
     ] = []
@@ -164,6 +166,7 @@ async def run_ablation_suite(
             r_max=r_max,
             witness_k=witness_k,
             batch_index=batch_index,
+            witness_preloaded=str(record.get("db_id") or "") in preloaded_dbs,
         )
         payload = result.to_json()
         payload["batch_index"] = batch_index
@@ -183,11 +186,47 @@ async def run_ablation_suite(
         for task in tasks:
             if not task.done():
                 task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for exc in results:
+            if isinstance(exc, Exception) and not isinstance(exc, asyncio.CancelledError):
+                log.anomaly(wrap_unexpected(exc, stage="ablation_suite_gather"))
         raise
     outputs = [payload for _, payload in sorted(completed, key=lambda item: item[0])]
     log.info("ablation_suite_done", outputs=len(outputs), ablations=len(specs))
     return outputs
+
+
+async def _preload_ablation_witnesses(
+    wf: Workflow,
+    inputs: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]],
+    log: Any,
+) -> set[str]:
+    """Load each unique db witness exactly once before the (record x spec) fan-out.
+
+    All work items gather concurrently and share the run+db-scoped working database, so a
+    per-record reload would race ``drop_database``/``insert_many`` against ``norm_exec``.
+    Preloading once mirrors the solver ``solve`` path and lets each record pass
+    ``witness_preloaded=True``.
+    """
+    if wf.ctx.settings.stub or wf.ctx.mongo is None or not wf.ctx.mongo.available():
+        return set()
+    by_db: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for record, _schema, data in inputs:
+        db = str(record.get("db_id") or "")
+        if db and data and db not in by_db:
+            by_db[db] = data
+    if not by_db:
+        return set()
+
+    async def load_one(db: str, data: dict[str, list[dict[str, Any]]]) -> str:
+        await asyncio.to_thread(wf.ctx.mongo.load_witness, db, data)
+        return db
+
+    loaded = await asyncio.gather(
+        *(load_one(db, data) for db, data in sorted(by_db.items()))
+    )
+    log.info("ablation_witness_preloaded", db_ids=list(loaded), db_count=len(loaded))
+    return set(loaded)
 
 
 async def run_ablation_record(
@@ -200,6 +239,7 @@ async def run_ablation_record(
     r_max: int = 2,
     witness_k: int = 3,
     batch_index: int | None = None,
+    witness_preloaded: bool = False,
 ) -> AblationPrediction | AblationFailure:
     db_id = str(record.get("db_id") or "")
     record_id = record.get("record_id")
@@ -220,7 +260,7 @@ async def run_ablation_record(
         solver_options=options.to_json(),
     )
 
-    variant_wf = _variant_workflow(wf, spec, options)
+    variant_wf = _variant_workflow(wf, spec, options, batch_index)
     try:
         result = await smart_solve_record(
             variant_wf,
@@ -230,6 +270,7 @@ async def run_ablation_record(
             r_max=r_max,
             witness_k=witness_k,
             options=options,
+            witness_preloaded=witness_preloaded,
         )
         if result.__class__.__name__ == "SolverFailure":
             payload = result.to_json()
@@ -336,14 +377,18 @@ def _runtime_options(
         r_max=max(0, effective_r_max),
         witness_k=max(0, effective_witness_k),
         progress_group_prefix=prefix,
-        progress_work_item_id=f"batch_index={batch_index}" if batch_index is not None else spec.id,
+        progress_work_item_id=(
+            f"{spec.id}:{batch_index}" if batch_index is not None else spec.id
+        ),
     )
 
 
-def _variant_workflow(wf: Workflow, spec: AblationSpec, options: SmartSolveOptions) -> Workflow:
-    batch_index = None
-    if options.progress_work_item_id and options.progress_work_item_id.startswith("batch_index="):
-        batch_index = options.progress_work_item_id.partition("=")[2]
+def _variant_workflow(
+    wf: Workflow,
+    spec: AblationSpec,
+    options: SmartSolveOptions,
+    batch_index: int | None = None,
+) -> Workflow:
     ctx = replace(
         wf.ctx,
         log=wf.ctx.log.bind(
@@ -358,7 +403,7 @@ def _variant_workflow(wf: Workflow, spec: AblationSpec, options: SmartSolveOptio
             "solver_options": options.to_json(),
         },
     )
-    return Workflow(ctx, max_concurrency=wf.ctx.settings.llm.max_concurrency)
+    return Workflow(ctx)
 
 
 def _prediction_from_solver_payload(

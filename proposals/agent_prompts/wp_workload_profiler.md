@@ -38,7 +38,6 @@ Analyze BIRD database **`{{db_id}}`** and produce a workload profile.
 
 | Input | Path / content |
 |---|---|
-| `db_id` | `{{db_id}}` |
 | `sqlite_path` | `{{sqlite_path}}` |
 | `domain_id` | `{{domain_id}}` |
 | `tables` | `{{tables_json}}` |

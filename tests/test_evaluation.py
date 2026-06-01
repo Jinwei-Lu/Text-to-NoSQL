@@ -100,6 +100,128 @@ def test_evaluate_predictions_writes_proposal_05_artifacts(tmp_path: Path) -> No
     assert empty["diagnostics"]["ast_reasons"]
 
 
+class _OrderCaseExecutor:
+    """Returns gold rows for the gold MQL and a row *permutation* for the prediction.
+
+    The two MQL strings differ only in collection name so the executor can tell which
+    one it is scoring; the gold pipeline carries (or omits) ``$sort`` to drive
+    order-sensitivity.
+    """
+
+    def __init__(self, gold_rows: list[dict], predicted_rows: list[dict]) -> None:
+        self._gold_rows = gold_rows
+        self._predicted_rows = predicted_rows
+
+    def available(self) -> bool:
+        return True
+
+    def load_witness(self, db_id: str, collections: dict) -> None:
+        pass
+
+    def norm_exec(self, db_id: str, mql: str) -> list[dict]:
+        if "predcoll" in mql:
+            return [dict(row) for row in self._predicted_rows]
+        return [dict(row) for row in self._gold_rows]
+
+    def close(self) -> None:
+        pass
+
+
+def _run_order_case(
+    tmp_path: Path,
+    *,
+    gold_mql: str,
+    predicted_mql: str,
+    gold_rows: list[dict],
+    predicted_rows: list[dict],
+) -> dict:
+    dataset_dir = tmp_path / "release"
+    (dataset_dir / "mongodb_data").mkdir(parents=True)
+    (dataset_dir / "test.json").write_text(
+        json.dumps([
+            {
+                "record_id": 7,
+                "db_id": "ordering",
+                "MQL": gold_mql,
+                "canonical_form_set": {},
+            }
+        ]),
+        encoding="utf-8",
+    )
+    (dataset_dir / "mongodb_data" / "ordering.json").write_text(
+        json.dumps({"goldcoll": [{"_id": 1}]}),
+        encoding="utf-8",
+    )
+    predictions = tmp_path / "predictions.jsonl"
+    predictions.write_text(
+        json.dumps({
+            "solver_variant": "permuted",
+            "record_id": 7,
+            "db_id": "ordering",
+            "MQL": predicted_mql,
+        }) + "\n",
+        encoding="utf-8",
+    )
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = ProgressReporter("eval-order", log, enabled=False)
+    try:
+        output = evaluate_predictions(
+            dataset_dir=dataset_dir,
+            predictions_path=predictions,
+            out_dir=tmp_path / "eval",
+            experiment_kind="solver",
+            run_id="eval-order-test",
+            logger=log,
+            progress=progress,
+            executor=_OrderCaseExecutor(gold_rows, predicted_rows),
+            max_workers=1,
+        )
+    finally:
+        log.close()
+    rows = [
+        json.loads(line)
+        for line in output.paths.per_record_jsonl.read_text(encoding="utf-8").splitlines()
+    ]
+    return next(row for row in rows if row["system_id"] == "permuted")
+
+
+def test_evm_zero_for_order_wrong_answer_to_order_sensitive_query(tmp_path: Path) -> None:
+    # $sort makes the gold query order-sensitive; the prediction is a row permutation,
+    # so it must earn neither EX nor EVM (EVM must not exceed EFM either).
+    gold_rows = [{"_id": 1, "v": 10}, {"_id": 2, "v": 20}]
+    predicted_rows = list(reversed(gold_rows))
+    row = _run_order_case(
+        tmp_path,
+        gold_mql="db.goldcoll.aggregate([{ \"$sort\": { \"v\": 1 } }])",
+        predicted_mql="db.predcoll.aggregate([{ \"$sort\": { \"v\": -1 } }])",
+        gold_rows=gold_rows,
+        predicted_rows=predicted_rows,
+    )
+    metrics = row["metrics"]
+    assert row["diagnostics"]["result_rows"]["order_sensitive"] is True
+    assert metrics["EX"] == 0
+    assert metrics["EFM"] == 1
+    assert metrics["EVM"] == 0
+
+
+def test_evm_one_for_permutation_under_order_insensitive_query(tmp_path: Path) -> None:
+    # No $sort: order is irrelevant, so a permutation is fully correct (EX and EVM = 1).
+    gold_rows = [{"_id": 1, "v": 10}, {"_id": 2, "v": 20}]
+    predicted_rows = list(reversed(gold_rows))
+    row = _run_order_case(
+        tmp_path,
+        gold_mql="db.goldcoll.aggregate([{ \"$project\": { \"v\": 1 } }])",
+        predicted_mql="db.predcoll.aggregate([{ \"$project\": { \"v\": 1 } }])",
+        gold_rows=gold_rows,
+        predicted_rows=predicted_rows,
+    )
+    metrics = row["metrics"]
+    assert row["diagnostics"]["result_rows"]["order_sensitive"] is False
+    assert metrics["EX"] == 1
+    assert metrics["EFM"] == 1
+    assert metrics["EVM"] == 1
+
+
 def test_manual_evaluate_cli_does_not_require_bird_or_llm(
     monkeypatch,
     tmp_path: Path,

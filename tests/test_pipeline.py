@@ -680,7 +680,7 @@ def test_workflow_parallel_pipeline_isolation(stub_settings, logger):
 
     client = LLMClient(stub_settings, logger)
     ctx = AgentContext(settings=stub_settings, llm=client, log=logger)
-    wf = Workflow(ctx, max_concurrency=4)
+    wf = Workflow(ctx)
 
     async def run():
         outs = await wf.parallel([lambda i=i: wf.agent("t_echo", {"n": i}) for i in range(5)],

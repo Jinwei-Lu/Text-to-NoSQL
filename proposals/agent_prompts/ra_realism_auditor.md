@@ -36,8 +36,6 @@ Audit realism and P4 coverage for the following record candidate.
 
 | Field | Value |
 |---|---|
-| db_id | {{db_id}} |
-| record_id | {{record_id}} |
 | shape_policy | {{shape_policy}} |
 | difficulty | {{difficulty}} |
 

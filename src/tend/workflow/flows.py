@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..agents import AgentContext
-from ..errors import Anomaly
+from ..errors import Anomaly, wrap_unexpected
 from .engine import Workflow
 
 SC_MAX_ROUNDS = 2          # SC reject -> SRA revise, at most twice (04-1-2 / 03-II-4)
@@ -22,6 +22,13 @@ RTV_MAX_ROUNDS = 2         # RTV canonical fail -> NLP rewrite (04-1-2-3)
 MS_MAX_ROUNDS = 2          # gold-lock fail -> re-synthesize / re-sample intent
 MUT_MAX_ROUNDS = 2         # PV reject -> MUT regenerate discriminating mutations
 RA_MAX_ROUNDS = 2          # P4 augment loop
+
+
+def _task_failed(task: "asyncio.Task[Any]") -> bool:
+    """True if a *done* task ended in cancellation or an exception (never raises)."""
+    if not task.done() or task.cancelled():
+        return True
+    return task.exception() is not None
 
 
 def _drop(ctx, stage: str, reason: str, **detail: Any) -> None:
@@ -84,6 +91,9 @@ async def _phase_a_one_db(wf: Workflow, db_id: str) -> DbArtifacts:
     ctx = wf.context(db_id=db_id, group=db_id)
     ctx.log.info("phase_a_db_start", db_id=db_id)
 
+    if ctx.progress:
+        ctx.progress.start_task(f"{db_id}:wp", "WP", group=db_id)
+        ctx.progress.start_task(f"{db_id}:dm", "DM", group=db_id)
     wp_task = asyncio.create_task(wf.agent("wp", {"db_id": db_id}, ctx=ctx))
     dm_task = asyncio.create_task(wf.agent("dm", {"db_id": db_id}, ctx=ctx))
     try:
@@ -99,8 +109,17 @@ async def _phase_a_one_db(wf: Workflow, db_id: str) -> DbArtifacts:
         for task in (wp_task, dm_task):
             if not task.done():
                 task.cancel()
-        await asyncio.gather(wp_task, dm_task, return_exceptions=True)
+        results = await asyncio.gather(wp_task, dm_task, return_exceptions=True)
+        for exc in results:
+            if isinstance(exc, Exception) and not isinstance(exc, asyncio.CancelledError):
+                ctx.log.anomaly(wrap_unexpected(exc, stage="phase_a_branch"))
         raise
+    finally:
+        if ctx.progress:
+            ctx.progress.finish_task(
+                f"{db_id}:wp", ok=wp_task.done() and not _task_failed(wp_task))
+            ctx.progress.finish_task(
+                f"{db_id}:dm", ok=dm_task.done() and not _task_failed(dm_task))
 
     # DM's schema is authoritative (consistent with the migrated data by construction, Gate-SD)
     source_schema = ctx.source.schema(db_id) if ctx.source else None
@@ -224,58 +243,76 @@ async def _build_record(
 
     async def mutation_branch() -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         ctx.log.info("phase_b_branch_start", branch="mut_pv")
-        mut = await wf.agent("mut", {
-            "intent": intent, "MQL": ms["MQL"], "canonical_form_set": ms["canonical_form_set"],
-        }, ctx=ctx)
-        pv = await wf.agent(
-            "pv",
-            {"MQL": ms["MQL"], "mutations": (mut or {}).get("mutations", []), "intent": intent},
-            ctx=ctx,
-        )
-        mut_rounds = 0
-        while (not pv or not pv.get("pv_pass")) and mut_rounds < MUT_MAX_ROUNDS:
-            mut_rounds += 1
-            pv_detail = (pv or {}).get("property_verification", {})
-            ctx.log.warning("pv_reject", branch="mut_pv", round=mut_rounds, detail=pv_detail)
+        if ctx.progress:
+            ctx.progress.start_task(f"{slot.record_id}:mut", "MUT/PV", group="phaseB")
+        try:
             mut = await wf.agent("mut", {
-                "intent": intent, "MQL": ms["MQL"],
-                "canonical_form_set": ms["canonical_form_set"], "pv_feedback": pv_detail,
+                "intent": intent, "MQL": ms["MQL"], "canonical_form_set": ms["canonical_form_set"],
             }, ctx=ctx)
             pv = await wf.agent(
                 "pv",
-                {
-                    "MQL": ms["MQL"],
-                    "mutations": (mut or {}).get("mutations", []),
-                    "intent": intent,
-                },
+                {"MQL": ms["MQL"], "mutations": (mut or {}).get("mutations", []), "intent": intent},
                 ctx=ctx,
             )
-        return mut, pv
+            mut_rounds = 0
+            while (not pv or not pv.get("pv_pass")) and mut_rounds < MUT_MAX_ROUNDS:
+                mut_rounds += 1
+                pv_detail = (pv or {}).get("property_verification", {})
+                ctx.log.warning("pv_reject", branch="mut_pv", round=mut_rounds, detail=pv_detail)
+                mut = await wf.agent("mut", {
+                    "intent": intent, "MQL": ms["MQL"],
+                    "canonical_form_set": ms["canonical_form_set"], "pv_feedback": pv_detail,
+                }, ctx=ctx)
+                pv = await wf.agent(
+                    "pv",
+                    {
+                        "MQL": ms["MQL"],
+                        "mutations": (mut or {}).get("mutations", []),
+                        "intent": intent,
+                    },
+                    ctx=ctx,
+                )
+            return mut, pv
+        finally:
+            if ctx.progress:
+                ctx.progress.finish_task(f"{slot.record_id}:mut")
 
     async def nl_branch() -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         ctx.log.info("phase_b_branch_start", branch="nlp_rtv")
-        nlp_inputs = {
-            "intent": intent,
-            "scenario_summary": art.scenario_summary,
-            "MQL": ms["MQL"],
-            "result_fields": ms.get("result_fields"),
-        }
-        nlp = await wf.agent("nlp", nlp_inputs, ctx=ctx)
-        rtv = await wf.agent("rtv", {"nl_queries": (nlp or {}).get("nl_queries"),
-                                     "MQL": ms["MQL"], "schema": art.mongodb_schema}, ctx=ctx)
-        rounds = 0
-        while (not rtv or not rtv.get("rtv_pass")) and rounds < RTV_MAX_ROUNDS:
-            rounds += 1
-            ctx.log.warning("rtv_reject", branch="nlp_rtv", round=rounds,
-                            reason=(rtv or {}).get("rtv_reason"))
-            nlp = await wf.agent("nlp", {**nlp_inputs, "rtv_feedback": rtv}, ctx=ctx)
+        if ctx.progress:
+            ctx.progress.start_task(f"{slot.record_id}:nl", "NLP/RTV", group="phaseB")
+        try:
+            nlp_inputs = {
+                "intent": intent,
+                "scenario_summary": art.scenario_summary,
+                "MQL": ms["MQL"],
+                "result_fields": ms.get("result_fields"),
+            }
+            nlp = await wf.agent("nlp", nlp_inputs, ctx=ctx)
             rtv = await wf.agent("rtv", {"nl_queries": (nlp or {}).get("nl_queries"),
                                          "MQL": ms["MQL"], "schema": art.mongodb_schema}, ctx=ctx)
-        return nlp, rtv
+            rounds = 0
+            while (not rtv or not rtv.get("rtv_pass")) and rounds < RTV_MAX_ROUNDS:
+                rounds += 1
+                ctx.log.warning("rtv_reject", branch="nlp_rtv", round=rounds,
+                                reason=(rtv or {}).get("rtv_reason"))
+                nlp = await wf.agent("nlp", {**nlp_inputs, "rtv_feedback": rtv}, ctx=ctx)
+                rtv = await wf.agent("rtv", {"nl_queries": (nlp or {}).get("nl_queries"),
+                                             "MQL": ms["MQL"], "schema": art.mongodb_schema}, ctx=ctx)
+            return nlp, rtv
+        finally:
+            if ctx.progress:
+                ctx.progress.finish_task(f"{slot.record_id}:nl")
 
     async def ra_branch() -> dict[str, Any] | None:
         ctx.log.info("phase_b_branch_start", branch="ra")
-        return await wf.agent("ra", {"MQL": ms["MQL"], "intent": intent}, ctx=ctx)
+        if ctx.progress:
+            ctx.progress.start_task(f"{slot.record_id}:ra", "RA", group="phaseB")
+        try:
+            return await wf.agent("ra", {"MQL": ms["MQL"], "intent": intent}, ctx=ctx)
+        finally:
+            if ctx.progress:
+                ctx.progress.finish_task(f"{slot.record_id}:ra")
 
     mutation_task = asyncio.create_task(mutation_branch())
     nl_task = asyncio.create_task(nl_branch())
@@ -286,7 +323,10 @@ async def _build_record(
         for task in (mutation_task, nl_task, ra_task):
             if not task.done():
                 task.cancel()
-        await asyncio.gather(mutation_task, nl_task, ra_task, return_exceptions=True)
+        results = await asyncio.gather(mutation_task, nl_task, ra_task, return_exceptions=True)
+        for exc in results:
+            if isinstance(exc, Exception) and not isinstance(exc, asyncio.CancelledError):
+                ctx.log.anomaly(wrap_unexpected(exc, stage="phase_b_branch"))
         raise
 
     if not pv or not pv.get("pv_pass"):

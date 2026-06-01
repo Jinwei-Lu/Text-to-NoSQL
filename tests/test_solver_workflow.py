@@ -67,7 +67,7 @@ def test_smart_solver_stub_end_to_end(stub_settings: Settings, tmp_path: Path) -
     client.set_stub(stub_fn)
     mongo = MongoExecutor(stub_settings, log)
     ctx = AgentContext(settings=stub_settings, llm=client, log=log, mongo=mongo)
-    wf = Workflow(ctx, max_concurrency=4)
+    wf = Workflow(ctx)
     (record, schema, data) = load_solver_release_inputs(
         stub_settings.paths.repo_root / "tests" / "fixtures" / "smoke_release",
         db_id="financial",
@@ -107,7 +107,7 @@ def test_smart_solver_exhaustion_returns_typed_failure_without_dummy_mql(
     log = setup_logging(run_dir, console=False)
     client = LLMClient(stub_settings, log)
     ctx = AgentContext(settings=stub_settings, llm=client, log=log)
-    wf = Workflow(ctx, max_concurrency=1)
+    wf = Workflow(ctx)
     realization_calls: list[dict] = []
 
     async def fake_comprehend_shapes(_wf, _ctx, _nlq, _schema):

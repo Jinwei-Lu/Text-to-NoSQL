@@ -28,7 +28,7 @@ def _workflow(settings: Settings, run_dir: Path) -> tuple[Workflow, object]:
     client = LLMClient(settings, log)
     client.set_stub(stub_fn)
     ctx = AgentContext(settings=settings, llm=client, log=log)
-    return Workflow(ctx, max_concurrency=2), log
+    return Workflow(ctx), log
 
 
 def test_baseline_registry_has_six_constrained_strategies() -> None:

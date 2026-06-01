@@ -174,6 +174,8 @@ class ProgressReporter:
         with self._lock:
             return Group(self._render_tree(), self._render_footer())
 
+    _MAX_GROUPS = 20  # global cap on rendered groups; active/failing shown first
+
     def _render_tree(self) -> Tree:
         elapsed = time.monotonic() - self._t0
         root = Tree(Text.assemble(
@@ -183,29 +185,66 @@ class ProgressReporter:
         by_phase: dict[str, list[tuple[str, _Group]]] = {}
         for gid, g in sorted(self._groups.items(), key=lambda kv: kv[1].order):
             by_phase.setdefault(g.phase, []).append((gid, g))
+
+        # Collect all (phase, gid, group) triples and classify them so that
+        # groups with running or failed tasks rank above fully-done groups.
+        all_groups: list[tuple[str, str, _Group]] = []
         for phase, groups in by_phase.items():
-            pnode = root.add(Text(f"Phase {phase}", style="bold yellow"))
             for gid, g in groups:
-                tasks = [t for t in self._tasks.values() if t.group == gid]
-                done = sum(1 for t in tasks if t.status in ("ok", "fail"))
-                total = g.total if g.total is not None else len(tasks)
-                total = max(total, done)
-                gnode = pnode.add(Text.assemble(
-                    (f"{g.label} ", "bold"),
-                    (f"[{done}/{total}]", "grey62"),
-                ))
-                # show running + failed tasks (skip the finished-ok ones to keep it tight)
-                show = [t for t in tasks if t.status != "ok"][:12]
-                for t in show:
-                    icon, color = _ICON.get(t.status, ("?", "white"))
-                    line = Text.assemble((f"{icon} ", color), (t.label, ""))
-                    if t.detail:
-                        line.append(f"  {t.detail}", style="grey62")
-                    if t.status in ("running", "retry"):
-                        line.append(f"  {t.elapsed():.1f}s", style="grey42")
-                    if t.anomaly:
-                        line.append(f"  !{t.anomaly}", style="red")
-                    gnode.add(line)
+                all_groups.append((phase, gid, g))
+
+        def _group_priority(item: tuple[str, str, _Group]) -> int:
+            phase, gid, _ = item
+            tasks = [t for t in self._tasks.values() if t.group == gid]
+            if any(t.status == "fail" for t in tasks):
+                return 0   # highest priority: has failures
+            if any(t.status in ("running", "retry") for t in tasks):
+                return 1   # active
+            return 2       # fully done / pending
+
+        all_groups.sort(key=_group_priority)
+
+        visible = all_groups[: self._MAX_GROUPS]
+        hidden = all_groups[self._MAX_GROUPS :]
+
+        # Render visible groups, preserving the phase-grouping structure.
+        rendered_phases: dict[str, Any] = {}
+        for phase, gid, g in visible:
+            if phase not in rendered_phases:
+                rendered_phases[phase] = root.add(Text(f"Phase {phase}", style="bold yellow"))
+            pnode = rendered_phases[phase]
+            tasks = [t for t in self._tasks.values() if t.group == gid]
+            done = sum(1 for t in tasks if t.status in ("ok", "fail"))
+            total = g.total if g.total is not None else len(tasks)
+            total = max(total, done)
+            gnode = pnode.add(Text.assemble(
+                (f"{g.label} ", "bold"),
+                (f"[{done}/{total}]", "grey62"),
+            ))
+            # show running + failed tasks first, then others; skip finished-ok
+            non_ok = [t for t in tasks if t.status != "ok"]
+            non_ok.sort(key=lambda t: 0 if t.status in ("fail", "running", "retry") else 1)
+            for t in non_ok[:12]:
+                icon, color = _ICON.get(t.status, ("?", "white"))
+                line = Text.assemble((f"{icon} ", color), (t.label, ""))
+                if t.detail:
+                    line.append(f"  {t.detail}", style="grey62")
+                if t.status in ("running", "retry"):
+                    line.append(f"  {t.elapsed():.1f}s", style="grey42")
+                if t.anomaly:
+                    line.append(f"  !{t.anomaly}", style="red")
+                gnode.add(line)
+
+        if hidden:
+            done_count = sum(
+                1 for _, gid, _ in hidden
+                if all(t.status in ("ok", "fail") for t in self._tasks.values() if t.group == gid)
+            )
+            root.add(Text(
+                f"… +{len(hidden)} more groups ({done_count} done)",
+                style="grey50",
+            ))
+
         return root
 
     def _render_footer(self) -> Panel:

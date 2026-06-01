@@ -175,12 +175,13 @@ class LLMAgent(Agent):
     def build_messages(self, ctx: AgentContext, inputs: dict[str, Any]) -> list[Message]:
         """Default message construction; override to customize framing per agent."""
         system = self.prompt_text(ctx)
-        schema_note = ""
         if self.output_schema:
-            schema_note = ("\n\nReturn ONLY a single JSON object conforming to this schema "
-                           "(no prose, no code fences):\n"
-                           + json.dumps(self.output_schema, ensure_ascii=False))
-        user = self.render_inputs(ctx, inputs) + schema_note
+            # Static schema note lives in the (stable, cacheable) system prefix, not the
+            # volatile user turn, so provider prefix caching can key on it.
+            system = system + ("\n\nReturn ONLY a single JSON object conforming to this schema "
+                               "(no prose, no code fences):\n"
+                               + json.dumps(self.output_schema, ensure_ascii=False))
+        user = self.render_inputs(ctx, inputs)
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
     def render_inputs(self, ctx: AgentContext, inputs: dict[str, Any]) -> str:
@@ -191,8 +192,11 @@ class LLMAgent(Agent):
             ctx_line += f"db_id: {ctx.db_id}\n"
         if ctx.record_id is not None:
             ctx_line += f"record_id: {ctx.record_id}\n"
-        body = "\n## Inputs\n```json\n" + json.dumps(inputs, ensure_ascii=False, indent=2) + "\n```"
-        return head + ctx_line + body
+        # sort_keys keeps equal inputs serializing identically run-to-run (cache-stable);
+        # the volatile db_id/record_id ctx_line trails the stable skeleton.
+        body = ("\n## Inputs\n```json\n"
+                + json.dumps(inputs, ensure_ascii=False, indent=2, sort_keys=True) + "\n```")
+        return head + body + ctx_line
 
     def check_contract(
         self, ctx: AgentContext, inputs: dict[str, Any], output: dict[str, Any]
@@ -225,6 +229,15 @@ class LLMAgent(Agent):
                 )
                 try:
                     if self.offload_postprocess:
+                        # Offloading only makes sense for a blocking (sync) hook. An async
+                        # postprocess run in a worker thread would return an un-awaited
+                        # coroutine, so reject that combination explicitly.
+                        if inspect.iscoroutinefunction(self.postprocess):
+                            raise ValueError(
+                                f"{type(self).__name__}.postprocess is a coroutine function but "
+                                "offload_postprocess=True; an async hook cannot be offloaded to a "
+                                "worker thread"
+                            )
                         return await asyncio.to_thread(
                             self.postprocess, ctx, inputs, output, result
                         )

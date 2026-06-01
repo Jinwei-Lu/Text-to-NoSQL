@@ -30,8 +30,6 @@ Enumerate an `intent` for the following record cell under Coverage Controller gu
 
 | Field | Value |
 |---|---|
-| db_id | {{db_id}} |
-| record_id | {{record_id}} |
 
 **Schema (S)**
 

@@ -19,6 +19,7 @@ import json
 import random
 import time
 import traceback
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any, Callable
 from uuid import uuid4
@@ -231,13 +232,23 @@ def _metadata_refusal(provider_metadata: dict[str, Any] | None) -> Any | None:
 
 
 class LLMClient:
-    """Async transcripting LLM client shared across all agents."""
+    """Async transcripting LLM client shared across all agents.
+
+    The single provider call is concurrency-limited by a semaphore gate
+    (configurable via ``settings.llm.max_concurrency``; ``<= 0`` runs unbounded),
+    making this the one canonical chokepoint for live LLM throughput.
+    """
 
     def __init__(self, settings: Settings, logger: RunLogger) -> None:
         self._s = settings
         self._log = logger
         self._stub_fn: StubFn | None = None
         self._client: Any = None
+        self._sem = (
+            asyncio.Semaphore(settings.llm.max_concurrency)
+            if settings.llm.max_concurrency > 0
+            else None
+        )
         if not settings.stub:
             # imported lazily so stub/test runs need no network stack configured
             from openai import AsyncOpenAI
@@ -442,13 +453,14 @@ class LLMClient:
     ) -> tuple[str, str | None, dict[str, int], Any]:
         if self._s.stub:
             return self._stub_call(agent, convo)
-        try:
-            resp = await self._client.chat.completions.create(
-                model=model, messages=convo, temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        except Exception as exc:  # noqa: BLE001 - mapped to typed anomalies below
-            raise self._map_provider_error(exc) from exc
+        async with (self._sem or nullcontext()):
+            try:
+                resp = await self._client.chat.completions.create(
+                    model=model, messages=convo, temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            except Exception as exc:  # noqa: BLE001 - mapped to typed anomalies below
+                raise self._map_provider_error(exc) from exc
         choice = resp.choices[0]
         text = choice.message.content or ""
         usage = {

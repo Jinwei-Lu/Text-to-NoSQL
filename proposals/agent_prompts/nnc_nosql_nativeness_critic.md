@@ -35,8 +35,6 @@ Review the following Phase B candidate for NoSQL nativeness and discriminativene
 
 | Field | Value |
 |---|---|
-| db_id | {{db_id}} |
-| record_id | {{record_id}} |
 | shape_policy | {{shape_policy}} |
 
 **intent**

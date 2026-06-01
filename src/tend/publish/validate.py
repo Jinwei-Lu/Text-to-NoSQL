@@ -243,20 +243,23 @@ def validate_release(
         index, r = index_record
         local_rec: list[str] = []
         local_sch: list[str] = []
-        db = r.get("db_id")
-        snap = snapshots.get(db) if db else None
-        if db and snap is not None and r.get("world_signature") != world_signature(snap):
-            local_rec.append(
-                f"[C4 r{r.get('record_id','?')}] world_signature does not match "
-                f"mongodb_data/{db}.json"
-            )
-        local_rec += validate_record(r, executor=executor, snapshot=snap, refs_base=out_dir)
-        if record_schema is not None:
-            local_sch += _validate_record_jsonschema_with_schema(r, record_schema)
+        try:
+            db = r.get("db_id")
+            snap = snapshots.get(db) if db else None
+            if db and snap is not None and r.get("world_signature") != world_signature(snap):
+                local_rec.append(
+                    f"[C4 r{r.get('record_id','?')}] world_signature does not match "
+                    f"mongodb_data/{db}.json"
+                )
+            local_rec += validate_record(r, executor=executor, snapshot=snap, refs_base=out_dir)
+            if record_schema is not None:
+                local_sch += _validate_record_jsonschema_with_schema(r, record_schema)
+        except Exception as exc:  # noqa: BLE001 - surface as validation violation, not pool crash
+            local_rec.append(f"[internal-error r{r.get('record_id', '?')}] {exc}")
         return index, local_rec, local_sch
 
     if records:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(records)) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(records), 8)) as pool:
             record_results = list(pool.map(validate_one, enumerate(records)))
         for _, local_rec, local_sch in sorted(record_results, key=lambda item: item[0]):
             rec_viol += local_rec
@@ -338,7 +341,7 @@ def _validate_release_artifacts(
         return db_issues
 
     if db_ids:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(db_ids)) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(db_ids), 8)) as pool:
             for db_issues in pool.map(check_db, db_ids):
                 issues += db_issues
     return issues

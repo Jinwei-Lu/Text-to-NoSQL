@@ -725,7 +725,7 @@ class _MongoPrefixExecutor:
                     },
                 )
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(strata)) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(strata), 8)) as pool:
             variants = list(pool.map(execute_stratum, strata))
         return PrefixExecutionResult(tuple(variants))
 

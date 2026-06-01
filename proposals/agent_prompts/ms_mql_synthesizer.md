@@ -36,8 +36,6 @@ Synthesize MQL from the following `intent` on schema S and witness D.
 
 | Field | Value |
 |---|---|
-| db_id | {{db_id}} |
-| record_id | {{record_id}} |
 
 **intent**
 

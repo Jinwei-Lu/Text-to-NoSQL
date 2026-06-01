@@ -29,7 +29,7 @@ def _workflow(settings: Settings, run_dir: Path) -> tuple[Workflow, object, Prog
     client = LLMClient(settings, log)
     client.set_stub(stub_fn)
     ctx = AgentContext(settings=settings, llm=client, log=log, progress=progress)
-    return Workflow(ctx, max_concurrency=4), log, progress
+    return Workflow(ctx), log, progress
 
 
 def test_ablation_registry_covers_smart_mechanisms() -> None:

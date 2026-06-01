@@ -16,12 +16,12 @@ Two jobs, both zero-LLM:
 """
 from __future__ import annotations
 
-import concurrent.futures
 import hashlib
 import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from ..errors import SourceError
 from ..mechanisms import ARCHETYPES, MechanismInstance, archetypes_for, detect_mechanisms
 from .bird import BirdSource
 
@@ -84,10 +84,15 @@ def run_census(source: BirdSource, *, db_ids: list[str] | None = None) -> Census
     db_ids = db_ids or list(source.db_ids)
     root = source.root
     dbs: dict[str, DbCensus] = {}
-    if db_ids:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(db_ids)) as pool:
-            for db_id, dbc in pool.map(lambda db: (db, _census_one_db(root, db)), db_ids):
-                dbs[db_id] = dbc
+    for db_id in db_ids:
+        try:
+            dbs[db_id] = _census_one_db(root, db_id)
+        except SourceError:
+            raise
+        except Exception as exc:
+            raise SourceError(
+                f"census failed for db '{db_id}'", context={"db_id": db_id}
+            ) from exc
     n = len(dbs) or 1
     flex_ratio = sum(1 for d in dbs.values() if d.flex_eligible) / n
     return Census(

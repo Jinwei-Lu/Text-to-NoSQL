@@ -35,7 +35,7 @@ TEND 关注那些很难通过机械 SQL 翻译得到的 MongoDB 查询。构造�
 | `tend.mechanisms` | 检测 query-bearing 异构机制，并映射到 archetype 和 reference oracle。 |
 | `tend.construct` | 将关系型 BIRD 表确定性迁移为文档聚合式 MongoDB witness 数据。 |
 | `tend.agents` | 定义 agent 生命周期、LLM agent 基类、Phase A agent、Phase B agent 和确定性验证 agent。 |
-| `tend.workflow` | 提供动态 workflow engine，包括受并发限制的 `agent`、`parallel`、`pipeline`、Phase A 和 Phase B flow。 |
+| `tend.workflow` | 提供动态 workflow engine，包括结构化的 `agent`、`parallel`、`pipeline`、Phase A 和 Phase B flow；live LLM 并发由 `tend.llm` 客户端统一限流。 |
 | `tend.execution` | 解析 MQL，扫描禁用 operator，派生 canonical form set，加载/执行 MongoDB witness，归一化结果并计算 world signature。 |
 | `tend.publish` | 校验发布记录、schema 夹具、必需文件和测试集组成约束。 |
 | `tend.solver` | 实现 SMART 参考求解器，包括 solver 可见边界、分阶段契约、逐 stage 执行检查和类型化失败。 |
@@ -157,7 +157,7 @@ OPENAI_BASE_URL=...
 TEND_MONGO_URI=mongodb://localhost:27017
 TEND_BIRD_ROOT=minidev/MINIDEV
 TEND_MODEL=deepseek-v4-flash
-TEND_LLM_MAX_CONCURRENCY=16  # legacy/compat only; default runtime is unbounded
+TEND_LLM_MAX_CONCURRENCY=16  # bounds concurrent LLM calls; set 0 to run unbounded
 TEND_QUIET=0
 ```
 

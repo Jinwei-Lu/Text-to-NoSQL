@@ -1,4 +1,7 @@
-"""The orchestration engine - unbounded primitives for spawning sub-agents.
+"""The orchestration engine - structural primitives for spawning sub-agents.
+
+The engine is purely structural and does not bound throughput; live LLM throughput is
+limited at its single canonical chokepoint (``LLMClient``'s semaphore gate).
 
 Mirrors the agent/parallel/pipeline model: every ``agent(...)`` call dynamically spawns a
 sub-agent task (one LLM/deterministic Agent invocation).
@@ -24,11 +27,9 @@ Stage = Callable[[Any], Awaitable[Any]]
 class Workflow:
     """Stateful orchestrator bound to a base :class:`AgentContext`."""
 
-    def __init__(self, ctx: AgentContext, *, max_concurrency: int | None = None,
-                 name: str = "tend") -> None:
+    def __init__(self, ctx: AgentContext, *, name: str = "tend") -> None:
         self.ctx = ctx
         self.name = name
-        self.max_concurrency = max_concurrency
         self._spawned = 0
 
     # ------------------------------------------------------------------ #

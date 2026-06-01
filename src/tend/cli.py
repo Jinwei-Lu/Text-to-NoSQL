@@ -13,12 +13,21 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import shutil
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from ._cli_summaries import (
+    _count_by,
+    _print_ablation_summary,
+    _print_baseline_summary,
+    _print_evaluation_block,
+    _print_solve_summary,
+    _print_summary,
+)
 from .agents import AgentContext
 from .ablations import ABLATION_IDS, run_ablation_suite
 from .baselines import BASELINE_IDS, run_baseline_suite
@@ -76,8 +85,7 @@ def build_runtime(settings: Settings) -> Runtime:
 
 
 def build_solver_runtime(settings: Settings, *, run_kind: str = "solver") -> Runtime:
-    run_dir = settings.run_dir
-    log = setup_logging(run_dir, console=False)
+    log = setup_logging(settings.run_dir, console=False)
     log.info(f"{run_kind}_run_start", run_id=settings.run_id, stub=settings.stub,
              model=settings.llm.model)
     progress = make_reporter(settings.run_id, log, enabled=not settings.quiet)
@@ -90,16 +98,12 @@ def build_solver_runtime(settings: Settings, *, run_kind: str = "solver") -> Run
     return Runtime(settings, ctx, Workflow(ctx), progress, log, None, mongo)
 
 
-def build_evaluation_runtime(settings: Settings) -> Runtime:
-    run_dir = settings.run_dir
-    log = setup_logging(run_dir, console=False)
-    log.info("evaluation_run_start", run_id=settings.run_id, model=settings.llm.model)
-    progress = make_reporter(settings.run_id, log, enabled=not settings.quiet)
-    llm = LLMClient(settings, log)
-    mongo = MongoExecutor(settings, log)
-    ctx = AgentContext(settings=settings, llm=llm, log=log, progress=progress,
-                       source=None, mongo=mongo)
-    return Runtime(settings, ctx, Workflow(ctx), progress, log, None, mongo)
+def _close_runtime(rt: Runtime) -> None:
+    """Release the run's source/mongo/log handles; safe to call once in finally."""
+    if rt.source is not None:
+        rt.source.close()
+    rt.mongo.close()
+    rt.log.close()
 
 
 def _slot_from_request(request: CoverageRequest, record_id: int) -> CoverageSlot:
@@ -206,10 +210,7 @@ async def _run_construct(rt: Runtime, db_ids: list[str], phase: str, n_records: 
         rt.log.info("run_done", status="failed" if failed_run else "ok", **summary,
                     dbs=len(artifacts), records=len(records))
         _print_summary(rt, artifacts, records, summary, out_dir)
-        if rt.source is not None:
-            rt.source.close()
-        rt.mongo.close()
-        rt.log.close()
+        _close_runtime(rt)
 
     return 1 if failed or summary.get("anomaly_total", 0) else 0
 
@@ -266,6 +267,45 @@ async def _evaluate_outputs(
     )
 
 
+async def _maybe_evaluate(
+    rt: Runtime,
+    *,
+    predictions: list[dict],
+    predictions_path: Path,
+    dataset_dir: Path,
+    experiment_kind: str,
+    evaluate: bool,
+    eval_out_dir: Path | None,
+    eval_workers: int,
+) -> EvaluationOutput | None:
+    """Run post-run evaluation on the success path, or ``None`` when not applicable.
+
+    Returns ``None`` when evaluation is disabled (``--no-eval``) or there are no
+    predictions to score. Runs under the already-entered progress context, so the
+    caller must advance ``rt.progress.phase("EVAL")`` before calling.
+    """
+    if not evaluate or not predictions:
+        return None
+    return await _evaluate_outputs(
+        rt,
+        dataset_dir=dataset_dir,
+        predictions_path=predictions_path,
+        experiment_kind=experiment_kind,
+        out_dir=eval_out_dir,
+        max_workers=eval_workers,
+    )
+
+
+def _write_jsonl(path: Path, rows: list[dict]) -> None:
+    """Write ``rows`` one JSON object per line, creating parents; no-op when empty."""
+    if not rows:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fp:
+        for row in rows:
+            fp.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+
+
 async def _run_solve(
     rt: Runtime,
     *,
@@ -284,6 +324,8 @@ async def _run_solve(
     failed: TendError | None = None
     evaluation: EvaluationOutput | None = None
     summary: dict = {}
+    out_path = rt.settings.run_dir / "solver_predictions.jsonl"
+    failures_path = rt.settings.run_dir / "solver_failures.jsonl"
     try:
         inputs = load_solver_release_inputs(
             dataset_dir,
@@ -337,13 +379,30 @@ async def _run_solve(
                 for task in tasks:
                     if not task.done():
                         task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for exc in results:
+                    if isinstance(exc, Exception) and not isinstance(exc, asyncio.CancelledError):
+                        rt.log.anomaly(wrap_unexpected(exc, stage="solve_gather"))
                 raise
             for _, payload in sorted(solved, key=lambda item: item[0]):
                 if payload.get("result_type") == "solver_failure":
                     failures.append(payload)
                 else:
                     predictions.append(payload)
+            _write_jsonl(out_path, predictions)
+            _write_jsonl(failures_path, failures)
+            if predictions:
+                rt.progress.phase("EVAL")
+                evaluation = await _maybe_evaluate(
+                    rt,
+                    predictions=predictions,
+                    predictions_path=out_path,
+                    dataset_dir=dataset_dir,
+                    experiment_kind="solver",
+                    evaluate=evaluate,
+                    eval_out_dir=eval_out_dir,
+                    eval_workers=eval_workers,
+                )
     except TendError as err:
         failed = err
         if not err.logged:
@@ -357,32 +416,6 @@ async def _run_solve(
                      message=failed.message,
                      anomaly=failed.anomaly.value if failed.anomaly else None)
     finally:
-        out_path = rt.settings.run_dir / "solver_predictions.jsonl"
-        failures_path = rt.settings.run_dir / "solver_failures.jsonl"
-        if predictions:
-            import json
-
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            with out_path.open("w", encoding="utf-8") as fp:
-                for pred in predictions:
-                    fp.write(json.dumps(pred, ensure_ascii=False, default=str) + "\n")
-        if failures:
-            import json
-
-            failures_path.parent.mkdir(parents=True, exist_ok=True)
-            with failures_path.open("w", encoding="utf-8") as fp:
-                for item in failures:
-                    fp.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
-        if evaluate and predictions:
-            with rt.progress:
-                evaluation = await _evaluate_outputs(
-                    rt,
-                    dataset_dir=dataset_dir,
-                    predictions_path=out_path,
-                    experiment_kind="solver",
-                    out_dir=eval_out_dir,
-                    max_workers=eval_workers,
-                )
         summary = rt.progress.summary() if hasattr(rt.progress, "summary") else {}
         failed_run = (
             failed is not None
@@ -402,11 +435,9 @@ async def _run_solve(
             out_path,
             failures_path,
             evaluation,
+            evaluate=evaluate,
         )
-        if rt.source is not None:
-            rt.source.close()
-        rt.mongo.close()
-        rt.log.close()
+        _close_runtime(rt)
 
     return 1 if failed_run else 0
 
@@ -425,9 +456,13 @@ async def _run_baseline(
     eval_workers: int = 8,
 ) -> int:
     outputs: list[dict] = []
+    predictions: list[dict] = []
+    failures: list[dict] = []
     failed: TendError | None = None
     evaluation: EvaluationOutput | None = None
     summary: dict = {}
+    out_path = rt.settings.run_dir / "baseline_predictions.jsonl"
+    failures_path = rt.settings.run_dir / "baseline_failures.jsonl"
     try:
         with rt.progress:
             outputs = await run_baseline_suite(
@@ -439,6 +474,22 @@ async def _run_baseline(
                 limit=limit,
                 witness_k=witness_k,
             )
+            predictions = [item for item in outputs if item.get("status") == "ok"]
+            failures = [item for item in outputs if item.get("status") != "ok"]
+            _write_jsonl(out_path, predictions)
+            _write_jsonl(failures_path, failures)
+            if predictions:
+                rt.progress.phase("EVAL")
+                evaluation = await _maybe_evaluate(
+                    rt,
+                    predictions=predictions,
+                    predictions_path=out_path,
+                    dataset_dir=dataset_dir,
+                    experiment_kind="baseline",
+                    evaluate=evaluate,
+                    eval_out_dir=eval_out_dir,
+                    eval_workers=eval_workers,
+                )
     except TendError as err:
         failed = err
         if not err.logged:
@@ -452,34 +503,6 @@ async def _run_baseline(
                      message=failed.message,
                      anomaly=failed.anomaly.value if failed.anomaly else None)
     finally:
-        out_path = rt.settings.run_dir / "baseline_predictions.jsonl"
-        failures_path = rt.settings.run_dir / "baseline_failures.jsonl"
-        predictions = [item for item in outputs if item.get("status") == "ok"]
-        failures = [item for item in outputs if item.get("status") != "ok"]
-        if predictions:
-            import json
-
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            with out_path.open("w", encoding="utf-8") as fp:
-                for output in predictions:
-                    fp.write(json.dumps(output, ensure_ascii=False, default=str) + "\n")
-        if failures:
-            import json
-
-            failures_path.parent.mkdir(parents=True, exist_ok=True)
-            with failures_path.open("w", encoding="utf-8") as fp:
-                for output in failures:
-                    fp.write(json.dumps(output, ensure_ascii=False, default=str) + "\n")
-        if evaluate and predictions:
-            with rt.progress:
-                evaluation = await _evaluate_outputs(
-                    rt,
-                    dataset_dir=dataset_dir,
-                    predictions_path=out_path,
-                    experiment_kind="baseline",
-                    out_dir=eval_out_dir,
-                    max_workers=eval_workers,
-                )
         summary = rt.progress.summary() if hasattr(rt.progress, "summary") else {}
         failed_run = (
             failed is not None
@@ -500,11 +523,9 @@ async def _run_baseline(
             out_path,
             failures_path,
             evaluation,
+            evaluate=evaluate,
         )
-        if rt.source is not None:
-            rt.source.close()
-        rt.mongo.close()
-        rt.log.close()
+        _close_runtime(rt)
 
     return 1 if failed_run else 0
 
@@ -524,9 +545,14 @@ async def _run_ablation(
     eval_workers: int = 8,
 ) -> int:
     outputs: list[dict] = []
+    predictions: list[dict] = []
+    failures: list[dict] = []
     failed: TendError | None = None
     evaluation: EvaluationOutput | None = None
     summary: dict = {}
+    out_path = rt.settings.run_dir / "ablation_predictions.jsonl"
+    failures_path = rt.settings.run_dir / "ablation_failures.jsonl"
+    summary_path = rt.settings.run_dir / "ablation_summary.json"
     try:
         with rt.progress:
             outputs = await run_ablation_suite(
@@ -539,6 +565,22 @@ async def _run_ablation(
                 r_max=r_max,
                 witness_k=witness_k,
             )
+            predictions = [item for item in outputs if item.get("status") == "ok"]
+            failures = [item for item in outputs if item.get("status") != "ok"]
+            _write_jsonl(out_path, predictions)
+            _write_jsonl(failures_path, failures)
+            if predictions:
+                rt.progress.phase("EVAL")
+                evaluation = await _maybe_evaluate(
+                    rt,
+                    predictions=predictions,
+                    predictions_path=out_path,
+                    dataset_dir=dataset_dir,
+                    experiment_kind="ablation",
+                    evaluate=evaluate,
+                    eval_out_dir=eval_out_dir,
+                    eval_workers=eval_workers,
+                )
     except TendError as err:
         failed = err
         if not err.logged:
@@ -552,35 +594,6 @@ async def _run_ablation(
                      message=failed.message,
                      anomaly=failed.anomaly.value if failed.anomaly else None)
     finally:
-        out_path = rt.settings.run_dir / "ablation_predictions.jsonl"
-        failures_path = rt.settings.run_dir / "ablation_failures.jsonl"
-        summary_path = rt.settings.run_dir / "ablation_summary.json"
-        predictions = [item for item in outputs if item.get("status") == "ok"]
-        failures = [item for item in outputs if item.get("status") != "ok"]
-        if predictions:
-            import json
-
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            with out_path.open("w", encoding="utf-8") as fp:
-                for output in predictions:
-                    fp.write(json.dumps(output, ensure_ascii=False, default=str) + "\n")
-        if failures:
-            import json
-
-            failures_path.parent.mkdir(parents=True, exist_ok=True)
-            with failures_path.open("w", encoding="utf-8") as fp:
-                for output in failures:
-                    fp.write(json.dumps(output, ensure_ascii=False, default=str) + "\n")
-        if evaluate and predictions:
-            with rt.progress:
-                evaluation = await _evaluate_outputs(
-                    rt,
-                    dataset_dir=dataset_dir,
-                    predictions_path=out_path,
-                    experiment_kind="ablation",
-                    out_dir=eval_out_dir,
-                    max_workers=eval_workers,
-                )
         summary = rt.progress.summary() if hasattr(rt.progress, "summary") else {}
         failed_run = (
             failed is not None
@@ -589,8 +602,6 @@ async def _run_ablation(
             or (evaluation is not None and not evaluation.ok)
             or summary.get("anomaly_total", 0) > 0
         )
-        import json
-
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         summary_path.write_text(json.dumps({
             "run_id": rt.settings.run_id,
@@ -619,152 +630,21 @@ async def _run_ablation(
             failures_path,
             summary_path,
             evaluation,
+            evaluate=evaluate,
         )
-        if rt.source is not None:
-            rt.source.close()
-        rt.mongo.close()
-        rt.log.close()
+        _close_runtime(rt)
 
     return 1 if failed_run else 0
-
-
-def _print_summary(rt, artifacts, records, summary, out_dir) -> None:
-    print("\n" + "=" * 64)
-    print(f"TEND construct · run {rt.settings.run_id} · "
-          f"{'STUB' if rt.settings.stub else 'LIVE ' + rt.settings.llm.model}")
-    print(f"  Phase A dbs : {len(artifacts)}  -> {sorted(artifacts)}")
-    for db_id, art in sorted(artifacts.items()):
-        coll = art.mongodb_data
-        print(f"    {db_id:24} sig={art.world_signature[:20]}.. "
-              f"collections={len(coll)} query_bearing={art.query_bearing}")
-    print(f"  Phase B records : {len(records)}")
-    for r in records[:5]:
-        print(f"    #{r['record_id']} {r['db_id']} {r['difficulty']} "
-              f"{r.get('sql_infeasibility_class')}")
-    print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
-    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl")
-    print(f"  output : {out_dir}")
-    print("=" * 64)
-
-
-def _print_solve_summary(
-    rt,
-    predictions,
-    failures,
-    summary,
-    out_path,
-    failures_path,
-    evaluation: EvaluationOutput | None = None,
-) -> None:
-    print("\n" + "=" * 64)
-    print(f"TEND solve · run {rt.settings.run_id} · "
-          f"{'STUB' if rt.settings.stub else 'LIVE ' + rt.settings.llm.model}")
-    print(f"  predictions : {len(predictions)}")
-    for pred in predictions[:5]:
-        print(f"    #{pred.get('record_id')} {pred.get('db_id')} "
-              f"mql={str(pred.get('MQL', ''))[:96]}")
-    print(f"  failures    : {len(failures)}")
-    for item in failures[:5]:
-        print(f"    #{item.get('record_id')} {item.get('db_id')} "
-              f"{item.get('error_code')}: {str(item.get('message', ''))[:96]}")
-    print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
-    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl")
-    print(f"  output : {out_path}")
-    if failures:
-        print(f"  failures output : {failures_path}")
-    _print_evaluation_block(evaluation)
-    print("=" * 64)
-
-
-def _print_baseline_summary(
-    rt,
-    predictions,
-    failures,
-    summary,
-    out_path,
-    failures_path,
-    evaluation: EvaluationOutput | None = None,
-) -> None:
-    print("\n" + "=" * 64)
-    print(f"TEND baselines · run {rt.settings.run_id} · "
-          f"{'STUB' if rt.settings.stub else 'LIVE ' + rt.settings.llm.model}")
-    print(f"  predictions : {len(predictions)}")
-    by_baseline: dict[str, int] = {}
-    for item in predictions:
-        bid = str(item.get("baseline_id"))
-        by_baseline[bid] = by_baseline.get(bid, 0) + 1
-    print(f"  baselines : {by_baseline}")
-    print(f"  failures  : {len(failures)}")
-    for item in predictions[:5]:
-        print(f"    {item.get('baseline_id')} #{item.get('record_id')} "
-              f"{item.get('db_id')} status={item.get('status')} "
-              f"mql={str(item.get('MQL', ''))[:80]}")
-    for item in failures[:5]:
-        print(f"    failure {item.get('baseline_id')} #{item.get('record_id')} "
-              f"{item.get('error_code')}: {str(item.get('message', ''))[:80]}")
-    print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
-    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl")
-    print(f"  output : {out_path}")
-    if failures:
-        print(f"  failures output : {failures_path}")
-    _print_evaluation_block(evaluation)
-    print("=" * 64)
-
-
-def _print_ablation_summary(
-    rt,
-    predictions,
-    failures,
-    summary,
-    out_path,
-    failures_path,
-    summary_path,
-    evaluation: EvaluationOutput | None = None,
-) -> None:
-    print("\n" + "=" * 64)
-    print(f"TEND ablation · run {rt.settings.run_id} · "
-          f"{'STUB' if rt.settings.stub else 'LIVE ' + rt.settings.llm.model}")
-    print(f"  predictions : {len(predictions)}")
-    print(f"  ablations : {_count_by(predictions, 'ablation_id')}")
-    print(f"  failures  : {len(failures)}")
-    for item in predictions[:5]:
-        print(f"    {item.get('ablation_id')} #{item.get('record_id')} "
-              f"{item.get('db_id')} attempts={item.get('attempts')} "
-              f"mql={str(item.get('MQL', ''))[:80]}")
-    for item in failures[:5]:
-        print(f"    failure {item.get('ablation_id')} #{item.get('record_id')} "
-              f"{item.get('error_code')}: {str(item.get('message', ''))[:80]}")
-    print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
-    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl")
-    print(f"  output : {out_path}")
-    print(f"  summary: {summary_path}")
-    if failures:
-        print(f"  failures output : {failures_path}")
-    _print_evaluation_block(evaluation)
-    print("=" * 64)
-
-
-def _print_evaluation_block(evaluation: EvaluationOutput | None) -> None:
-    if evaluation is None:
-        print("  evaluation : not run")
-        return
-    scores = evaluation.report.get("scores", {})
-    print(f"  evaluation : {evaluation.status} EX={scores.get('EX', 0.0)} "
-          f"QIM={scores.get('QIM', 0.0)}")
-    print(f"  eval report: {evaluation.paths.report_md}")
-
-
-def _count_by(items: list[dict], key: str) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in items:
-        value = str(item.get(key))
-        counts[value] = counts.get(value, 0) + 1
-    return counts
 
 
 def _resolve_repo_path(settings: Settings, path: str | Path) -> Path:
     p = Path(path)
     return p if p.is_absolute() else settings.paths.repo_root / p
+
+
+def _release_dataset_dir(settings: Settings, dataset_dir: str | None) -> Path:
+    """Resolve the solve/baseline/ablation dataset dir, defaulting to the release."""
+    return _resolve_repo_path(settings, dataset_dir if dataset_dir else PRODUCTION_RELEASE_DIR)
 
 
 def _collect_validation_issues(report: ReleaseReport) -> list[str]:
@@ -928,11 +808,18 @@ async def _run_evaluate(
         _print_evaluation_block(evaluation)
         print(f"  logs        : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl")
         print("=" * 64)
-        if rt.source is not None:
-            rt.source.close()
-        rt.mongo.close()
-        rt.log.close()
+        _close_runtime(rt)
     return 1 if failed_run else 0
+
+
+def _add_eval_args(parser: argparse.ArgumentParser) -> None:
+    """Attach the shared automatic-evaluation flags to a solve-style subparser."""
+    parser.add_argument("--no-eval", action="store_true",
+                        help="skip automatic proposal-05 evaluation after generation")
+    parser.add_argument("--eval-out", default=None,
+                        help="override automatic evaluation output dir")
+    parser.add_argument("--eval-workers", type=int, default=8,
+                        help="parallel worker count for automatic evaluation")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -972,11 +859,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="prompt witness disclosure limit")
     s.add_argument("--stub", action="store_true", help="offline mode (no live LLM)")
     s.add_argument("--quiet", action="store_true", help="disable the live progress UI")
-    s.add_argument("--no-eval", action="store_true",
-                   help="skip automatic proposal-05 evaluation after solving")
-    s.add_argument("--eval-out", default=None, help="override automatic evaluation output dir")
-    s.add_argument("--eval-workers", type=int, default=8,
-                   help="parallel worker count for automatic evaluation")
+    _add_eval_args(s)
     s.add_argument("--run-id", default=None)
 
     b = sub.add_parser("baseline", help="run constrained LLM baselines")
@@ -991,11 +874,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="public witness sample count for baselines that use samples")
     b.add_argument("--stub", action="store_true", help="offline mode (no live LLM)")
     b.add_argument("--quiet", action="store_true", help="disable the live progress UI")
-    b.add_argument("--no-eval", action="store_true",
-                   help="skip automatic proposal-05 evaluation after baseline generation")
-    b.add_argument("--eval-out", default=None, help="override automatic evaluation output dir")
-    b.add_argument("--eval-workers", type=int, default=8,
-                   help="parallel worker count for automatic evaluation")
+    _add_eval_args(b)
     b.add_argument("--run-id", default=None)
 
     a = sub.add_parser("ablation", help="run SMART solver ablation study")
@@ -1011,11 +890,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="prompt witness sample count for ablations that use samples")
     a.add_argument("--stub", action="store_true", help="offline mode (no live LLM)")
     a.add_argument("--quiet", action="store_true", help="disable the live progress UI")
-    a.add_argument("--no-eval", action="store_true",
-                   help="skip automatic proposal-05 evaluation after ablation generation")
-    a.add_argument("--eval-out", default=None, help="override automatic evaluation output dir")
-    a.add_argument("--eval-workers", type=int, default=8,
-                   help="parallel worker count for automatic evaluation")
+    _add_eval_args(a)
     a.add_argument("--run-id", default=None)
 
     e = sub.add_parser("evaluate", help="evaluate a prediction JSONL with proposal-05 metrics")
@@ -1057,7 +932,7 @@ def main(argv: list[str] | None = None) -> int:
             out_dir=_resolve_repo_path(settings, args.out),
         )
     if args.command == "evaluate":
-        rt = build_evaluation_runtime(settings)
+        rt = build_solver_runtime(settings, run_kind="evaluation")
         return asyncio.run(_run_evaluate(
             rt,
             dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
@@ -1076,13 +951,9 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_run_construct(rt, db_ids, args.phase, args.records))
     if args.command == "solve":
         rt = build_solver_runtime(settings)
-        dataset_dir = _resolve_repo_path(
-            settings,
-            args.dataset_dir if args.dataset_dir else PRODUCTION_RELEASE_DIR,
-        )
         return asyncio.run(_run_solve(
             rt,
-            dataset_dir=dataset_dir,
+            dataset_dir=_release_dataset_dir(settings, args.dataset_dir),
             db_id=args.db_id,
             record_id=args.record_id,
             limit=args.limit,
@@ -1094,13 +965,9 @@ def main(argv: list[str] | None = None) -> int:
         ))
     if args.command == "baseline":
         rt = build_solver_runtime(settings, run_kind="baseline")
-        dataset_dir = _resolve_repo_path(
-            settings,
-            args.dataset_dir if args.dataset_dir else PRODUCTION_RELEASE_DIR,
-        )
         return asyncio.run(_run_baseline(
             rt,
-            dataset_dir=dataset_dir,
+            dataset_dir=_release_dataset_dir(settings, args.dataset_dir),
             baselines=args.baselines,
             db_id=args.db_id,
             record_id=args.record_id,
@@ -1112,13 +979,9 @@ def main(argv: list[str] | None = None) -> int:
         ))
     if args.command == "ablation":
         rt = build_solver_runtime(settings, run_kind="ablation")
-        dataset_dir = _resolve_repo_path(
-            settings,
-            args.dataset_dir if args.dataset_dir else PRODUCTION_RELEASE_DIR,
-        )
         return asyncio.run(_run_ablation(
             rt,
-            dataset_dir=dataset_dir,
+            dataset_dir=_release_dataset_dir(settings, args.dataset_dir),
             ablations=args.ablations,
             db_id=args.db_id,
             record_id=args.record_id,
@@ -1129,8 +992,7 @@ def main(argv: list[str] | None = None) -> int:
             eval_out_dir=_resolve_repo_path(settings, args.eval_out) if args.eval_out else None,
             eval_workers=args.eval_workers,
         ))
-    parser.error("unknown command")
-    return 2
+    parser.error("unknown command")  # raises SystemExit; subparsers are required
 
 
 if __name__ == "__main__":

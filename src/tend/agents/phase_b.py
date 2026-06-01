@@ -12,7 +12,7 @@ import asyncio
 import json
 from typing import Any
 
-from ..errors import TendError
+from ..errors import Anomaly, TendError
 from ..execution import derive_canonical_form_set, parse_pipeline, scan_disabled
 from ..execution.mongo import _normalize_doc, equiv_rec
 from ..mechanisms import OracleError, has_oracle, oracle_param_errors, reference_oracle
@@ -237,9 +237,9 @@ class MqlSynthesizer(LLMAgent):
                 )
         return ("# MS — synthesize gold MQL that realizes THIS intent exactly\n"
                 f"## coverage target\n{target}"
-                f"## intent\n```json\n{json.dumps(intent, ensure_ascii=False, indent=2)}\n```\n"
+                f"## intent\n```json\n{json.dumps(intent, ensure_ascii=False, indent=2, sort_keys=True)}\n```\n"
                 "## reference_oracle (authoritative answer oracle)\n"
-                f"```json\n{json.dumps(oracle, ensure_ascii=False, indent=2)}\n```\n"
+                f"```json\n{json.dumps(oracle, ensure_ascii=False, indent=2, sort_keys=True)}\n```\n"
                 f"## schema (real collections/fields)\n{_schema_digest(inputs.get('schema', {}))}{fb_note}\n\n"
                 "Produce MQL = db.<root_collection>.aggregate([...]) realizing the intent's "
                 "exact formula + missing-default. Honor intent.shape_policy: if 'preserve', use "
@@ -419,20 +419,29 @@ class PropertyVerifier(Agent):
         # P3: keep only mutations that EX-fail (change the result). Equivalent rewrites
         # (e.g. $addFields<->$project) are NOT wrong, so they are pruned, not fatal — the
         # record passes when >=5 genuinely discriminating mutations remain. P4: gold non-empty.
-        async def check_mutation(m: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+        async def check_mutation(m: dict[str, Any]) -> tuple[bool, dict[str, Any], bool]:
+            errored = False
             try:
                 rm = await asyncio.to_thread(ctx.mongo.norm_exec, ctx.db_id, m["MQL"])
                 fails = not equiv_rec(gold, rm, order_sensitive=_ORDER_INSENSITIVE)
-            except TendError:
+            except TendError as exc:
+                ctx.log.anomaly(exc, kind=Anomaly.EXEC_ERROR,
+                                mutation_id=m.get("mutation_id"))
                 fails = True                    # a mutation that errors is sufficiently wrong
-            return fails, m
+                errored = True
+            return fails, m, errored
 
         outcomes = await asyncio.gather(*(check_mutation(m) for m in muts))
         discriminating: list[dict] = []
         non_discriminating: list[str] = []
-        for fails, mutation in outcomes:
-            (discriminating if fails else non_discriminating).append(
-                mutation if fails else mutation["mutation_id"])
+        discriminating_by_error: int = 0
+        for fails, mutation, errored in outcomes:
+            if fails:
+                discriminating.append(mutation)
+                if errored:
+                    discriminating_by_error += 1
+            else:
+                non_discriminating.append(mutation["mutation_id"])
         pv_pass = bool(gold) and len(discriminating) >= 5
         return {
             "pv_pass": pv_pass,
@@ -441,6 +450,7 @@ class PropertyVerifier(Agent):
                 "gold_cardinality": len(gold),
                 "mutations_total": len(muts),
                 "discriminating": len(discriminating),
+                "discriminating_by_error": discriminating_by_error,
                 "non_discriminating_ids": non_discriminating,
             },
         }
@@ -520,7 +530,7 @@ class NlParaphraser(LLMAgent):
                      "summary fields. Preserve exact variant labels.")
         return ("# NLP — paraphrase canonical (L1) + colloquial (L0) NLQ from THIS intent "
                 "(not from any pipeline)\n"
-                f"## intent\n```json\n{json.dumps(intent, ensure_ascii=False, indent=2)}\n```\n"
+                f"## intent\n```json\n{json.dumps(intent, ensure_ascii=False, indent=2, sort_keys=True)}\n```\n"
                 "RULES: describe EXACTLY the computation in this intent over ITS named "
                 "collection/fields. Do NOT introduce entities/fields not in the intent "
                 "(no 'customers'/'phone' unless named). Name the computed field + exact formula "

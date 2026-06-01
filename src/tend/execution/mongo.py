@@ -8,6 +8,7 @@ stub/offline runs that never execute don't require a reachable server.
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any
 
 from ..config import Settings
@@ -26,18 +27,21 @@ class MongoExecutor:
         self._s = settings
         self._log = logger
         self._client: Any = None
+        self._lock = threading.Lock()
 
     # ------------------------------------------------------------------ #
     def _connect(self) -> Any:
         if self._client is None:
-            try:
-                from pymongo import MongoClient
+            with self._lock:
+                if self._client is None:
+                    try:
+                        from pymongo import MongoClient
 
-                self._client = MongoClient(self._s.mongo_uri, serverSelectionTimeoutMS=4000)
-                self._client.admin.command("ping")
-            except Exception as exc:  # noqa: BLE001 - surfaced as a typed execution anomaly
-                raise ExecutionError("cannot connect to MongoDB",
-                                     context={"uri_set": bool(self._s.mongo_uri)}) from exc
+                        self._client = MongoClient(self._s.mongo_uri, serverSelectionTimeoutMS=4000)
+                        self._client.admin.command("ping")
+                    except Exception as exc:  # noqa: BLE001 - surfaced as a typed execution anomaly
+                        raise ExecutionError("cannot connect to MongoDB",
+                                             context={"uri_set": bool(self._s.mongo_uri)}) from exc
         return self._client
 
     def available(self) -> bool:

@@ -150,7 +150,10 @@ async def run_baseline_suite(
         for task in tasks:
             if not task.done():
                 task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for exc in results:
+            if isinstance(exc, Exception) and not isinstance(exc, asyncio.CancelledError):
+                log.anomaly(wrap_unexpected(exc, stage="baseline_suite_gather"))
         raise
     outputs = [payload for _, payload in sorted(completed, key=lambda item: item[0])]
     log.info("baseline_suite_done", outputs=len(outputs), baselines=len(specs))

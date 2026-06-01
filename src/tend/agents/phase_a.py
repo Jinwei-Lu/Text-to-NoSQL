@@ -158,7 +158,7 @@ class SchemaCritic(LLMAgent):
 
 def _clip(obj: Any, n: int = 2500) -> str:
     import json
-    s = json.dumps(obj, ensure_ascii=False, indent=2)
+    s = json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True)
     return s if len(s) <= n else s[:n] + "\n... (truncated)"
 
 

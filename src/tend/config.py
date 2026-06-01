@@ -62,7 +62,9 @@ class LLMSettings:
     max_tokens: int = 8192
     timeout_s: float = 120.0
     max_retries: int = 4
-    # Legacy compatibility knob. Runtime LLM calls are unbounded by default.
+    # Concurrency switch for live LLM calls, enforced by LLMClient's semaphore gate:
+    # ``max_concurrency > 0`` bounds concurrent provider calls to that many;
+    # ``max_concurrency <= 0`` runs fully UNBOUNDED (no limit). Default 16.
     max_concurrency: int = 16
     #: per-agent model overrides (agent_id -> model); empty = use ``model`` for all
     agent_models: dict[str, str] = field(default_factory=dict)
@@ -140,8 +142,8 @@ class Settings:
             max_tokens=int(_env(envmap, "TEND_MAX_TOKENS", "16384")),
             timeout_s=float(_env(envmap, "TEND_TIMEOUT_S", "120")),
             max_retries=int(_env(envmap, "TEND_MAX_RETRIES", "4")),
-            # TEND_LLM_MAX_CONCURRENCY is parsed for compatibility but no longer gates
-            # default provider or workflow concurrency.
+            # TEND_LLM_MAX_CONCURRENCY bounds concurrent live LLM calls (default 16);
+            # 0 (or any value <= 0) runs fully unbounded.
             max_concurrency=int(_env(envmap, "TEND_LLM_MAX_CONCURRENCY", "16")),
         )
         paths = Paths(
