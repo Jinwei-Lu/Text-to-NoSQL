@@ -6,7 +6,8 @@ TEND 是一个面向 MongoDB 的 Text-to-NoSQL 基准构造与评测工作区。
 
 - `src/tend/` 是当前活跃的构造、验证、执行、日志和求解器代码。
 - `proposals/` 存放方法论文档、提示词契约、JSON Schema、烟测夹具以及运行时代码实现的发布标准。
-- `src/tend/baselines/` 是当前活跃的受限 LLM baseline runtime，可通过 `tend baseline` 运行。
+- `src/tend/baselines/` 是当前维护的受限 LLM baseline runtime，可通过 `tend baseline` 运行。
+- 顶层 `baselines/` 目录已经废弃并从项目中移除；新的 baseline 实现和实验入口统一放在 `src/tend/baselines/`。
 
 仓库中 `proposals/fixtures/` 和 `tests/fixtures/` 下的夹具都是烟测夹具。它们适合做契约和管线连通性检查，但不是生产基准发布版本。生产发布版本应由构造流水线生成，并通过 `tend publish` 的发布验证。
 
@@ -349,9 +350,9 @@ python -m pytest tests/test_pipeline.py
 
 ## 基线实验
 
-活跃 baseline runtime 位于 `src/tend/baselines/`，通过 `tend baseline` 运行。它继承主 runtime 的日志、异常、LLM transcript、diagnostics sidecar 和终端进度系统，是当前推荐的 baseline 实验入口。
+baseline runtime 位于 `src/tend/baselines/`，通过 `tend baseline` 运行。它继承主 runtime 的日志、异常、LLM transcript、diagnostics sidecar 和终端进度系统，是当前项目唯一维护的 baseline 实验入口。
 
-新的论文/leaderboard 对照实验应优先使用 `tend baseline`，因为它会明确执行 solver-visible boundary、输出 disclosure，并把每次 LLM 调用记录为 Markdown transcript 与 diagnostics JSON。
+顶层 `baselines/` 目录已经废弃；旧的 zero-shot、ICL、RAG、self-debugging 和 SQL-to-NoSQL reproduction 脚本不再作为仓库入口维护。新的论文/leaderboard 对照实验应使用 `tend baseline`，因为它会明确执行 solver-visible boundary、输出 disclosure，并把每次 LLM 调用记录为 Markdown transcript 与 diagnostics JSON。新增或修改 baseline 时，请在 `src/tend/baselines/strategies.py` 定义策略，并通过 `src/tend/baselines/workflow.py` 和 `tests/test_baselines.py` 维护运行与契约覆盖。
 
 ## 开发说明
 
