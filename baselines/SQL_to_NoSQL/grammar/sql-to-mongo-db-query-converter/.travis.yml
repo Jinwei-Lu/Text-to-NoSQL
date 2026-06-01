@@ -1,8 +1,0 @@
-language: java
-
-install: mvn clean verify
-
-notifications:
-  email:
-    recipients:
-      - vincent.russell@gmail.com
