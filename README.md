@@ -1,27 +1,18 @@
 # TEND
 
-TEND 是一个面向 MongoDB 的 Text-to-NoSQL 基准构造与评测工作区。它从
-BIRD mini-dev 关系型数据库构建 MongoDB 风格的文档世界，通过多智能体构造
-流水线生成自然语言到 MQL 的基准记录，按项目契约验证候选发布版本，并提供
-面向已发布记录的 SMART 参考求解器。
+TEND 是一个面向 MongoDB 的 Text-to-NoSQL 基准构造与评测工作区。它从 BIRD mini-dev 关系型数据库构建 MongoDB 风格的文档世界，通过多智能体构造流水线生成自然语言到 MQL 的基准记录，按项目契约验证候选发布版本，并提供面向已发布记录的 SMART 参考求解器。
 
 这个仓库同时是研究产物和可执行流水线：
 
 - `src/tend/` 是当前活跃的构造、验证、执行、日志和求解器代码。
-- `proposals/` 存放方法论文档、提示词契约、JSON Schema、烟测夹具以及运行
-  时代码实现的发布标准。
-- `baselines/` 存放用于复现实验的旧版基线脚本，包括 zero-shot、ICL、RAG、
-  self-debugging 和 SQL-to-NoSQL 转换实验。
+- `proposals/` 存放方法论文档、提示词契约、JSON Schema、烟测夹具以及运行时代码实现的发布标准。
+- `baselines/` 存放用于复现实验的旧版基线脚本，包括 zero-shot、ICL、RAG、self-debugging 和 SQL-to-NoSQL 转换实验。
 
-仓库中 `proposals/fixtures/` 和 `tests/fixtures/` 下的夹具都是烟测夹具。它们适合
-做契约和管线连通性检查，但不是生产基准发布版本。生产发布版本应由构造流水线
-生成，并通过 `tend publish` 的发布验证。
+仓库中 `proposals/fixtures/` 和 `tests/fixtures/` 下的夹具都是烟测夹具。它们适合做契约和管线连通性检查，但不是生产基准发布版本。生产发布版本应由构造流水线生成，并通过 `tend publish` 的发布验证。
 
 ## TEND 生成什么
 
-TEND 关注那些很难通过机械 SQL 翻译得到的 MongoDB 查询。构造流水线以真实
-BIRD mini-dev schema、外键、列描述、SQLite 数据以及自然语言/SQL workload 为
-锚点，生成以下资产：
+TEND 关注那些很难通过机械 SQL 翻译得到的 MongoDB 查询。构造流水线以真实 BIRD mini-dev schema、外键、列描述、SQLite 数据以及自然语言/SQL workload 为锚点，生成以下资产：
 
 - 每个数据库的 MongoDB schema，位于 `mongodb_schema/`；
 - witness MongoDB 数据，位于 `mongodb_data/`；
@@ -30,9 +21,7 @@ BIRD mini-dev schema、外键、列描述、SQLite 数据以及自然语言/SQL 
 - 源数据库目录 `bird_db_catalog.json`；
 - 结构化运行日志、异常流和 LLM transcript，位于 `runs/`。
 
-每条记录预计包含 canonical/colloquial 两种自然语言问题、锁定的 gold MQL、
-difficulty、SQL infeasibility class、shape policy、schema-flex 元数据、
-world signature，以及一个轻量的 `canonical_form_set` guard。
+每条记录预计包含 canonical/colloquial 两种自然语言问题、锁定的 gold MQL、difficulty、SQL infeasibility class、shape policy、schema-flex 元数据、world signature，以及一个轻量的 `canonical_form_set` guard。
 
 ## 架构
 
@@ -63,13 +52,10 @@ Phase A 按 BIRD 数据库运行：
 
 1. `WP` 分析真实 workload，并总结访问模式。
 2. `SRA` 根据 workload 和 schema 记录文档设计理由。
-3. `DM` 根据真实外键基数确定性推导文档聚合结构，物化 witness 文档，计算
-   `world_signature`，并在 MongoDB 可用时加载数据。
-4. `SC` 审查物化后的 schema/data 以及 query-bearing 证据。若审查拒绝，会触发
-   有界的 SRA 修订循环。
+3. `DM` 根据真实外键基数确定性推导文档聚合结构，物化 witness 文档，计算 `world_signature`，并在 MongoDB 可用时加载数据。
+4. `SC` 审查物化后的 schema/data 以及 query-bearing 证据。若审查拒绝，会触发有界的 SRA 修订循环。
 
-DM 是确定性的，并且是物化 schema/data 的权威来源。LLM 输出可以提供理由和审查
-上下文，但不会覆盖实际 DM witness。
+DM 是确定性的，并且是物化 schema/data 的权威来源。LLM 输出可以提供理由和审查上下文，但不会覆盖实际 DM witness。
 
 ### Phase B：NL-MQL 记录构造
 
@@ -84,24 +70,18 @@ Phase B 对每个 coverage slot 运行一条 pipeline：
 7. `NNC` 分配 difficulty 和 SQL infeasibility class。
 8. `RA` 基于 witness 检查记录是否非平凡。
 
-workflow 对已知反馈环使用有界重试，包括 SC->SRA、MS gold-lock retry、PV->MUT、
-RTV->NLP，以及 RA/NNC 后续路径。在 stub 模式下，LLM 调用使用固定响应，依赖
-执行的检查会走离线友好路径，因此可以在没有 API 调用的情况下跑通整个控制流。
+workflow 对已知反馈环使用有界重试，包括 SC->SRA、MS gold-lock retry、PV->MUT、RTV->NLP，以及 RA/NNC 后续路径。在 stub 模式下，LLM 调用使用固定响应，依赖执行的检查会走离线友好路径，因此可以在没有 API 调用的情况下跑通整个控制流。
 
 ## SMART 求解器
 
-`tend solve` 命令会在 release 风格的数据集上运行 SMART schema-less 参考求解器。
-它会刻意隔离 solver 可见信息和构造阶段 gold 信息：
+`tend solve` 命令会在 release 风格的数据集上运行 SMART schema-less 参考求解器。它会刻意隔离 solver 可见信息和构造阶段 gold 信息：
 
 1. Shape comprehension 按 collection 探测公开 schema，并归约为 shape model。
 2. Intent formalization 将 NLQ 转换为逻辑规格。
 3. NoSQL planning 生成带 variant-handling 说明的 MongoDB 物理计划。
-4. Query realization 渲染 MQL，检查禁用 operator，并在本地 MongoDB executor 可用时
-   逐 stage 执行 prefix。
+4. Query realization 渲染 MQL，检查禁用 operator，并在本地 MongoDB executor 可用时逐 stage 执行 prefix。
 
-solver 边界会在构建 prompt 之前移除禁止泄露的 gold/audit 字段，例如 `MQL`、
-`canonical_form_set` 和 `*_ref`。solver 终止失败会写成类型化的 `solver_failure`
-JSONL 记录，而不是写入伪造查询。
+solver 边界会在构建 prompt 之前移除禁止泄露的 gold/audit 字段，例如 `MQL`、`canonical_form_set` 和 `*_ref`。solver 终止失败会写成类型化的 `solver_failure` JSONL 记录，而不是写入伪造查询。
 
 ## 仓库结构
 
@@ -122,11 +102,9 @@ minidev/MINIDEV/             期望的 BIRD mini-dev 源数据根目录，如果
 ## 运行要求
 
 - Python 3.11 或更高版本。
-- 执行 `construct` 时需要 BIRD mini-dev 数据位于 `minidev/MINIDEV`，也可以通过
-  `TEND_BIRD_ROOT` 指定自定义路径。
+- 执行 `construct` 时需要 BIRD mini-dev 数据位于 `minidev/MINIDEV`，也可以通过 `TEND_BIRD_ROOT` 指定自定义路径。
 - live `construct` 和 `solve` 需要 OpenAI-compatible chat-completions provider。
-- live Phase B 执行门控和 SMART 逐 stage 执行需要 MongoDB。即使 MongoDB 不可达，
-  Phase A 仍然可以物化数据；stub 模式也可以离线跑通流水线。
+- live Phase B 执行门控和 SMART 逐 stage 执行需要 MongoDB。即使 MongoDB 不可达，Phase A 仍然可以物化数据；stub 模式也可以离线跑通流水线。
 - 推荐使用 `uv`，因为仓库包含 `uv.lock`；标准 `pip` 也可以工作。
 
 ## 安装
@@ -210,8 +188,7 @@ python -m tend construct --phase all --dbs all --records 20
 | `--quiet` | 关闭 live rich 进度 UI，保留结构化 console/log 输出。 |
 | `--run-id my-run` | 固定 run id 和输出目录。 |
 
-默认情况下，构造输出会写到 `runs/<run_id>/dataset/`。可用 `TEND_DATASET_OUT`
-覆盖该路径。
+默认情况下，构造输出会写到 `runs/<run_id>/dataset/`。可用 `TEND_DATASET_OUT` 覆盖该路径。
 
 ### 验证
 
@@ -237,9 +214,7 @@ python -m tend publish \
   --out release/TEND-dataset
 ```
 
-完整验证会检查记录契约、JSON Schema、必需的 per-database 文件、
-`test.json`/`TEND.json` 一致性、world signature，以及测试集组成阈值，例如全 11 个
-BIRD 数据库、L4 占比、L0 上限、schema-flex 占比和 structural-schema-flex 占比。
+完整验证会检查记录契约、JSON Schema、必需的 per-database 文件、`test.json`/`TEND.json` 一致性、world signature，以及测试集组成阈值，例如全 11 个 BIRD 数据库、L4 占比、L0 上限、schema-flex 占比和 structural-schema-flex 占比。
 
 ### 求解
 
@@ -279,22 +254,17 @@ runs/<run_id>/
     TEND.json
 ```
 
-排障优先从 `runs/<run_id>/anomalies.jsonl` 开始。LLM 相关异常会包含
-`transcript_ref` 和 diagnostics 引用，指向精确的 prompt、response attempts、解析
-输出、验证失败和 usage 元数据。完整事件流在 `events.jsonl`。
+排障优先从 `runs/<run_id>/anomalies.jsonl` 开始。LLM 相关异常会包含 `transcript_ref` 和 diagnostics 引用，指向精确的 prompt、response attempts、解析输出、验证失败和 usage 元数据。完整事件流在 `events.jsonl`。
 
 ## 发布契约
 
-活跃发布验证器检查 `proposals/schemas/` 和 `src/tend/publish/validate.py` 中编码的
-契约。
+活跃发布验证器检查 `proposals/schemas/` 和 `src/tend/publish/validate.py` 中编码的契约。
 
 重要不变量：
 
 - Gold MQL 必须是 `db.<collection>.aggregate([...])` pipeline。
-- 以下禁用 token 在任意深度都会被拒绝：`$sample`、`$rand`、`$$NOW`、`$out`、
-  `$merge`、`$function`。
-- `canonical_form_set` 有意保持轻量：它携带禁用 token、不可避免的结构性 operator
-  和 shape guard，不锁定 `$addFields`、`$cond`、`$type` 这类可替换 idiom。
+- 以下禁用 token 在任意深度都会被拒绝：`$sample`、`$rand`、`$$NOW`、`$out`、`$merge`、`$function`。
+- `canonical_form_set` 有意保持轻量：它携带禁用 token、不可避免的结构性 operator 和 shape guard，不锁定 `$addFields`、`$cond`、`$type` 这类可替换 idiom。
 - `shape_policy` 必须是 `preserve`、`reshape` 或 `reduce`。
 - `structural_schema_flex` 记录必须是 L4，并且必须带有非 `none` 的 `schema_flex` 模式。
 - `world_signature` 必须匹配该记录 `db_id` 对应 witness 数据的 canonicalized signature。
@@ -316,8 +286,7 @@ python -m pytest tests/test_solver_workflow.py
 python -m pytest tests/test_pipeline.py
 ```
 
-部分测试和 live 路径依赖本地 BIRD mini-dev 数据或 MongoDB。Stub-mode 测试不需要
-live LLM 调用。
+部分测试和 live 路径依赖本地 BIRD mini-dev 数据或 MongoDB。Stub-mode 测试不需要 live LLM 调用。
 
 ## 基线实验
 
@@ -327,19 +296,15 @@ live LLM 调用。
 - `ICL/` 添加 in-context examples。
 - `RAG/` 在生成前检索相关示例。
 - `self_debug/` 围绕生成的 MQL 做迭代 self-debugging。
-- `SQL_to_NoSQL/` 使用 SQL、SQL schema、MongoDB schema，以及内置 SQL-to-Mongo
-  converter grammar 做 SQL-assisted baseline。
+- `SQL_to_NoSQL/` 使用 SQL、SQL schema、MongoDB schema，以及内置 SQL-to-Mongo converter grammar 做 SQL-assisted baseline。
 
-这些脚本适合比较实验；活跃 CLI、契约、observability、发布验证和 SMART solver 都在
-`src/tend/` 下。
+这些脚本适合比较实验；活跃 CLI、契约、observability、发布验证和 SMART solver 都在 `src/tend/` 下。
 
 ## 开发说明
 
 - 文档、prompt、schema 和示例中优先使用仓库相对路径。
 - 烟测夹具必须明确标注为 smoke，不要描述成生产发布数据。
 - 快速检查 workflow 连通性时使用 `--stub --quiet`。
-- 小型夹具使用 `tend validate --smoke`，release candidate 使用完整的
-  `tend publish`。
-- 排障时先看 `anomalies.jsonl`，再打开其中引用的 LLM transcript Markdown 和
-  diagnostics JSON。
+- 小型夹具使用 `tend validate --smoke`，release candidate 使用完整的 `tend publish`。
+- 排障时先看 `anomalies.jsonl`，再打开其中引用的 LLM transcript Markdown 和 diagnostics JSON。
 - 本仓库已配置 CodeGraph，可用于结构化代码导航。
