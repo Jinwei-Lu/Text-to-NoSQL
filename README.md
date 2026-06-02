@@ -33,7 +33,7 @@ TEND 关注那些很难通过机械 SQL 翻译得到的 MongoDB 查询。构造�
 | `tend.config` | 读取 `.env`，解析路径，配置 OpenAI-compatible LLM、MongoDB URI、stub 模式、并发和 run id。 |
 | `tend.source` | 加载 BIRD mini-dev schema、workload、列描述、SQLite 探针、census 数据和源目录。 |
 | `tend.mechanisms` | 检测 query-bearing 异构机制，并映射到 archetype 和 reference oracle。 |
-| `tend.construct` | 将关系型 BIRD 表确定性迁移为文档聚合式 MongoDB witness 数据。 |
+| `tend.construct` | 提供 legacy 确定性迁移，以及 native 模式下每个数据库专属的 MongoDB-native 转换设计代码、recipe 和 executor。 |
 | `tend.agents` | 定义 agent 生命周期、LLM agent 基类、Phase A agent、Phase B agent 和确定性验证 agent。 |
 | `tend.workflow` | 提供动态 workflow engine，包括结构化的 `agent`、`parallel`、`pipeline`、Phase A 和 Phase B flow；live LLM 并发由 `tend.llm` 客户端统一限流。 |
 | `tend.execution` | 解析 MQL，扫描禁用 operator，派生 canonical form set，加载/执行 MongoDB witness，归一化结果并计算 world signature。 |
@@ -58,6 +58,9 @@ Phase A 按 BIRD 数据库运行：
 4. `SC` 审查物化后的 schema/data 以及 query-bearing 证据。若审查拒绝，会触发有界的 SRA 修订循环。
 
 DM 是确定性的，并且是物化 schema/data 的权威来源。LLM 输出可以提供理由和审查上下文，但不会覆盖实际 DM witness。
+
+Native construction 是显式 opt-in：`--construction-mode native`。它不使用一个通用程序把关系型 schema 机械映射成 MongoDB，而是从
+`src/tend/construct/native_designs/` 加载每个数据库自己的转换模块。每个模块根据该数据库的真实表、字段语义、外键和 workload 设计转换逻辑，可以复用 `common.py` 的 helper，但必须明确写出哪些源字段形成多形态集合、动态 key、派生 tag、嵌套事件流等结构。native 模式会写出 `migration_recipe/<db>.yaml`、`native_feature_manifest/<db>.yaml` 和 `provenance/<db>.json`，其中 provenance 包含 `conversion_code_ref`，用于追溯到具体转换代码和源字段/派生规则。若某个数据库没有注册的 native 设计模块，native 模式会直接失败，不会回退到 legacy 迁移。
 
 ### Phase B：NL-MQL 记录构造
 
@@ -184,6 +187,13 @@ python -m tend baseline --help
 python -m tend construct --phase all --dbs financial --records 1 --stub --quiet
 ```
 
+执行 MongoDB-native 离线 smoke construction，并验证 native artifacts：
+
+```bash
+python -m tend construct --construction-mode native --phase all --dbs financial --records 2 --stub --quiet --run-id native-smoke
+python -m tend validate --dataset-dir runs/native-smoke/dataset --smoke
+```
+
 只运行 live Phase A：
 
 ```bash
@@ -196,13 +206,22 @@ python -m tend construct --phase A --dbs financial
 python -m tend construct --phase all --dbs all --records 20
 ```
 
+构建完整 native 目标数据集：11 个数据库，每库 100 条 NL-MQL 记录：
+
+```bash
+python -m tend construct --construction-mode native --phase all --dbs all --records-per-db 100 --stub --quiet --run-id native-full-11db
+python -m tend validate --dataset-dir runs/native-full-11db/dataset
+```
+
 常用参数：
 
 | 参数 | 含义 |
 | --- | --- |
 | `--phase A|B|all` | 选择构造阶段。Phase B 需要同一 run 中的 Phase A artifacts。 |
+| `--construction-mode legacy|native` | 选择构造路线；默认 `legacy`，`native` 使用每库专属 MongoDB-native 转换代码和 manifest-driven Phase B。 |
 | `--dbs financial` | 逗号分隔的数据库 id，或 `all`。 |
 | `--records 1` | Phase B 要尝试构造的记录数。 |
+| `--records-per-db 100` | 为每个选中数据库尝试构造固定数量的记录，适合全 11 库 native benchmark 构建。 |
 | `--stub` | 使用确定性的固定 LLM 响应。 |
 | `--quiet` | 关闭 live rich 进度 UI，保留结构化 console/log 输出。 |
 | `--run-id my-run` | 固定 run id 和输出目录。 |

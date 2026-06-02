@@ -17,13 +17,17 @@ Phase B reverse-engineers NL–MQL records.
 | `agents/base.py` | `Agent` lifecycle wrapper + `LLMAgent` (prompt→schema→contract repair) + registry |
 | `agents/phase_a.py` | WP, SRA, SC (LLM) |
 | `agents/dm.py` | DM — **deterministic** migration agent |
+| `agents/native_migration.py`, `agents/native_nl.py` | Native construction helper agents for reviewed recipe design and native NL wording |
 | `agents/phase_b.py` | QPS, MS, MUT, PV, NLP, RTV, NNC, RA |
 | `execution/ast_check.py` | MQL parse, 6 banned-operator scan, `canonical_form_set` eval + thin derivation |
 | `execution/mongo.py` | NormExec (run MQL aggregate) + `equiv_rec` (≡_rec) |
 | `execution/signature.py` | `world_signature` over canonicalized witness |
 | `construct/migrate.py` | DM's deterministic document-aggregate migration (FK-derived embed/reference plan) |
+| `construct/native_designs/` | One checked-in MongoDB-native conversion module per BIRD database; native mode fails closed if a database has no module |
+| `construct/native_recipe.py`, `construct/native_executor.py` | Typed native migration recipes, manifest/provenance contracts, and deterministic recipe execution |
 | `workflow/engine.py` | `Workflow`: `agent` / `parallel` / `pipeline` primitives (concurrency + failure isolation) |
 | `workflow/flows.py` | `run_phase_a` (per-db WP→SRA→SC*→DM) and `run_phase_b` (per-record 8-agent pipeline + feedback) |
+| `workflow/native_construction.py`, `workflow/native_phase_b.py`, `workflow/native_verify.py` | Native Phase A route, manifest-driven slots/gold compilers, and anti-SQL-transfer verification |
 | `cli.py` | Runtime assembly + `tend construct` |
 
 ## Run
@@ -32,11 +36,19 @@ Phase B reverse-engineers NL–MQL records.
 # offline (no LLM, exercises the whole machine deterministically)
 python -m tend construct --phase all --dbs financial --records 1 --stub --quiet
 
+# MongoDB-native smoke: per-database design code -> recipe -> manifest-driven NL-MQL
+python -m tend construct --construction-mode native --phase all --dbs financial --records 2 --stub --quiet --run-id native-smoke
+python -m tend validate --dataset-dir runs/native-smoke/dataset --smoke
+
 # live (DeepSeek per .env) — Phase A only
 python -m tend construct --phase A --dbs financial
 
 # all 11 dbs
 python -m tend construct --phase all --dbs all --records 20
+
+# complete native benchmark target: all 11 dbs, 100 records per db
+python -m tend construct --construction-mode native --phase all --dbs all --records-per-db 100 --stub --quiet --run-id native-full-11db
+python -m tend validate --dataset-dir runs/native-full-11db/dataset
 
 # full financial source workload + uncapped MongoDB export
 python -m tend construct --phase all --dbs financial --records all --full-db
@@ -52,6 +64,34 @@ planner prefers those cells because Phase A materializes them as MongoDB `__vari
 live gold-lock can verify. `--full-db` disables the deterministic migration reference-table
 cap, so large fact collections such as `financial.trans` are exported completely. The
 explicit release-copy step writes `release/TEND-dataset/`.
+
+## Construction Modes
+
+`--construction-mode legacy` is the default and preserves the original route:
+`WP/SRA/SC` provide design context and review while deterministic `DM` derives a
+document-aggregate migration from foreign-key structure.
+
+`--construction-mode native` is a separate route. It does not use a generic
+relational-to-Mongo conversion. Instead, every BIRD database has a checked-in module under
+`src/tend/construct/native_designs/` that encodes its table and field semantics. Shared
+helpers are allowed, but the database module decides which real fields become
+polymorphic collections, dynamic-key objects, derived tag arrays, nested event streams,
+or related native structures. Native mode fails closed when a selected `db_id` has no
+registered design module.
+
+Native Phase A writes the legacy-visible assets plus native-specific review artifacts:
+
+- `migration_recipe/<db_id>.yaml`
+- `native_feature_manifest/<db_id>.yaml`
+- `provenance/<db_id>.json`
+
+`provenance/<db_id>.json` records `conversion_code_ref` so a native DataWorld can be
+traced back to the exact conversion module and source-column/derived-rule lineage.
+Native Phase B plans slots from `native_feature_manifest`, compiles deterministic gold
+MQL patterns such as dynamic-key comparison and subtype dispatch, verifies MongoDB-native
+construct usage, and records metadata including `native_feature_id`,
+`native_query_pattern`, `mongo_native_constructs`, `anti_sql_transfer_level`,
+`provenance_refs`, and `migration_recipe_ref`.
 
 ## Logging & anomaly capture (for operators / Claude Code)
 
@@ -85,8 +125,11 @@ spawns one concurrency-limited sub-agent whose lifecycle is logged and shown in 
 
 ## Status / next
 
-- **Done**: full pipeline runs stub end-to-end and live `financial` Phase A/B; deterministic
-  migration can run capped for fast iteration or uncapped via `--full-db`; Phase B uses the
-  census-driven coverage controller and emits validated NL-MQL records.
-- **Next**: broaden live release-scale runs across all dbs and tune coverage/yield policy
-  from the resulting logs.
+- **Done**: legacy pipeline runs stub end-to-end and live `financial` Phase A/B; deterministic
+  migration can run capped for fast iteration or uncapped via `--full-db`; legacy Phase B uses
+  the census-driven coverage controller and emits validated NL-MQL records. Native mode now
+  supports all 11 BIRD databases through per-database conversion modules and has a validated
+  stub release path with 100 native NL-MQL records per database.
+- **Next**: run the native path with live LLM wording/review where desired, then tune the
+  database-specific conversion modules from benchmark-quality audits rather than replacing them
+  with a generic migration rule.
