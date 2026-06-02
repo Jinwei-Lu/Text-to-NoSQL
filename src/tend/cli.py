@@ -33,7 +33,7 @@ from .ablations import ABLATION_IDS, run_ablation_suite
 from .baselines import BASELINE_IDS, run_baseline_suite
 from .config import Settings
 from .dataset import write_catalog, write_phase_a, write_records
-from .errors import Anomaly, TendError, wrap_unexpected
+from .errors import Anomaly, SourceError, TendError, wrap_unexpected
 from .evaluation import EvaluationOutput, evaluate_predictions
 from .execution.mongo import MongoExecutor
 from .llm import LLMClient
@@ -151,7 +151,21 @@ def _coverage_slots_for(
     elif structural_fraction > 0:
         n_struct = max(1, round(n_records * min(structural_fraction, 1.0)))
         n_broad = max(0, n_records - n_struct)
-        requests = list(plan_source_full_structural_slots(census, n_records=n_struct, seed=seed))
+        try:
+            requests = list(plan_source_full_structural_slots(census, n_records=n_struct, seed=seed))
+        except SourceError:
+            # This db (or selection) has no query-bearing structural supply. Degrade gracefully
+            # to a pure broad-census mix instead of hard-failing the whole run: the complexity
+            # floors (H7 flex / H9 ssf) are unreachable without structural supply, and validate
+            # will report that honestly. No silent cap — emit a warning naming the affected dbs.
+            import structlog
+            structlog.get_logger("tend").warning(
+                "structural_fraction_no_supply",
+                db_ids=sorted(census.databases), requested_structural=n_struct,
+                note="degraded to broad census mix; complexity floors unreachable for this db",
+            )
+            requests = []
+            n_broad = n_records
         if n_broad:
             requests += list(plan_coverage_slots(census, n_records=n_broad, seed=seed + 1))
     else:
