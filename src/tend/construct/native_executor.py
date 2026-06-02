@@ -681,6 +681,7 @@ def _feature_for_transform(collection_name: str, transform: NativeTransform) -> 
     feature_id = f"{collection_name}.{transform.id}"
     target_field = str(transform.raw.get("target_field") or transform.id)
     if transform.type == "polymorphic_union":
+        variants = transform.raw.get("variants") if isinstance(transform.raw.get("variants"), dict) else {}
         return NativeFeature(
             id=feature_id,
             type="polymorphic_collection",
@@ -689,8 +690,12 @@ def _feature_for_transform(collection_name: str, transform: NativeTransform) -> 
             query_patterns=["subtype_field_dispatch"],
             required_constructs=["$switch"],
             provenance_refs=_source_refs_for_transform(transform),
-            coverage={"variant_count": len(transform.raw.get("variants") or {})},
-            extra={"recipe_transform_type": transform.type},
+            coverage={"variant_count": len(variants)},
+            extra={
+                "recipe_transform_type": transform.type,
+                "discriminator": str(transform.raw.get("discriminator") or "type"),
+                "variants": sorted(str(value) for value in variants),
+            },
         )
     if transform.type == "dynamic_key_object":
         return NativeFeature(
@@ -703,6 +708,7 @@ def _feature_for_transform(collection_name: str, transform: NativeTransform) -> 
             provenance_refs=_source_refs_for_transform(transform),
         )
     if transform.type == "derived_tag_array":
+        tags = transform.raw.get("tags") if isinstance(transform.raw.get("tags"), dict) else {}
         return NativeFeature(
             id=feature_id,
             type="derived_tag_array",
@@ -711,6 +717,7 @@ def _feature_for_transform(collection_name: str, transform: NativeTransform) -> 
             query_patterns=["tag_combination"],
             required_constructs=["$setIntersection", "$size"],
             provenance_refs=_source_refs_for_transform(transform),
+            extra={"target_tags": sorted(str(tag) for tag in tags)},
         )
     if transform.type == "nested_event_stream":
         return NativeFeature(
