@@ -36,7 +36,7 @@ from .agents import AgentContext
 from .ablations import ABLATION_IDS, run_ablation_suite
 from .baselines import BASELINE_IDS, run_baseline_suite
 from .config import Settings
-from .dataset import write_catalog, write_phase_a, write_records
+from .dataset import write_catalog, write_native_phase_a, write_phase_a, write_records
 from .errors import Anomaly, SourceError, TendError, wrap_unexpected
 from .evaluation import EvaluationOutput, evaluate_predictions
 from .execution import mql_signature, mql_skeleton_signature
@@ -62,6 +62,8 @@ from .solver.workflow import (
 )
 from .workflow import Workflow, run_phase_a, run_phase_b
 from .workflow.flows import CoverageSlot, DbArtifacts
+from .workflow.native_construction import NativeDbArtifacts, run_native_phase_a
+from .workflow.native_phase_b import plan_native_slots, run_native_phase_b
 
 PRODUCTION_RELEASE_DIR = Path("release/TEND-dataset")
 VALIDATION_ISSUE_LIMIT = 12
@@ -1504,7 +1506,19 @@ async def _run_construct(
     structural_only_records: bool = False,
     structural_fraction: float = 0.0,
     records_per_db: int | None = None,
+    construction_mode: str = "legacy",
 ) -> int:
+    if construction_mode == "native":
+        return await _run_native_construct(
+            rt,
+            db_ids,
+            phase,
+            n_records,
+            records_per_db=records_per_db,
+        )
+    if construction_mode != "legacy":
+        raise ValueError(f"unknown construction mode: {construction_mode}")
+
     out_dir = rt.settings.paths.dataset_out
     artifacts: dict[str, DbArtifacts] = {}
     records: list[dict] = []
@@ -1598,6 +1612,112 @@ async def _run_construct(
         failed_run = failed is not None or summary.get("anomaly_total", 0) > 0
         rt.log.info("run_done", status="failed" if failed_run else "ok", **summary,
                     dbs=len(artifacts), records=len(records))
+        _print_summary(rt, artifacts, records, summary, out_dir)
+        _close_runtime(rt)
+
+    return 1 if failed or summary.get("anomaly_total", 0) else 0
+
+
+async def _run_native_construct(
+    rt: Runtime,
+    db_ids: list[str],
+    phase: str,
+    n_records: int,
+    *,
+    records_per_db: int | None = None,
+) -> int:
+    out_dir = rt.settings.paths.dataset_out
+    artifacts: dict[str, NativeDbArtifacts] = {}
+    records: list[dict[str, Any]] = []
+    failed: TendError | None = None
+    summary: dict[str, Any] = {}
+    slot_count = 0
+    try:
+        with rt.progress:
+            if phase in ("A", "all"):
+                artifacts = await run_native_phase_a(rt.workflow, db_ids)
+                write_native_phase_a(out_dir, artifacts)
+                rt.log.info(
+                    "native_phase_a_complete",
+                    dbs=sorted(artifacts),
+                    signatures={db_id: art.world_signature for db_id, art in artifacts.items()},
+                    feature_counts={
+                        db_id: len(getattr(art.native_feature_manifest, "features", []) or [])
+                        for db_id, art in artifacts.items()
+                    },
+                )
+            if phase in ("B", "all"):
+                if not artifacts:
+                    rt.log.anomaly(
+                        kind=Anomaly.INTERNAL,
+                        message="native phase B requested without Phase A artifacts",
+                        phase=phase,
+                        requested_records=n_records,
+                    )
+                else:
+                    manifests = [art.native_feature_manifest for art in artifacts.values()]
+                    slot_cap = records_per_db if records_per_db is not None else None
+                    slots = plan_native_slots(
+                        manifests,
+                        n_records,
+                        seed=rt.settings.seed,
+                        records_per_db=slot_cap,
+                    )
+                    slot_count = len(slots)
+                    rt.log.info(
+                        "native_slot_plan",
+                        requested_records=n_records,
+                        slots=slot_count,
+                        dbs=sorted(artifacts),
+                        records_per_db=records_per_db,
+                    )
+                    records = await run_native_phase_b(rt.workflow, artifacts, slots)
+                    write_records(out_dir, records)
+                    built_by_db = dict(Counter(str(record.get("db_id")) for record in records))
+                    rt.log.info(
+                        "native_release_summary",
+                        requested_records=n_records,
+                        built_records=len(records),
+                        slots=slot_count,
+                        built_by_db=built_by_db,
+                    )
+                    if len(records) < n_records:
+                        rt.log.anomaly(
+                            kind=Anomaly.SUPPLY_EXHAUSTED,
+                            message="native Phase B record target not met",
+                            requested_records=n_records,
+                            built_records=len(records),
+                        )
+    except TendError as err:
+        failed = err
+        if not err.logged:
+            rt.log.anomaly(err)
+        rt.log.error(
+            "run_failed",
+            error_type=type(err).__name__,
+            message=err.message,
+            anomaly=err.anomaly.value if err.anomaly else None,
+        )
+    except Exception as exc:  # noqa: BLE001 - final CLI boundary
+        failed = wrap_unexpected(exc, stage="construct.native")
+        rt.log.anomaly(failed)
+        rt.log.error(
+            "run_failed",
+            error_type=type(failed).__name__,
+            message=failed.message,
+            anomaly=failed.anomaly.value if failed.anomaly else None,
+        )
+    finally:
+        summary = rt.progress.summary() if hasattr(rt.progress, "summary") else {}
+        failed_run = failed is not None or summary.get("anomaly_total", 0) > 0
+        rt.log.info(
+            "run_done",
+            status="failed" if failed_run else "ok",
+            **summary,
+            dbs=len(artifacts),
+            records=len(records),
+            construction_mode="native",
+        )
         _print_summary(rt, artifacts, records, summary, out_dir)
         _close_runtime(rt)
 
@@ -2227,6 +2347,12 @@ def main(argv: list[str] | None = None) -> int:
 
     c = sub.add_parser("construct", help="run the construction pipeline")
     c.add_argument("--phase", choices=["A", "B", "all"], default="all")
+    c.add_argument(
+        "--construction-mode",
+        choices=["legacy", "native"],
+        default="legacy",
+        help="construction route: legacy deterministic migration or per-database native designs",
+    )
     c.add_argument("--dbs", default="financial",
                    help="comma-separated db_ids, or 'all' (default: financial)")
     c.add_argument(
@@ -2384,6 +2510,7 @@ def main(argv: list[str] | None = None) -> int:
             structural_only_records=structural_only_records,
             structural_fraction=getattr(args, "structural_fraction", 0.0),
             records_per_db=args.records_per_db,
+            construction_mode=args.construction_mode,
         ))
     if args.command == "solve":
         rt = build_solver_runtime(settings)

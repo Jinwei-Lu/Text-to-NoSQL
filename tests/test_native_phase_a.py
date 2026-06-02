@@ -107,6 +107,9 @@ def test_write_native_phase_a_materializes_native_artifact_tree(tmp_path: Path) 
     assert json.loads((tmp_path / "mongodb_data" / "financial.json").read_text()) == (
         artifacts["financial"].mongodb_data
     )
+    assert yaml.safe_load(
+        (tmp_path / "agent_design_rationale" / "financial.yaml").read_text()
+    ) == {"design_goal": "native financial documents"}
     assert yaml.safe_load((tmp_path / "migration_recipe" / "financial.yaml").read_text()) == {
         "db_id": "financial",
         "recipe_version": 1,

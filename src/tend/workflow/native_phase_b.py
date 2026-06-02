@@ -45,9 +45,9 @@ DEFAULT_SHAPE_POLICY = {
 DEFAULT_DIFFICULTY = {
     "dynamic_key_object": "L4",
     "polymorphic_collection": "L4",
-    "derived_tag_array": "L3",
+    "derived_tag_array": "L4",
     "nested_event_stream": "L4",
-    "missing_vs_present": "L3",
+    "missing_vs_present": "L4",
 }
 
 DEFAULT_CONSTRUCTS = {
@@ -326,6 +326,7 @@ def build_native_record(
         "difficulty": slot.target_difficulty,
         "sql_infeasibility_class": "structural_schema_flex",
         "shape_policy": slot.target_shape_policy,
+        "schema_flex": _schema_flex_for_feature_type(slot.feature_type),
         "world_signature": world_signature,
         "native_feature_id": slot.feature_id,
         "native_feature_type": slot.feature_type,
@@ -555,6 +556,16 @@ def _variants(feature: NativeFeature) -> list[str]:
     if isinstance(variants, list) and variants:
         return [str(variant) for variant in variants]
     return ["account", "card", "loan"]
+
+
+def _schema_flex_for_feature_type(feature_type: str) -> str:
+    return {
+        "dynamic_key_object": "dynamic_key",
+        "polymorphic_collection": "polymorphic",
+        "derived_tag_array": "derived_tag_array",
+        "nested_event_stream": "nested_event_stream",
+        "missing_vs_present": "missing_vs_present",
+    }.get(feature_type, "attribute_bag")
 
 
 def _canonical_nl(slot: NativeCoverageSlot, feature: NativeFeature) -> str:

@@ -67,6 +67,52 @@ def test_construct_default_output_is_run_dataset_unless_env_overrides(
     assert captured[-1] == override
 
 
+def test_construct_passes_construction_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[str] = []
+
+    def fake_build_runtime(settings):
+        return SimpleNamespace(
+            settings=settings,
+            source=SimpleNamespace(db_ids=("financial",)),
+        )
+
+    async def fake_run_construct(_rt, _db_ids, _phase, _records, **kwargs):
+        captured.append(kwargs.get("construction_mode"))
+        return 0
+
+    monkeypatch.setattr(cli, "build_runtime", fake_build_runtime)
+    monkeypatch.setattr(cli, "_run_construct", fake_run_construct)
+
+    assert cli.main([
+        "construct",
+        "--stub",
+        "--quiet",
+        "--dbs",
+        "financial",
+        "--records",
+        "1",
+        "--run-id",
+        "cli-legacy-mode",
+    ]) == 0
+    assert cli.main([
+        "construct",
+        "--construction-mode",
+        "native",
+        "--stub",
+        "--quiet",
+        "--dbs",
+        "financial",
+        "--records",
+        "1",
+        "--run-id",
+        "cli-native-mode",
+    ]) == 0
+
+    assert captured == ["legacy", "native"]
+
+
 def test_construct_full_db_and_all_records(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

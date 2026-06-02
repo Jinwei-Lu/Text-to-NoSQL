@@ -17,16 +17,27 @@ from typing import Any
 
 import yaml
 
+from ..construct.native_recipe import NativeFeatureManifest, load_native_feature_manifest
 from ..execution import mql_signature, mql_skeleton_signature, mql_skeleton_summary, world_signature
 from ..execution import ast_check
 from ..execution.ast_check import DISABLED_OPERATORS, DISABLED_SYSTEM_VARS
+from ..workflow.native_verify import verify_native_record
 
 DISABLED_TOKENS: frozenset[str] = DISABLED_OPERATORS | DISABLED_SYSTEM_VARS
 DIFFICULTIES = ("L0", "L1", "L2", "L3", "L4")
 SHAPE_POLICIES = ("preserve", "reshape", "reduce")
 SQL_INFEASIBILITY_CLASSES = (
     "feasible", "semantic", "performative", "structural_pipeline", "structural_schema_flex")
-SCHEMA_FLEX_MODES = ("none", "polymorphic", "attribute_bag", "schema_versioning", "dynamic_key")
+SCHEMA_FLEX_MODES = (
+    "none",
+    "polymorphic",
+    "attribute_bag",
+    "schema_versioning",
+    "dynamic_key",
+    "derived_tag_array",
+    "nested_event_stream",
+    "missing_vs_present",
+)
 
 GOLD_REQUIRED = ("record_id", "db_id", "nl_queries", "MQL", "canonical_form_set")
 PUBLISH_REQUIRED = ("difficulty", "sql_infeasibility_class", "shape_policy", "world_signature")
@@ -246,6 +257,12 @@ def validate_release(
     else:
         file_viol.append("[C4] missing TEND.json")
     records = test if isinstance(test, list) else test.get("records", [])
+    record_db_ids = sorted({str(r.get("db_id")) for r in records if r.get("db_id")})
+    native_mode = (out_dir / "native_feature_manifest").is_dir() or any(
+        "native_feature_id" in r for r in records
+    )
+    native_manifests = _load_native_manifests(out_dir, record_db_ids) if native_mode else {}
+    native_provenance = _load_native_provenance(out_dir, record_db_ids) if native_mode else {}
 
     rec_viol: list[str] = []
     sch_viol: list[str] = []
@@ -284,6 +301,13 @@ def validate_release(
                     f"mongodb_data/{db}.json"
                 )
             local_rec += validate_record(r, executor=executor, snapshot=snap, refs_base=out_dir)
+            if native_mode or "native_feature_id" in r:
+                local_rec += _validate_native_record(
+                    r,
+                    native_manifests.get(str(db)),
+                    native_provenance.get(str(db)),
+                    out_dir,
+                )
             if record_schema is not None:
                 local_sch += _validate_record_jsonschema_with_schema(r, record_schema)
         except Exception as exc:  # noqa: BLE001 - surface as validation violation, not pool crash
@@ -306,8 +330,19 @@ def validate_release(
             ext = "yaml" if sub == "agent_design_rationale" else "json"
             if not (out_dir / sub / f"{db}.{ext}").exists():
                 file_viol.append(f"[C4] missing {sub}/{db}.{ext}")
+    if native_mode:
+        file_viol += _validate_native_artifacts(
+            out_dir,
+            comp.db_ids,
+            native_manifests,
+            native_provenance,
+        )
+        rec_viol += _native_coverage_violations(records)
     if schemas_path:
-        file_viol += _validate_release_artifacts(out_dir, comp.db_ids, schemas_path)
+        if native_mode:
+            file_viol += _validate_native_catalog_artifact(out_dir, schemas_path)
+        else:
+            file_viol += _validate_release_artifacts(out_dir, comp.db_ids, schemas_path)
 
     ok = not (rec_viol or sch_viol or file_viol) and comp.ok
     return ReleaseReport(ok, len(records), rec_viol, sch_viol, comp, file_viol, diversity)
@@ -452,6 +487,162 @@ def _normalized_nl_text(text: Any) -> str:
 
 def _text_signature(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _load_native_manifests(
+    out_dir: Path,
+    db_ids: list[str],
+) -> dict[str, NativeFeatureManifest]:
+    manifests: dict[str, NativeFeatureManifest] = {}
+    for db_id in db_ids:
+        path = out_dir / "native_feature_manifest" / f"{db_id}.yaml"
+        if path.exists():
+            manifests[db_id] = load_native_feature_manifest(path)
+    return manifests
+
+
+def _load_native_provenance(out_dir: Path, db_ids: list[str]) -> dict[str, dict[str, Any]]:
+    provenance: dict[str, dict[str, Any]] = {}
+    for db_id in db_ids:
+        path = out_dir / "provenance" / f"{db_id}.json"
+        if path.exists():
+            provenance[db_id] = json.loads(path.read_text(encoding="utf-8"))
+    return provenance
+
+
+def _validate_native_record(
+    record: dict[str, Any],
+    manifest: NativeFeatureManifest | None,
+    provenance: dict[str, Any] | None,
+    out_dir: Path,
+) -> list[str]:
+    rid = record.get("record_id", "?")
+    db_id = str(record.get("db_id") or "")
+    issues: list[str] = []
+    feature_id = str(record.get("native_feature_id") or "")
+    if not feature_id:
+        return [f"[native r{rid}] missing native_feature_id"]
+    if manifest is None:
+        return [f"[native r{rid}] missing native feature manifest for db_id {db_id!r}"]
+    feature = next((item for item in manifest.features if item.id == feature_id), None)
+    if feature is None:
+        issues.append(f"[native r{rid}] feature {feature_id!r} not found in manifest")
+    else:
+        if record.get("native_feature_type") != feature.type:
+            issues.append(
+                f"[native r{rid}] native_feature_type {record.get('native_feature_type')!r} "
+                f"does not match manifest type {feature.type!r}"
+            )
+        verification = verify_native_record(record, manifest)
+        if not verification.ok:
+            issues.extend(f"[native r{rid}] {error}" for error in verification.errors)
+
+    expected_recipe_ref = f"migration_recipe/{db_id}.yaml"
+    if record.get("migration_recipe_ref") != expected_recipe_ref:
+        issues.append(
+            f"[native r{rid}] migration_recipe_ref must be {expected_recipe_ref!r}"
+        )
+    elif not (out_dir / expected_recipe_ref).exists():
+        issues.append(f"[native r{rid}] migration recipe ref does not resolve")
+
+    constructs = record.get("mongo_native_constructs") or []
+    if not isinstance(constructs, list):
+        issues.append(f"[native r{rid}] mongo_native_constructs must be a list")
+    else:
+        mql = str(record.get("MQL") or "")
+        missing = [construct for construct in constructs if str(construct) not in mql]
+        if missing:
+            issues.append(
+                f"[native r{rid}] claimed native constructs absent from MQL: {missing}"
+            )
+
+    provenance_refs = record.get("provenance_refs") or []
+    if not isinstance(provenance_refs, list):
+        issues.append(f"[native r{rid}] provenance_refs must be a list")
+    elif provenance is None:
+        issues.append(f"[native r{rid}] missing provenance artifact for db_id {db_id!r}")
+    else:
+        allowed = _native_provenance_refs(provenance)
+        unresolved = [str(ref) for ref in provenance_refs if str(ref) not in allowed]
+        if unresolved:
+            issues.append(f"[native r{rid}] unresolved provenance refs: {unresolved}")
+
+    return issues
+
+
+def _native_provenance_refs(provenance: dict[str, Any]) -> set[str]:
+    refs: set[str] = set()
+    entries = provenance.get("entries")
+    if isinstance(entries, dict):
+        refs.update(str(key) for key in entries)
+        for value in entries.values():
+            if isinstance(value, dict):
+                refs.update(str(ref) for ref in value.get("source_columns") or [])
+                refs.update(str(ref) for ref in value.get("provenance_refs") or [])
+    return refs
+
+
+def _validate_native_artifacts(
+    out_dir: Path,
+    db_ids: list[str],
+    manifests: dict[str, NativeFeatureManifest],
+    provenance: dict[str, dict[str, Any]],
+) -> list[str]:
+    issues: list[str] = []
+    for db_id in db_ids:
+        recipe_path = out_dir / "migration_recipe" / f"{db_id}.yaml"
+        manifest_path = out_dir / "native_feature_manifest" / f"{db_id}.yaml"
+        provenance_path = out_dir / "provenance" / f"{db_id}.json"
+        if not recipe_path.exists():
+            issues.append(f"[native] missing migration_recipe/{db_id}.yaml")
+        if not manifest_path.exists():
+            issues.append(f"[native] missing native_feature_manifest/{db_id}.yaml")
+        if not provenance_path.exists():
+            issues.append(f"[native] missing provenance/{db_id}.json")
+        manifest = manifests.get(db_id)
+        if manifest is not None and not manifest.features:
+            issues.append(f"[native] manifest for {db_id} has no native features")
+        payload = provenance.get(db_id)
+        if payload is not None and not payload.get("conversion_code_ref"):
+            issues.append(f"[native] provenance/{db_id}.json missing conversion_code_ref")
+    return issues
+
+
+def _native_coverage_violations(records: list[dict[str, Any]]) -> list[str]:
+    native_records = [record for record in records if record.get("native_feature_id")]
+    if not native_records:
+        return ["[native] no native records represented"]
+    feature_types = {str(record.get("native_feature_type") or "") for record in native_records}
+    if not any(feature_types):
+        return ["[native] no native feature type represented"]
+    return []
+
+
+def _validate_native_catalog_artifact(out_dir: Path, schemas_dir: Path) -> list[str]:
+    """For native releases, validate only the shared catalog schema.
+
+    Native ``mongodb_schema`` intentionally uses feature-manifest-oriented shapes that
+    differ from the legacy proposal library schema.
+    """
+    try:
+        import jsonschema
+    except ImportError:
+        return ["[schema] jsonschema is not installed; cannot validate release artifacts"]
+    lib_path = schemas_dir / "library.schema.json"
+    if not lib_path.exists():
+        return []
+    lib = json.loads(lib_path.read_text(encoding="utf-8"))
+    catalog_path = out_dir / "bird_db_catalog.json"
+    if not catalog_path.exists():
+        return ["[C4] missing bird_db_catalog.json"]
+    schema = {"$schema": lib.get("$schema"), "$defs": lib.get("$defs", {}),
+              "$ref": "#/$defs/bird_db_catalog"}
+    validator = jsonschema.Draft202012Validator(schema)
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    return [
+        f"[schema bird_db_catalog.json] {err.message} at /{'/'.join(map(str, err.path))}"
+        for err in validator.iter_errors(catalog)
+    ]
 
 
 def _validate_release_artifacts(

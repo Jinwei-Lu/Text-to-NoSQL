@@ -1,13 +1,13 @@
 """Deterministic executor for Codex-native migration recipes."""
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..execution import world_signature as compute_world_signature
 from ..errors import MigrationError
 from .native_recipe import (
     NativeFeature,
@@ -79,15 +79,7 @@ def execute_native_recipe(
 
     manifest = NativeFeatureManifest(db_id=db_id, features=features)
     inferred_schema = _infer_schema(data, manifest)
-    signature_payload = {
-        "db_id": db_id,
-        "recipe": recipe.to_dict(),
-        "data": data,
-        "features": manifest.to_dict(),
-    }
-    world_signature = hashlib.sha256(
-        json.dumps(signature_payload, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest()[:16]
+    world_signature = compute_world_signature(data)
     if event_hook is not None:
         event_hook(
             "recipe_materialized",

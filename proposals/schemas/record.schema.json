@@ -125,6 +125,13 @@
             "type": "string",
             "pattern": "^(\\$\\$NOW|\\$[A-Za-z][A-Za-z0-9_]*)$"
           }
+        },
+        "native_must_contain": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(\\$\\$NOW|\\$[A-Za-z][A-Za-z0-9_]*)$"
+          }
         }
       }
     },
@@ -187,8 +194,74 @@
     },
     "schema_flex": {
       "type": "string",
-      "enum": ["none", "polymorphic", "attribute_bag", "schema_versioning", "dynamic_key"],
+      "enum": [
+        "none",
+        "polymorphic",
+        "attribute_bag",
+        "schema_versioning",
+        "dynamic_key",
+        "derived_tag_array",
+        "nested_event_stream",
+        "missing_vs_present"
+      ],
       "description": "SRA Stage B heterogenization type; omit or none when H1-H4 do not fire."
+    },
+    "native_feature_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "native_feature_type": {
+      "type": "string",
+      "enum": [
+        "dynamic_key_object",
+        "polymorphic_collection",
+        "derived_tag_array",
+        "nested_event_stream",
+        "missing_vs_present"
+      ]
+    },
+    "native_query_pattern": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mongo_native_constructs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^\\$[A-Za-z][A-Za-z0-9_]*$"
+      }
+    },
+    "anti_sql_transfer_level": {
+      "type": "string",
+      "enum": ["weak", "medium", "strong"]
+    },
+    "anti_sql_transfer_evidence": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "provenance_refs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "migration_recipe_ref": {
+      "type": "string",
+      "pattern": "^migration_recipe/[a-z][a-z0-9_]*\\.ya?ml$"
+    },
+    "native_verification": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["ok", "errors"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "errors": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "native_metadata": {
+      "type": "object",
+      "additionalProperties": true
     },
     "agent_design_rationale_ref": {
       "type": "string",

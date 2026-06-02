@@ -292,7 +292,8 @@ def test_execute_native_recipe_returns_manifest_provenance_and_signature(tmp_pat
         "trans.date",
         "trans.type",
     ]
-    assert len(result.world_signature) == 16
+    assert result.world_signature.startswith("sha256:")
+    assert len(result.world_signature) == 71
 
 
 def test_execute_native_recipe_fails_closed_on_unsupported_expression(tmp_path):

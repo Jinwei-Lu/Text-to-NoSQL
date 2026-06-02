@@ -95,6 +95,7 @@ def write_native_phase_a(out_dir: Path, artifacts: dict[str, Any]) -> None:
     for db_id, art in artifacts.items():
         _write_json(out_dir / "mongodb_schema" / f"{db_id}.json", art.mongodb_schema)
         _write_json(out_dir / "mongodb_data" / f"{db_id}.json", art.mongodb_data)
+        _write_yaml(out_dir / "agent_design_rationale" / f"{db_id}.yaml", art.rationale)
         write_native_recipe(out_dir, db_id, art.migration_recipe)
         write_native_feature_manifest(out_dir, db_id, art.native_feature_manifest)
         write_provenance(out_dir, db_id, art.provenance)
