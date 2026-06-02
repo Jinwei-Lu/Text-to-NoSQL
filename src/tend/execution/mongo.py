@@ -18,6 +18,12 @@ from .ast_check import parse_pipeline
 from .signature import _canon
 
 _FLOAT_NDIGITS = 12
+# Server-side time bound for every aggregate. Indexed gold/round-trip queries finish in
+# well under a second; LLM-generated PV mutations can be pathological (e.g. an unindexed
+# $lookup that COLLSCANs financial.trans's ~1M rows per parent), which without a cap hangs
+# the whole run. A timed-out aggregate raises ExecutionTimeout -> ExecutionError, which PV
+# correctly treats as a discriminating (result-changing) mutation.
+_EXEC_MAX_TIME_MS = 30_000
 
 
 class MongoExecutor:
@@ -78,13 +84,43 @@ class MongoExecutor:
         client = self._connect()
         db = client[self._db_name(db_id)]
         client.drop_database(self._db_name(db_id))
+        indexes: dict[str, list[str]] = {}
         for coll, docs in collections.items():
             if not docs:
                 continue
             coerced = json_util.loads(json.dumps(docs, default=str))
             db[coll].insert_many(coerced)
+            created = self._index_join_fields(db[coll], coerced)
+            if created:
+                indexes[coll] = created
         self._log.info("witness_loaded", db_id=db_id,
-                       collections={c: len(d) for c, d in collections.items()})
+                       collections={c: len(d) for c, d in collections.items()},
+                       indexes=indexes)
+
+    @staticmethod
+    def _index_join_fields(collection: Any, docs: list[Any], *, sample: int = 200) -> list[str]:
+        """Index top-level ``*_id`` join keys so ``$lookup`` foreignField scans avoid O(n·m).
+
+        The gold-lock for join/ratio archetypes (e.g. present_missing_projection) joins a
+        parent onto a large fact collection on its foreign key; on financial.trans (~1M
+        rows) an unindexed foreignField turns each record's lock into a full scan. Indexes
+        are a pure performance optimization — never correctness-affecting and never fatal.
+        """
+        candidates: set[str] = set()
+        for doc in docs[:sample]:
+            if not isinstance(doc, dict):
+                continue
+            for key, value in doc.items():
+                if key != "_id" and key.endswith("_id") and not isinstance(value, (dict, list)):
+                    candidates.add(key)
+        created: list[str] = []
+        for field in sorted(candidates):
+            try:
+                collection.create_index(field)
+                created.append(field)
+            except Exception:  # noqa: BLE001 - index build is best-effort, never fatal
+                pass
+        return created
 
     def norm_exec(self, db_id: str, mql: str) -> list[dict[str, Any]]:
         """Execute an MQL aggregate and return the *normalized* result documents."""
@@ -92,7 +128,7 @@ class MongoExecutor:
         client = self._connect()
         db = client[self._db_name(db_id)]
         try:
-            raw = list(db[collection].aggregate(pipeline))
+            raw = list(db[collection].aggregate(pipeline, maxTimeMS=_EXEC_MAX_TIME_MS))
         except Exception as exc:  # noqa: BLE001 - pymongo/operator errors -> typed anomaly
             raise ExecutionError("aggregate execution failed",
                                  context={"db_id": db_id, "collection": collection,

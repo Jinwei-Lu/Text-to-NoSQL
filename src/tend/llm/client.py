@@ -50,6 +50,8 @@ _REFUSAL_MARKERS = (
     "i cannot help", "i can't help", "i cannot assist", "i'm unable to",
     "i am unable to", "i won't", "i will not", "as an ai",
 )
+_ALLOWED_ROLES = {"system", "user", "assistant", "tool", "developer"}
+_ALLOWED_MESSAGE_KEYS = {"role", "content", "name", "tool_call_id", "tool_calls"}
 
 
 @dataclass
@@ -294,6 +296,10 @@ class LLMClient:
         attempts: list[dict[str, Any]] = []
         t0 = time.monotonic()
         try:
+            prompt_chars = sum(
+                len(str(m.get("content", ""))) if isinstance(m, dict) else 0
+                for m in convo
+            )
             start_ref = log.save_transcript(agent, call_id, {
                 "model": model,
                 "messages": convo,
@@ -303,8 +309,19 @@ class LLMClient:
             start_diagnostics_ref = _diagnostics_ref_from_transcript(start_ref)
             log.info("llm_call_start", agent=agent, call_id=call_id, model=model,
                      message_count=len(convo),
-                     prompt_chars=sum(len(str(m.get("content", ""))) for m in convo),
+                     prompt_chars=prompt_chars,
                      transcript_ref=start_ref, diagnostics_ref=start_diagnostics_ref)
+            if self._s.llm.prompt_warn_chars > 0 and prompt_chars >= self._s.llm.prompt_warn_chars:
+                log.warning(
+                    "llm_prompt_size_warning",
+                    agent=agent,
+                    call_id=call_id,
+                    model=model,
+                    prompt_chars=prompt_chars,
+                    threshold_chars=self._s.llm.prompt_warn_chars,
+                    transcript_ref=start_ref,
+                    diagnostics_ref=start_diagnostics_ref,
+                )
             # prompt validation is inside the try so prompt anomalies are captured too
             self._validate_prompt(messages, agent, call_id)
             for repair in range(json_repair_retries + 1):
@@ -396,15 +413,50 @@ class LLMClient:
         if not messages:
             raise PromptAnomalyError("empty message list", context={"agent": agent})
         for i, m in enumerate(messages):
+            if not isinstance(m, dict):
+                raise PromptAnomalyError(
+                    "message is not an object",
+                    context={"agent": agent, "call_id": call_id, "index": i,
+                             "message_type": type(m).__name__},
+                )
             if "role" not in m or "content" not in m:
                 raise PromptAnomalyError(
                     "message missing role/content",
                     context={"agent": agent, "index": i, "keys": list(m)},
                 )
+            role = m.get("role")
+            if role not in _ALLOWED_ROLES:
+                raise PromptAnomalyError(
+                    "message role is not supported",
+                    context={
+                        "agent": agent,
+                        "call_id": call_id,
+                        "index": i,
+                        "role": role,
+                        "allowed_roles": sorted(_ALLOWED_ROLES),
+                    },
+                )
+            extra_keys = sorted(set(m) - _ALLOWED_MESSAGE_KEYS)
+            if extra_keys:
+                raise PromptAnomalyError(
+                    "message contains unsupported fields",
+                    context={
+                        "agent": agent,
+                        "call_id": call_id,
+                        "index": i,
+                        "keys": list(m),
+                        "unsupported_keys": extra_keys,
+                    },
+                )
             if not isinstance(m["content"], str) or not m["content"].strip():
                 raise PromptAnomalyError(
                     "message content empty or non-string",
-                    context={"agent": agent, "index": i, "role": m.get("role")},
+                    context={
+                        "agent": agent,
+                        "call_id": call_id,
+                        "index": i,
+                        "role": m.get("role"),
+                    },
                 )
 
     async def _send_with_transport_retries(
@@ -576,6 +628,18 @@ class LLMClient:
             "provider_metadata": provider_metadata,
         })
         diagnostics_ref = _diagnostics_ref_from_transcript(ref)
+        if self._s.llm.slow_call_warn_s > 0 and latency >= self._s.llm.slow_call_warn_s:
+            log.warning(
+                "llm_slow_call",
+                agent=agent,
+                call_id=call_id,
+                model=model,
+                latency_s=latency,
+                threshold_s=self._s.llm.slow_call_warn_s,
+                attempts=len(attempts),
+                transcript_ref=ref,
+                diagnostics_ref=diagnostics_ref,
+            )
         log.info("llm_call_ok", agent=agent, call_id=call_id, model=model,
                  attempts=len(attempts), latency_s=latency,
                  total_tokens=usage.get("total_tokens", 0),

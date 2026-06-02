@@ -125,6 +125,52 @@ def test_per_subtype_agg_uses_subtype_own_field():
     assert vals == {"written": 85.0, "oral": 70.0}
 
 
+def test_has_vs_absent_compare_accepts_embed_relative_metric_field():
+    snap = {"account": [
+        {"_id": 1, "loan": {"amount": 100}},
+        {"_id": 2},
+        {"_id": 3, "loan": {"amount": 60}},
+    ]}
+
+    out = reference_oracle("has_vs_absent_compare")(snap, {
+        "parent_collection": "account",
+        "embed_field": "loan",
+        "metric_field": "amount",
+        "agg": "avg",
+    })
+
+    assert {d["_id"]: d["value"] for d in out} == {"present": 80.0, "absent": 0.0}
+
+
+def test_has_vs_absent_compare_normalizes_dollar_count_agg():
+    snap = {"account": [{"_id": 1, "loan": {"amount": 100}}, {"_id": 2}]}
+
+    out = reference_oracle("has_vs_absent_compare")(snap, {
+        "parent_collection": "account",
+        "embed_field": "loan",
+        "agg": "$count",
+    })
+
+    assert {d["_id"]: d["value"] for d in out} == {"present": 1, "absent": 1}
+
+
+def test_has_vs_absent_compare_metric_fallback_prefers_business_amount():
+    snap = {"account": [
+        {"_id": 1, "loan": {"loan_id": 9000, "amount": 100}},
+        {"_id": 2},
+        {"_id": 3, "loan": {"loan_id": 9001, "amount": 60}},
+    ]}
+
+    out = reference_oracle("has_vs_absent_compare")(snap, {
+        "parent_collection": "account",
+        "embed_field": "loan",
+        "metric_field": "balance",
+        "agg": "avg",
+    })
+
+    assert {d["_id"]: d["value"] for d in out} == {"present": 80.0, "absent": 0.0}
+
+
 def test_existence_count_distinguishes_missing_from_null():
     snap = {"a": [{"x": 1}, {"x": None}, {}]}    # present, present(null), missing
     out = reference_oracle("existence_count")(snap, {"collection": "a", "field": "x"})

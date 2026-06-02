@@ -21,6 +21,7 @@ def clean_cli_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "TEND_DATASET_OUT",
         "TEND_LLM_STUB",
         "TEND_QUIET",
+        "TEND_MIGRATION_REF_SAMPLE_CAP",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -38,7 +39,7 @@ def test_construct_default_output_is_run_dataset_unless_env_overrides(
             source=SimpleNamespace(db_ids=("financial",)),
         )
 
-    async def fake_run_construct(rt, _db_ids, _phase, _records):
+    async def fake_run_construct(rt, _db_ids, _phase, _records, **_kwargs):
         captured.append(rt.settings.paths.dataset_out)
         return 0
 
@@ -64,6 +65,54 @@ def test_construct_default_output_is_run_dataset_unless_env_overrides(
         "cli-override",
     ]) == 0
     assert captured[-1] == override
+
+
+def test_construct_full_db_and_all_records(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeDb:
+        query_count = 32
+
+    def fake_run_census(_source, *, db_ids):
+        captured["census_db_ids"] = db_ids
+        return SimpleNamespace(databases={"financial": FakeDb()})
+
+    def fake_build_runtime(settings):
+        captured["cap"] = settings.migration_ref_sample_cap
+        return SimpleNamespace(
+            settings=settings,
+            source=SimpleNamespace(db_ids=("financial",)),
+        )
+
+    async def fake_run_construct(_rt, db_ids, _phase, records, **kwargs):
+        captured["db_ids"] = db_ids
+        captured["records"] = records
+        captured["structural_only"] = kwargs.get("structural_only_records")
+        return 0
+
+    monkeypatch.setattr(cli, "run_census", fake_run_census)
+    monkeypatch.setattr(cli, "build_runtime", fake_build_runtime)
+    monkeypatch.setattr(cli, "_run_construct", fake_run_construct)
+
+    assert cli.main([
+        "construct",
+        "--stub",
+        "--quiet",
+        "--full-db",
+        "--dbs",
+        "financial",
+        "--records",
+        "all",
+        "--run-id",
+        "cli-full-financial",
+    ]) == 0
+    assert captured["cap"] is None
+    assert captured["census_db_ids"] == ["financial"]
+    assert captured["db_ids"] == ["financial"]
+    assert captured["records"] == 32
+    assert captured["structural_only"] is True
 
 
 def test_validate_smoke_relaxes_all_db_composition(capsys: pytest.CaptureFixture[str]) -> None:

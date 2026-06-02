@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from tend.construct.migrate import MigrationPlan, migrate
+from tend.construct.migrate import MigrationPlan, build_plan, migrate
 from tend.source import DbSchema
 
 
@@ -118,5 +118,21 @@ def test_migrate_sorts_pkless_rows_before_cap_and_materialization():
             "cap": 2,
             "capped": True,
         }
+    finally:
+        conn.close()
+
+
+def test_build_plan_allows_uncapped_reference_tables():
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.execute("CREATE TABLE event (name TEXT)")
+        conn.executemany("INSERT INTO event (name) VALUES (?)", [("a",), ("b",), ("c",)])
+        source = _SqliteSource(conn, _schema(["event"], {}))
+
+        capped = build_plan(source, "test_db", ref_sample_cap=2)
+        uncapped = build_plan(source, "test_db", ref_sample_cap=None)
+
+        assert capped.sample_caps == {"event": 2}
+        assert uncapped.sample_caps == {}
     finally:
         conn.close()

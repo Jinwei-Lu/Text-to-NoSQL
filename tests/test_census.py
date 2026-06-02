@@ -77,6 +77,31 @@ def test_coverage_controller_prefers_sparse_embed_for_single_financial_l4():
     assert slots[0].target_difficulty == "L4"
 
 
+def test_structural_controller_maps_full_financial_workload_to_l4_slots():
+    from tend.source import BirdSource
+    from tend.source.census import plan_source_full_structural_slots, run_census
+
+    with BirdSource(_BIRD) as src:
+        c = run_census(src, db_ids=["financial"])
+    n = c.databases["financial"].query_count
+    slots = plan_source_full_structural_slots(c, n_records=n, seed=0)
+    assert len(slots) == 32
+    assert all(s.db_id == "financial" for s in slots)
+    assert all(s.target_difficulty == "L4" for s in slots)
+    assert all(s.sql_infeasibility_class == "structural_schema_flex" for s in slots)
+    # DM now materializes __variants for polymorphic discriminators (e.g. trans.type) as well
+    # as sparse embeds, so the structural plan spans both mechanisms — this diversifies the
+    # schema-less set beyond a single optional-embed structure.
+    assert {s.mechanism for s in slots} == {"sparse_embed", "polymorphic"}
+    assert {s.archetype for s in slots} == {
+        "present_missing_projection",
+        "has_vs_absent_compare",
+        "per_subtype_agg",
+        "subtype_cond_projection",
+        "subtype_specific_field",
+    }
+
+
 def test_coverage_controller_penalizes_extreme_sparse_embed_smoke_cells():
     from tend.source import BirdSource
     from tend.source.census import plan_coverage_slots, run_census

@@ -133,6 +133,14 @@ def test_mql_schema_ref_gate_allows_nested_and_transient_fields():
         "account",
     ) == []
     assert _unknown_schema_refs(
+        'db.account.aggregate([{ "$project": { "docs": ['
+        '{ "_id": "present", "value": "$loan.amount" }, '
+        '{ "_id": "absent", "value": 0 } ] } }, '
+        '{ "$unwind": "$docs" }, { "$replaceRoot": { "newRoot": "$docs" } }])',
+        schema,
+        "account",
+    ) == []
+    assert _unknown_schema_refs(
         'db.account.aggregate([{ "$lookup": { "from": "trans", "let": { "aid": "$_id" }, '
         '"pipeline": [{ "$match": { "$expr": { "$and": ['
         '{ "$eq": ["$account_id", "$$aid"] }, { "$eq": ["$type", "PRIJEM"] }] } } }, '
@@ -270,6 +278,66 @@ def test_qps_contract_rejects_incomplete_oracle_and_null_preserve_default():
     assert not any("missing/default" in v for v in violations)
 
 
+def test_qps_prompt_includes_archetype_oracle_allowlist():
+    from tend.agents.phase_b import QueryPlanSampler
+
+    text = QueryPlanSampler().render_inputs(None, {
+        "archetype": "has_vs_absent_compare",
+        "target_sql_infeasibility_class": "structural_schema_flex",
+        "schema": {
+            "account": {
+                "_id": "INT",
+                "loan": {"type": "OBJECT", "fields": {"amount": "INT"}},
+                "__variants": [{"discriminator": {"loan": "present"}}],
+            }
+        },
+    })
+
+    assert "has_vs_absent_compare params {parent_collection, embed_field" in text
+    assert "Do not emit presence_count" in text
+
+
+def test_qps_default_contract_accepts_output_and_oracle_defaults():
+    from tend.agents.phase_b import QueryPlanSampler
+
+    output = {
+        "intent": {
+            "shape_policy": "preserve",
+            "analytical_op": {
+                "target_field": "loan_to_credit_ratio",
+                "output": {"missing_default": 0},
+            },
+        },
+        "reference_oracle": {
+            "template": "present_missing_projection",
+            "params": {
+                "parent_collection": "account",
+                "embed_field": "loan",
+                "numerator_path": "amount",
+                "target_field": "loan_to_credit_ratio",
+                "absent_value": 0,
+                "denom": {
+                    "collection": "trans",
+                    "local_id": "_id",
+                    "foreign_field": "account_id",
+                    "sum_field": "amount",
+                },
+            },
+        },
+    }
+
+    violations = QueryPlanSampler().check_contract(
+        None,
+        {
+            "archetype": "present_missing_projection",
+            "target_sql_infeasibility_class": "structural_schema_flex",
+        },
+        output,
+    )
+
+    assert not any("missing/default" in v for v in violations)
+
+
 def test_ms_prompt_spells_out_present_missing_denominator_zero_value():
     from tend.agents.phase_b import MqlSynthesizer
 
@@ -286,6 +354,7 @@ def test_ms_prompt_spells_out_present_missing_denominator_zero_value():
         "target_sql_infeasibility_class": "structural_schema_flex",
     })
     assert "use denom.zero_value (1) as the divisor, not 0 as the final answer" in text
+    assert "representative MQL field itself must contain $type or $objectToArray" in text
 
 
 def test_world_signature_deterministic():
@@ -767,6 +836,13 @@ def test_phase_b_parse_errors_are_gate_failures(stub_settings, logger):
     pv = asyncio.run(run_pv())
     assert pv["pv_pass"] is True
     assert len(pv["verified_mutations"]) == 5
+    events = [
+        json.loads(line) for line in (logger.run_dir / "events.jsonl").read_text().splitlines()
+    ]
+    exec_fail_events = [e for e in events if e["event"] == "pv_mutation_exec_fail"]
+    assert len(exec_fail_events) == 5
+    assert exec_fail_events[0]["mutation_id"] == "m0"
+    assert (logger.run_dir / "anomalies.jsonl").read_text() == ""
 
     rtv = RoundTripVerifier().postprocess(
         ctx,
@@ -904,6 +980,352 @@ def test_ms_oracle_divergence_reports_target_field_mismatch(stub_settings, logge
         "first_mismatch _id=1 field='computed_loan_amount' mql=100 oracle=90"
         in out["gold_lock_reason"]
     )
+
+
+def test_ms_promotes_structural_alt_before_gold_lock(stub_settings, logger):
+    from tend.agents.phase_b import MqlSynthesizer
+
+    calls = []
+
+    class _Mongo:
+        def available(self):
+            return True
+
+        def norm_exec(self, db_id, mql):
+            calls.append(mql)
+            return [{"_id": 1, "loan": {"amount": 90}, "computed_loan_amount": 90}]
+
+        def count(self, db_id, collection):
+            return 1
+
+        def sample_fields(self, db_id, collection):
+            return {"_id", "loan"}
+
+    reference = {
+        "template": "optional_embed_projection",
+        "params": {
+            "parent_collection": "account",
+            "embed_field": "loan",
+            "value_path": "amount",
+            "target_field": "computed_loan_amount",
+            "missing_default": 0,
+        },
+    }
+    schema = {
+        "account": {
+            "_id": "INT",
+            "loan": {"type": "OBJECT", "fields": {"amount": "INT"}},
+            "__variants": [{"discriminator": {"loan": "present"}}],
+        }
+    }
+    primary = 'db.account.aggregate([{ "$addFields": { "computed_loan_amount": "$loan.amount" } }])'
+    alt = (
+        'db.account.aggregate([{ "$addFields": { "computed_loan_amount": { "$cond": ['
+        '{ "$eq": [{ "$type": "$loan" }, "missing"] }, 0, "$loan.amount"] } } }])'
+    )
+    ctx = AgentContext(
+        settings=replace(stub_settings, stub=False),
+        llm=None,
+        log=logger,
+        mongo=_Mongo(),
+        db_id="financial",
+        record_id=1004,
+        phase="B",
+    )
+
+    out = MqlSynthesizer().postprocess(
+        ctx,
+        {
+            "intent": {"shape_policy": "preserve", "reference_oracle": reference},
+            "reference_oracle": reference,
+            "schema": schema,
+            "mongodb_data": {"account": [{"_id": 1, "loan": {"amount": 90}}]},
+            "target_sql_infeasibility_class": "structural_schema_flex",
+            "target_schema_flex": "polymorphic",
+        },
+        {"MQL": primary, "mql_alt": alt, "shape_policy": "preserve"},
+        result=None,
+    )
+
+    assert out["gold_locked"] is True
+    # the LLM alt is still promoted over the primary (recorded as provenance), but the
+    # deterministic canonical gold for this archetype now supersedes it as the locked MQL
+    assert out["representative_mql_promoted_from_alt"] is True
+    assert out["reference_oracle_canonicalized"] is True
+    assert out["llm_MQL"] == alt
+    assert out["MQL"] == calls[0]  # the canonical gold is what gets gold-locked
+
+
+def test_ms_canonicalizes_has_vs_absent_compare(stub_settings, logger):
+    from tend.agents.phase_b import MqlSynthesizer
+
+    calls = []
+
+    class _Mongo:
+        def available(self):
+            return True
+
+        def norm_exec(self, db_id, mql):
+            calls.append(mql)
+            assert "__tend_presence" in mql
+            return [{"_id": "present", "value": 80}, {"_id": "absent", "value": 0}]
+
+        def count(self, db_id, collection):
+            return 3
+
+        def sample_fields(self, db_id, collection):
+            return {"_id", "loan"}
+
+    reference = {
+        "template": "has_vs_absent_compare",
+        "params": {
+            "parent_collection": "account",
+            "embed_field": "loan",
+            "metric_field": "amount",
+            "agg": "avg",
+        },
+    }
+    ctx = AgentContext(
+        settings=replace(stub_settings, stub=False),
+        llm=None,
+        log=logger,
+        mongo=_Mongo(),
+        db_id="financial",
+        record_id=1014,
+        phase="B",
+    )
+
+    out = MqlSynthesizer().postprocess(
+        ctx,
+        {
+            "intent": {"shape_policy": "reduce", "reference_oracle": reference},
+            "reference_oracle": reference,
+            "schema": {
+                "account": {
+                    "_id": "INT",
+                    "loan": {"type": "OBJECT", "fields": {"loan_id": "INT", "amount": "INT"}},
+                    "__variants": [{"discriminator": {"loan": "present"}}],
+                }
+            },
+            "mongodb_data": {
+                "account": [
+                    {"_id": 1, "loan": {"amount": 100}},
+                    {"_id": 2},
+                    {"_id": 3, "loan": {"amount": 60}},
+                ]
+            },
+            "target_sql_infeasibility_class": "structural_schema_flex",
+            "target_schema_flex": "polymorphic",
+        },
+        {
+            "MQL": 'db.account.aggregate([{ "$project": { "branch": "bad" } }])',
+            "shape_policy": "reduce",
+        },
+        result=None,
+    )
+
+    assert out["gold_locked"] is True
+    assert out["reference_oracle_canonicalized"] is True
+    assert out["llm_MQL"].startswith("db.account.aggregate")
+    assert calls and calls[0] == out["MQL"]
+
+
+def test_ms_canonical_has_vs_absent_falls_back_to_embed_metric(stub_settings, logger):
+    from tend.agents.phase_b import MqlSynthesizer
+
+    calls = []
+
+    class _Mongo:
+        def available(self):
+            return True
+
+        def norm_exec(self, db_id, mql):
+            calls.append(mql)
+            assert "$loan.amount" in mql
+            assert "$balance" not in mql
+            return [{"_id": "present", "value": 100}, {"_id": "absent", "value": 0}]
+
+        def count(self, db_id, collection):
+            return 2
+
+        def sample_fields(self, db_id, collection):
+            return {"_id", "loan"}
+
+    reference = {
+        "template": "has_vs_absent_compare",
+        "params": {
+            "parent_collection": "account",
+            "embed_field": "loan",
+            "metric_field": "balance",
+            "agg": "avg",
+        },
+    }
+    ctx = AgentContext(
+        settings=replace(stub_settings, stub=False),
+        llm=None,
+        log=logger,
+        mongo=_Mongo(),
+        db_id="financial",
+        record_id=1030,
+        phase="B",
+    )
+
+    out = MqlSynthesizer().postprocess(
+        ctx,
+        {
+            "intent": {"shape_policy": "reduce", "reference_oracle": reference},
+            "reference_oracle": reference,
+            "schema": {
+                "account": {
+                    "_id": "INT",
+                    "loan": {"type": "OBJECT", "fields": {"amount": "INT"}},
+                    "__variants": [{"discriminator": {"loan": "present"}}],
+                }
+            },
+            "mongodb_data": {
+                "account": [{"_id": 1, "loan": {"amount": 100}}, {"_id": 2}]
+            },
+            "target_sql_infeasibility_class": "structural_schema_flex",
+            "target_schema_flex": "polymorphic",
+        },
+        {"MQL": 'db.account.aggregate([])', "shape_policy": "reduce"},
+        result=None,
+    )
+
+    assert out["gold_locked"] is True
+    assert out["reference_oracle_canonicalized"] is True
+    assert calls and calls[0] == out["MQL"]
+
+
+_PMP_PARAMS = {
+    "parent_collection": "account",
+    "embed_field": "loan",
+    "numerator_path": "loan.amount",
+    "target_field": "ratio",
+    "absent_value": 0,
+    "denom": {
+        "collection": "trans", "local_id": "_id", "foreign_field": "account_id",
+        "sum_field": "amount", "zero_value": 1,
+    },
+}
+
+
+def test_canonical_present_missing_projection_mql_structure():
+    from tend.agents.phase_b import (
+        _canonical_present_missing_projection_mql,
+        _canonical_reference_mql,
+    )
+
+    mql = _canonical_present_missing_projection_mql(_PMP_PARAMS, {})
+    coll, pipeline = parse_pipeline(mql)
+    text = json.dumps(pipeline)
+    assert coll == "account"
+    # joins the denominator collection, branches on embed presence via $type/$cond,
+    # divides numerator by the denom sum, and projects helper fields away
+    assert '"from": "trans"' in text and '"foreignField": "account_id"' in text
+    assert '"$type"' in text and '"$cond"' in text and '"$divide"' in text
+    assert pipeline[-1] == {"$project": {"__tend_denom": 0, "__tend_denom_sum": 0}}
+    assert '"ratio"' in text
+    # dispatch routes the template to the builder and reports the implied shape_policy
+    dispatched = _canonical_reference_mql(
+        {"reference_oracle": {"template": "present_missing_projection", "params": _PMP_PARAMS}}
+    )
+    assert dispatched == (mql, "preserve")
+    # unknown template -> no canonical gold (falls back to the LLM MQL)
+    assert _canonical_reference_mql(
+        {"reference_oracle": {"template": "totally_unknown", "params": {"collection": "x"}}}
+    ) is None
+
+
+def test_canonical_present_missing_projection_locks_against_oracle(stub_settings, logger):
+    """The deterministic gold MQL is ≡_rec to the reference oracle, against live Mongo."""
+    from tend.agents.phase_b import _canonical_present_missing_projection_mql
+    from tend.execution.mongo import MongoExecutor, _normalize_doc, equiv_rec
+    from tend.mechanisms.oracles import reference_oracle
+
+    mongo = MongoExecutor(replace(stub_settings, stub=False), logger)
+    if not mongo.available():
+        pytest.skip("MongoDB not reachable")
+    snapshot = {
+        "account": [{"_id": 1, "loan": {"amount": 100}}, {"_id": 2}, {"_id": 3, "loan": {"amount": 60}}],
+        "trans": [{"account_id": 1, "amount": 50}, {"account_id": 1, "amount": 50},
+                  {"account_id": 3, "amount": 30}],
+    }
+    try:
+        mongo.load_witness("pmp_fixture", snapshot)
+        mql = _canonical_present_missing_projection_mql(_PMP_PARAMS, {})
+        got = [_normalize_doc(d) for d in mongo.norm_exec("pmp_fixture", mql)]
+        want = [_normalize_doc(d) for d in reference_oracle("present_missing_projection")(snapshot, _PMP_PARAMS)]
+        assert equiv_rec(got, want, order_sensitive=False)
+        ratios = {row["_id"]: row.get("ratio") for row in got}
+        assert ratios == {1: 1.0, 2: 0, 3: 2.0}  # 100/100, absent_value, 60/30
+    finally:
+        mongo.close()
+
+
+# (template, params, snapshot) — each canonical builder must be ≡_rec to its oracle.
+_BUILDER_CASES = [
+    ("simple_filter", {"collection": "c", "predicates": [{"field": "s", "op": "ne", "value": "B"}]},
+     {"c": [{"_id": 1, "s": "A"}, {"_id": 2, "s": "B"}, {"_id": 3}]}),
+    ("existence_count", {"collection": "c", "field": "loan"},
+     {"c": [{"_id": 1, "loan": 1}, {"_id": 2}, {"_id": 3, "loan": None}]}),
+    ("group_count", {"collection": "c", "group_by": "t"},
+     {"c": [{"_id": 1, "t": "x"}, {"_id": 2, "t": "x"}, {"_id": 3}]}),
+    ("null_coalesce_agg", {"collection": "c", "field": "v", "agg": "sum", "default": 0},
+     {"c": [{"_id": 1, "v": 10}, {"_id": 2}, {"_id": 3, "v": "nan"}, {"_id": 4, "v": 5}]}),
+    ("subtype_specific_field", {"collection": "c", "discriminator": "k", "subtype_value": "loan", "field": "amount"},
+     {"c": [{"_id": 1, "k": "loan", "amount": 100}, {"_id": 2, "k": "card"}]}),
+    ("cross_keyset_value", {"collection": "c", "key": "promo"},
+     {"c": [{"_id": 1, "promo": "X"}, {"_id": 2}]}),
+    ("dynamic_key_fold", {"collection": "c", "name_field": "a", "value_field": "v", "agg": "sum"},
+     {"c": [{"_id": 1, "a": "h", "v": 3}, {"_id": 2, "a": "h", "v": "x"}, {"_id": 3, "a": "w", "v": 5}]}),
+    ("cross_version_agg", {"collection": "c", "field_candidates": ["v2", "v1"], "agg": "sum", "default": 0},
+     {"c": [{"_id": 1, "v1": 10}, {"_id": 2, "v2": 20}, {"_id": 3}]}),
+    ("per_subtype_agg", {"collection": "c", "discriminator": "k", "field_by_subtype": {"loan": "amount", "card": "limit"}, "agg": "sum"},
+     {"c": [{"_id": 1, "k": "loan", "amount": 100}, {"_id": 2, "k": "card", "limit": 200}, {"_id": 3, "k": "other"}]}),
+    ("cross_subtype_compare", {"collection": "c", "discriminator": "k", "field_by_subtype": {"loan": "amount"}, "agg": "avg"},
+     {"c": [{"_id": 1, "k": "loan", "amount": 100}, {"_id": 2, "k": "loan", "amount": 60}]}),
+    ("join_nested_group", {"collection": "o", "array_field": "items", "group_by": "sku"},
+     {"o": [{"_id": 1, "items": [{"sku": "a"}, {"sku": "a"}, {"sku": "b"}]}, {"_id": 2}]}),
+    ("subtype_cond_projection", {"collection": "c", "discriminator": "k", "field_by_subtype": {"loan": "amount"}, "target_field": "val", "default": 0},
+     {"c": [{"_id": 1, "k": "loan", "amount": 100}, {"_id": 2, "k": "other"}]}),
+    ("optional_embed_projection", {"parent_collection": "a", "embed_field": "loan", "value_path": "amount", "target_field": "amt", "missing_default": 0},
+     {"a": [{"_id": 1, "loan": {"amount": 500}}, {"_id": 2}]}),
+]
+
+# archetypes the planner can tag structural_schema_flex must use $type/$objectToArray + $switch/$cond
+_STRUCTURAL_ARCHETYPES = {
+    "present_missing_projection", "has_vs_absent_compare", "optional_embed_projection",
+    "subtype_cond_projection", "subtype_specific_field", "per_subtype_agg",
+}
+
+
+def test_canonical_builders_match_oracles(stub_settings, logger):
+    """Every canonical gold builder is ≡_rec to its reference oracle (and structural ones
+    carry the $type/$switch ops the MS gold-lock gate requires)."""
+    from tend.agents.phase_b import _canonical_reference_mql, _pipeline_operator_set
+    from tend.execution import parse_pipeline
+    from tend.execution.mongo import MongoExecutor, _normalize_doc, equiv_rec
+    from tend.mechanisms.oracles import reference_oracle
+
+    mongo = MongoExecutor(replace(stub_settings, stub=False), logger)
+    if not mongo.available():
+        pytest.skip("MongoDB not reachable")
+    try:
+        for idx, (template, params, snap) in enumerate(_BUILDER_CASES):
+            res = _canonical_reference_mql({"reference_oracle": {"template": template, "params": params}})
+            assert res is not None, f"{template}: builder returned None"
+            mql, _shape = res
+            mongo.load_witness(f"cbm{idx}", snap)
+            got = [_normalize_doc(d) for d in mongo.norm_exec(f"cbm{idx}", mql)]
+            want = [_normalize_doc(d) for d in reference_oracle(template)(snap, params)]
+            assert equiv_rec(got, want, order_sensitive=False), f"{template}: gold not ≡_rec oracle"
+            if template in _STRUCTURAL_ARCHETYPES:
+                ops = _pipeline_operator_set(parse_pipeline(mql)[1])
+                assert {"$type", "$objectToArray"} & ops, f"{template}: needs $type/$objectToArray"
+                assert {"$switch", "$cond"} & ops, f"{template}: needs $switch/$cond"
+    finally:
+        mongo.close()
 
 
 # --------------------------------------------------------------------------- #

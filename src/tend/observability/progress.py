@@ -10,6 +10,7 @@ still accumulate state for the end-of-run :meth:`summary`, but no Live UI is dra
 """
 from __future__ import annotations
 
+import json
 import sys
 import threading
 import time
@@ -32,6 +33,21 @@ _ICON = {
     "ok": ("●", "green"),
     "fail": ("✗", "red"),
     "retry": ("↻", "yellow"),
+}
+
+_WATCH_EVENTS = {
+    "agent_contract_retry",
+    "agent_postprocess_retry",
+    "llm_prompt_size_warning",
+    "llm_repair_retry",
+    "llm_slow_call",
+    "llm_transport_retry",
+    "ms_gold_lock_retry",
+    "pv_mutation_exec_fail",
+    "pv_reject",
+    "record_dropped",
+    "rtv_reject",
+    "sc_reject",
 }
 
 
@@ -70,12 +86,18 @@ class ProgressReporter:
         self._groups: dict[str, _Group] = {}
         self._tasks: dict[str, _Task] = {}
         self._anoms: deque[dict[str, Any]] = deque(maxlen=8)
+        self._alerts: deque[dict[str, Any]] = deque(maxlen=12)
         self._counts = {"started": 0, "ok": 0, "fail": 0, "retry": 0}
         self._anom_by_kind: dict[str, int] = {}
+        self._alert_by_event: dict[str, int] = {}
         self._t0 = time.monotonic()
         self._live: Live | None = None
+        self._snapshot_path = logger.run_dir / "progress.jsonl"
+        self._snapshot_last = 0.0
         # surface anomalies live, regardless of which agent/task raised them
         logger.subscribe_anomaly(self._on_anomaly)
+        logger.subscribe_event(self._on_event)
+        self._write_snapshot(reason="init", force=True)
 
     # ----------------------------------------------------------------- #
     # lifecycle
@@ -92,12 +114,14 @@ class ProgressReporter:
             self._live.update(self)        # final frame
             self._live.stop()
             self._live = None
+        self._write_snapshot(reason="exit", force=True)
         if not self._enabled:
             self._console.print(self._render_summary_line())
 
     def phase(self, name: str) -> None:
         with self._lock:
             self._phase = name
+            self._write_snapshot(reason="phase", force=True)
 
     def add_group(self, group_id: str, label: str, *, phase: str | None = None,
                   total: int | None = None) -> None:
@@ -105,6 +129,7 @@ class ProgressReporter:
             order = self._groups[group_id].order if group_id in self._groups else len(self._groups)
             self._groups[group_id] = _Group(label=label, phase=phase or self._phase,
                                             total=total, order=order)
+            self._write_snapshot(reason="group", force=True)
 
     # ----------------------------------------------------------------- #
     # task hooks (called by the workflow engine)
@@ -116,6 +141,7 @@ class ProgressReporter:
             self._tasks[task_id] = _Task(label=label, group=group, detail=detail)
             self._counts["started"] += 1
             self._ensure_group_uses_task_units(group)
+            self._write_snapshot(reason="task_start", force=True)
 
     def update_task(self, task_id: str, *, detail: str | None = None,
                     status: str | None = None) -> None:
@@ -127,6 +153,7 @@ class ProgressReporter:
                 t.detail = detail
             if status is not None:
                 t.status = status
+            self._write_snapshot(reason="task_update")
 
     def retry_task(self, task_id: str, *, detail: str = "") -> None:
         with self._lock:
@@ -135,6 +162,7 @@ class ProgressReporter:
                 t.status = "retry"
                 t.detail = detail or t.detail
                 self._counts["retry"] += 1
+                self._write_snapshot(reason="task_retry", force=True)
 
     def finish_task(self, task_id: str, *, ok: bool = True, anomaly: str | None = None,
                     detail: str | None = None) -> None:
@@ -150,12 +178,27 @@ class ProgressReporter:
                 t.detail = detail
             if not was_terminal:
                 self._counts["ok" if ok else "fail"] += 1
+            self._write_snapshot(reason="task_finish", force=True)
 
     def _on_anomaly(self, record: dict[str, Any]) -> None:
         with self._lock:
             kind = record.get("anomaly", "internal")
             self._anom_by_kind[kind] = self._anom_by_kind.get(kind, 0) + 1
             self._anoms.append(record)
+            self._alerts.append({"alert_kind": "anomaly", **record})
+            self._write_snapshot(reason="anomaly", force=True)
+
+    def _on_event(self, record: dict[str, Any]) -> None:
+        event = str(record.get("event", ""))
+        if event == "anomaly":
+            return
+        level = str(record.get("level", ""))
+        if event not in _WATCH_EVENTS and level not in {"warning", "error"}:
+            return
+        with self._lock:
+            self._alert_by_event[event] = self._alert_by_event.get(event, 0) + 1
+            self._alerts.append({"alert_kind": "event", **record})
+            self._write_snapshot(reason="event", force=True)
 
     def _ensure_group_uses_task_units(self, group: str) -> None:
         if not group:
@@ -260,6 +303,10 @@ class ProgressReporter:
             counters.append("│ anomalies ", style="grey50")
             for kind, n in sorted(self._anom_by_kind.items(), key=lambda kv: -kv[1]):
                 counters.append(f"{kind}={n} ", style="red")
+        if self._alert_by_event:
+            counters.append("│ watch ", style="grey50")
+            for event, n in sorted(self._alert_by_event.items(), key=lambda kv: -kv[1])[:4]:
+                counters.append(f"{event}={n} ", style="yellow")
         tbl = Table.grid(padding=(0, 1))
         tbl.add_row(counters)
         for a in list(self._anoms)[-5:]:
@@ -268,6 +315,15 @@ class ProgressReporter:
                 ("⚠ ", "red"), (f"{a.get('anomaly','?')} ", "bold red"),
                 (f"{loc}  ", "grey62"), (str(a.get("message", ""))[:80], "grey78"),
             ))
+        for a in list(self._alerts)[-5:]:
+            if a.get("alert_kind") == "anomaly":
+                continue
+            loc = "/".join(str(a[k]) for k in ("db_id", "record_id", "agent") if a.get(k))
+            msg = a.get("reason") or a.get("message") or a.get("anomaly") or a.get("issues") or ""
+            tbl.add_row(Text.assemble(
+                ("! ", "yellow"), (f"{a.get('event','?')} ", "bold yellow"),
+                (f"{loc}  ", "grey62"), (str(msg)[:80], "grey78"),
+            ))
         return Panel(tbl, title="status", border_style="grey37", padding=(0, 1))
 
     def _render_summary_line(self) -> Text:
@@ -275,6 +331,7 @@ class ProgressReporter:
         return Text.assemble(
             (f"[{self.run_id}] ", "bold"),
             (f"ok={c['ok']} fail={c['fail']} retry={c['retry']} ", ""),
+            (f"alerts={sum(self._alert_by_event.values())} ", "yellow"),
             (f"anomalies={sum(self._anom_by_kind.values())}",
              "red" if self._anom_by_kind else "green"),
         )
@@ -287,7 +344,41 @@ class ProgressReporter:
                 "tasks": dict(self._counts),
                 "anomalies_by_kind": dict(self._anom_by_kind),
                 "anomaly_total": sum(self._anom_by_kind.values()),
+                "alerts_by_event": dict(self._alert_by_event),
+                "alert_total": sum(self._alert_by_event.values()),
             }
+
+    def _write_snapshot(self, *, reason: str, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and now - self._snapshot_last < 1.0:
+            return
+        self._snapshot_last = now
+        running = [
+            {
+                "task_id": task_id,
+                "label": task.label,
+                "group": task.group,
+                "status": task.status,
+                "detail": task.detail,
+                "elapsed_s": round(task.elapsed(), 1),
+            }
+            for task_id, task in sorted(self._tasks.items())
+            if task.status not in {"ok"}
+        ]
+        payload = {
+            "ts": time.time(),
+            "reason": reason,
+            "run_id": self.run_id,
+            "phase": self._phase,
+            "tasks": dict(self._counts),
+            "running_or_problem_tasks": running[-25:],
+            "anomalies_by_kind": dict(self._anom_by_kind),
+            "alerts_by_event": dict(self._alert_by_event),
+            "recent_alerts": list(self._alerts)[-8:],
+        }
+        self._snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._snapshot_path.open("a", encoding="utf-8") as fp:
+            fp.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
 
 
 def make_reporter(run_id: str, logger: RunLogger, *, enabled: bool = True) -> ProgressReporter:

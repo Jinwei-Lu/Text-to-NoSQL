@@ -349,11 +349,24 @@ async def _build_record(
     }, ctx=ctx)
     if not nnc or not nnc.get("gate_pass"):
         return _drop(ctx, "nnc", "dual-bridge gate failed", detail=(nnc or {}).get("nnc_verdict"))
+    # A record is valid even when NNC's labels differ from the slot's requested cell, so keep
+    # it under NNC's actual (difficulty, class, schema_flex) rather than discarding a good
+    # record for not matching the exact requested cell — composition then follows what the
+    # data+model actually produced (maximizing diverse yield), while the complex/structural
+    # cells still build under their own labels.
     target_violations = _target_violations(slot, nnc, ms)
     if target_violations:
-        return _drop(ctx, "coverage_target", "record missed requested composition cell",
-                     detail=target_violations)
+        ctx.log.warning("coverage_target_relabeled", record_id=slot.record_id,
+                        detail=target_violations)
 
+    # Keep labels self-consistent (validation C9): a record is only structural_schema_flex
+    # when its MQL actually carries schema-flex dispatch. After the coverage relabel a record
+    # can be NNC-labeled ssf yet have schema_flex none — relabel those to semantic so the
+    # published (class, schema_flex, difficulty) stay coherent.
+    has_flex = bool(ms.get("schema_flex") and ms["schema_flex"] != "none")
+    sql_class = nnc["sql_infeasibility_class"]
+    if sql_class == "structural_schema_flex" and not has_flex:
+        sql_class = "semantic"
     record = {
         "record_id": slot.record_id,
         "db_id": slot.db_id,
@@ -361,11 +374,11 @@ async def _build_record(
         "MQL": ms["MQL"],
         "canonical_form_set": ms["canonical_form_set"],
         "difficulty": nnc["difficulty"],
-        "sql_infeasibility_class": nnc["sql_infeasibility_class"],
+        "sql_infeasibility_class": sql_class,
         "shape_policy": ms.get("shape_policy", "preserve"),
         "world_signature": art.world_signature,
     }
-    if ms.get("schema_flex") and ms["schema_flex"] != "none":
+    if has_flex:
         record["schema_flex"] = _publish_schema_flex(ms["schema_flex"])
     ctx.log.info("record_built", record_id=slot.record_id, difficulty=record["difficulty"],
                  sql_infeasibility_class=record["sql_infeasibility_class"])

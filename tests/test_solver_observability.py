@@ -12,6 +12,7 @@ from tend.errors import (
     Anomaly,
     ContextOverflowError,
     PromptAnomalyError,
+    ResponseParseError,
     SchemaValidationError,
 )
 from tend.llm import LLMClient
@@ -142,6 +143,63 @@ def test_llm_prompt_anomalies_are_written_with_transcripts(tmp_path: Path, monke
     )
     assert overflow_record["transcript_ref"].endswith(".md")
     assert "context length exceeded" in overflow_md
+
+
+def test_llm_prompt_role_anomalies_are_written_with_transcripts(tmp_path: Path) -> None:
+    log = setup_logging(tmp_path / "run", console=False)
+    client = LLMClient(_stub_settings(tmp_path), log)
+
+    async def run() -> None:
+        with pytest.raises(PromptAnomalyError):
+            await client.complete(
+                agent="solver",
+                messages=[{"role": "bad-role", "content": "x"}],
+            )
+
+    asyncio.run(run())
+    log.close()
+
+    anomalies = _read_jsonl(tmp_path / "run" / "anomalies.jsonl")
+    assert anomalies[0]["anomaly"] == Anomaly.PROMPT_MALFORMED.value
+    assert anomalies[0]["message"] == "message role is not supported"
+    assert anomalies[0]["context"]["role"] == "bad-role"
+    assert anomalies[0]["transcript_ref"].endswith(".md")
+    assert (tmp_path / "run" / anomalies[0]["diagnostics_ref"]).exists()
+
+
+def test_failed_llm_markdown_expands_attempt_details(tmp_path: Path, monkeypatch) -> None:
+    log = setup_logging(tmp_path / "run", console=False)
+    client = LLMClient(_stub_settings(tmp_path), log)
+    schema = {
+        "type": "object",
+        "required": ["ok"],
+        "properties": {"ok": {"type": "boolean"}},
+    }
+
+    async def raw_call(*_args):
+        return "not-json", "stop", {"total_tokens": 1}, None
+
+    async def run() -> None:
+        monkeypatch.setattr(client, "_raw_call", raw_call)
+        with pytest.raises(ResponseParseError):
+            await client.complete(
+                agent="solver",
+                messages=[{"role": "user", "content": "go"}],
+                schema=schema,
+                json_repair_retries=0,
+            )
+
+    asyncio.run(run())
+    log.close()
+
+    anomaly = _read_jsonl(tmp_path / "run" / "anomalies.jsonl")[0]
+    transcript_md = (tmp_path / "run" / anomaly["transcript_ref"]).read_text(
+        encoding="utf-8"
+    )
+    assert anomaly["anomaly"] == Anomaly.PARSE_ERROR.value
+    assert "## Attempt Details" in transcript_md
+    assert "#### Response" in transcript_md
+    assert "> not-json" in transcript_md
 
 
 def test_llm_diagnostics_include_json_safe_provider_metadata(
@@ -330,3 +388,31 @@ def test_progress_summary_counts_anomalies_by_kind(tmp_path: Path) -> None:
         Anomaly.CONTEXT_OVERFLOW.value: 1,
     }
     assert ticker_messages == ["bad prompt", "bad prompt again", "prompt too large"]
+
+
+def test_progress_persists_snapshots_and_surfaces_warning_events(tmp_path: Path) -> None:
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = ProgressReporter("solver-run", log, enabled=False)
+
+    progress.phase("B")
+    progress.add_group("financial", "financial", phase="B", total=1)
+    progress.start_task("task-1", "MS", group="financial")
+    log.warning(
+        "llm_repair_retry",
+        db_id="financial",
+        agent="ms",
+        call_id="abc",
+        reason="schema_invalid",
+    )
+    progress.retry_task("task-1", detail="repair")
+    progress.finish_task("task-1")
+    summary = progress.summary()
+    log.close()
+
+    snapshots = _read_jsonl(tmp_path / "run" / "progress.jsonl")
+    warning_events = _read_jsonl(tmp_path / "run" / "events.jsonl")
+    assert summary["alerts_by_event"] == {"llm_repair_retry": 1}
+    assert any(item["reason"] == "event" for item in snapshots)
+    assert snapshots[-1]["alerts_by_event"] == {"llm_repair_retry": 1}
+    assert snapshots[-1]["recent_alerts"][-1]["event"] == "llm_repair_retry"
+    assert any(event["event"] == "llm_repair_retry" for event in warning_events)

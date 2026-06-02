@@ -205,16 +205,8 @@ def plan_coverage_slots(
             bucket = {"L2": mid_cells, "L1": low_cells, "L0": l0_cells}[diff]
             bucket.append((db_id, "none", arch.id))
 
-    def _ordered(cells: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
-        return sorted(cells, key=lambda c: (
-            _MECHANISM_PRIORITY.get(c[1], 99),
-            _ARCHETYPE_PRIORITY.get(c[2], 99),
-            _mechanism_quality_rank(census.databases[c[0]], c[1]),
-            _cell_key(seed, c[0], c[1], c[2], 0),
-        ))
-
-    l4_cells, mid_cells = _ordered(l4_cells), _ordered(mid_cells)
-    low_cells, l0_cells = _ordered(low_cells), _ordered(l0_cells)
+    l4_cells, mid_cells = _ordered_cells(census, l4_cells, seed), _ordered_cells(census, mid_cells, seed)
+    low_cells, l0_cells = _ordered_cells(census, low_cells, seed), _ordered_cells(census, l0_cells, seed)
 
     # tier budgets (capped by supply availability)
     n_l4 = min(math.ceil(L4_TARGET_RATIO * n_records), _supply_cap(l4_cells, n_records))
@@ -243,6 +235,65 @@ def plan_coverage_slots(
                         shape_policy=_archetype_meta(c[2])[2])
         for c in plan
     ]
+
+
+def plan_source_full_structural_slots(
+    census: Census, *, n_records: int, seed: int = 0
+) -> list[CoverageRequest]:
+    """Schedule ``n_records`` structural-schema-flex requests for source-full construction.
+
+    ``--records all`` means "emit one constructed record per selected BIRD workload item".
+    For that mode, use structural cells only, instead of spending most slots on lower-tier
+    release-composition padding.
+    """
+    structural_cells: list[tuple[str, str, str]] = []
+    for db_id, dbc in census.databases.items():
+        for mech, arch in dbc.reachable_archetypes():
+            diff, inf_class, _shape = _archetype_meta(arch)
+            if diff == "L4" and inf_class == "structural_schema_flex":
+                structural_cells.append((db_id, mech, arch))
+    # Source-full construction feeds live gold-lock, not only composition accounting. DM now
+    # materializes MongoDB ``__variants`` for BOTH sparse embeds (optional satellites) and
+    # polymorphic discriminators (subtypes with different field sets, e.g. trans.type), so
+    # schedule both mechanisms — this diversifies the schema-less set beyond a single
+    # optional-embed structure. (Scalar-only enum signals still create no variant collection.)
+    materialized_variant_cells = [
+        c for c in structural_cells if c[1] in ("sparse_embed", "polymorphic")
+    ]
+    cells = _ordered_cells(census, materialized_variant_cells or structural_cells, seed)
+    if not cells:
+        raise SourceError(
+            "source-full construction requires query-bearing structural supply",
+            context={"db_ids": sorted(census.databases), "requested_records": n_records},
+        )
+    plan = _cycle(cells, n_records)
+    return [
+        CoverageRequest(
+            db_id=c[0],
+            mechanism=c[1],
+            archetype=c[2],
+            target_difficulty=_archetype_meta(c[2])[0],
+            sql_infeasibility_class=_archetype_meta(c[2])[1],
+            shape_policy=_archetype_meta(c[2])[2],
+        )
+        for c in plan
+    ]
+
+
+plan_structural_slots = plan_source_full_structural_slots
+
+
+def _ordered_cells(
+    census: Census,
+    cells: list[tuple[str, str, str]],
+    seed: int,
+) -> list[tuple[str, str, str]]:
+    return sorted(cells, key=lambda c: (
+        _MECHANISM_PRIORITY.get(c[1], 99),
+        _ARCHETYPE_PRIORITY.get(c[2], 99),
+        _mechanism_quality_rank(census.databases[c[0]], c[1]),
+        _cell_key(seed, c[0], c[1], c[2], 0),
+    ))
 
 
 def _supply_cap(cells: list[tuple[str, str, str]], n_records: int) -> int:

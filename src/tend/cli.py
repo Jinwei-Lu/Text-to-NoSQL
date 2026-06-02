@@ -40,7 +40,12 @@ from .llm import LLMClient
 from .observability import make_reporter, new_run_id, setup_logging
 from .publish import ReleaseReport, validate_release
 from .source import BirdSource
-from .source.census import CoverageRequest, plan_coverage_slots, run_census
+from .source.census import (
+    CoverageRequest,
+    plan_coverage_slots,
+    plan_source_full_structural_slots,
+    run_census,
+)
 from .stubs import stub_fn
 from .solver.workflow import (
     DEFAULT_R_MAX,
@@ -129,16 +134,60 @@ def _coverage_slots_for(
     n_records: int,
     *,
     seed: int,
+    structural_only: bool = False,
+    structural_fraction: float = 0.0,
 ) -> list[CoverageSlot]:
+    """Plan coverage slots.
+
+    ``structural_only`` schedules only source-full structural_schema_flex slots.
+    ``structural_fraction`` (0..1) requests a *hybrid* plan: that fraction of slots are
+    structural_schema_flex (each becomes a genuine ssf + polymorphic + L4 record) and the
+    rest are the broad census mix — this is what lets a large run meet the release
+    complexity floors (H5 L4>=30%, H7 flex>=25%, H9 ssf>=20%) while staying diverse.
+    """
     census = run_census(source, db_ids=db_ids)
-    requests = plan_coverage_slots(census, n_records=n_records, seed=seed)
+    if structural_only:
+        requests = list(plan_source_full_structural_slots(census, n_records=n_records, seed=seed))
+    elif structural_fraction > 0:
+        n_struct = max(1, round(n_records * min(structural_fraction, 1.0)))
+        n_broad = max(0, n_records - n_struct)
+        requests = list(plan_source_full_structural_slots(census, n_records=n_struct, seed=seed))
+        if n_broad:
+            requests += list(plan_coverage_slots(census, n_records=n_broad, seed=seed + 1))
+    else:
+        requests = list(plan_coverage_slots(census, n_records=n_records, seed=seed))
     return [
         _slot_from_request(request, record_id=1001 + i)
         for i, request in enumerate(requests)
     ]
 
 
-async def _run_construct(rt: Runtime, db_ids: list[str], phase: str, n_records: int) -> int:
+def _resolve_construct_records(source: BirdSource, db_ids: list[str], value: str) -> int:
+    raw = value.strip().lower()
+    if raw == "all":
+        census = run_census(source, db_ids=db_ids)
+        total = sum(db.query_count for db in census.databases.values())
+        if total <= 0:
+            raise ValueError(f"no source workload records found for dbs={db_ids}")
+        return total
+    try:
+        n_records = int(raw)
+    except ValueError as exc:
+        raise ValueError("--records must be a positive integer or 'all'") from exc
+    if n_records <= 0:
+        raise ValueError("--records must be positive")
+    return n_records
+
+
+async def _run_construct(
+    rt: Runtime,
+    db_ids: list[str],
+    phase: str,
+    n_records: int,
+    *,
+    structural_only_records: bool = False,
+    structural_fraction: float = 0.0,
+) -> int:
     out_dir = rt.settings.paths.dataset_out
     artifacts: dict[str, DbArtifacts] = {}
     records: list[dict] = []
@@ -181,6 +230,8 @@ async def _run_construct(rt: Runtime, db_ids: list[str], phase: str, n_records: 
                         slot_db_ids,
                         n_records,
                         seed=rt.settings.seed,
+                        structural_only=structural_only_records,
+                        structural_fraction=structural_fraction,
                     )
                     records = await run_phase_b(rt.workflow, artifacts, slots)
                     write_records(out_dir, records)
@@ -833,7 +884,24 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--phase", choices=["A", "B", "all"], default="all")
     c.add_argument("--dbs", default="financial",
                    help="comma-separated db_ids, or 'all' (default: financial)")
-    c.add_argument("--records", type=int, default=1, help="Phase B records to attempt")
+    c.add_argument(
+        "--records",
+        default="1",
+        help="Phase B records to attempt, or 'all' for the selected source workload count",
+    )
+    c.add_argument(
+        "--full-db",
+        action="store_true",
+        help="materialize full MongoDB data without reference-table row caps",
+    )
+    c.add_argument(
+        "--structural-fraction",
+        type=float,
+        default=0.0,
+        help="hybrid plan: fraction (0..1) of slots forced to structural_schema_flex so a "
+             "large run meets the complexity floors (L4>=30%%/flex>=25%%/ssf>=20%%) while "
+             "staying diverse; 0 = pure broad census mix",
+    )
     c.add_argument("--stub", action="store_true", help="offline mode (no live LLM)")
     c.add_argument("--quiet", action="store_true", help="disable the live progress UI")
     c.add_argument("--run-id", default=None)
@@ -911,6 +979,8 @@ def main(argv: list[str] | None = None) -> int:
         overrides["TEND_LLM_STUB"] = "1"
     if getattr(args, "quiet", False):
         overrides["TEND_QUIET"] = "1"
+    if getattr(args, "full_db", False):
+        overrides["TEND_MIGRATION_REF_SAMPLE_CAP"] = "0"
     run_id = getattr(args, "run_id", None) or new_run_id()
     settings = Settings.from_env(
         run_id=run_id,
@@ -948,7 +1018,16 @@ def main(argv: list[str] | None = None) -> int:
         db_ids = list(rt.source.db_ids) if args.dbs == "all" else [
             db.strip() for db in args.dbs.split(",") if db.strip()
         ]
-        return asyncio.run(_run_construct(rt, db_ids, args.phase, args.records))
+        structural_only_records = args.records.strip().lower() == "all"
+        n_records = _resolve_construct_records(rt.source, db_ids, args.records)
+        return asyncio.run(_run_construct(
+            rt,
+            db_ids,
+            args.phase,
+            n_records,
+            structural_only_records=structural_only_records,
+            structural_fraction=getattr(args, "structural_fraction", 0.0),
+        ))
     if args.command == "solve":
         rt = build_solver_runtime(settings)
         return asyncio.run(_run_solve(

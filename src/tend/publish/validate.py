@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,9 @@ SCHEMA_FLEX_MODES = ("none", "polymorphic", "attribute_bag", "schema_versioning"
 
 GOLD_REQUIRED = ("record_id", "db_id", "nl_queries", "MQL", "canonical_form_set")
 PUBLISH_REQUIRED = ("difficulty", "sql_infeasibility_class", "shape_policy", "world_signature")
+
+# all NL must be English-only; this gate fails any record with CJK/kana/fullwidth text
+_NLQ_CJK_RE = re.compile(r"[⺀-鿿　-ヿ＀-￯]")
 
 # composition thresholds (02 §02-4-3)
 H5_L4_MIN = 0.30
@@ -57,6 +61,8 @@ def validate_record(
         iss.append(f"[C2 r{rid}] nl_queries must contain exactly canonical+colloquial")
     elif not (str(nlq.get("canonical", "")).strip() and str(nlq.get("colloquial", "")).strip()):
         iss.append(f"[C3 r{rid}] canonical/colloquial must be non-empty")  # C3
+    elif _NLQ_CJK_RE.search(str(nlq.get("canonical", "")) + str(nlq.get("colloquial", ""))):
+        iss.append(f"[C3 r{rid}] nl_queries must be English only (found non-English/CJK text)")
 
     cfs = record.get("canonical_form_set")
     if not isinstance(cfs, dict):

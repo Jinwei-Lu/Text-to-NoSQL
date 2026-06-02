@@ -37,6 +37,7 @@ import structlog
 from ..errors import Anomaly, TendError
 
 AnomalyCallback = Callable[[dict[str, Any]], None]
+EventCallback = Callable[[dict[str, Any]], None]
 
 
 def new_run_id(prefix: str = "run") -> str:
@@ -53,6 +54,18 @@ def _diagnostics_ref_from_transcript(transcript_ref: str) -> str:
     if transcript_ref.endswith(".md"):
         return f"{transcript_ref[:-3]}.diagnostics.json"
     return transcript_ref
+
+
+def _normalize_anomaly_kind(kind: Anomaly | str) -> tuple[str, str | None]:
+    if isinstance(kind, Anomaly):
+        return kind.value, None
+    raw = str(kind)
+    for candidate in (raw, raw.lower()):
+        try:
+            return Anomaly(candidate).value, None
+        except ValueError:
+            pass
+    return Anomaly.INTERNAL.value, raw
 
 
 def _json_dumps(value: Any, *, indent: int | None = None) -> str:
@@ -262,6 +275,20 @@ def _render_llm_transcript_markdown(payload: dict[str, Any]) -> str:
     if attempts:
         lines += ["## Attempt Summary", ""]
         lines += _attempt_rows(attempts)
+        lines += ["## Attempt Details", ""]
+        for item in attempts:
+            label = item.get("attempt", "?")
+            kind = item.get("kind", "")
+            lines += [f"### Attempt {label} {kind}", ""]
+            response = item.get("response")
+            if response is not None:
+                _append_content(lines, "#### Response", response, prefer_json=True)
+            preview = item.get("response_preview")
+            if response is None and preview:
+                _append_content(lines, "#### Response Preview", preview, prefer_json=True)
+            error = item.get("error") or item.get("validation_error")
+            if error:
+                lines += ["#### Error", "", "```json", _json_dumps(error, indent=2), "```", ""]
 
     lines += [
         "## Diagnostics",
@@ -302,6 +329,7 @@ class _Run:
         self.anomalies = _JsonlSink(run_dir / "anomalies.jsonl")
         self.llm_dir = run_dir / "llm"
         self.subscribers: list[AnomalyCallback] = []
+        self.event_subscribers: list[EventCallback] = []
         self.counts: dict[str, int] = {}          # anomaly kind -> count (for summaries)
         self._console = structlog.get_logger("tend") if console else None
         self._lock = threading.Lock()
@@ -309,6 +337,13 @@ class _Run:
     def emit_console(self, level: str, event: str, fields: dict[str, Any]) -> None:
         if self._console is not None:
             getattr(self._console, level, self._console.info)(event, **fields)
+
+    def notify_event(self, record: dict[str, Any]) -> None:
+        for cb in list(self.event_subscribers):
+            try:
+                cb(record)
+            except Exception:
+                pass
 
 
 class RunLogger:
@@ -338,6 +373,7 @@ class RunLogger:
         record = {"ts": _utcnow(), "level": level, "event": event, **self._ctx, **fields}
         self._run.events.write(record)
         self._run.emit_console(level, event, {**self._ctx, **fields})
+        self._run.notify_event(record)
         return record
 
     def debug(self, event: str, **fields: Any) -> None:
@@ -376,7 +412,11 @@ class RunLogger:
             # surfacing context fields at the top level for existing greps/tests.
             base.update(err_record.get("context", {}))
         if kind is not None:
-            base["anomaly"] = kind.value if isinstance(kind, Anomaly) else str(kind)
+            normalized, original = _normalize_anomaly_kind(kind)
+            base["anomaly"] = normalized
+            if original is not None:
+                base["original_anomaly_kind"] = original
+                base.setdefault("message", f"unregistered anomaly kind: {original}")
         if message is not None:
             base["message"] = message
         if not base.get("anomaly"):
@@ -444,6 +484,9 @@ class RunLogger:
     # -- subscriptions / lifecycle --------------------------------------- #
     def subscribe_anomaly(self, callback: AnomalyCallback) -> None:
         self._run.subscribers.append(callback)
+
+    def subscribe_event(self, callback: EventCallback) -> None:
+        self._run.event_subscribers.append(callback)
 
     def anomaly_counts(self) -> dict[str, int]:
         with self._run._lock:

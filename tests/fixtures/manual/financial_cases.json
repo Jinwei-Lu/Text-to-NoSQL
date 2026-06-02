@@ -7,15 +7,29 @@
         "record_id": 1001,
         "db_id": "financial",
         "nl_queries": {
-          "canonical": "为每个 account 附加一个字段 loan_to_credit_ratio:若该 account 有 loan,取 loan.amount 除以该 account 所有贷记交易(trans.type = 'PRIJEM')的 amount 之和(该和为 0 时按 1 计);若该 account 无 loan,则该字段为 0。保留每个 account 文档(含无 loan 的),只在原文档上新增该字段,不改变文档数与嵌套结构;不要求排序。",
-          "colloquial": "给每个账户标注它的贷款相对贷记流水的占比;没有贷款的账户记 0,一个账户都别漏。"
+          "canonical": "For each account, add a field loan_to_credit_ratio: if the account has a loan, divide loan.amount by the sum of amount over all of that account's credit transactions (trans.type = 'PRIJEM'), treating a sum of 0 as 1; if the account has no loan, the field is 0. Keep every account document (including those without a loan), adding only this field to the original document without changing the document count or nested structure; no ordering required.",
+          "colloquial": "For each account, label its loan amount relative to its credit inflow; accounts with no loan get 0, and don't leave any account out."
         },
         "MQL": "db.account.aggregate([ { \"$lookup\": { \"from\": \"trans\", \"let\": { \"aid\": \"$_id\" }, \"pipeline\": [{ \"$match\": { \"$expr\": { \"$and\": [ { \"$eq\": [\"$account_id\", \"$$aid\"] }, { \"$eq\": [\"$type\", \"PRIJEM\"] } ] } } },{ \"$group\": { \"_id\": null, \"credit_sum\": { \"$sum\": \"$amount\" } } } ], \"as\": \"_credit\" } },{ \"$addFields\": { \"loan_to_credit_ratio\": { \"$cond\": [ { \"$ne\": [ { \"$type\": \"$loan\" }, \"missing\" ] },{ \"$divide\": [ \"$loan.amount\", { \"$max\": [ { \"$ifNull\": [ { \"$arrayElemAt\": [\"$_credit.credit_sum\", 0] }, 0 ] }, 1 ] } ] }, 0 ] } } },{ \"$project\": { \"_credit\": 0 } } ])",
         "canonical_form_set": {
-          "must_contain": ["$lookup"],
-          "must_not_contain": ["$$NOW", "$function", "$merge", "$out", "$rand", "$sample"],
-          "must_contain_at_root": ["$lookup"],
-          "must_not_contain_at_root": ["$group", "$unwind"]
+          "must_contain": [
+            "$lookup"
+          ],
+          "must_not_contain": [
+            "$$NOW",
+            "$function",
+            "$merge",
+            "$out",
+            "$rand",
+            "$sample"
+          ],
+          "must_contain_at_root": [
+            "$lookup"
+          ],
+          "must_not_contain_at_root": [
+            "$group",
+            "$unwind"
+          ]
         },
         "difficulty": "L4",
         "sql_infeasibility_class": "structural_schema_flex",
@@ -25,15 +39,28 @@
       "oracle": {
         "template": "present_missing_projection",
         "params": {
-          "parent_collection": "account", "embed_field": "loan",
-          "numerator_path": "loan.amount", "target_field": "loan_to_credit_ratio",
+          "parent_collection": "account",
+          "embed_field": "loan",
+          "numerator_path": "loan.amount",
+          "target_field": "loan_to_credit_ratio",
           "absent_value": 0,
-          "denom": {"collection": "trans", "local_id": "_id", "foreign_field": "account_id",
-                    "match": {"field": "type", "value": "PRIJEM"}, "sum_field": "amount",
-                    "zero_value": 1}
+          "denom": {
+            "collection": "trans",
+            "local_id": "_id",
+            "foreign_field": "account_id",
+            "match": {
+              "field": "type",
+              "value": "PRIJEM"
+            },
+            "sum_field": "amount",
+            "zero_value": 1
+          }
         }
       },
-      "expect": {"shape_policy": "preserve", "cardinality_equals_input": "account"},
+      "expect": {
+        "shape_policy": "preserve",
+        "cardinality_equals_input": "account"
+      },
       "mutation": "db.account.aggregate([ { \"$match\": { \"loan\": { \"$exists\": true } } }, { \"$lookup\": { \"from\": \"trans\", \"let\": { \"aid\": \"$_id\" }, \"pipeline\": [{ \"$match\": { \"$expr\": { \"$and\": [ { \"$eq\": [\"$account_id\", \"$$aid\"] }, { \"$eq\": [\"$type\", \"PRIJEM\"] } ] } } },{ \"$group\": { \"_id\": null, \"credit_sum\": { \"$sum\": \"$amount\" } } } ], \"as\": \"_credit\" } },{ \"$addFields\": { \"loan_to_credit_ratio\": { \"$divide\": [ \"$loan.amount\", { \"$max\": [ { \"$ifNull\": [ { \"$arrayElemAt\": [\"$_credit.credit_sum\", 0] }, 0 ] }, 1 ] } ] } } },{ \"$project\": { \"_credit\": 0 } } ])"
     },
     {
@@ -42,22 +69,40 @@
         "record_id": 1002,
         "db_id": "financial",
         "nl_queries": {
-          "canonical": "统计每种 account.frequency(结算频率)取值下的 account 数量,返回每个频率与其账户计数。",
-          "colloquial": "各种结算频率各有多少账户?"
+          "canonical": "Count the number of accounts for each value of account.frequency (statement frequency), returning each frequency together with its account count.",
+          "colloquial": "How many accounts are there for each statement frequency?"
         },
         "MQL": "db.account.aggregate([{\"$group\":{\"_id\":\"$frequency\",\"count\":{\"$sum\":1}}}])",
         "canonical_form_set": {
           "must_contain": [],
-          "must_not_contain": ["$$NOW", "$function", "$merge", "$out", "$rand", "$sample"],
-          "must_contain_at_root": ["$group"],
+          "must_not_contain": [
+            "$$NOW",
+            "$function",
+            "$merge",
+            "$out",
+            "$rand",
+            "$sample"
+          ],
+          "must_contain_at_root": [
+            "$group"
+          ],
           "must_not_contain_at_root": []
         },
         "difficulty": "L1",
         "sql_infeasibility_class": "feasible",
         "shape_policy": "reduce"
       },
-      "oracle": {"template": "group_count", "params": {"collection": "account", "group_by": "frequency"}},
-      "expect": {"shape_policy": "reduce", "group_key_preserved": "_id"},
+      "oracle": {
+        "template": "group_count",
+        "params": {
+          "collection": "account",
+          "group_by": "frequency"
+        }
+      },
+      "expect": {
+        "shape_policy": "reduce",
+        "group_key_preserved": "_id"
+      },
       "mutation": "db.account.aggregate([{\"$group\":{\"_id\":\"$district_id\",\"count\":{\"$sum\":1}}}])"
     }
   ]

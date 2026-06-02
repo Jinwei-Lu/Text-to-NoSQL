@@ -53,6 +53,16 @@ def _env(envmap: dict[str, str], key: str, default: str | None = None) -> str | 
     return os.environ.get(key, envmap.get(key, default))
 
 
+def _optional_positive_int(envmap: dict[str, str], key: str, default: str) -> int | None:
+    raw = (_env(envmap, key, default) or "").strip().lower()
+    if raw in {"0", "-1", "none", "all", "full", "unlimited"}:
+        return None
+    value = int(raw)
+    if value <= 0:
+        return None
+    return value
+
+
 @dataclass(frozen=True)
 class LLMSettings:
     base_url: str
@@ -66,6 +76,10 @@ class LLMSettings:
     # ``max_concurrency > 0`` bounds concurrent provider calls to that many;
     # ``max_concurrency <= 0`` runs fully UNBOUNDED (no limit). Default 16.
     max_concurrency: int = 16
+    # Observability thresholds. ``prompt_warn_chars`` emits a warning event before send;
+    # ``slow_call_warn_s`` emits a warning after a slow LLM call completes. ``<= 0`` disables.
+    prompt_warn_chars: int = 24000
+    slow_call_warn_s: float = 45.0
     #: per-agent model overrides (agent_id -> model); empty = use ``model`` for all
     agent_models: dict[str, str] = field(default_factory=dict)
 
@@ -96,6 +110,7 @@ class Settings:
     mongo_db_prefix: str = "tend_"   # working dbs are <prefix><db_id>
     stub: bool = False               # offline: deterministic fake LLM, no live calls
     quiet: bool = False              # suppress the live progress UI (CI / logs only)
+    migration_ref_sample_cap: int | None = 40_000
     seed: int = 0
     run_id: str = "dev"
 
@@ -145,6 +160,8 @@ class Settings:
             # TEND_LLM_MAX_CONCURRENCY bounds concurrent live LLM calls (default 16);
             # 0 (or any value <= 0) runs fully unbounded.
             max_concurrency=int(_env(envmap, "TEND_LLM_MAX_CONCURRENCY", "16")),
+            prompt_warn_chars=int(_env(envmap, "TEND_LLM_PROMPT_WARN_CHARS", "24000")),
+            slow_call_warn_s=float(_env(envmap, "TEND_LLM_SLOW_WARN_S", "45")),
         )
         paths = Paths(
             repo_root=root,
@@ -164,6 +181,11 @@ class Settings:
             mongo_uri=_env(envmap, "TEND_MONGO_URI", "mongodb://localhost:27017") or "",
             stub=stub,
             quiet=_env(envmap, "TEND_QUIET", "0") == "1",
+            migration_ref_sample_cap=_optional_positive_int(
+                envmap,
+                "TEND_MIGRATION_REF_SAMPLE_CAP",
+                "40000",
+            ),
             seed=int(_env(envmap, "TEND_SEED", "0")),
             run_id=run_id,
         )

@@ -8,6 +8,8 @@
 
 You are **NLP (NL Paraphraser)**, the Phase B agent that writes natural NLQ from the locked `intent`, not from the locked MQL pipeline. You produce a **dual NLQ pair**: canonical (L1) and colloquial (L0).
 
+**LANGUAGE: write BOTH `nl_queries.canonical` AND `nl_queries.colloquial` in ENGLISH ONLY. Never use Chinese or any non-English language anywhere in the output. This is mandatory — non-English output is rejected.**
+
 **Hard rules**
 
 1. Inputs: `intent`, MS-derived `canonical_form_set`, and `scenario_summary` (domain semantics only — no SQL).
@@ -76,8 +78,8 @@ Return JSON matching `output_schema` only.
 ```json
 {
   "nl_queries": {
-    "canonical": "对每位 conductor，先在其指挥的 orchestra 的 performance 上按 Performance_ID 升序、对 Attendance 计算窗口大小为 (当前, 前 2 场) 的滑动平均；取该 conductor 的最后一次窗口平均值作为代表值 (Attendance 缺失视为 0)。然后计算所有 conductor 代表值的中位数。最终只输出代表值严格大于该中位数的 conductor，字段为 Name 与 last_window_avg；若 Name 缺失则显示为 (unknown)；不要求排序。",
-    "colloquial": "列出最近场次出勤趋势高于同行中位数的指挥。"
+    "canonical": "For each conductor, over the performances of the orchestra they conduct, sort by Performance_ID ascending and compute a trailing moving average of Attendance over a window of (current, previous 2); take that conductor's last window average as their representative value (treat missing Attendance as 0). Then compute the median of all conductors' representative values. Return only the conductors whose representative value is strictly greater than that median, with fields Name and last_window_avg; show (unknown) when Name is missing; no ordering required.",
+    "colloquial": "List the conductors whose recent attendance trend is above the median of their peers."
   },
   "nlp_trace": {
     "scenario_terms_used": ["conductor", "attendance", "performance series"],
@@ -94,8 +96,8 @@ Return JSON matching `output_schema` only.
 ```json
 {
   "nl_queries": {
-    "canonical": "列出价格严格大于 100 的所有产品，返回名称与价格字段。",
-    "colloquial": "哪些东西卖得比较贵？"
+    "canonical": "List all products whose price is strictly greater than 100, returning the name and price fields.",
+    "colloquial": "Which items are on the pricier side?"
   },
   "nlp_trace": {
     "scenario_terms_used": ["product", "price"],
@@ -112,8 +114,8 @@ Return JSON matching `output_schema` only.
 ```json
 {
   "nl_queries": {
-    "canonical": "对每位学生，将其各次评估按评估类型分别归一化：written 用 written_score 除以 word_count 再乘 100；oral 用 oral_score；practical 用 lab_score；取各类型归一化分的最大值作为 final_score；输出 first_name 与 final_score。",
-    "colloquial": "按不同考核方式算分，看谁综合表现最好。"
+    "canonical": "For each student, normalize each assessment by its type: for written use written_score divided by word_count times 100; for oral use oral_score; for practical use lab_score; take the maximum normalized score across types as final_score; output first_name and final_score.",
+    "colloquial": "Score students across the different exam formats and see who does best overall."
   },
   "nlp_trace": {
     "scenario_terms_used": ["assessment types", "student scoring"],

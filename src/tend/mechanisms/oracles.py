@@ -21,6 +21,9 @@ Snapshot = dict[str, list[dict[str, Any]]]
 Oracle = Callable[[Snapshot, dict[str, Any]], list[dict[str, Any]]]
 
 _MISSING = object()
+_METRIC_FIELD_PRIORITY = (
+    "amount", "balance", "payments", "value", "total", "sum", "cost", "price",
+)
 
 
 class OracleError(Exception):
@@ -53,6 +56,7 @@ def _num(v: Any) -> float | None:
 
 
 def _aggregate(values: list[float], how: str) -> float:
+    how = _normal_agg(how)
     if how == "count":
         return float(len(values))
     if not values:
@@ -66,6 +70,10 @@ def _aggregate(values: list[float], how: str) -> float:
     if how == "max":
         return max(values)
     raise OracleError(f"unknown aggregation: {how}")
+
+
+def _normal_agg(value: Any) -> str:
+    return str(value or "count").lstrip("$").lower()
 
 
 def _require(params: dict[str, Any], *keys: str) -> None:
@@ -224,6 +232,10 @@ def _present_missing_projection(snapshot: Snapshot, params: dict[str, Any]) -> l
     parents = _docs(snapshot, params["parent_collection"])
     target = params["target_field"]
     absent_value = params.get("absent_value", 0)
+    # numerator_path may arrive embed-relative ("amount") or parent-rooted ("loan.amount");
+    # normalize to parent-rooted so the metric is read from inside the embed, not a phantom
+    # top-level field (which would silently zero every numerator).
+    numerator_path = _embed_value_path(params["embed_field"], params["numerator_path"])
     denom_spec = params["denom"]
     # precompute per-parent denominator sums
     denom_docs = _docs(snapshot, denom_spec["collection"])
@@ -244,7 +256,7 @@ def _present_missing_projection(snapshot: Snapshot, params: dict[str, Any]) -> l
         doc = dict(p)
         has_embed = _get(p, params["embed_field"])[0]
         if has_embed:
-            num = _num(_get(p, params["numerator_path"])[1]) or 0.0
+            num = _num(_get(p, numerator_path)[1]) or 0.0
             denom = sums.get(_get(p, denom_spec["local_id"])[1], 0.0)
             doc[target] = num / (denom if denom != 0 else zero_value)
         else:
@@ -290,6 +302,36 @@ def _embed_value_path(embed_field: str, value_path: str) -> str:
     return f"{embed_field}.{value_path}"
 
 
+def _resolve_embed_metric_path(
+    docs: list[dict[str, Any]], embed_field: str, metric_field: Any
+) -> str | None:
+    if not isinstance(metric_field, str) or not metric_field:
+        return None
+    if any(_get(d, metric_field)[0] for d in docs):
+        return metric_field
+    embedded = _embed_value_path(embed_field, metric_field)
+    if embedded != metric_field and any(_get(d, embedded)[0] for d in docs):
+        return embedded
+    nested = _first_numeric_embed_path(docs, embed_field)
+    if nested is not None:
+        return nested
+    return metric_field
+
+
+def _first_numeric_embed_path(docs: list[dict[str, Any]], embed_field: str) -> str | None:
+    for doc in docs:
+        present, embed = _get(doc, embed_field)
+        if not present or not isinstance(embed, dict):
+            continue
+        for key in _METRIC_FIELD_PRIORITY:
+            if _num(embed.get(key)) is not None:
+                return f"{embed_field}.{key}"
+        for key, value in embed.items():
+            if _num(value) is not None:
+                return f"{embed_field}.{key}"
+    return None
+
+
 def _subtype_cond_projection(snapshot: Snapshot, params: dict[str, Any]) -> list[dict[str, Any]]:
     """Preserve docs, attaching a value chosen by subtype (missing subtype field -> default).
 
@@ -331,7 +373,11 @@ def _has_vs_absent_compare(snapshot: Snapshot, params: dict[str, Any]) -> list[d
     """
     _require(params, "parent_collection", "embed_field")
     docs = _docs(snapshot, params["parent_collection"])
-    metric, agg = params.get("metric_field"), params.get("agg", "count")
+    agg = _normal_agg(params.get("agg", "count"))
+    metric = (
+        None if agg == "count"
+        else _resolve_embed_metric_path(docs, params["embed_field"], params.get("metric_field"))
+    )
     groups: dict[str, list[float]] = {"present": [], "absent": []}
     for d in docs:
         key = "present" if _get(d, params["embed_field"])[0] else "absent"

@@ -10,15 +10,24 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+import re
+from typing import Any, Callable
 
-from ..errors import Anomaly, TendError
+from ..errors import TendError
 from ..execution import derive_canonical_form_set, parse_pipeline, scan_disabled
 from ..execution.mongo import _normalize_doc, equiv_rec
 from ..mechanisms import OracleError, has_oracle, oracle_param_errors, reference_oracle
+from ..mechanisms.oracles import _embed_value_path
 from .base import Agent, AgentContext, LLMAgent, register
 
 _ORDER_INSENSITIVE = False  # ≡_rec default for construction checks (NLQ says "no order")
+
+# CJK / kana / fullwidth ranges — all benchmark NL must be English-only; this gates it.
+_CJK_RE = re.compile(r"[⺀-鿿　-ヿ＀-￯]")
+
+
+def _contains_cjk(text: str) -> bool:
+    return bool(_CJK_RE.search(text))
 
 
 # --------------------------------------------------------------------------- #
@@ -72,7 +81,157 @@ _ARCHETYPE_RECIPE = {
         "Use public output field 'variant' with EXACT string values 'present' and 'missing'; "
         "include 'count' and the aggregate target field in output.fields."
     ),
+    "has_vs_absent_compare": (
+        "Target cell is L4 structural_schema_flex with shape_policy='reduce'. Compare root "
+        "documents that have a real optional embedded sub-document against documents where it "
+        "is missing. The downstream MQL must use $type plus $cond/$switch to form the "
+        "present/absent branch, then aggregate each branch. Use output fields _id and value."
+    ),
+    "per_subtype_agg": (
+        "Target cell is L4 structural_schema_flex with shape_policy='reduce'. Group by a real "
+        "discriminator and aggregate a numeric field chosen per discriminator value. Do not "
+        "invent subtype names or oracle templates; use only real schema fields."
+    ),
+    "subtype_specific_field": (
+        "Target cell is L4 structural_schema_flex with shape_policy='reshape'. Pick one real "
+        "subtype value and return a real subtype-specific field for matching documents. Do not "
+        "invent subtype names or oracle templates."
+    ),
 }
+
+_ARCHETYPE_ORACLE_GUIDE = {
+    "present_missing_projection": (
+        "Allowed reference_oracle templates for this archetype:\n"
+        "- present_missing_projection params {parent_collection, embed_field, numerator_path, "
+        "target_field, denom:{collection, local_id, foreign_field, sum_field, optional match, "
+        "optional zero_value}, optional absent_value}; use this only for a ratio/division form.\n"
+        "- optional_embed_projection params {parent_collection, embed_field, value_path, "
+        "target_field, missing_default}; use this for a simple optional embedded field copy.\n"
+        "Do not emit any other reference_oracle.template."
+    ),
+    "has_vs_absent_compare": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- has_vs_absent_compare params {parent_collection, embed_field, optional metric_field, "
+        "optional agg}. parent_collection is the root collection with __variants; embed_field "
+        "is the optional embedded sub-document. Prefer parent-rooted metric_field paths such "
+        "as 'loan.amount' instead of bare 'amount'. Its output group keys are exactly "
+        "'present' and 'absent'. Do not emit presence_count, has_vs_absent_agg, "
+        "has_vs_absent_groupby, or any other invented template."
+    ),
+    "per_subtype_agg": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- per_subtype_agg params {collection, discriminator, field_by_subtype, agg}. "
+        "field_by_subtype maps each real discriminator value to the real numeric field to "
+        "aggregate. Do not omit field_by_subtype or agg."
+    ),
+    "subtype_cond_projection": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- subtype_cond_projection params {collection, discriminator, field_by_subtype, "
+        "target_field, optional default}. field_by_subtype maps each real discriminator "
+        "value to a real source field. default must be non-null."
+    ),
+    "subtype_specific_field": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- subtype_specific_field params {collection, discriminator, subtype_value, field, "
+        "optional project}. Use one real discriminator value and one real field. Do not emit "
+        "polymorphic_field_case, subtype_derived_field, or any other invented template."
+    ),
+    "cross_subtype_compare": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- cross_subtype_compare params {collection, discriminator, field_by_subtype, agg}. "
+        "field_by_subtype maps each real discriminator value to that subtype's own numeric "
+        "field; agg is sum|avg|min|max|count. Emit the literal template 'cross_subtype_compare' "
+        "— NOT cross_subtype_aggregate, cross_subtype_comparison, or any other name."
+    ),
+    "existence_count": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- existence_count params {collection, field}. Counts docs where the optional field is "
+        "present. Emit the literal template 'existence_count' — NOT exists_count, "
+        "presence_count, simple_count, or any other name."
+    ),
+    "null_coalesce_agg": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- null_coalesce_agg params {collection, field, agg, optional default}. Coalesces "
+        "missing/null/non-numeric values of field to default, then aggregates (agg is "
+        "sum|avg|min|max). Emit the literal template 'null_coalesce_agg' — NOT "
+        "null_coalesce_aggregate, null_coalesce_aggregation, coalesce_agg, or any other name."
+    ),
+    "join_nested_group": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- join_nested_group params {collection, array_field, group_by, optional value_field, "
+        "optional agg}. Unwinds the embedded array_field, groups elements by group_by, and "
+        "aggregates (agg defaults to count; value_field is the element's numeric field for "
+        "sum|avg|min|max). Emit the literal template 'join_nested_group' — NOT "
+        "join_group_aggregate, nested_unwind_group, or any other name."
+    ),
+    "simple_filter": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- simple_filter params {collection, predicates:[{field, op, value}], optional project}. "
+        "op is eq|ne|gt|lt|gte|lte; every predicate field must be a real schema field. Emit the "
+        "literal template 'simple_filter' — NOT filter_count, match_filter, or any other name."
+    ),
+    "group_count": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- group_count params {collection, group_by}. Groups by the real field group_by and "
+        "counts. Emit the literal template 'group_count' — NOT group_by_count, count_by_group, "
+        "or any other name."
+    ),
+    "topn": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- topn params {collection, sort_key, n, optional order(asc|desc), optional project, "
+        "optional nulls(first|last)}. Emit the literal template 'topn' — NOT top_n, "
+        "order_limit, or any other name."
+    ),
+    "dynamic_key_fold": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- dynamic_key_fold params {collection, name_field, value_field, agg}. Folds an "
+        "EAV/attribute bag: groups by the attribute-name column name_field and aggregates the "
+        "numeric value_field. Emit the literal template 'dynamic_key_fold' — no other name."
+    ),
+    "cross_keyset_value": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- cross_keyset_value params {collection, key, optional project}. Reads key only from "
+        "docs whose heterogeneous keyset contains it. Emit the literal template "
+        "'cross_keyset_value' — no other name."
+    ),
+    "cross_version_agg": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- cross_version_agg params {collection, field_candidates:[old, new, ...], agg, optional "
+        "default}. Coalesces the first present candidate field (handles cross-version renames) "
+        "then aggregates. Emit the literal template 'cross_version_agg' — no other name."
+    ),
+}
+_METRIC_FIELD_PRIORITY = (
+    "amount", "balance", "payments", "value", "total", "sum", "cost", "price",
+)
+
+
+def _qps_schema_ref_violations(ref: dict[str, Any], schema: dict[str, Any]) -> list[str]:
+    """Catch QPS picking non-existent schema fields at the QPS stage.
+
+    Builds the canonical gold from these oracle params and runs MS's own
+    ``_unknown_schema_refs`` check — so QPS self-corrects (retrying with the *real* field
+    list) instead of MS silently dropping the record. This is the dominant failure on
+    messy-column-name BIRD dbs, where deepseek snake_cases/guesses names that don't exist.
+    """
+    try:
+        canonical = _canonical_reference_mql({"reference_oracle": ref, "schema": schema})
+        if not canonical:
+            return []
+        mql, _shape = canonical
+        collection, _ = parse_pipeline(mql)
+    except (TendError, Exception):  # noqa: BLE001 - validation must never crash QPS
+        return []
+    bad = _unknown_schema_refs(mql, schema, collection)
+    if not bad:
+        return []
+    valid = sorted(_schema_field_paths(schema, collection))
+    sample = ", ".join(valid[:40]) if valid else "(none)"
+    return [
+        f"reference_oracle.params reference non-existent fields {bad}. Use EXACT field names "
+        f"copied verbatim from the schema (keep spaces, capitalization, punctuation — do NOT "
+        f"snake_case or abbreviate). Valid fields for {collection!r}: {sample}"
+    ]
 
 
 @register
@@ -87,6 +246,10 @@ class QueryPlanSampler(LLMAgent):
         archetype = inputs.get("archetype", "")
         recipe = _ARCHETYPE_RECIPE.get(archetype, "Choose a valid shape_policy "
                                        "(preserve/reshape/reduce) and a deterministic output.")
+        oracle_guide = _ARCHETYPE_ORACLE_GUIDE.get(
+            archetype,
+            "Use only reference_oracle templates implemented by the benchmark oracle registry.",
+        )
         target = (
             f"target_difficulty: {inputs.get('target_difficulty', 'L4')}\n"
             "target_sql_infeasibility_class: "
@@ -99,6 +262,7 @@ class QueryPlanSampler(LLMAgent):
                 f"scenario_summary: {inputs.get('scenario_summary', '')[:500]}\n"
                 f"## schema (use ONLY these real collections/fields)\n{_schema_digest(inputs.get('schema', {}))}\n"
                 f"## archetype recipe\n{recipe}\n\n"
+                f"## reference_oracle allowlist\n{oracle_guide}\n\n"
                 "Emit top-level intent with: seed_mechanism; seed_signal {collection, field}; archetype; "
                 "target_difficulty; target_sql_infeasibility_class; schema_flex_mode; "
                 "domain_framing (use the REAL collection/field names — do NOT invent entities "
@@ -110,6 +274,7 @@ class QueryPlanSampler(LLMAgent):
 
     def check_contract(self, ctx, inputs, output) -> list[str]:
         intent = output.get("intent", {})
+        ref = output.get("reference_oracle") or intent.get("reference_oracle")
         sp = intent.get("shape_policy")
         v = []
         if sp not in ("preserve", "reshape", "reduce"):
@@ -118,7 +283,12 @@ class QueryPlanSampler(LLMAgent):
             v.append("present_missing_projection requires shape_policy=preserve")
         if sp == "preserve" and inputs.get("target_sql_infeasibility_class") == \
                 "structural_schema_flex":
-            v.extend(_preserve_schema_flex_default_violations(intent))
+            default_intent = (
+                {**intent, "reference_oracle": ref}
+                if isinstance(intent, dict) and isinstance(ref, dict)
+                else intent
+            )
+            v.extend(_preserve_schema_flex_default_violations(default_intent))
         if inputs.get("archetype") == "schema_flex_variant_summary":
             if sp not in ("reshape", "reduce"):
                 v.append("schema_flex_variant_summary requires shape_policy=reshape or reduce")
@@ -139,7 +309,6 @@ class QueryPlanSampler(LLMAgent):
                     "schema_flex_variant_summary output.fields must include "
                     f"analytical_op.target_field {target_field!r}"
                 )
-        ref = output.get("reference_oracle") or intent.get("reference_oracle")
         if not isinstance(ref, dict):
             v.append("reference_oracle with supported template is required")
         else:
@@ -149,7 +318,10 @@ class QueryPlanSampler(LLMAgent):
             elif not has_oracle(str(template)):
                 v.append(f"unsupported reference_oracle.template {template!r}")
             else:
-                v.extend(oracle_param_errors(str(template), ref.get("params")))
+                param_errs = oracle_param_errors(str(template), ref.get("params"))
+                v.extend(param_errs)
+                if not param_errs:
+                    v.extend(_qps_schema_ref_violations(ref, inputs.get("schema", {})))
         return v
 
 
@@ -191,6 +363,12 @@ def _oracle_prompt_rule(oracle: Any) -> str:
             "parent document and set the target to missing_default when the embed/value is "
             "missing or null. "
         )
+    if template == "has_vs_absent_compare":
+        return (
+            "For reference_oracle.template='has_vs_absent_compare', group every parent "
+            "document into exactly two possible labels: _id='present' when embed_field exists "
+            "and _id='absent' when it is missing. The result field must be named 'value'. "
+        )
     return ""
 
 
@@ -221,7 +399,9 @@ class MqlSynthesizer(LLMAgent):
             structural_rule = (
                 "\nFor target structural_schema_flex, the MQL MUST visibly dispatch over real "
                 "document-shape variants using $type/$switch/$cond on the optional embedded "
-                "sub-document. Set schema_flex='polymorphic'."
+                "sub-document. The representative MQL field itself must contain $type or "
+                "$objectToArray and must contain $cond or $switch; putting that logic only in "
+                "mql_alt does not satisfy gold-lock. Set schema_flex='polymorphic'."
             )
             if intent.get("archetype") == "schema_flex_variant_summary":
                 structural_rule += (
@@ -257,6 +437,27 @@ class MqlSynthesizer(LLMAgent):
 
     def postprocess(self, ctx, inputs, output, result) -> dict[str, Any]:
         mql = output["MQL"]
+        promoted = _promote_structural_alt_if_valid(mql, output.get("mql_alt"), inputs)
+        if promoted:
+            output["MQL"] = promoted
+            output["mql_alt"] = mql
+            output["representative_mql_promoted_from_alt"] = True
+            mql = promoted
+        canonical = _canonical_reference_mql(inputs)
+        if canonical:
+            canonical_mql, canonical_shape = canonical
+            output["llm_MQL"] = mql
+            output["MQL"] = canonical_mql
+            output["shape_policy"] = canonical_shape  # gold's true shape drives the preserve gate
+            output["reference_oracle_canonicalized"] = True
+            mql = canonical_mql
+            ctx.log.info(
+                "ms_reference_oracle_canonicalized",
+                template=(inputs.get("reference_oracle") or {}).get("template"),
+                shape_policy=canonical_shape,
+                transcript_ref=getattr(result, "transcript_ref", None),
+                diagnostics_ref=getattr(result, "diagnostics_ref", None),
+            )
         shape = output.get("shape_policy", "preserve")
         hits = scan_disabled(mql)
         if hits:
@@ -425,8 +626,13 @@ class PropertyVerifier(Agent):
                 rm = await asyncio.to_thread(ctx.mongo.norm_exec, ctx.db_id, m["MQL"])
                 fails = not equiv_rec(gold, rm, order_sensitive=_ORDER_INSENSITIVE)
             except TendError as exc:
-                ctx.log.anomaly(exc, kind=Anomaly.EXEC_ERROR,
-                                mutation_id=m.get("mutation_id"))
+                ctx.log.warning(
+                    "pv_mutation_exec_fail",
+                    mutation_id=m.get("mutation_id"),
+                    error_type=type(exc).__name__,
+                    reason=exc.message,
+                    context=exc.context,
+                )
                 fails = True                    # a mutation that errors is sufficiently wrong
                 errored = True
             return fails, m, errored
@@ -530,6 +736,8 @@ class NlParaphraser(LLMAgent):
                      "summary fields. Preserve exact variant labels.")
         return ("# NLP — paraphrase canonical (L1) + colloquial (L0) NLQ from THIS intent "
                 "(not from any pipeline)\n"
+                "WRITE BOTH canonical AND colloquial IN ENGLISH ONLY — never Chinese or any "
+                "other language; non-English output is rejected.\n"
                 f"## intent\n```json\n{json.dumps(intent, ensure_ascii=False, indent=2, sort_keys=True)}\n```\n"
                 "RULES: describe EXACTLY the computation in this intent over ITS named "
                 "collection/fields. Do NOT introduce entities/fields not in the intent "
@@ -538,8 +746,19 @@ class NlParaphraser(LLMAgent):
                 + extra)
 
     def check_contract(self, ctx, inputs, output) -> list[str]:
-        c = output.get("nl_queries", {}).get("canonical", "")
+        nlq = output.get("nl_queries", {})
+        c = nlq.get("canonical", "")
         v = ["canonical NLQ must not contain $ operator terms"] if "$" in c else []
+        non_english = [
+            name for name, val in (("canonical", c), ("colloquial", nlq.get("colloquial", "")))
+            if _contains_cjk(str(val))
+        ]
+        if non_english:
+            v.append(
+                f"nl_queries {non_english} contain non-English (CJK) characters; ALL natural "
+                "language must be ENGLISH ONLY — rewrite both canonical and colloquial fully "
+                "in English."
+            )
         v.extend(_nl_shape_contract_violations(
             inputs.get("intent", {}), c, inputs.get("result_fields")
         ))
@@ -728,7 +947,14 @@ class RealismAuditor(Agent):
         field_distinct: dict[str, int] = {}
         for f in new_fields:
             field_distinct[f] = len({_hashable(d.get(f)) for d in res})
-        if new_fields:
+        if len(res) == 1:
+            # a single-row aggregate (count/sum/avg over the collection) is a legitimate,
+            # non-degenerate scalar answer — non-empty was already checked above. The
+            # >=2-distinct heuristic only guards multi-row / attach-a-field results, where a
+            # collapse to one value really is trivial.
+            nontrivial = True
+            reason = ""
+        elif new_fields:
             nontrivial = any(c >= 2 for c in field_distinct.values())
             reason = "no added field takes >=2 distinct values" if not nontrivial else ""
         else:
@@ -759,11 +985,17 @@ def _preserve_schema_flex_default_violations(intent: dict[str, Any]) -> list[str
     op = intent.get("analytical_op") if isinstance(intent.get("analytical_op"), dict) else {}
     output = intent.get("output") if isinstance(intent.get("output"), dict) else {}
     op_output = op.get("output") if isinstance(op.get("output"), dict) else {}
+    ref = intent.get("reference_oracle") if isinstance(intent.get("reference_oracle"), dict) else {}
+    ref_params = ref.get("params") if isinstance(ref.get("params"), dict) else {}
     target = op.get("target_field")
     candidates: list[tuple[str, Any]] = []
     for key in ("missing_default", "absent_value", "default"):
         if key in op:
             candidates.append((f"analytical_op.{key}", op[key]))
+        if key in op_output:
+            candidates.append((f"analytical_op.output.{key}", op_output[key]))
+        if key in ref_params:
+            candidates.append((f"reference_oracle.params.{key}", ref_params[key]))
     for prefix, out in (("output", output), ("analytical_op.output", op_output)):
         output_missing = out.get("missing")
         if isinstance(output_missing, dict):
@@ -900,6 +1132,515 @@ def _expected_new_fields(inputs: dict[str, Any]) -> set[str] | None:
         params = ref.get("params") if isinstance(ref, dict) else {}
         target = params.get("target_field") if isinstance(params, dict) else None
     return {target} if isinstance(target, str) and target else None
+
+
+def _promote_structural_alt_if_valid(
+    primary_mql: str, alt_mql: Any, inputs: dict[str, Any]
+) -> str | None:
+    """Use ``mql_alt`` as the representative only when it satisfies structural gates."""
+    if inputs.get("target_sql_infeasibility_class") != "structural_schema_flex":
+        return None
+    if not isinstance(alt_mql, str) or not alt_mql.strip() or alt_mql == primary_mql:
+        return None
+    schema = inputs.get("schema", {})
+    try:
+        primary_collection, _ = parse_pipeline(primary_mql)
+    except TendError:
+        return None
+    primary_reasons = _structural_schema_flex_reasons(
+        primary_mql, schema, primary_collection, inputs
+    )
+    if not primary_reasons:
+        return None
+    try:
+        alt_collection, _ = parse_pipeline(alt_mql)
+    except TendError:
+        return None
+    if alt_collection != primary_collection:
+        return None
+    if _unknown_schema_refs(alt_mql, schema, alt_collection):
+        return None
+    if _structural_schema_flex_reasons(alt_mql, schema, alt_collection, inputs):
+        return None
+    return alt_mql
+
+
+def _canonical_reference_mql(inputs: dict[str, Any]) -> tuple[str, str] | None:
+    """Return ``(deterministic gold MQL, implied shape_policy)`` for reference-defined archetypes.
+
+    Reverse construction: when the archetype's reference oracle has a mechanical MQL
+    translation, synthesize gold from the oracle params so ``gold ≡_rec R`` holds *by
+    construction* — the gold-lock can never diverge for these. The LLM's MQL is kept as
+    ``llm_MQL`` for provenance but is no longer correctness-critical.
+    """
+    intent = inputs.get("intent") if isinstance(inputs.get("intent"), dict) else {}
+    ref = inputs.get("reference_oracle") or intent.get("reference_oracle")
+    if not isinstance(ref, dict):
+        return None
+    params = ref.get("params")
+    if not isinstance(params, dict):
+        return None
+    template = ref.get("template")
+    builder = _CANONICAL_MQL_BUILDERS.get(template)
+    if builder is None:
+        return None
+    mql = builder(params, inputs.get("schema", {}))
+    if mql is None:
+        return None
+    return mql, _CANONICAL_SHAPE.get(template, "reduce")
+
+
+def _canonical_present_missing_projection_mql(
+    params: dict[str, Any], schema: dict[str, Any]
+) -> str | None:
+    """Deterministic gold for the sparse-embed ratio archetype.
+
+    Mirrors :func:`mechanisms.oracles._present_missing_projection` exactly:
+    per parent doc, ``has(embed) ? numerator / Σ(denom) : absent_value`` with a
+    ``zero_value`` guard when the denominator sum is 0. Preserves every parent doc and
+    adds only ``target_field`` (helper join/sum fields are projected out).
+    """
+    parent = params.get("parent_collection")
+    embed_field = params.get("embed_field")
+    numerator_path = params.get("numerator_path")
+    target = params.get("target_field")
+    denom = params.get("denom")
+    if not all(isinstance(x, str) and x for x in (parent, embed_field, numerator_path, target)):
+        return None
+    if not isinstance(denom, dict):
+        return None
+    # Match the oracle: normalize an embed-relative numerator ("amount") to parent-rooted
+    # ("loan.amount") so the MQL reads from inside the embed and references a real schema
+    # field (an unnormalized "$amount" both zeroes the metric and trips the schema-ref gate).
+    numerator_path = _embed_value_path(embed_field, numerator_path)
+    dcoll = denom.get("collection")
+    local_id = denom.get("local_id")
+    foreign_field = denom.get("foreign_field")
+    sum_field = denom.get("sum_field")
+    if not all(isinstance(x, str) and x for x in (dcoll, local_id, foreign_field, sum_field)):
+        return None
+    absent_value = params.get("absent_value", 0)
+    zero_value = denom.get("zero_value", 1)
+    match = denom.get("match")
+
+    as_field = "__tend_denom"
+    sum_field_name = "__tend_denom_sum"
+    # Per-parent denominator sum. When the oracle filters denom docs (``match``), filter
+    # the looked-up array before summing; otherwise sum the whole joined array.
+    summed_array: Any = f"${as_field}"
+    if isinstance(match, dict) and match.get("field") is not None:
+        summed_array = {
+            "$filter": {
+                "input": f"${as_field}",
+                "as": "d",
+                "cond": {"$eq": [f"$$d.{match['field']}", match.get("value")]},
+            }
+        }
+    sum_expr = {
+        "$sum": {
+            "$map": {
+                "input": summed_array,
+                "as": "d",
+                "in": {"$ifNull": [f"$$d.{sum_field}", 0]},
+            }
+        }
+    }
+    missing_expr = {"$eq": [{"$type": f"${embed_field}"}, "missing"]}
+    ratio_expr = {
+        "$divide": [
+            {"$ifNull": [f"${numerator_path}", 0]},
+            {"$cond": [{"$eq": [f"${sum_field_name}", 0]}, zero_value, f"${sum_field_name}"]},
+        ]
+    }
+    stages = [
+        {"$lookup": {"from": dcoll, "localField": local_id,
+                     "foreignField": foreign_field, "as": as_field}},
+        {"$addFields": {sum_field_name: sum_expr}},
+        {"$addFields": {target: {"$cond": [missing_expr, absent_value, ratio_expr]}}},
+        {"$project": {as_field: 0, sum_field_name: 0}},
+    ]
+    return f"db.{parent}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
+def _canonical_has_vs_absent_compare_mql(
+    params: dict[str, Any], schema: dict[str, Any]
+) -> str | None:
+    collection = params.get("parent_collection")
+    embed_field = params.get("embed_field")
+    if not isinstance(collection, str) or not collection:
+        return None
+    if not isinstance(embed_field, str) or not embed_field:
+        return None
+    agg = str(params.get("agg", "count") or "count").lstrip("$").lower()
+    if agg not in {"count", "sum", "avg", "min", "max"}:
+        return None
+    missing_expr = {"$eq": [{"$type": f"${embed_field}"}, "missing"]}
+    stages: list[dict[str, Any]] = [
+        {
+            "$addFields": {
+                "__tend_presence": {
+                    "$cond": [missing_expr, "absent", "present"]
+                }
+            }
+        }
+    ]
+    if agg == "count":
+        accumulator: dict[str, Any] = {"$sum": 1}
+    else:
+        metric_path = _canonical_metric_path(
+            schema, collection, embed_field, params.get("metric_field")
+        )
+        if metric_path is None:
+            return None
+        present_value = {"$ifNull": [f"${metric_path}", 0]}
+        stages[0]["$addFields"]["__tend_metric"] = {
+            "$cond": [missing_expr, 0, present_value]
+        }
+        accumulator = {f"${agg}": "$__tend_metric"}
+    stages.extend([
+        {"$group": {"_id": "$__tend_presence", "value": accumulator}},
+        {"$project": {"_id": 1, "value": 1}},
+    ])
+    return f"db.{collection}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
+# --- shared MQL-expression helpers for canonical builders ------------------- #
+_NUMERIC_BSON_TYPES = ["int", "long", "double", "decimal"]
+
+
+def _mql_numeric_or(expr: Any, default: Any) -> dict[str, Any]:
+    """Mirror oracles._num: a numeric (non-bool) value of ``expr`` else ``default``."""
+    return {"$cond": [{"$in": [{"$type": expr}, _NUMERIC_BSON_TYPES]}, expr, default]}
+
+
+def _mql_accumulator(agg: Any, value_expr: Any) -> dict[str, Any]:
+    """Mirror oracles._aggregate's group accumulator; ``count`` -> ``$sum: 1``."""
+    name = str(agg or "count").lstrip("$").lower()
+    if name == "count":
+        return {"$sum": 1}
+    return {f"${name}": value_expr}
+
+
+def _mql_present_or_null(field: str) -> dict[str, Any]:
+    """Mirror oracle ``_get``: the field's value, or ``null`` when the key is absent.
+    Uses ``$type`` so projections also satisfy the structural_schema_flex op gate."""
+    return {"$cond": [{"$eq": [{"$type": f"${field}"}, "missing"]}, None, f"${field}"]}
+
+
+def _mql_projection(project: Any, default_field: str | None = None) -> dict[str, Any] | None:
+    """Mirror an oracle ``project`` list (or a single field): include only those keys,
+    keep ``_id`` only when listed, and emit ``null`` (not omit) for missing values."""
+    if isinstance(project, list) and project:
+        proj: dict[str, Any] = {"_id": 1 if "_id" in project else 0}
+        for key in project:
+            if key != "_id":
+                proj[key] = _mql_present_or_null(key)
+        return {"$project": proj}
+    if default_field:
+        return {"$project": {"_id": 0, default_field: _mql_present_or_null(default_field)}}
+    return None
+
+
+def _agg_str(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _canonical_simple_filter_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    coll = params.get("collection")
+    if not isinstance(coll, str) or not coll:
+        return None
+    op_map = {"eq": "$eq", "ne": "$ne", "gt": "$gt", "lt": "$lt", "gte": "$gte", "lte": "$lte"}
+    clauses: list[dict[str, Any]] = []
+    for pred in params.get("predicates", []) or []:
+        if not isinstance(pred, dict) or "field" not in pred:
+            return None
+        op = pred.get("op", "eq")
+        if op not in op_map:
+            return None
+        field = pred["field"]
+        # the oracle excludes docs missing the field for EVERY op (incl. ne), so require present
+        clauses.append({field: {"$exists": True}})
+        clauses.append({field: {op_map[op]: pred.get("value")}})
+    stages: list[dict[str, Any]] = [{"$match": {"$and": clauses} if clauses else {}}]
+    proj = _mql_projection(params.get("project"))
+    if proj:
+        stages.append(proj)
+    return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
+def _canonical_existence_count_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    coll, field = params.get("collection"), params.get("field")
+    if not all(isinstance(x, str) and x for x in (coll, field)):
+        return None
+    stages = [
+        {"$group": {"_id": None, "count": {
+            "$sum": {"$cond": [{"$eq": [{"$type": f"${field}"}, "missing"]}, 0, 1]}}}},
+        {"$project": {"_id": 0, "count": 1}},
+    ]
+    return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
+def _canonical_group_count_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    coll, gb = params.get("collection"), params.get("group_by")
+    if not all(isinstance(x, str) and x for x in (coll, gb)):
+        return None
+    stages = [{"$group": {"_id": f"${gb}", "count": {"$sum": 1}}}]
+    return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
+def _canonical_null_coalesce_agg_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    coll, field = params.get("collection"), params.get("field")
+    agg = _agg_str(params.get("agg"))
+    if not all(isinstance(x, str) and x for x in (coll, field)) or agg is None:
+        return None
+    value = _mql_numeric_or(f"${field}", params.get("default", 0))
+    stages = [
+        {"$group": {"_id": None, "value": _mql_accumulator(agg, value)}},
+        {"$project": {"_id": 0, "value": 1}},
+    ]
+    return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
+def _canonical_subtype_specific_field_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    coll = params.get("collection")
+    disc = params.get("discriminator")
+    field = params.get("field")
+    if not all(isinstance(x, str) and x for x in (coll, disc, field)):
+        return None
+    stages: list[dict[str, Any]] = [{"$match": {disc: params.get("subtype_value")}}]
+    stages.append(_mql_projection(params.get("project"), default_field=field))
+    return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
+def _canonical_cross_keyset_value_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    coll, key = params.get("collection"), params.get("key")
+    if not all(isinstance(x, str) and x for x in (coll, key)):
+        return None
+    stages: list[dict[str, Any]] = [{"$match": {key: {"$exists": True}}}]
+    stages.append(_mql_projection(params.get("project"), default_field=key))
+    return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
+def _canonical_dynamic_key_fold_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    coll, nf, vf = params.get("collection"), params.get("name_field"), params.get("value_field")
+    agg = _agg_str(params.get("agg"))
+    if not all(isinstance(x, str) and x for x in (coll, nf, vf)) or agg is None:
+        return None
+    stages = [
+        {"$addFields": {"__tend_v": _mql_numeric_or(f"${vf}", None)}},
+        {"$match": {"__tend_v": {"$ne": None}}},  # oracle keeps only numeric values
+        {"$group": {"_id": f"${nf}", "value": _mql_accumulator(agg, "$__tend_v")}},
+        {"$project": {"_id": 1, "value": 1}},
+    ]
+    return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
+def _canonical_cross_version_agg_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    coll = params.get("collection")
+    cands = params.get("field_candidates")
+    agg = _agg_str(params.get("agg"))
+    if not isinstance(coll, str) or not coll or not isinstance(cands, list) or not cands or agg is None:
+        return None
+    if not all(isinstance(c, str) and c for c in cands):
+        return None
+    default = params.get("default", 0)
+    coalesced: Any = None  # first present-and-non-null candidate, mirroring the oracle
+    for cand in reversed(cands):
+        coalesced = {"$ifNull": [f"${cand}", None if coalesced is None else coalesced]}
+    stages = [
+        {"$addFields": {"__tend_v": _mql_numeric_or(coalesced, default)}},
+        {"$group": {"_id": None, "value": _mql_accumulator(agg, "$__tend_v")}},
+        {"$project": {"_id": 0, "value": 1}},
+    ]
+    return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
+def _subtype_branches(fbs: Any, disc: str, then_for: Callable[[str], Any]) -> list[dict[str, Any]] | None:
+    """$switch branches matching the discriminator (by string form, mirroring the oracle's
+    ``fbs.get(str(sub))``) to each subtype's own field expression."""
+    if not isinstance(fbs, dict) or not fbs:
+        return None
+    branches = []
+    for subval, field in fbs.items():
+        if not isinstance(field, str) or not field:
+            return None
+        branches.append({
+            "case": {"$eq": [{"$toString": f"${disc}"}, str(subval)]},
+            "then": then_for(field),
+        })
+    return branches
+
+
+def _canonical_per_subtype_agg_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    """polymorphic: group by the discriminator, aggregating each subtype's OWN field."""
+    coll = params.get("collection")
+    disc = params.get("discriminator")
+    agg = _agg_str(params.get("agg"))
+    if not all(isinstance(x, str) and x for x in (coll, disc)) or agg is None:
+        return None
+    branches = _subtype_branches(
+        params.get("field_by_subtype"), disc, lambda f: _mql_numeric_or(f"${f}", None)
+    )
+    if branches is None:
+        return None
+    stages = [
+        {"$addFields": {"__tend_sub": f"${disc}",
+                        "__tend_metric": {"$switch": {"branches": branches, "default": None}}}},
+        {"$match": {"__tend_metric": {"$ne": None}}},  # drop non-fbs subtypes / non-numeric values
+        {"$group": {"_id": "$__tend_sub", "value": _mql_accumulator(agg, "$__tend_metric")}},
+    ]
+    return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
+def _canonical_join_nested_group_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    """unwind an embedded array, then group + aggregate over its elements."""
+    coll = params.get("collection")
+    af = params.get("array_field")
+    gb = params.get("group_by")
+    if not all(isinstance(x, str) and x for x in (coll, af, gb)):
+        return None
+    vf = params.get("value_field")
+    agg = params.get("agg", "count")
+    if vf:
+        if not isinstance(vf, str):
+            return None
+        acc = _mql_accumulator(agg, _mql_numeric_or(f"${af}.{vf}", 0))
+    else:
+        acc = _mql_accumulator(agg if agg else "count", 1)
+    stages = [
+        # the oracle skips docs whose array_field is not a real list; $unwind would otherwise
+        # coerce a scalar/object into a 1-element array and diverge, so gate on $type=array
+        {"$match": {"$expr": {"$eq": [{"$type": f"${af}"}, "array"]}}},
+        {"$unwind": f"${af}"},
+        {"$group": {"_id": f"${af}.{gb}", "value": acc}},
+    ]
+    return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
+def _canonical_subtype_cond_projection_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    """polymorphic PRESERVE: keep every doc, attach a value chosen by subtype (else default)."""
+    coll = params.get("collection")
+    disc = params.get("discriminator")
+    target = params.get("target_field")
+    if not all(isinstance(x, str) and x for x in (coll, disc, target)):
+        return None
+    default = params.get("default", 0)
+    branches = _subtype_branches(
+        params.get("field_by_subtype"), disc,
+        lambda f: {"$cond": [{"$eq": [{"$type": f"${f}"}, "missing"]}, default, f"${f}"]},
+    )
+    if branches is None:
+        return None
+    stages = [{"$addFields": {target: {"$switch": {"branches": branches, "default": default}}}}]
+    return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
+def _canonical_optional_embed_projection_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    """sparse_embed PRESERVE: attach an embed scalar (or missing_default), keeping every doc."""
+    coll = params.get("parent_collection")
+    embed = params.get("embed_field")
+    value_path = params.get("value_path")
+    target = params.get("target_field")
+    if not all(isinstance(x, str) and x for x in (coll, embed, value_path, target)):
+        return None
+    if "missing_default" not in params:
+        return None
+    default = params.get("missing_default")
+    vpath = _embed_value_path(embed, value_path)
+    target_expr = {"$cond": [
+        {"$and": [
+            {"$ne": [{"$type": f"${embed}"}, "missing"]},
+            {"$ne": [{"$type": f"${vpath}"}, "missing"]},
+            {"$ne": [f"${vpath}", None]},
+        ]},
+        f"${vpath}",
+        default,
+    ]}
+    stages = [{"$addFields": {target: target_expr}}]
+    return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
+#: archetype reference_oracle.template -> deterministic gold-MQL builder. Templates here
+#: lock by construction (gold derived from oracle params); the rest fall back to the
+#: LLM MQL and must match the oracle to lock.
+_CANONICAL_MQL_BUILDERS: dict[str, Callable[[dict[str, Any], dict[str, Any]], str | None]] = {
+    "has_vs_absent_compare": _canonical_has_vs_absent_compare_mql,
+    "present_missing_projection": _canonical_present_missing_projection_mql,
+    "optional_embed_projection": _canonical_optional_embed_projection_mql,
+    "subtype_cond_projection": _canonical_subtype_cond_projection_mql,
+    "simple_filter": _canonical_simple_filter_mql,
+    "existence_count": _canonical_existence_count_mql,
+    "group_count": _canonical_group_count_mql,
+    "null_coalesce_agg": _canonical_null_coalesce_agg_mql,
+    "subtype_specific_field": _canonical_subtype_specific_field_mql,
+    "per_subtype_agg": _canonical_per_subtype_agg_mql,
+    "cross_subtype_compare": _canonical_per_subtype_agg_mql,
+    "join_nested_group": _canonical_join_nested_group_mql,
+    "cross_keyset_value": _canonical_cross_keyset_value_mql,
+    "dynamic_key_fold": _canonical_dynamic_key_fold_mql,
+    "cross_version_agg": _canonical_cross_version_agg_mql,
+}
+
+#: shape_policy implied by each canonical gold (preserve = keep every doc + add a field;
+#: reduce = aggregate/filter/group to a different cardinality). Drives the MS preserve gate.
+_CANONICAL_SHAPE: dict[str, str] = {
+    "present_missing_projection": "preserve",
+    "optional_embed_projection": "preserve",
+    "subtype_cond_projection": "preserve",
+    "has_vs_absent_compare": "reduce",
+    "existence_count": "reduce",
+    "group_count": "reduce",
+    "null_coalesce_agg": "reduce",
+    "per_subtype_agg": "reduce",
+    "cross_subtype_compare": "reduce",
+    "join_nested_group": "reduce",
+    "dynamic_key_fold": "reduce",
+    "cross_version_agg": "reduce",
+    # filter/projection archetypes have no root $group and change cardinality, so they are
+    # neither "reduce" (AST requires $group) nor "preserve" (MS enforces same cardinality):
+    "simple_filter": "reshape",
+    "subtype_specific_field": "reshape",
+    "cross_keyset_value": "reshape",
+}
+
+
+def _canonical_metric_path(
+    schema: dict[str, Any], collection: str, embed_field: str, metric_field: Any
+) -> str | None:
+    fallback = _first_numeric_nested_field(schema, collection, embed_field)
+    if not isinstance(metric_field, str) or not metric_field:
+        return fallback
+    if metric_field in _schema_field_paths(schema, collection):
+        return metric_field
+    embedded = metric_field if metric_field.startswith(f"{embed_field}.") else (
+        f"{embed_field}.{metric_field}"
+    )
+    if embedded in _schema_field_paths(schema, collection):
+        return embedded
+    if fallback is not None:
+        return fallback
+    return metric_field
+
+
+def _first_numeric_nested_field(
+    schema: dict[str, Any], collection: str, embed_field: str
+) -> str | None:
+    colls = schema.get("collections", schema)
+    node = colls.get(collection, {}) if isinstance(colls, dict) else {}
+    if not isinstance(node, dict):
+        return None
+    embed = node.get(embed_field)
+    fields = embed.get("fields") if isinstance(embed, dict) else None
+    if not isinstance(fields, dict):
+        return None
+    for name in _METRIC_FIELD_PRIORITY:
+        typ = fields.get(name)
+        if str(typ).upper() in {"INT", "INTEGER", "REAL", "FLOAT", "DOUBLE", "NUMERIC"}:
+            return f"{embed_field}.{name}"
+    for name, typ in fields.items():
+        if str(typ).upper() in {"INT", "INTEGER", "REAL", "FLOAT", "DOUBLE", "NUMERIC"}:
+            return f"{embed_field}.{name}"
+    return None
 
 
 def _structural_schema_flex_reasons(
@@ -1105,7 +1846,11 @@ def _pipeline_created_heads_from_stages(pipeline: list[Any]) -> set[str]:
             heads.update(
                 k.split(".", 1)[0]
                 for k, v in project.items()
-                if isinstance(k, str) and isinstance(v, dict)
+                if isinstance(k, str)
+                and (
+                    isinstance(v, (dict, list))
+                    or (isinstance(v, str) and v.startswith("$"))
+                )
             )
         group = stage.get("$group")
         if isinstance(group, dict):
