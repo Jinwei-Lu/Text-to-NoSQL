@@ -200,15 +200,12 @@ def _apply_dynamic_key_object(
     key_spec = raw.get("key") if isinstance(raw.get("key"), dict) else {}
     values = raw.get("values") if isinstance(raw.get("values"), dict) else {}
     child_rows = _rows_for_table(ctx, child_table)
+    child_index = _index_rows_by_ref(child_rows, right_ref, child_table)
 
     for item in docs:
         parent_row = item.source_context.get(parent_table, {})
         parent_value = _value_from_ref(left_ref, {parent_table: parent_row})
-        matching = [
-            row
-            for row in child_rows
-            if _value_from_ref(right_ref, {child_table: row}) == parent_value
-        ]
+        matching = child_index.get(parent_value, [])
         buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for child_row in matching:
             source_context = dict(item.source_context)
@@ -246,15 +243,12 @@ def _apply_nested_event_stream(
     event_time_ref = str(raw.get("event_time_field") or "")
     payload = raw.get("event_payload") if isinstance(raw.get("event_payload"), dict) else {}
     event_rows = _rows_for_table(ctx, event_table)
+    event_index = _index_rows_by_ref(event_rows, right_ref, event_table)
 
     for item in docs:
         parent_row = item.source_context.get(parent_table, {})
         parent_value = _value_from_ref(left_ref, {parent_table: parent_row})
-        matching = [
-            row
-            for row in event_rows
-            if _value_from_ref(right_ref, {event_table: row}) == parent_value
-        ]
+        matching = event_index.get(parent_value, [])
         events: list[dict[str, Any]] = []
         for row in matching:
             source_context = {**item.source_context, event_table: row}
@@ -308,6 +302,23 @@ def _rows_for_table(ctx: _ExecutionContext, table: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _index_rows_by_ref(
+    rows: list[dict[str, Any]],
+    ref: str,
+    table: str,
+) -> dict[Any, list[dict[str, Any]]]:
+    index: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+    parsed = _split_ref(ref)
+    if parsed is None:
+        return index
+    ref_table, column = parsed
+    if ref_table != table:
+        return index
+    for row in rows:
+        index[row.get(column)].append(row)
+    return index
+
+
 def _primary_key(schema: Any, table: str) -> str:
     keys = getattr(schema, "primary_keys", {}).get(table) or []
     return str(keys[0]) if len(keys) == 1 else ""
@@ -357,7 +368,12 @@ def _eval_expr(
     expr = expr.strip()
     if not expr:
         raise MigrationError("unsupported native expression", context={"db_id": ctx.db_id, "expr": expr})
-    if _REF_RE.fullmatch(expr):
+    subtract_match = _SUBTRACT_RE.fullmatch(expr)
+    if subtract_match:
+        left = _value_from_ref(subtract_match.group("left"), source_context)
+        right = _value_from_ref(subtract_match.group("right"), source_context)
+        return left - right
+    if _looks_like_ref(expr):
         return _value_from_ref(expr, source_context)
     if expr.startswith("concat(") and expr.endswith(")"):
         args = _split_args(expr[len("concat("):-1])
@@ -365,27 +381,11 @@ def _eval_expr(
     if expr.startswith("month(") and expr.endswith(")"):
         value = _value_from_ref(expr[len("month("):-1].strip(), source_context)
         return _month_key(value)
-    sum_match = _SUM_RE.fullmatch(expr)
-    if sum_match:
-        if group_rows is None:
-            raise MigrationError(
-                "sum expression requires grouped child rows",
-                context={"db_id": ctx.db_id, "expr": expr},
-            )
-        table, column, condition = sum_match.group("table"), sum_match.group("column"), sum_match.group("condition")
-        total = 0
-        for row in group_rows.get(table, []):
-            row_context = {**source_context, table: row}
-            if condition is None or _eval_condition(condition, row_context):
-                value = row.get(column)
-                if value is not None:
-                    total += value
-        return total
-    subtract_match = _SUBTRACT_RE.fullmatch(expr)
-    if subtract_match:
-        left = _value_from_ref(subtract_match.group("left"), source_context)
-        right = _value_from_ref(subtract_match.group("right"), source_context)
-        return left - right
+    if expr.startswith("substr(") and expr.endswith(")"):
+        return _eval_substr(ctx, expr, source_context)
+    aggregate = _eval_aggregate(ctx, expr, source_context, group_rows=group_rows)
+    if aggregate.handled:
+        return aggregate.value
     raise MigrationError(
         "unsupported native expression",
         context={"db_id": ctx.db_id, "expr": expr},
@@ -401,18 +401,34 @@ def _eval_concat_arg(arg: str, source_context: dict[str, dict[str, Any]]) -> str
 
 def _eval_condition(condition: str, source_context: dict[str, dict[str, Any]]) -> bool:
     condition = condition.strip()
-    match = _COMPARISON_RE.fullmatch(condition)
-    if not match:
+    parts = _split_bool_and(condition)
+    if len(parts) > 1:
+        return all(_eval_condition(part, source_context) for part in parts)
+
+    null_match = re.fullmatch(r"(?P<left>.+?)\s+is\s+(?P<neg>not\s+)?null", condition, re.I)
+    if null_match:
+        left = _value_from_ref(null_match.group("left").strip(), source_context)
+        is_null = left is None
+        return not is_null if null_match.group("neg") else is_null
+
+    in_match = re.fullmatch(r"(?P<left>.+?)\s+in\s*\((?P<values>.*)\)", condition, re.I)
+    if in_match:
+        left = _value_from_ref(in_match.group("left").strip(), source_context)
+        values = [_literal(part) for part in _split_args(in_match.group("values"))]
+        return left in values
+
+    parsed = _parse_comparison(condition)
+    if parsed is None:
         return False
-    left = _value_from_ref(match.group("left"), source_context)
-    if left is None:
-        return False
-    right = _literal(match.group("right"))
-    op = match.group("op")
+    left_ref, op, right_raw = parsed
+    left = _value_from_ref(left_ref, source_context)
+    right = _literal(right_raw)
     if op == "==":
         return left == right
     if op == "!=":
         return left != right
+    if left is None:
+        return False
     try:
         left_num = float(left)
         right_num = float(right)
@@ -430,9 +446,10 @@ def _eval_condition(condition: str, source_context: dict[str, dict[str, Any]]) -
 
 
 def _value_from_ref(ref: str, source_context: dict[str, dict[str, Any]]) -> Any:
-    if "." not in ref:
+    parsed = _split_ref(ref)
+    if parsed is None:
         return None
-    table, column = ref.split(".", 1)
+    table, column = parsed
     row = source_context.get(table)
     if row is None:
         return None
@@ -472,6 +489,192 @@ def _split_args(text: str) -> list[str]:
     if current:
         args.append("".join(current).strip())
     return args
+
+
+@dataclass(frozen=True)
+class _AggregateValue:
+    handled: bool
+    value: Any = None
+
+
+def _eval_substr(
+    ctx: _ExecutionContext,
+    expr: str,
+    source_context: dict[str, dict[str, Any]],
+) -> Any:
+    args = _split_args(expr[len("substr("):-1])
+    if len(args) != 3:
+        raise MigrationError(
+            "unsupported native expression",
+            context={"db_id": ctx.db_id, "expr": expr},
+        )
+    value = _value_from_ref(args[0], source_context)
+    try:
+        start = int(args[1])
+        length = int(args[2])
+    except ValueError as exc:
+        raise MigrationError(
+            "unsupported native expression",
+            context={"db_id": ctx.db_id, "expr": expr},
+        ) from exc
+    text = str(value or "")
+    return text[max(start - 1, 0):max(start - 1, 0) + max(length, 0)]
+
+
+def _eval_aggregate(
+    ctx: _ExecutionContext,
+    expr: str,
+    source_context: dict[str, dict[str, Any]],
+    *,
+    group_rows: dict[str, list[dict[str, Any]]] | None,
+) -> _AggregateValue:
+    parsed = _parse_call(expr)
+    if parsed is None:
+        return _AggregateValue(False)
+    fn, args = parsed
+    fn = fn.lower()
+    if fn not in {"sum", "count", "avg", "max", "last", "max_by"}:
+        return _AggregateValue(False)
+    if group_rows is None:
+        raise MigrationError(
+            f"{fn} expression requires grouped child rows",
+            context={"db_id": ctx.db_id, "expr": expr},
+        )
+    if fn == "max_by":
+        if len(args) != 2:
+            raise MigrationError(
+                "unsupported native expression",
+                context={"db_id": ctx.db_id, "expr": expr},
+            )
+        return _AggregateValue(True, _max_by(args[0], args[1], source_context, group_rows))
+    if len(args) != 1:
+        raise MigrationError(
+            "unsupported native expression",
+            context={"db_id": ctx.db_id, "expr": expr},
+        )
+    ref_text, condition = _split_where(args[0])
+    distinct = False
+    if ref_text.lower().startswith("distinct "):
+        distinct = True
+        ref_text = ref_text[len("distinct "):].strip()
+    ref = _split_ref(ref_text)
+    if ref is None:
+        raise MigrationError(
+            "unsupported native expression",
+            context={"db_id": ctx.db_id, "expr": expr},
+        )
+    table, column = ref
+    values: list[Any] = []
+    seen: set[Any] = set()
+    for row in group_rows.get(table, []):
+        row_context = {**source_context, table: row}
+        if condition is not None and not _eval_condition(condition, row_context):
+            continue
+        value = row.get(column)
+        if fn in {"sum", "avg"} and value is None:
+            continue
+        if distinct:
+            marker = json.dumps(value, sort_keys=True, default=str)
+            if marker in seen:
+                continue
+            seen.add(marker)
+        values.append(value)
+    if fn == "count":
+        return _AggregateValue(True, len([value for value in values if value is not None]))
+    if fn == "sum":
+        return _AggregateValue(True, sum(_numeric(value) for value in values if value is not None))
+    if fn == "avg":
+        nums = [_numeric(value) for value in values if value is not None]
+        return _AggregateValue(True, sum(nums) / len(nums) if nums else None)
+    if fn == "max":
+        non_null = [value for value in values if value is not None]
+        return _AggregateValue(True, max(non_null) if non_null else None)
+    if fn == "last":
+        non_null = [value for value in values if value is not None]
+        return _AggregateValue(True, non_null[-1] if non_null else None)
+    return _AggregateValue(False)
+
+
+def _max_by(
+    value_ref_text: str,
+    order_ref_text: str,
+    source_context: dict[str, dict[str, Any]],
+    group_rows: dict[str, list[dict[str, Any]]],
+) -> Any:
+    value_ref = _split_ref(value_ref_text)
+    order_ref = _split_ref(order_ref_text)
+    if value_ref is None or order_ref is None:
+        return None
+    value_table, value_column = value_ref
+    order_table, order_column = order_ref
+    table = value_table
+    if table != order_table:
+        return None
+    best: tuple[str, str, Any] | None = None
+    for index, row in enumerate(group_rows.get(table, [])):
+        order_value = row.get(order_column)
+        value = row.get(value_column)
+        if order_value is None or value is None:
+            continue
+        candidate = (str(order_value), f"{index:012d}", value)
+        if best is None or candidate[:2] > best[:2]:
+            best = candidate
+    return best[2] if best is not None else None
+
+
+def _split_where(text: str) -> tuple[str, str | None]:
+    parts = re.split(r"\s+where\s+", text, maxsplit=1, flags=re.I)
+    if len(parts) == 1:
+        return parts[0].strip(), None
+    return parts[0].strip(), parts[1].strip()
+
+
+def _parse_call(expr: str) -> tuple[str, list[str]] | None:
+    match = re.fullmatch(r"(?P<fn>[A-Za-z_][A-Za-z0-9_]*)\((?P<args>.*)\)", expr.strip())
+    if not match:
+        return None
+    return match.group("fn"), _split_args(match.group("args"))
+
+
+def _parse_comparison(condition: str) -> tuple[str, str, str] | None:
+    for op in ("==", "!=", ">=", "<=", ">", "<"):
+        if op in condition:
+            left, right = condition.split(op, 1)
+            return left.strip(), op, right.strip()
+    return None
+
+
+def _split_bool_and(condition: str) -> list[str]:
+    parts = re.split(r"\s+and\s+", condition, flags=re.I)
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _split_ref(ref: str) -> tuple[str, str] | None:
+    ref = ref.strip()
+    if "." not in ref:
+        return None
+    table, column = ref.split(".", 1)
+    table = table.strip()
+    column = column.strip()
+    if not table or not column:
+        return None
+    return table, column
+
+
+def _looks_like_ref(expr: str) -> bool:
+    return _split_ref(expr) is not None and "(" not in expr and ")" not in expr
+
+
+def _numeric(value: Any) -> int | float:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return value
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return 0
+    return int(num) if num.is_integer() else num
 
 
 def _feature_for_transform(collection_name: str, transform: NativeTransform) -> NativeFeature:
