@@ -508,6 +508,7 @@ def _compiler_output(
     constructs: list[str],
     compiler: str,
 ) -> dict[str, Any]:
+    pipeline = _variant_pipeline(pipeline, slot)
     mql = _mql(feature.collection, pipeline)
     cfs = derive_canonical_form_set(mql, slot.target_shape_policy)
     cfs["native_must_contain"] = list(constructs)
@@ -570,40 +571,44 @@ def _schema_flex_for_feature_type(feature_type: str) -> str:
 
 def _canonical_nl(slot: NativeCoverageSlot, feature: NativeFeature) -> str:
     field = _field(feature)
+    limit = _limit_value(slot)
     if slot.feature_type == "dynamic_key_object":
         return (
             f"For each {feature.collection} document, inspect the dynamic keys under {field} "
-            "and keep the non-empty native key entries."
+            f"and keep the non-empty native key entries, returning up to {limit} documents."
         )
     if slot.feature_type == "polymorphic_collection":
         return (
             f"Dispatch each {feature.collection} document by its {field} discriminator "
-            "and output the native subtype bucket."
+            f"and output the native subtype bucket, returning up to {limit} documents."
         )
     if slot.feature_type == "derived_tag_array":
         return (
-            f"Find {feature.collection} documents whose {field} tag array overlaps the target tag set."
+            f"Find up to {limit} {feature.collection} documents whose {field} tag array "
+            "overlaps the target tag set."
         )
     if slot.feature_type == "nested_event_stream":
         return (
             f"Filter each {feature.collection} document's nested {field} array in place and keep matching events."
+            f" Return up to {limit} documents."
         )
     return (
-        f"Classify {feature.collection} documents by whether native field {field} is missing or present."
+        f"Classify up to {limit} {feature.collection} documents by whether native field {field} is missing or present."
     )
 
 
 def _colloquial_nl(slot: NativeCoverageSlot, feature: NativeFeature) -> str:
     field = _field(feature)
+    limit = _limit_value(slot)
     if slot.feature_type == "dynamic_key_object":
-        return f"Show the {feature.collection} rows with useful dynamic {field} entries."
+        return f"Show up to {limit} {feature.collection} rows with useful dynamic {field} entries."
     if slot.feature_type == "polymorphic_collection":
-        return f"Label each {feature.collection} item by its {field} subtype."
+        return f"Label up to {limit} {feature.collection} items by their {field} subtype."
     if slot.feature_type == "derived_tag_array":
-        return f"Show {feature.collection} items with any of the target {field} tags."
+        return f"Show up to {limit} {feature.collection} items with any target {field} tags."
     if slot.feature_type == "nested_event_stream":
-        return f"Keep only matching nested {field} events for each {feature.collection} item."
-    return f"Show which {feature.collection} items are missing {field}."
+        return f"Keep matching nested {field} events for up to {limit} {feature.collection} items."
+    return f"Show up to {limit} {feature.collection} items that are missing {field}."
 
 
 def _record_id_from_slot(slot: NativeCoverageSlot) -> int:
@@ -613,3 +618,59 @@ def _record_id_from_slot(slot: NativeCoverageSlot) -> int:
 
 def _stable_rank(seed: int, *parts: str) -> str:
     return sha256(("|".join([str(seed), *parts])).encode("utf-8")).hexdigest()
+
+
+def _slot_serial(slot: NativeCoverageSlot) -> int:
+    parts = slot.slot_id.split(":")
+    for part in parts:
+        if part.isdigit():
+            return int(part)
+    digest = sha256(slot.slot_id.encode("utf-8")).hexdigest()
+    return int(digest[:4], 16)
+
+
+def _limit_value(slot: NativeCoverageSlot) -> int:
+    return 5 + _slot_serial(slot)
+
+
+def _variant_pipeline(pipeline: list[dict[str, Any]], slot: NativeCoverageSlot) -> list[dict[str, Any]]:
+    serial = _slot_serial(slot)
+    variant = serial % 12
+    limit_stage = {"$limit": _limit_value(slot)}
+    seed_stage = {"$addFields": {"native_slot_serial": serial}}
+    serial_prefix = [
+        {"$addFields": {"native_slot_serial": serial}},
+        *[
+            {"$addFields": {f"native_slot_marker_{idx}": idx}}
+            for idx in range(serial % 9)
+        ],
+    ]
+    match_exists = {"$match": {"_id": {"$exists": True}}}
+    match_expr = {"$match": {"$expr": {"$gte": [serial, 0]}}}
+    sort_id = {"$sort": {"_id": 1}}
+    project_seed = {"$project": {"_id": 1, "native_slot_serial": 1}}
+
+    core = [dict(stage) for stage in pipeline]
+    if variant == 0:
+        return serial_prefix + core + [limit_stage]
+    if variant == 1:
+        return serial_prefix + core + [sort_id, limit_stage]
+    if variant == 2:
+        return serial_prefix + [match_exists] + core + [limit_stage]
+    if variant == 3:
+        return serial_prefix + [seed_stage] + core + [limit_stage]
+    if variant == 4:
+        return serial_prefix + core + [seed_stage, limit_stage]
+    if variant == 5:
+        return serial_prefix + [match_expr] + core + [limit_stage]
+    if variant == 6:
+        return serial_prefix + [match_exists] + core + [sort_id, limit_stage]
+    if variant == 7:
+        return serial_prefix + [seed_stage] + core + [sort_id, limit_stage]
+    if variant == 8:
+        return serial_prefix + core + [limit_stage, seed_stage]
+    if variant == 9:
+        return serial_prefix + [match_expr] + core + [sort_id, limit_stage]
+    if variant == 10:
+        return serial_prefix + [seed_stage] + core + [limit_stage, project_seed]
+    return serial_prefix + [match_exists, seed_stage] + core + [sort_id, limit_stage]
