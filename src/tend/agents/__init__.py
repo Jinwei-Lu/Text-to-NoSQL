@@ -18,8 +18,8 @@ from .base import (
     register,
 )
 
-# importing the concrete agent modules triggers @register for all 12 agents
-from . import dm, phase_a, phase_b  # noqa: E402,F401
+# importing the concrete agent modules triggers @register for all agents
+from . import dm, native_migration, native_nl, phase_a, phase_b  # noqa: E402,F401
 
 __all__ = [
     "Agent",
@@ -29,4 +29,3 @@ __all__ = [
     "register",
     "get_agent",
 ]
-
