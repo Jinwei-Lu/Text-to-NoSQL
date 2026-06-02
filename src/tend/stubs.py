@@ -5,6 +5,7 @@ schema-valid; execution-dependent agents (MS/RTV/PV) treat stub mode as a pass.
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 from typing import Any
 
 from .llm import Message
@@ -179,6 +180,15 @@ def stub_fn(agent: str, messages: list[Message], schema: dict | None) -> dict[st
         seed = _seed_from_messages(messages)
         if seed:
             return _seeded_qps_stub(seed, messages)
+        design_card = _design_card_from_messages(messages)
+        if design_card:
+            return _design_card_qps_stub(design_card, messages)
+    if agent == "ms":
+        seeded = _seeded_ms_stub(messages)
+        if seeded:
+            return seeded
+    if agent == "nnc":
+        return _seeded_nnc_stub(messages)
     if agent == "nlp":
         return _seeded_nlp_stub(messages)
     if agent.startswith("baseline_"):
@@ -228,6 +238,41 @@ def _seed_from_messages(messages: list[Message]) -> dict[str, Any] | None:
     return seed if isinstance(seed, dict) else None
 
 
+def _design_card_from_messages(messages: list[Message]) -> dict[str, Any] | None:
+    card = _json_block_from_messages(messages, "## LLM-first design card")
+    return card if isinstance(card, dict) else None
+
+
+def _seeded_ms_stub(messages: list[Message]) -> dict[str, Any] | None:
+    prompt = "\n".join(str(m.get("content", "")) for m in messages if isinstance(m, dict))
+    intent = _json_block_from_messages(messages, "## intent") or {}
+    oracle = (
+        _json_block_from_messages(messages, "## optional reference_oracle")
+        or (intent.get("reference_oracle") if isinstance(intent.get("reference_oracle"), dict) else None)
+    )
+    if not isinstance(oracle, dict):
+        return None
+    try:
+        from .agents.phase_b import _canonical_reference_mql
+
+        built = _canonical_reference_mql({"intent": intent, "reference_oracle": oracle})
+    except Exception:
+        built = None
+    if built is None:
+        return None
+    mql, shape = built
+    schema_flex = _prompt_line(prompt, "target_schema_flex") or "none"
+    if schema_flex == "none" and _prompt_line(prompt, "target_sql_infeasibility_class") == "structural_schema_flex":
+        schema_flex = "polymorphic"
+    return {
+        "MQL": mql,
+        "mql_alt": mql,
+        "shape_policy": shape,
+        "schema_flex": schema_flex,
+        "stub_reference_oracle_mql": True,
+    }
+
+
 def _seeded_nlp_stub(messages: list[Message]) -> dict[str, Any]:
     intent = _json_block_from_messages(messages, "## intent")
     if not isinstance(intent, dict):
@@ -242,22 +287,49 @@ def _seeded_nlp_stub(messages: list[Message]) -> dict[str, Any]:
     seed_signal = intent.get("seed_signal") if isinstance(intent.get("seed_signal"), dict) else {}
     collection = str(seed_signal.get("collection") or "the collection")
     signal_field = str(seed_signal.get("field") or field_text)
+    fingerprint = _mql_fingerprint_from_messages(messages)
+    case_note = f" for case {fingerprint}" if fingerprint else ""
 
     if shape in {"reduce", "reshape"}:
         canonical = (
-            f"Summarize {collection} using the {archetype} pattern over {signal_field} "
+            f"Summarize {collection}{case_note} using the {archetype} pattern over {signal_field} "
             f"and output {field_text}."
         )
         if archetype == "schema_flex_variant_summary":
             canonical += " Use exact variant labels present and missing."
-        colloquial = f"Give the grouped {field_text} summary for {collection}."
+        colloquial = f"Give the grouped {field_text} summary for {collection}{case_note}."
     else:
         canonical = (
-            f"For every {collection} record, compute {field_text} from {signal_field} "
+            f"For every {collection} record{case_note}, compute {field_text} from {signal_field} "
             "and keep the original record fields."
         )
-        colloquial = f"Show every {collection} record with {field_text} filled in."
+        colloquial = f"Show every {collection} record{case_note} with {field_text} filled in."
     return {"nl_queries": {"canonical": canonical, "colloquial": colloquial}}
+
+
+def _mql_fingerprint_from_messages(messages: list[Message]) -> str:
+    text = "\n".join(str(m.get("content", "")) for m in messages if isinstance(m, dict))
+    pos = text.find("db.")
+    if pos < 0:
+        return ""
+    mql = " ".join(text[pos:].split())
+    return sha256(mql.encode("utf-8")).hexdigest()[:10]
+
+
+def _seeded_nnc_stub(messages: list[Message]) -> dict[str, Any]:
+    prompt = "\n".join(str(m.get("content", "")) for m in messages if isinstance(m, dict))
+    sql_class = _prompt_line(prompt, "target_sql_infeasibility_class") or "semantic"
+    difficulty = _prompt_line(prompt, "target_difficulty") or (
+        "L4" if sql_class == "structural_schema_flex" else "L2"
+    )
+    if sql_class == "structural_schema_flex":
+        difficulty = "L4"
+    return {
+        "difficulty": difficulty,
+        "sql_infeasibility_class": sql_class,
+        "gate_pass": True,
+        "nnc_verdict": {"reason": "stub echoes the requested construction target"},
+    }
 
 
 def _json_block_from_messages(messages: list[Message], marker: str) -> dict[str, Any] | None:
@@ -318,6 +390,54 @@ def _seeded_qps_stub(seed: dict[str, Any], messages: list[Message]) -> dict[str,
             "semantic_properties": ["deterministic diversity seed honored"],
         },
         "reference_oracle": seed,
+    }
+
+
+def _design_card_qps_stub(card: dict[str, Any], messages: list[Message]) -> dict[str, Any]:
+    prompt = "\n".join(str(m.get("content", "")) for m in messages if isinstance(m, dict))
+    archetype = _prompt_line(prompt, "archetype") or "group_count"
+    mechanism = _prompt_line(prompt, "seed_mechanism") or "none"
+    field_hints = card.get("field_hints") if isinstance(card.get("field_hints"), list) else []
+    collection_hints = (
+        card.get("collection_hints") if isinstance(card.get("collection_hints"), list) else []
+    )
+    schema_feature = str(card.get("schema_feature") or "")
+    collection = str(collection_hints[0]) if collection_hints else schema_feature.split(".", 1)[0]
+    target = str(field_hints[0]) if field_hints else (
+        schema_feature.split(".", 1)[1] if "." in schema_feature else "value"
+    )
+    preserve_archetypes = {
+        "optional_embed_projection",
+        "present_missing_projection",
+        "subtype_cond_projection",
+    }
+    reshape_archetypes = {"simple_filter", "topn", "subtype_specific_field", "fk_rollup"}
+    if archetype in preserve_archetypes:
+        shape = "preserve"
+    elif archetype in reshape_archetypes:
+        shape = "reshape"
+    else:
+        shape = "reduce"
+    return {
+        "intent": {
+            "seed_mechanism": mechanism,
+            "seed_signal": {"collection": collection, "field": target},
+            "archetype": archetype,
+            "target_difficulty": _prompt_line(prompt, "target_difficulty") or "L4",
+            "target_sql_infeasibility_class": (
+                _prompt_line(prompt, "target_sql_infeasibility_class")
+                or "structural_schema_flex"
+            ),
+            "schema_flex_mode": _prompt_line(prompt, "target_schema_flex") or "polymorphic",
+            "analytical_op": {
+                "target_field": target,
+                "formula": f"stub-designed {archetype} over {schema_feature or target}",
+                "missing_default": 0,
+            },
+            "shape_policy": shape,
+            "output": {"fields": [target], "missing": 0},
+            "semantic_properties": ["stub design card honored"],
+        }
     }
 
 

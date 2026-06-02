@@ -56,3 +56,75 @@ def mql_signature(mql: str) -> str:
     """SHA-256 signature for canonicalized representative MQL."""
     digest = hashlib.sha256(canonical_mql(mql).encode("utf-8")).hexdigest()
     return f"sha256:{digest}"
+
+
+def mql_skeleton(mql: str) -> str:
+    """Return an abstract query-shape representation for diversity checks.
+
+    Unlike :func:`mql_signature`, this intentionally erases collection names, schema field
+    names, literal constants, and output aliases. It keeps the aggregation stage order and
+    operator tree, so a matrix of queries that only swaps ``amount`` for ``balance`` or
+    ``$avg`` for ``$sum`` still collapses into a small number of skeleton families.
+    """
+    from .ast_check import parse_pipeline
+
+    try:
+        _collection, pipeline = parse_pipeline(mql)
+        payload = {
+            "root_ops": [_stage_root_op(stage) for stage in pipeline],
+            "pipeline": [_abstract_mql_node(stage) for stage in pipeline],
+        }
+    except Exception:  # noqa: BLE001 - diagnostics should survive malformed MQL
+        payload = {"raw_shape": " ".join(str(mql).split())[:240]}
+    return canonical_json(payload)
+
+
+def mql_skeleton_signature(mql: str) -> str:
+    """SHA-256 signature of the field/literal-abstracted MQL skeleton."""
+    digest = hashlib.sha256(mql_skeleton(mql).encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def mql_skeleton_summary(mql: str) -> str:
+    """Compact human-readable stage-order summary for logs and release metadata."""
+    from .ast_check import parse_pipeline
+
+    try:
+        _collection, pipeline = parse_pipeline(mql)
+    except Exception:  # noqa: BLE001 - keep log emission non-throwing
+        return "malformed"
+    return ">".join(_stage_root_op(stage) for stage in pipeline) or "empty"
+
+
+def _stage_root_op(stage: Any) -> str:
+    if not isinstance(stage, dict) or not stage:
+        return "?"
+    if len(stage) == 1:
+        return str(next(iter(stage)))
+    return "+".join(str(k) for k in sorted(stage))
+
+
+def _abstract_mql_node(value: Any) -> Any:
+    if isinstance(value, dict):
+        return [
+            [
+                key if isinstance(key, str) and key.startswith("$") else "<field>",
+                _abstract_mql_node(child),
+            ]
+            for key, child in sorted(value.items(), key=lambda item: str(item[0]))
+        ]
+    if isinstance(value, list):
+        return [_abstract_mql_node(item) for item in value]
+    if isinstance(value, str):
+        if value.startswith("$$"):
+            return "$$var"
+        if value.startswith("$"):
+            return "$field"
+        return "<literal>"
+    if isinstance(value, bool):
+        return "<bool>"
+    if isinstance(value, (int, float)):
+        return "<number>"
+    if value is None:
+        return "<null>"
+    return f"<{type(value).__name__}>"

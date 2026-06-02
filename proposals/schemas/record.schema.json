@@ -54,6 +54,16 @@
       "pattern": "^sha256:[0-9a-f]{64}$",
       "description": "SHA-256 pin of the canonicalized representative MQL, used to reject duplicate gold queries."
     },
+    "mql_skeleton_signature": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "SHA-256 pin of the field/literal-abstracted MQL skeleton, used to cap repeated query families."
+    },
+    "mql_skeleton_summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable root aggregation stage order, such as $lookup>$addFields>$project."
+    },
     "mechanism": {
       "type": "string",
       "description": "Census mechanism selected by the construction coverage slot."

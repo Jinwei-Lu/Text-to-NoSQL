@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
+import math
 import shutil
 import sys
 import tempfile
@@ -62,6 +64,10 @@ from .workflow.flows import CoverageSlot, DbArtifacts
 
 PRODUCTION_RELEASE_DIR = Path("release/TEND-dataset")
 VALIDATION_ISSUE_LIMIT = 12
+SLOT_L4_MIN = 0.30
+SLOT_L0_MAX = 0.05
+SLOT_FLEX_MIN = 0.25
+SLOT_SSF_MIN = 0.20
 
 
 @dataclass
@@ -287,8 +293,8 @@ def _slot_from_spec(
         diversity_key=spec["diversity_key"],
         diversity_hint=spec["diversity_hint"],
         schema_feature=spec["schema_feature"],
-        reference_oracle_seed=spec["reference_oracle"],
-        intent_seed=spec.get("intent_seed"),
+        reference_oracle_seed=spec.get("reference_oracle"),
+        intent_seed=spec.get("intent_seed") or _design_card_from_spec(spec),
     )
 
 
@@ -302,6 +308,86 @@ def _schema_flex_target(mechanism: str) -> str:
     }.get(mechanism, "none")
 
 
+def _design_card_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    params = spec.get("reference_oracle", {}).get("params", {})
+    if not isinstance(params, dict):
+        params = {}
+    collections = [
+        params[key] for key in (
+            "collection",
+            "parent_collection",
+            "child_collection",
+        )
+        if isinstance(params.get(key), str)
+    ]
+    fields = [
+        value for key, value in params.items()
+        if isinstance(value, str)
+        and key not in {
+            "collection",
+            "parent_collection",
+            "child_collection",
+            "agg",
+            "order",
+        }
+    ]
+    if isinstance(params.get("match"), dict):
+        match = params["match"]
+        if isinstance(match.get("field"), str):
+            fields.append(match["field"])
+    return {
+        "schema_feature": spec.get("schema_feature", ""),
+        "feature_family": spec.get("feature_family", ""),
+        "collection_hints": _ordered_unique([str(value) for value in collections]),
+        "field_hints": _ordered_unique([str(value) for value in fields]),
+        "complexity_score": spec.get("complexity_score", 0),
+        "query_pressure": _design_pressure_for(
+            str(spec.get("mechanism", "")),
+            str(spec.get("archetype", "")),
+            str(spec.get("feature_family", "")),
+        ),
+        "avoid": [
+            "do not emit avg/sum/min/max over identifier-like fields",
+            "do not make a near copy by only changing a field name or accumulator",
+            "do not expose helper fields in the final output",
+        ],
+        "certification": (
+            "A hidden reference oracle will certify the answer; treat this card as "
+            "schema pressure, not a query template."
+        ),
+    }
+
+
+def _design_pressure_for(mechanism: str, archetype: str, family: str) -> list[str]:
+    if family == "cross_collection" or archetype == "fk_rollup":
+        return [
+            "use a real multi-collection financial rollup",
+            "prefer $lookup with a child pipeline or equivalent staged aggregation",
+            "include a business filter such as transaction type/operation when available",
+        ]
+    if family == "nested_array" or archetype == "join_nested_group":
+        return [
+            "use $unwind over an embedded array and regroup at a meaningful grain",
+            "aggregate a measure field, not an id",
+        ]
+    if mechanism == "sparse_embed":
+        return [
+            "branch on optional embedded-object presence",
+            "combine the optional branch with a meaningful financial metric when possible",
+        ]
+    if mechanism == "polymorphic":
+        return [
+            "make subtype branches semantically different",
+            "avoid a $switch whose every branch reads the same field",
+        ]
+    if mechanism == "sparse_scalar":
+        return [
+            "use missing-field behavior as part of a larger business question",
+            "avoid a one-stage global coalesce aggregate unless no richer option exists",
+        ]
+    return ["design a realistic multi-stage query when the schema supports it"]
+
+
 def _artifact_slot_pool(artifact: DbArtifacts, *, seed: int) -> list[dict[str, Any]]:
     specs: list[dict[str, Any]] = []
     schema = artifact.mongodb_schema
@@ -311,22 +397,157 @@ def _artifact_slot_pool(artifact: DbArtifacts, *, seed: int) -> list[dict[str, A
             continue
         specs.extend(_variant_slot_specs(coll, node))
         specs.extend(_array_slot_specs(coll, node))
-        specs.extend(_generic_slot_specs(coll, node, data.get(coll, [])))
+        specs.extend(_generic_slot_specs(
+            coll,
+            node,
+            data.get(coll, []),
+            sparse_scalar_fields=_feature_names_by_family(node, "sparse_scalar"),
+        ))
+    specs.extend(_fk_rollup_slot_specs(schema, data))
 
     deduped: dict[str, dict[str, Any]] = {}
     for spec in specs:
         key = json.dumps(spec["reference_oracle"], ensure_ascii=False, sort_keys=True)
         deduped.setdefault(key, spec)
-    return sorted(
-        deduped.values(),
-        key=lambda spec: (
-            _mechanism_rank(spec["mechanism"]),
-            _archetype_rank(spec["archetype"]),
-            spec["archetype"],
-            spec["diversity_key"],
-            json.dumps(spec["reference_oracle"], ensure_ascii=False, sort_keys=True),
-        ),
+    return _balanced_slot_specs(list(deduped.values()), seed=seed)
+
+
+def _balanced_slot_specs(specs: list[dict[str, Any]], *, seed: int) -> list[dict[str, Any]]:
+    """Order slots so prefixes stay balanced across diversity axes."""
+    remaining = sorted(
+        specs,
+        key=lambda spec: _stable_slot_rank(spec.get("diversity_key", ""), seed=seed),
     )
+    ordered: list[dict[str, Any]] = []
+    mechanism_counts: Counter[str] = Counter()
+    archetype_counts: Counter[str] = Counter()
+    collection_counts: Counter[str] = Counter()
+    feature_counts: Counter[str] = Counter()
+    family_counts: Counter[str] = Counter()
+    composition_counts: Counter[str] = Counter()
+
+    while remaining:
+        next_n = len(ordered) + 1
+        non_l0_available = any(not _slot_composition_traits(spec)["l0"] for spec in remaining)
+        best_index = min(
+            range(len(remaining)),
+            key=lambda i: (
+                _slot_composition_key(
+                    remaining[i],
+                    composition_counts=composition_counts,
+                    next_n=next_n,
+                    non_l0_available=non_l0_available,
+                ),
+                _slot_balance_key(
+                    remaining[i],
+                    mechanism_counts=mechanism_counts,
+                    archetype_counts=archetype_counts,
+                    collection_counts=collection_counts,
+                    feature_counts=feature_counts,
+                    family_counts=family_counts,
+                    seed=seed,
+                ),
+            ),
+        )
+        spec = remaining.pop(best_index)
+        ordered.append(spec)
+        mechanism_counts[str(spec.get("mechanism", ""))] += 1
+        archetype_counts[str(spec.get("archetype", ""))] += 1
+        collection_counts[str(spec.get("collection", ""))] += 1
+        feature_counts[str(spec.get("schema_feature", ""))] += 1
+        family_counts[str(spec.get("feature_family", ""))] += 1
+        for key, enabled in _slot_composition_traits(spec).items():
+            if enabled:
+                composition_counts[key] += 1
+    return ordered
+
+
+def _slot_composition_traits(spec: dict[str, Any]) -> dict[str, bool]:
+    arch = get_archetype(str(spec.get("archetype", "")))
+    return {
+        "l4": arch.difficulty == "L4",
+        "l0": arch.difficulty == "L0",
+        "flex": _schema_flex_target(str(spec.get("mechanism", ""))) != "none",
+        "ssf": arch.sql_infeasibility_class == "structural_schema_flex",
+    }
+
+
+def _slot_composition_key(
+    spec: dict[str, Any],
+    *,
+    composition_counts: Counter[str],
+    next_n: int,
+    non_l0_available: bool,
+) -> tuple[int, int, int, int, int]:
+    traits = _slot_composition_traits(spec)
+    l0_limit = math.floor(SLOT_L0_MAX * next_n)
+    l0_over_cap = (
+        traits["l0"]
+        and composition_counts["l0"] + 1 > l0_limit
+        and non_l0_available
+    )
+    needs = {
+        "l4": composition_counts["l4"] < math.ceil(SLOT_L4_MIN * next_n),
+        "flex": composition_counts["flex"] < math.ceil(SLOT_FLEX_MIN * next_n),
+        "ssf": composition_counts["ssf"] < math.ceil(SLOT_SSF_MIN * next_n),
+    }
+    hits = sum(1 for key, needed in needs.items() if needed and traits[key])
+    misses = sum(1 for key, needed in needs.items() if needed and not traits[key])
+    return (
+        1 if l0_over_cap else 0,
+        -hits,
+        misses,
+        1 if traits["l0"] else 0,
+        0 if traits["l4"] else 1,
+    )
+
+
+def _slot_balance_key(
+    spec: dict[str, Any],
+    *,
+    mechanism_counts: Counter[str],
+    archetype_counts: Counter[str],
+    collection_counts: Counter[str],
+    feature_counts: Counter[str],
+    family_counts: Counter[str],
+    seed: int,
+) -> tuple[int, int, int, int, int, int, int, int, int]:
+    mechanism = str(spec.get("mechanism", ""))
+    archetype = str(spec.get("archetype", ""))
+    collection = str(spec.get("collection", ""))
+    feature = str(spec.get("schema_feature", ""))
+    family = str(spec.get("feature_family", ""))
+    complexity = int(spec.get("complexity_score") or 0)
+    return (
+        archetype_counts[archetype],
+        feature_counts[feature],
+        family_counts[family],
+        collection_counts[collection],
+        mechanism_counts[mechanism],
+        -complexity,
+        _mechanism_rank(mechanism),
+        _archetype_rank(archetype),
+        _stable_slot_rank(str(spec.get("diversity_key", "")), seed=seed),
+    )
+
+
+def _stable_slot_rank(value: str, *, seed: int) -> int:
+    digest = hashlib.sha256(f"{seed}:{value}".encode("utf-8")).hexdigest()
+    return int(digest[:16], 16)
+
+
+def _feature_names_by_family(node: dict[str, Any], family: str) -> set[str]:
+    features = node.get("__schema_less_features")
+    if not isinstance(features, list):
+        return set()
+    out: set[str] = set()
+    for feature in features:
+        if not isinstance(feature, dict) or feature.get("family") != family:
+            continue
+        name = feature.get("feature")
+        if isinstance(name, str) and name:
+            out.add(name)
+    return out
 
 
 def _mechanism_rank(mechanism: str) -> int:
@@ -354,6 +575,7 @@ def _archetype_rank(archetype: str) -> int:
         "null_coalesce_agg": 9,
         "per_subtype_agg": 10,
         "join_nested_group": 11,
+        "fk_rollup": 12,
     }.get(archetype, 99)
 
 
@@ -364,18 +586,76 @@ def _slot_spec(
     reference_oracle: dict[str, Any],
     schema_feature: str,
     diversity_hint: str,
+    feature_family: str | None = None,
 ) -> dict[str, Any]:
     return {
         "mechanism": mechanism,
         "archetype": archetype,
         "reference_oracle": reference_oracle,
         "schema_feature": schema_feature,
+        "collection": schema_feature.split(".", 1)[0],
+        "feature_family": feature_family or _default_feature_family(
+            mechanism, archetype, schema_feature
+        ),
+        "complexity_score": _slot_complexity_score(
+            mechanism=mechanism,
+            archetype=archetype,
+            feature_family=feature_family or _default_feature_family(
+                mechanism, archetype, schema_feature
+            ),
+            reference_oracle=reference_oracle,
+        ),
         "diversity_hint": diversity_hint,
         "diversity_key": (
             f"{mechanism}:{archetype}:"
             f"{json.dumps(reference_oracle, ensure_ascii=False, sort_keys=True)}"
         ),
     }
+
+
+def _slot_complexity_score(
+    *,
+    mechanism: str,
+    archetype: str,
+    feature_family: str,
+    reference_oracle: dict[str, Any],
+) -> int:
+    """Small ranking hint: prefer structural, multi-stage certifiers over template-simple ones."""
+    score = 0
+    if feature_family == "cross_collection" or archetype == "fk_rollup":
+        score += 8
+    if feature_family == "nested_array" or archetype == "join_nested_group":
+        score += 7
+    if mechanism == "polymorphic":
+        score += 6
+    if mechanism == "sparse_embed":
+        score += 5
+    if mechanism == "sparse_scalar":
+        score += 2
+    if archetype in {"simple_filter", "group_count", "topn"}:
+        score += 1
+    params = reference_oracle.get("params") if isinstance(reference_oracle, dict) else {}
+    if isinstance(params, dict):
+        if isinstance(params.get("match"), dict):
+            score += 2
+        if params.get("value_field"):
+            score += 1
+        predicates = params.get("predicates")
+        if isinstance(predicates, list):
+            score += max(0, len(predicates) - 1)
+    return score
+
+
+def _default_feature_family(mechanism: str, archetype: str, schema_feature: str) -> str:
+    if schema_feature.endswith("[]"):
+        return "nested_array"
+    if mechanism == "polymorphic":
+        return "polymorphic"
+    if mechanism == "sparse_embed":
+        return "optional_embed"
+    if mechanism == "sparse_scalar":
+        return "sparse_scalar"
+    return archetype or "baseline"
 
 
 def _schema_collections(schema: dict[str, Any]) -> dict[str, Any]:
@@ -417,13 +697,25 @@ def _present_missing_specs(
                 "params": {"collection": coll, "field": field},
             },
             schema_feature=feature,
+            feature_family=(
+                "optional_embed" if _is_object_spec(field_spec)
+                else "optional_array" if _is_array_object_spec(field_spec)
+                else "sparse_scalar"
+            ),
             diversity_hint=f"count documents where {field} is present",
         )
     ]
     if _is_object_spec(field_spec):
         nested = _nested_scalar_paths(field_spec)
-        numeric = [p for p, spec in nested if _is_numeric_spec(spec)]
-        for value_path, spec in nested[:6]:
+        useful_nested = [
+            (p, spec) for p, spec in nested
+            if not _is_identifier_like_field(p)
+        ]
+        numeric = [
+            p for p, spec in useful_nested
+            if _is_numeric_spec(spec) and _is_measure_like_field(p)
+        ]
+        for value_path, spec in useful_nested[:6]:
             specs.append(_slot_spec(
                 mechanism="sparse_embed",
                 archetype="present_missing_projection",
@@ -438,6 +730,7 @@ def _present_missing_specs(
                     },
                 },
                 schema_feature=feature,
+                feature_family="optional_embed",
                 diversity_hint=f"project {field}.{value_path} with an explicit missing default",
             ))
         for metric in numeric[:5]:
@@ -456,9 +749,10 @@ def _present_missing_specs(
                         },
                     },
                     schema_feature=feature,
+                    feature_family="optional_embed",
                     diversity_hint=f"compare {field} present vs missing using {agg}({path})",
                 ))
-    elif _is_numeric_spec(field_spec):
+    elif _is_numeric_spec(field_spec) and _is_measure_like_field(field):
         for agg in ("sum", "avg", "min", "max"):
             specs.append(_slot_spec(
                 mechanism="sparse_scalar",
@@ -468,6 +762,7 @@ def _present_missing_specs(
                     "params": {"collection": coll, "field": field, "agg": agg, "default": 0},
                 },
                 schema_feature=feature,
+                feature_family="sparse_scalar",
                 diversity_hint=f"aggregate sparse scalar {field} with {agg} and missing=0",
             ))
     return specs
@@ -476,13 +771,25 @@ def _present_missing_specs(
 def _polymorphic_specs(
     coll: str, discriminator: str, values: list[str], node: dict[str, Any], feature: str
 ) -> list[dict[str, Any]]:
-    numeric = [p for p, spec in _top_scalar_paths(node) if _is_numeric_spec(spec)]
-    scalar = [p for p, _spec in _top_scalar_paths(node) if p != discriminator]
+    variants = node.get("__variants") if isinstance(node.get("__variants"), list) else []
+    variant_fields = _variant_field_names(variants, discriminator, values)
+    variant_numeric_fields = _variant_measure_fields(variants, discriminator, values)
+    variant_specific = sorted({
+        field for fields in variant_fields.values() for field in fields
+        if field != discriminator
+        and not _is_identifier_like_field(field)
+    })
+    scalar = [
+        p for p, _spec in _top_scalar_paths(node)
+        if p != discriminator
+        and not _is_identifier_like_field(p)
+    ]
+    projection_fields = _ordered_unique(variant_specific + scalar)
     specs: list[dict[str, Any]] = []
-    if numeric:
-        for field in numeric[:8]:
-            field_by_subtype = {value: field for value in values[:8]}
-            for agg in ("sum", "avg", "min", "max"):
+    field_maps = _subtype_measure_field_maps(variant_numeric_fields, values)
+    if field_maps:
+        for field_by_subtype in field_maps[:3]:
+            for agg in ("sum", "avg", "max"):
                 specs.append(_slot_spec(
                     mechanism="polymorphic",
                     archetype="per_subtype_agg",
@@ -496,7 +803,10 @@ def _polymorphic_specs(
                         },
                     },
                     schema_feature=feature,
-                    diversity_hint=f"group {coll} by {discriminator} and {agg} subtype metric {field}",
+                    feature_family="polymorphic",
+                    diversity_hint=(
+                        f"group {coll} by {discriminator} and {agg} subtype-specific metrics"
+                    ),
                 ))
             specs.append(_slot_spec(
                 mechanism="polymorphic",
@@ -507,15 +817,18 @@ def _polymorphic_specs(
                         "collection": coll,
                         "discriminator": discriminator,
                         "field_by_subtype": field_by_subtype,
-                        "target_field": f"{_safe_field(discriminator)}_{_safe_field(field)}_by_subtype",
+                        "target_field": f"{_safe_field(discriminator)}_metric_by_subtype",
                         "default": 0,
                     },
                 },
                 schema_feature=feature,
-                diversity_hint=f"preserve docs and attach {field} chosen by {discriminator}",
-            ))
+                feature_family="polymorphic",
+                diversity_hint=(
+                    f"preserve docs and attach a metric chosen by {discriminator} subtype"
+                ),
+                ))
     for value in values[:6]:
-        for field in scalar[:6]:
+        for field in projection_fields[:6]:
             specs.append(_slot_spec(
                 mechanism="polymorphic",
                 archetype="subtype_specific_field",
@@ -530,6 +843,7 @@ def _polymorphic_specs(
                     },
                 },
                 schema_feature=feature,
+                feature_family="polymorphic",
                 diversity_hint=f"read field {field} only for subtype {discriminator}={value}",
             ))
     return specs
@@ -543,10 +857,19 @@ def _array_slot_specs(coll: str, node: dict[str, Any]) -> list[dict[str, Any]]:
         item = spec.get("items", {}) if isinstance(spec, dict) else {}
         item_node = item.get("fields", item) if isinstance(item, dict) else {}
         item_fields = _top_scalar_paths(item_node if isinstance(item_node, dict) else {})
-        group_fields = [p for p, s in item_fields if not _is_numeric_spec(s)] or [
+        group_fields = [
+            p for p, s in item_fields
+            if not _is_numeric_spec(s) and not _is_identifier_like_field(p)
+        ] or [
             p for p, _s in item_fields
+            if not _is_identifier_like_field(p)
         ]
-        numeric_fields = [p for p, s in item_fields if _is_numeric_spec(s)]
+        numeric_fields = [
+            p for p, s in item_fields
+            if _is_numeric_spec(s)
+            and _is_measure_like_field(p)
+            and not _is_identifier_like_field(p)
+        ]
         for group_by in group_fields[:5]:
             specs.append(_slot_spec(
                 mechanism="none",
@@ -554,10 +877,11 @@ def _array_slot_specs(coll: str, node: dict[str, Any]) -> list[dict[str, Any]]:
                 reference_oracle={
                     "template": "join_nested_group",
                     "params": {"collection": coll, "array_field": field, "group_by": group_by},
-                },
-                schema_feature=f"{coll}.{field}[]",
-                diversity_hint=f"unwind nested array {field} and count by {group_by}",
-            ))
+            },
+            schema_feature=f"{coll}.{field}[]",
+            feature_family="nested_array",
+            diversity_hint=f"unwind nested array {field} and count by {group_by}",
+        ))
             for value_field in numeric_fields[:4]:
                 for agg in ("sum", "avg", "max"):
                     specs.append(_slot_spec(
@@ -574,16 +898,142 @@ def _array_slot_specs(coll: str, node: dict[str, Any]) -> list[dict[str, Any]]:
                             },
                         },
                         schema_feature=f"{coll}.{field}[]",
+                        feature_family="nested_array",
                         diversity_hint=f"unwind {field}, group by {group_by}, {agg}({value_field})",
                     ))
     return specs
 
 
-def _generic_slot_specs(coll: str, node: dict[str, Any], docs: Any = None) -> list[dict[str, Any]]:
+def _fk_rollup_slot_specs(schema: dict[str, Any], data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Suggest LLM-designed multi-collection rollups from real id-like relationships."""
+    collections = _schema_collections(schema)
     specs: list[dict[str, Any]] = []
+    for child, child_node in sorted(collections.items()):
+        if not isinstance(child_node, dict):
+            continue
+        child_scalars = _top_scalar_paths(child_node)
+        child_fields = {field for field, _spec in child_scalars}
+        numeric_measures = [
+            field for field, spec in child_scalars
+            if _is_numeric_spec(spec)
+            and _is_measure_like_field(field)
+            and not _is_identifier_like_field(field)
+        ]
+        categorical = [
+            field for field, spec in child_scalars
+            if not _is_numeric_spec(spec)
+            and not _is_identifier_like_field(field)
+        ]
+        for parent, parent_node in sorted(collections.items()):
+            if child == parent or not isinstance(parent_node, dict):
+                continue
+            parent_fields = {field for field, _spec in _top_scalar_paths(parent_node)}
+            for parent_key, foreign_key in _relationship_key_pairs(
+                parent, parent_fields, child_fields
+            ):
+                specs.append(_slot_spec(
+                    mechanism="none",
+                    archetype="fk_rollup",
+                    reference_oracle={
+                        "template": "fk_rollup",
+                        "params": {
+                            "parent_collection": parent,
+                            "child_collection": child,
+                            "parent_key": parent_key,
+                            "foreign_key": foreign_key,
+                            "agg": "count",
+                        },
+                    },
+                    schema_feature=f"{parent}.{parent_key}->{child}.{foreign_key}",
+                    feature_family="cross_collection",
+                    diversity_hint=(
+                        f"roll up {child} rows to each {parent} via "
+                        f"{child}.{foreign_key}={parent}.{parent_key}"
+                    ),
+                ))
+                for value_field in numeric_measures[:3]:
+                    for agg in ("sum", "avg", "max"):
+                        specs.append(_slot_spec(
+                            mechanism="none",
+                            archetype="fk_rollup",
+                            reference_oracle={
+                                "template": "fk_rollup",
+                                "params": {
+                                    "parent_collection": parent,
+                                    "child_collection": child,
+                                    "parent_key": parent_key,
+                                    "foreign_key": foreign_key,
+                                    "agg": agg,
+                                    "value_field": value_field,
+                                },
+                            },
+                            schema_feature=f"{parent}.{parent_key}->{child}.{foreign_key}",
+                            feature_family="cross_collection",
+                            diversity_hint=(
+                                f"compute per-{parent} {agg} of {child}.{value_field} "
+                                f"through a real foreign-key rollup"
+                            ),
+                        ))
+                    for match_field in categorical[:2]:
+                        for match_value in _sample_values(data.get(child, []), match_field, limit=3):
+                            specs.append(_slot_spec(
+                                mechanism="none",
+                                archetype="fk_rollup",
+                                reference_oracle={
+                                    "template": "fk_rollup",
+                                    "params": {
+                                        "parent_collection": parent,
+                                        "child_collection": child,
+                                        "parent_key": parent_key,
+                                        "foreign_key": foreign_key,
+                                        "agg": "sum",
+                                        "value_field": value_field,
+                                        "match": {"field": match_field, "value": match_value},
+                                    },
+                                },
+                                schema_feature=(
+                                    f"{parent}.{parent_key}->{child}.{foreign_key}"
+                                    f"[{match_field}]"
+                                ),
+                                feature_family="cross_collection",
+                                diversity_hint=(
+                                    f"sum {child}.{value_field} per {parent} after filtering "
+                                    f"{child}.{match_field}={match_value!r}"
+                                ),
+                            ))
+    return specs
+
+
+def _relationship_key_pairs(
+    parent: str, parent_fields: set[str], child_fields: set[str]
+) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    parent_id = f"{parent}_id"
+    if parent_id in parent_fields and parent_id in child_fields:
+        pairs.append((parent_id, parent_id))
+    if "_id" in parent_fields and parent_id in child_fields:
+        pairs.append(("_id", parent_id))
+    return _ordered_unique_pairs(pairs)
+
+
+def _generic_slot_specs(
+    coll: str,
+    node: dict[str, Any],
+    docs: Any = None,
+    *,
+    sparse_scalar_fields: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    sparse_scalar_fields = sparse_scalar_fields or set()
     scalars = _top_scalar_paths(node)
-    numeric = [p for p, spec in scalars if _is_numeric_spec(spec)]
-    categorical = [p for p, spec in scalars if not _is_numeric_spec(spec)]
+    numeric = [
+        p for p, spec in scalars
+        if _is_numeric_spec(spec) and not _is_identifier_like_field(p)
+    ]
+    categorical = [
+        p for p, spec in scalars
+        if not _is_numeric_spec(spec) and not _is_identifier_like_field(p)
+    ]
     for field in categorical[:10]:
         specs.append(_slot_spec(
             mechanism="none",
@@ -611,17 +1061,23 @@ def _generic_slot_specs(coll: str, node: dict[str, Any], docs: Any = None) -> li
                 diversity_hint=f"filter {field} to a real value {value!r}",
             ))
     for field in numeric[:10]:
-        for agg in ("sum", "avg", "min", "max"):
-            specs.append(_slot_spec(
-                mechanism="sparse_scalar",
-                archetype="null_coalesce_agg",
-                reference_oracle={
-                    "template": "null_coalesce_agg",
-                    "params": {"collection": coll, "field": field, "agg": agg, "default": 0},
-                },
-                schema_feature=f"{coll}.{field}",
-                diversity_hint=f"{agg} numeric field {field} with explicit missing default",
-            ))
+        if (
+            field in sparse_scalar_fields
+            and _is_measure_like_field(field)
+            and not _is_identifier_like_field(field)
+        ):
+            for agg in ("sum", "avg", "min", "max"):
+                specs.append(_slot_spec(
+                    mechanism="sparse_scalar",
+                    archetype="null_coalesce_agg",
+                    reference_oracle={
+                        "template": "null_coalesce_agg",
+                        "params": {"collection": coll, "field": field, "agg": agg, "default": 0},
+                    },
+                    schema_feature=f"{coll}.{field}",
+                    feature_family="sparse_scalar",
+                    diversity_hint=f"{agg} sparse numeric field {field} with explicit missing default",
+                ))
         for order in ("desc", "asc"):
             for n in (3, 5, 10):
                 specs.append(_slot_spec(
@@ -707,6 +1163,125 @@ def _is_numeric_spec(spec: Any) -> bool:
     if not isinstance(spec, str):
         return False
     return spec.upper() in {"INT", "INTEGER", "REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMBER"}
+
+
+def _is_identifier_like_field(field: str) -> bool:
+    leaf = str(field).split(".")[-1].lower()
+    if leaf in {"_id", "id", "account", "account_to", "disp_id"}:
+        return True
+    return leaf.endswith("_id") or leaf.endswith(" id")
+
+
+def _is_measure_like_field(field: str) -> bool:
+    leaf = str(field).split(".")[-1].lower()
+    if _is_identifier_like_field(leaf):
+        return False
+    if len(leaf) > 1 and leaf[0] == "a" and leaf[1:].isdigit():
+        return True
+    return any(
+        token in leaf
+        for token in (
+            "amount",
+            "balance",
+            "payment",
+            "value",
+            "total",
+            "sum",
+            "cost",
+            "price",
+            "rate",
+            "ratio",
+            "salary",
+            "score",
+            "count",
+        )
+    )
+
+
+def _variant_field_names(
+    variants: list[Any], discriminator: str, values: list[str]
+) -> dict[str, set[str]]:
+    wanted = {str(value) for value in values}
+    out: dict[str, set[str]] = {value: set() for value in wanted}
+    for variant in variants:
+        if not isinstance(variant, dict):
+            continue
+        disc = variant.get("discriminator")
+        if not isinstance(disc, dict) or str(disc.get(discriminator)) not in wanted:
+            continue
+        value = str(disc.get(discriminator))
+        fields = variant.get("fields")
+        if isinstance(fields, dict):
+            out.setdefault(value, set()).update(
+                str(field) for field in fields if not str(field).startswith("__")
+            )
+    return out
+
+
+def _variant_measure_fields(
+    variants: list[Any], discriminator: str, values: list[str]
+) -> dict[str, list[str]]:
+    wanted = {str(value) for value in values}
+    out: dict[str, list[str]] = {value: [] for value in wanted}
+    for variant in variants:
+        if not isinstance(variant, dict):
+            continue
+        disc = variant.get("discriminator")
+        if not isinstance(disc, dict) or str(disc.get(discriminator)) not in wanted:
+            continue
+        value = str(disc.get(discriminator))
+        fields = variant.get("fields")
+        if not isinstance(fields, dict):
+            continue
+        measures = [
+            str(field)
+            for field, spec in sorted(fields.items())
+            if _is_numeric_spec(spec)
+            and _is_measure_like_field(str(field))
+            and not _is_identifier_like_field(str(field))
+        ]
+        out[value] = _ordered_unique(out.get(value, []) + measures)
+    return out
+
+
+def _subtype_measure_field_maps(
+    by_value: dict[str, list[str]], values: list[str]
+) -> list[dict[str, str]]:
+    usable_values = [value for value in values if by_value.get(str(value))]
+    if len(usable_values) < 2:
+        return []
+    maps: list[dict[str, str]] = []
+    max_width = max(len(by_value[str(value)]) for value in usable_values)
+    for index in range(max_width):
+        field_map = {
+            str(value): by_value[str(value)][index % len(by_value[str(value)])]
+            for value in usable_values
+        }
+        if len(set(field_map.values())) > 1:
+            maps.append(field_map)
+    return maps
+
+
+def _ordered_unique(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def _ordered_unique_pairs(values: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    seen: set[tuple[str, str]] = set()
+    out: list[tuple[str, str]] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
 
 
 def _safe_field(value: str) -> str:
@@ -807,14 +1382,30 @@ async def _run_artifact_diversity_phase_b(
         records.extend(
             await run_phase_b(rt.workflow, artifacts, slots, seen_mql=seen_mql)
         )
+        built_this_batch = len(records) - before
+        dropped_this_batch = len(slots) - built_this_batch
+        yield_ratio = built_this_batch / len(slots) if slots else 0.0
         rt.log.info(
             "artifact_diversity_batch_done",
             batch=batch,
             slots=len(slots),
-            built_records=len(records) - before,
+            built_records=built_this_batch,
+            dropped_records=dropped_this_batch,
+            yield_ratio=round(yield_ratio, 4),
             total_records=len(records),
             built_by_db=dict(Counter(str(record.get("db_id")) for record in records)),
         )
+        if slots and yield_ratio < 0.25:
+            rt.log.warning(
+                "artifact_diversity_low_yield",
+                batch=batch,
+                slots=len(slots),
+                built_records=built_this_batch,
+                dropped_records=dropped_this_batch,
+                yield_ratio=round(yield_ratio, 4),
+                remaining_targets=remaining,
+                attempts_by_db=attempts_by_db,
+            )
 
     final_built_by_db = Counter(str(record.get("db_id")) for record in records)
     shortfalls = {

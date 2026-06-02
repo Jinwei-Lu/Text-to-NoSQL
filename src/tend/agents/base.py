@@ -25,6 +25,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, ClassVar
+from uuid import uuid4
 
 from ..config import Settings
 from ..errors import ContractViolationError, PromptAnomalyError, TendError, wrap_unexpected
@@ -219,9 +220,10 @@ class LLMAgent(Agent):
                 prompt_file=self.prompt_file,
                 input_keys=sorted(str(k) for k in inputs),
             )
+            _attach_presend_prompt_diagnostics(self, ctx, inputs, err)
             raise
         except Exception as exc:  # noqa: BLE001 - prompt construction must be diagnosable
-            raise PromptAnomalyError(
+            err = PromptAnomalyError(
                 "agent prompt construction failed",
                 context={
                     "agent": self.id,
@@ -233,7 +235,9 @@ class LLMAgent(Agent):
                         traceback.format_exception(type(exc), exc, exc.__traceback__)
                     ),
                 },
-            ) from exc
+            )
+            _attach_presend_prompt_diagnostics(self, ctx, inputs, err)
+            raise err from exc
         schema = self.output_schema or None
         for attempt in range(self.contract_retries + 1):
             result = await ctx.llm.complete(
@@ -334,6 +338,47 @@ class LLMAgent(Agent):
     ) -> dict[str, Any]:
         """Hook to enrich/annotate the validated output before returning. Default: passthrough."""
         return output
+
+
+def _attach_presend_prompt_diagnostics(
+    agent: LLMAgent,
+    ctx: AgentContext,
+    inputs: dict[str, Any],
+    err: TendError,
+) -> None:
+    """Persist a synthetic transcript for failures before LLMClient sees messages."""
+    call_id = f"prompt-{uuid4().hex[:12]}"
+    model = ctx.settings.llm.model_for(agent.id)
+    try:
+        ref = ctx.log.save_transcript(agent.id, call_id, {
+            "model": model,
+            "messages": [],
+            "attempts": [],
+            "failed": True,
+            "prompt_build_failed": True,
+            "prompt_file": agent.prompt_file,
+            "input_keys": sorted(str(key) for key in inputs),
+            "input_preview": _json_preview(inputs),
+            "error": err.to_record(),
+        })
+    except Exception:
+        return
+    err.with_context(
+        call_id=call_id,
+        model=model,
+        transcript_ref=ref,
+        diagnostics_ref=ref[:-3] + ".diagnostics.json" if ref.endswith(".md") else ref,
+    )
+
+
+def _json_preview(value: Any, limit: int = 20000) -> str:
+    try:
+        text = json.dumps(value, ensure_ascii=False, indent=2, default=str)
+    except TypeError:
+        text = repr(value)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 80] + "\n... [truncated prompt-build input preview]"
 
 
 def _s(v: Any) -> str:

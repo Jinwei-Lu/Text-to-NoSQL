@@ -238,6 +238,21 @@ def _render_llm_transcript_markdown(payload: dict[str, Any]) -> str:
 
     messages = payload.get("messages") if isinstance(payload.get("messages"), list) else []
     _append_messages(lines, messages)
+    if payload.get("prompt_build_failed"):
+        lines += ["## Prompt Build Context", ""]
+        _append_table(
+            lines,
+            [
+                ("Prompt File", payload.get("prompt_file")),
+                ("Input Keys", payload.get("input_keys")),
+            ],
+        )
+        _append_content(
+            lines,
+            "### Input Preview",
+            payload.get("input_preview"),
+            prefer_json=True,
+        )
 
     lines += ["## Response", ""]
     _append_table(

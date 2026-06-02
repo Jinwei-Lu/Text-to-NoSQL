@@ -8,6 +8,7 @@ Deterministic publish gate. ``validate_record`` checks one record's field contra
 from __future__ import annotations
 
 import concurrent.futures
+import hashlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -16,7 +17,7 @@ from typing import Any
 
 import yaml
 
-from ..execution import mql_signature, world_signature
+from ..execution import mql_signature, mql_skeleton_signature, mql_skeleton_summary, world_signature
 from ..execution import ast_check
 from ..execution.ast_check import DISABLED_OPERATORS, DISABLED_SYSTEM_VARS
 
@@ -39,6 +40,7 @@ H8_L0_MAX = 0.05
 H7_FLEX_MIN, H7_FLEX_MIN_RELAXED = 0.25, 0.15
 H9_SSF_MIN, H9_SSF_MIN_RELAXED = 0.20, 0.10
 BIRD_DB_COUNT = 11
+H11_SKELETON_FAMILY_MAX = 16
 
 
 # --------------------------------------------------------------------------- #
@@ -232,6 +234,8 @@ def validate_release(
     rec_viol: list[str] = []
     sch_viol: list[str] = []
     rec_viol += _duplicate_mql_violations(records)
+    rec_viol += _mql_skeleton_family_violations(records)
+    rec_viol += _duplicate_canonical_nl_violations(records)
     schemas_path = Path(schemas_dir) if schemas_dir else None
     schema_path = schemas_path / "record.schema.json" if schemas_path else None
     snapshots: dict[str, Any] = {}
@@ -240,6 +244,11 @@ def validate_release(
         if db and db not in snapshots:
             p = out_dir / "mongodb_data" / f"{db}.json"
             snapshots[db] = json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+    snapshot_signatures = {
+        db: world_signature(snapshot)
+        for db, snapshot in snapshots.items()
+        if snapshot is not None
+    }
     record_schema = (
         json.loads(schema_path.read_text(encoding="utf-8"))
         if schema_path and schema_path.exists()
@@ -253,7 +262,7 @@ def validate_release(
         try:
             db = r.get("db_id")
             snap = snapshots.get(db) if db else None
-            if db and snap is not None and r.get("world_signature") != world_signature(snap):
+            if db and snap is not None and r.get("world_signature") != snapshot_signatures.get(db):
                 local_rec.append(
                     f"[C4 r{r.get('record_id','?')}] world_signature does not match "
                     f"mongodb_data/{db}.json"
@@ -310,6 +319,78 @@ def _duplicate_mql_violations(records: list[dict[str, Any]]) -> list[str]:
             )
         )
     return violations
+
+
+def _mql_skeleton_family_violations(records: list[dict[str, Any]]) -> list[str]:
+    by_family: dict[tuple[Any, str], list[dict[str, Any]]] = {}
+    for record in records:
+        mql = record.get("MQL")
+        if not isinstance(mql, str) or not mql.strip():
+            continue
+        sig = mql_skeleton_signature(mql)
+        by_family.setdefault((record.get("db_id"), sig), []).append(record)
+
+    violations: list[str] = []
+    for (db_id, sig), family in sorted(
+        by_family.items(),
+        key=lambda item: (str(item[0][0]), item[0][1]),
+    ):
+        if len(family) <= H11_SKELETON_FAMILY_MAX:
+            continue
+        sample = family[0]
+        summary = sample.get("mql_skeleton_summary")
+        if not isinstance(summary, str) or not summary:
+            summary = mql_skeleton_summary(str(sample.get("MQL") or ""))
+        record_ids = [record.get("record_id", "?") for record in family[:12]]
+        violations.append(
+            "[H11] MQL skeleton family too large for db_id {db!r}: "
+            "{count} records > cap {cap}; skeleton={sig}; summary={summary}; "
+            "sample_records={records}".format(
+                db=db_id,
+                count=len(family),
+                cap=H11_SKELETON_FAMILY_MAX,
+                sig=sig,
+                summary=summary,
+                records=record_ids,
+            )
+        )
+    return violations
+
+
+def _duplicate_canonical_nl_violations(records: list[dict[str, Any]]) -> list[str]:
+    seen: dict[tuple[Any, str], dict[str, Any]] = {}
+    violations: list[str] = []
+    for record in records:
+        nl_queries = record.get("nl_queries")
+        if not isinstance(nl_queries, dict):
+            continue
+        canonical = _normalized_nl_text(nl_queries.get("canonical"))
+        if not canonical:
+            continue
+        sig = _text_signature(canonical)
+        key = (record.get("db_id"), sig)
+        previous = seen.get(key)
+        if previous is None:
+            seen[key] = record
+            continue
+        violations.append(
+            "[H12 r{rid}] duplicate canonical NL for db_id {db!r}; duplicates r{prev} "
+            "(nl_signature={sig})".format(
+                rid=record.get("record_id", "?"),
+                db=record.get("db_id"),
+                prev=previous.get("record_id", "?"),
+                sig=sig,
+            )
+        )
+    return violations
+
+
+def _normalized_nl_text(text: Any) -> str:
+    return " ".join(str(text or "").strip().lower().split())
+
+
+def _text_signature(text: str) -> str:
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _validate_release_artifacts(

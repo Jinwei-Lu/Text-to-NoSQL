@@ -326,7 +326,16 @@ class LLMClient:
             self._validate_prompt(messages, agent, call_id)
             for repair in range(json_repair_retries + 1):
                 text, finish, usage = await self._send_with_transport_retries(
-                    agent, call_id, model, convo, temperature, max_tokens, attempts, log
+                    agent,
+                    call_id,
+                    model,
+                    convo,
+                    temperature,
+                    max_tokens,
+                    attempts,
+                    log,
+                    transcript_ref=start_ref,
+                    diagnostics_ref=start_diagnostics_ref,
                 )
                 if not expect_json:
                     return self._finish(agent, call_id, model, text, None, finish, usage,
@@ -465,6 +474,9 @@ class LLMClient:
         self, agent: str, call_id: str, model: str, convo: list[Message],
         temperature: float, max_tokens: int, attempts: list[dict[str, Any]],
         log: RunLogger,
+        *,
+        transcript_ref: str,
+        diagnostics_ref: str,
     ) -> tuple[str, str | None, dict[str, int]]:
         last: LLMError | None = None
         for attempt in range(self._s.llm.max_retries + 1):
@@ -496,7 +508,9 @@ class LLMClient:
                 delay = min(8.0, 0.5 * (2 ** attempt)) + random.uniform(0, 0.3)
                 log.warning("llm_transport_retry", agent=agent, call_id=call_id,
                             attempt=attempt, anomaly=err.anomaly.value,
-                            delay_s=round(delay, 2))
+                            delay_s=round(delay, 2),
+                            transcript_ref=transcript_ref,
+                            diagnostics_ref=diagnostics_ref)
                 await asyncio.sleep(delay)
         assert last is not None
         raise last

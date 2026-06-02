@@ -60,20 +60,18 @@ _ARCHETYPE_RECIPE = {
         "sub-document: if the sub-doc is PRESENT use a concrete formula over its fields; if "
         "MISSING the field is a fixed default (e.g. 0). Keep every input document. State the "
         "exact formula and the non-null missing-default so the result is fully determined. "
-        "Use reference_oracle.template='optional_embed_projection' for a simple field copy "
-        "from an optional embed. Use 'present_missing_projection' only for the ratio form "
-        "and include the complete denom object."
+        "For a simple optional-embed field copy, describe the source value path and missing "
+        "default in analytical_op/output. For a ratio form, describe the numerator field, "
+        "denominator collection/key/sum field, and absent value in analytical_op/output."
     ),
     "subtype_cond_projection": (
         "Target cell is L4 structural_schema_flex with shape_policy='preserve'. Attach "
         "exactly ONE scalar field to every root document while keeping every original field. "
         "The computation MUST visibly branch on real schema variants with $type/$switch/$cond "
         "downstream, and the missing/default branch MUST be explicit and non-null (usually 0). "
-        "If the variant is optional embedded-subdocument presence, use "
-        "reference_oracle.template='optional_embed_projection' with params "
-        "{parent_collection, embed_field, value_path, target_field, missing_default}. If it is "
-        "a true discriminator-subtype task, use 'subtype_cond_projection' with complete "
-        "{collection, discriminator, field_by_subtype, target_field, default} params."
+        "If the variant is optional embedded-subdocument presence, describe the present and "
+        "missing branches in analytical_op/output. If it is a true discriminator-subtype task, "
+        "describe the discriminator, subtype fields, target field, and default explicitly."
     ),
     "schema_flex_variant_summary": (
         "Target cell is L4 structural_schema_flex. The intent MUST use a ROOT collection "
@@ -269,16 +267,16 @@ class QueryPlanSampler(LLMAgent):
             f"{inputs.get('target_sql_infeasibility_class', 'structural_schema_flex')}\n"
             f"target_schema_flex: {inputs.get('target_schema_flex', 'polymorphic')}\n"
         )
-        seed = inputs.get("reference_oracle_seed")
-        seed_block = ""
-        if isinstance(seed, dict):
-            seed_block = (
-                "## deterministic diversity seed\n"
-                "You MUST emit this exact top-level reference_oracle.template and params. "
-                "Do not rename fields, change agg, or substitute a different template. "
-                "Use the intent text only to explain this seeded computation.\n"
+        design_card = inputs.get("intent_seed")
+        design_block = ""
+        if isinstance(design_card, dict):
+            design_block = (
+                "## LLM-first design card (not a template)\n"
+                "Use this as a pressure test for coverage, not as a fill-in form. Design a "
+                "fresh financial query that targets the listed schema feature/family while "
+                "choosing its own business computation and MQL structure.\n"
                 "```json\n"
-                f"{json.dumps(seed, ensure_ascii=False, indent=2, sort_keys=True)}\n"
+                f"{json.dumps(design_card, ensure_ascii=False, indent=2, sort_keys=True)}\n"
                 "```\n"
             )
         diversity = ""
@@ -288,6 +286,18 @@ class QueryPlanSampler(LLMAgent):
                 f"schema_feature: {inputs.get('schema_feature', '')}\n"
                 f"hint: {inputs.get('diversity_hint', '')}\n"
             )
+        portfolio = ""
+        diversity_context = inputs.get("diversity_context")
+        if isinstance(diversity_context, dict):
+            portfolio = (
+                "## global portfolio context (shared across concurrent records)\n"
+                "These counts are reserved before this QPS call. If a count is already "
+                "non-zero, avoid making a near duplicate on that axis; change the business "
+                "grain, branch condition, result shape, or multi-stage structure.\n"
+                "```json\n"
+                f"{json.dumps(diversity_context, ensure_ascii=False, indent=2, sort_keys=True)}\n"
+                "```\n"
+            )
         return ("# QPS — enumerate ONE concrete intent grounded in THIS schema (not operators)\n"
                 f"seed_mechanism: {inputs.get('mechanism')}\narchetype: {archetype}\n"
                 f"{target}"
@@ -295,20 +305,32 @@ class QueryPlanSampler(LLMAgent):
                 f"scenario_summary: {inputs.get('scenario_summary', '')[:500]}\n"
                 f"## schema (use ONLY these real collections/fields)\n{_schema_digest(inputs.get('schema', {}))}\n"
                 f"{diversity}"
+                f"{portfolio}"
+                f"{design_block}"
                 f"## archetype recipe\n{recipe}\n\n"
-                f"## reference_oracle allowlist\n{oracle_guide}\n\n"
-                f"{seed_block}"
+                "Design a non-trivial business query first. Avoid template-matrix "
+                "expansion: do not create a near copy of a query by only changing a field name, "
+                "accumulator, discriminator value, or output alias. Prefer multi-stage "
+                "financial analysis when the schema supports it: embedded-array unwind, "
+                "cross-collection rollup, optional-embed branch with a denominator, subtype "
+                "field differences, or a reshape that changes the result grain.\n"
                 "Emit top-level intent with: seed_mechanism; seed_signal {collection, field}; archetype; "
                 "target_difficulty; target_sql_infeasibility_class; schema_flex_mode; "
                 "domain_framing (use the REAL collection/field names — do NOT invent entities "
                 "like 'customers'/'phone' that aren't in the schema); analytical_op (a CONCRETE "
                 "computation: target field name + exact formula + missing-default); "
                 "shape_policy (preserve|reshape|reduce); output {fields, missing}; "
-                "semantic_properties. Also emit top-level reference_oracle {template, params}. "
-                "The intent plus reference_oracle must fully determine the result.")
+                "semantic_properties. In llm_design_mode, DO NOT emit reference_oracle at top "
+                "level or inside intent; the workflow attaches a hidden certification oracle "
+                "after QPS. The downstream gold is still certified by execution, mutation "
+                "discrimination, round trip, realism, and skeleton diversity gates.")
 
     def check_contract(self, ctx, inputs, output) -> list[str]:
         intent = output.get("intent", {})
+        if inputs.get("llm_design_mode"):
+            output.pop("reference_oracle", None)
+            if isinstance(intent, dict):
+                intent.pop("reference_oracle", None)
         ref = output.get("reference_oracle") or intent.get("reference_oracle")
         sp = intent.get("shape_policy")
         v = []
@@ -344,15 +366,11 @@ class QueryPlanSampler(LLMAgent):
                     "schema_flex_variant_summary output.fields must include "
                     f"analytical_op.target_field {target_field!r}"
                 )
+        if inputs.get("llm_design_mode"):
+            return v
         if not isinstance(ref, dict):
             v.append("reference_oracle with supported template is required")
         else:
-            seed = inputs.get("reference_oracle_seed")
-            if isinstance(seed, dict) and _stable_json(ref) != _stable_json(seed):
-                v.append(
-                    "reference_oracle must exactly match deterministic diversity seed: "
-                    f"expected {_stable_json(seed)}, got {_stable_json(ref)}"
-                )
             template = ref.get("template")
             if not template:
                 v.append("reference_oracle.template is required")
@@ -413,6 +431,125 @@ def _oracle_prompt_rule(oracle: Any) -> str:
     return ""
 
 
+def _oracle_lock_contract(oracle: Any) -> str:
+    """Human-readable oracle semantics for MS repair prompts.
+
+    This is deliberately a result contract, not a canonical pipeline. The LLM still writes
+    its own MQL, but it gets the exact cardinality, grouping, and output-shape constraints
+    that the deterministic oracle will verify.
+    """
+    if not isinstance(oracle, dict):
+        return ""
+    template = oracle.get("template")
+    params = oracle.get("params") if isinstance(oracle.get("params"), dict) else {}
+    if template == "optional_embed_projection":
+        return (
+            "Result contract: preserve every document from "
+            f"{params.get('parent_collection')!r}. Add exactly one computed field "
+            f"{params.get('target_field')!r}. For documents where "
+            f"{params.get('embed_field')!r} is present and "
+            f"{_embed_value_path(str(params.get('embed_field')), str(params.get('value_path')))!r} "
+            "is non-null, copy that value; otherwise use missing_default "
+            f"{params.get('missing_default')!r}. Do not drop documents and do not leave helper "
+            "fields in the final preserve result."
+        )
+    if template == "present_missing_projection":
+        denom = params.get("denom") if isinstance(params.get("denom"), dict) else {}
+        return (
+            "Result contract: preserve every document from "
+            f"{params.get('parent_collection')!r}. Add exactly one computed field "
+            f"{params.get('target_field')!r}. If "
+            f"{params.get('embed_field')!r} is absent, use absent_value "
+            f"{params.get('absent_value', 0)!r}. If present, compute "
+            f"{_embed_value_path(str(params.get('embed_field')), str(params.get('numerator_path')))!r} "
+            f"divided by the per-parent sum of {denom.get('sum_field')!r} from "
+            f"{denom.get('collection')!r} where {denom.get('foreign_field')!r} matches "
+            f"the parent {denom.get('local_id')!r}; apply match {denom.get('match')!r} "
+            f"when present and use zero_value {denom.get('zero_value', 1)!r} as the divisor "
+            "when the sum is 0. Do not drop parent documents or leak helper fields."
+        )
+    if template == "has_vs_absent_compare":
+        return (
+            "Result contract: aggregate every document from "
+            f"{params.get('parent_collection')!r} into exactly two groups. _id must be "
+            f"'present' when {params.get('embed_field')!r} exists and 'absent' otherwise. "
+            "The only metric field is 'value'. Use agg "
+            f"{params.get('agg', 'count')!r}"
+            + (
+                f" over metric {params.get('metric_field')!r}; missing/non-numeric values count as 0."
+                if params.get("agg", "count") != "count"
+                else " as a document count."
+            )
+        )
+    if template == "subtype_specific_field":
+        project = params.get("project")
+        return (
+            "Result contract: read only documents from "
+            f"{params.get('collection')!r} where discriminator "
+            f"{params.get('discriminator')!r} equals subtype_value "
+            f"{params.get('subtype_value')!r}. Do not preserve all documents. Output "
+            + (
+                f"exactly the projected fields {project!r}."
+                if isinstance(project, list) and project
+                else f"only field {params.get('field')!r}."
+            )
+            + " If the structural gate is active, use explicit $type/$cond in projection so "
+            "missing subtype-only fields become null rather than disappearing."
+        )
+    if template == "per_subtype_agg":
+        return (
+            "Result contract: group documents from "
+            f"{params.get('collection')!r} by discriminator {params.get('discriminator')!r}. "
+            "For each subtype, aggregate only that subtype's own mapped field from "
+            f"field_by_subtype={params.get('field_by_subtype')!r} with agg "
+            f"{params.get('agg')!r}. Output fields are _id and value."
+        )
+    if template == "group_count":
+        return (
+            "Result contract: group every document from "
+            f"{params.get('collection')!r} by {params.get('group_by')!r} and output "
+            "one row per group with fields _id and count."
+        )
+    if template == "topn":
+        return (
+            "Result contract: sort documents from "
+            f"{params.get('collection')!r} by {params.get('sort_key')!r} in "
+            f"{params.get('order', 'desc')!r} order, apply nulls "
+            f"{params.get('nulls', 'last')!r}, take n={params.get('n')!r}, and output "
+            f"projected fields {params.get('project')!r} when provided."
+        )
+    if template == "fk_rollup":
+        return (
+            "Result contract: start from parent collection "
+            f"{params.get('parent_collection')!r}, join child collection "
+            f"{params.get('child_collection')!r} by parent key {params.get('parent_key')!r} "
+            f"to child FK {params.get('child_fk')!r}, then output one parent row with field "
+            "'value' from the requested child aggregate."
+        )
+    if template == "existence_count":
+        return (
+            "Result contract: count documents from "
+            f"{params.get('collection')!r} where field {params.get('field')!r} is present. "
+            "Output exactly one row with field count."
+        )
+    if template == "null_coalesce_agg":
+        return (
+            "Result contract: aggregate field "
+            f"{params.get('field')!r} from {params.get('collection')!r} with agg "
+            f"{params.get('agg')!r}; coalesce missing/null/non-numeric values to default "
+            f"{params.get('default', 0)!r}. Output exactly one row with field value."
+        )
+    return (
+        "Result contract: make the MQL result exactly match reference_oracle.template "
+        f"{template!r} with params {_stable_json(params)}."
+    )
+
+
+def _oracle_lock_contract_inline(oracle: Any) -> str:
+    contract = _oracle_lock_contract(oracle)
+    return " ".join(contract.split())
+
+
 @register
 class MqlSynthesizer(LLMAgent):
     id = "ms"
@@ -427,8 +564,44 @@ class MqlSynthesizer(LLMAgent):
         intent = inputs.get("intent", {})
         oracle = inputs.get("reference_oracle") or intent.get("reference_oracle")
         fb = inputs.get("ms_feedback")
-        fb_note = f"\n\nPREVIOUS ATTEMPT REJECTED: {fb}. Fix exactly this." if fb else ""
+        fb_note = ""
+        if fb:
+            fb_note = (
+                "\n\n## previous gold-lock failure\n"
+                f"{fb}\n"
+                "Repair the MQL to satisfy the oracle result contract below exactly. If the "
+                "failure reports mql_rows != oracle_rows, the output cardinality/shape is wrong; "
+                "do not just rename fields.\n"
+            )
         oracle_rule = _oracle_prompt_rule(oracle)
+        oracle_contract = _oracle_lock_contract(oracle)
+        if isinstance(oracle, dict):
+            oracle_block = (
+                "## optional reference_oracle (certification aid, not a template)\n"
+                f"```json\n{json.dumps(oracle, ensure_ascii=False, indent=2, sort_keys=True)}\n```\n"
+                "If present, the deterministic lock may compare your MQL result to this "
+                "oracle. Do not mechanically copy a canonical template; your representative "
+                "MQL should still be an independently designed query.\n"
+                f"## oracle result contract\n{oracle_contract}\n"
+            )
+            lock_rule = (
+                "Do not alter the reference_oracle; the deterministic lock will run "
+                "reference_oracle.template with reference_oracle.params against DM's snapshot "
+                "and require it to match YOUR MQL result. "
+            )
+        else:
+            oracle_block = (
+                "## certification mode\n"
+                "No reference_oracle is provided. The representative MQL itself is the gold "
+                "program, and it will be certified by execution, static checks, preserve-shape "
+                "checks, mutation discrimination, NL round-trip, NNC, RA, and skeleton-family "
+                "diversity gates.\n"
+            )
+            lock_rule = (
+                "Because there is no reference oracle, make the MQL directly express the "
+                "business intent without hidden assumptions; downstream agents will reject it "
+                "if the NL, realism, complexity, or execution behavior is weak. "
+            )
         target = (
             f"target_difficulty: {inputs.get('target_difficulty', 'L4')}\n"
             "target_sql_infeasibility_class: "
@@ -437,13 +610,24 @@ class MqlSynthesizer(LLMAgent):
         )
         structural_rule = ""
         if inputs.get("target_sql_infeasibility_class") == "structural_schema_flex":
-            structural_rule = (
-                "\nFor target structural_schema_flex, the MQL MUST visibly dispatch over real "
-                "document-shape variants using $type/$switch/$cond on the optional embedded "
-                "sub-document. The representative MQL field itself must contain $type or "
-                "$objectToArray and must contain $cond or $switch; putting that logic only in "
-                "mql_alt does not satisfy gold-lock. Set schema_flex='polymorphic'."
-            )
+            template = oracle.get("template") if isinstance(oracle, dict) else None
+            if template == "subtype_specific_field":
+                structural_rule = (
+                    "\nFor target structural_schema_flex with subtype_specific_field, the MQL "
+                    "MUST filter the real discriminator to the requested subtype value and project "
+                    "the subtype-exclusive field. Because the structural gate needs visible "
+                    "shape-awareness, use $type/$cond in the projection for projected fields; do "
+                    "not use a preserve all-documents pipeline."
+                )
+            else:
+                structural_rule = (
+                    "\nFor target structural_schema_flex, the MQL MUST visibly dispatch over real "
+                    "document-shape variants using $type/$switch/$cond on the optional embedded "
+                    "sub-document or discriminator-specific fields. The representative MQL field "
+                    "itself must contain $type or $objectToArray and must contain $cond or "
+                    "$switch; putting that logic only in mql_alt does not satisfy gold-lock. "
+                    "Set schema_flex='polymorphic'."
+                )
             if intent.get("archetype") == "schema_flex_variant_summary":
                 structural_rule += (
                     " This summary archetype must reshape/reduce into a variant summary; do "
@@ -459,19 +643,22 @@ class MqlSynthesizer(LLMAgent):
         return ("# MS — synthesize gold MQL that realizes THIS intent exactly\n"
                 f"## coverage target\n{target}"
                 f"## intent\n```json\n{json.dumps(intent, ensure_ascii=False, indent=2, sort_keys=True)}\n```\n"
-                "## reference_oracle (authoritative answer oracle)\n"
-                f"```json\n{json.dumps(oracle, ensure_ascii=False, indent=2, sort_keys=True)}\n```\n"
+                f"{oracle_block}"
                 f"## schema (real collections/fields)\n{_schema_digest(inputs.get('schema', {}))}{fb_note}\n\n"
-                "Produce MQL = db.<root_collection>.aggregate([...]) realizing the intent's "
+                "Produce your own MQL = db.<root_collection>.aggregate([...]) realizing the intent's "
                 "exact formula + missing-default. Honor intent.shape_policy: if 'preserve', use "
                 "$addFields to attach the computed field and KEEP every input document and its "
                 "original fields (no $match that drops docs, no root $group/$unwind). Remove "
                 "any temporary lookup/sum/helper fields before the final output; the only new "
                 "field left in preserve output should be the intent target field. "
                 f"{oracle_rule}"
-                "Do not alter the reference_oracle; the deterministic lock will run "
-                "reference_oracle.template with reference_oracle.params against DM's snapshot "
-                "and require it to match this MQL result. "
+                "Do not output a mechanical minimal template unless the intent truly requires "
+                "that exact shape. Use the real financial schema to choose a query structure: "
+                "$lookup with a child rollup, $unwind over embedded arrays, branch-specific "
+                "$switch/$cond, pre-aggregation helper stages, or an equivalent algebraic "
+                "rewrite when that makes the query more realistic. Do not make a family of "
+                "near-identical queries by only changing field names or $sum/$avg/$min/$max. "
+                f"{lock_rule}"
                 "Also give mql_alt (an equivalent algebraic rewrite) + shape_policy + schema_flex. "
                 "No banned operators ($sample/$rand/$$NOW/$out/$merge/$function)."
                 f"{structural_rule}")
@@ -484,7 +671,11 @@ class MqlSynthesizer(LLMAgent):
             output["mql_alt"] = mql
             output["representative_mql_promoted_from_alt"] = True
             mql = promoted
-        canonical = _canonical_reference_mql(inputs)
+        canonical = (
+            _canonical_reference_mql(inputs)
+            if inputs.get("allow_reference_oracle_canonicalization")
+            else None
+        )
         if canonical:
             canonical_mql, canonical_shape = canonical
             output["llm_MQL"] = mql
@@ -561,11 +752,15 @@ class MqlSynthesizer(LLMAgent):
                 reasons.extend(_computed_field_quality_reasons(
                     r_primary, input_fields, _expected_new_fields(inputs)
                 ))
-            oracle_reason = _reference_oracle_reason(inputs, r_primary)
-            if oracle_reason:
-                reasons.append(oracle_reason)
+            if _has_reference_oracle(inputs):
+                oracle_reason = _reference_oracle_reason(inputs, r_primary)
+                if oracle_reason:
+                    reasons.append(oracle_reason)
+                else:
+                    output["reference_oracle_verified"] = True
             else:
-                output["reference_oracle_verified"] = True
+                output["reference_oracle_verified"] = False
+                output["llm_designed_gold"] = True
             alt = output.get("mql_alt")
             if alt and alt != mql:
                 try:
@@ -742,6 +937,13 @@ class NlParaphraser(LLMAgent):
             field_note = "\nGold result field names to preserve literally: " + ", ".join(
                 map(str, result_fields)
             ) + "."
+        oracle_contract = _oracle_lock_contract_inline(intent.get("reference_oracle"))
+        oracle_note = ""
+        if oracle_contract:
+            oracle_note = (
+                "\nGold result semantics to express exactly, without mentioning operators: "
+                f"{oracle_contract}"
+            )
         mql_note = ""
         if inputs.get("MQL"):
             mql_note = (
@@ -783,7 +985,8 @@ class NlParaphraser(LLMAgent):
                 "RULES: describe EXACTLY the computation in this intent over ITS named "
                 "collection/fields. Do NOT introduce entities/fields not in the intent "
                 "(no 'customers'/'phone' unless named). Name the computed field + exact formula "
-                f"+ missing-default; no $ operator terms.\n{shape_rule}{field_note}{mql_note}"
+                f"+ missing-default; no $ operator terms.\n{shape_rule}{field_note}"
+                f"{oracle_note}{mql_note}"
                 + extra)
 
     def check_contract(self, ctx, inputs, output) -> list[str]:
@@ -845,6 +1048,14 @@ def _nl_shape_contract_violations(
                     "schema_flex_variant_summary canonical NLQ must name exact variant "
                     f"label {label!r}"
                 )
+    ref = intent.get("reference_oracle") if isinstance(intent.get("reference_oracle"), dict) else {}
+    if ref.get("template") == "has_vs_absent_compare":
+        for label in ("present", "absent"):
+            if label not in text:
+                violations.append(
+                    "has_vs_absent_compare canonical NLQ must name exact group label "
+                    f"{label!r}"
+                )
     return violations
 
 
@@ -887,9 +1098,10 @@ class RoundTripVerifier(LLMAgent):
             gold = ctx.mongo.norm_exec(ctx.db_id, inputs["MQL"])
             output["rtv_pass"] = equiv_rec(rt, gold, order_sensitive=_ORDER_INSENSITIVE)
             if not output["rtv_pass"]:
+                detail = _round_trip_divergence_detail(rt, gold)
                 output["rtv_reason"] = (
                     "round-trip MQL is not equivalent to gold "
-                    f"(round_trip_rows={len(rt)}, gold_rows={len(gold)})"
+                    f"(round_trip_rows={len(rt)}, gold_rows={len(gold)}){detail}"
                 )
         except TendError as exc:
             output["rtv_pass"] = False
@@ -1100,43 +1312,95 @@ def _reference_oracle_reason(inputs: dict[str, Any], mql_norm: list[dict[str, An
     oracle_norm = [_normalize_doc(d) for d in oracle_raw]
     if not equiv_rec(mql_norm, oracle_norm, order_sensitive=_ORDER_INSENSITIVE):
         detail = _oracle_divergence_detail(mql_norm, oracle_norm, params)
+        contract = _oracle_lock_contract_inline(payload)
+        contract_note = f"; expected_contract={contract}" if contract else ""
         return (
             f"reference_oracle divergence for {template!r}: "
             f"mql_rows={len(mql_norm)}, oracle_rows={len(oracle_norm)}{detail}"
+            f"{contract_note}"
         )
     return None
+
+
+def _has_reference_oracle(inputs: dict[str, Any]) -> bool:
+    intent = inputs.get("intent") if isinstance(inputs.get("intent"), dict) else {}
+    payload = inputs.get("reference_oracle") or intent.get("reference_oracle")
+    return isinstance(payload, dict)
 
 
 def _oracle_divergence_detail(
     mql_norm: list[dict[str, Any]], oracle_norm: list[dict[str, Any]], params: dict[str, Any]
 ) -> str:
     target = params.get("target_field")
-    if not isinstance(target, str) or not target:
+    target = target if isinstance(target, str) and target else None
+    if all(isinstance(row, dict) and "_id" in row for row in mql_norm[:500]) \
+            and all(isinstance(row, dict) and "_id" in row for row in oracle_norm[:500]):
+        oracle_by_id = {row["_id"]: row for row in oracle_norm if isinstance(row, dict)}
+        for row in mql_norm[:500]:
+            key = row.get("_id")
+            other = oracle_by_id.get(key)
+            if not isinstance(other, dict):
+                return f"; first_mismatch _id={key!r} missing from oracle"
+            detail = _row_divergence_detail(row, other, f"_id={key!r}", target=target)
+            if detail:
+                return detail
         return ""
-    if not all(isinstance(row, dict) and "_id" in row for row in mql_norm[:500]):
-        return ""
-    if not all(isinstance(row, dict) and "_id" in row for row in oracle_norm[:500]):
-        return ""
-    oracle_by_id = {row["_id"]: row for row in oracle_norm if isinstance(row, dict)}
-    for row in mql_norm[:500]:
-        key = row.get("_id")
-        other = oracle_by_id.get(key)
-        if not isinstance(other, dict):
-            return f"; first_mismatch _id={key!r} missing from oracle"
-        extra = sorted(set(row) - set(other))
-        missing = sorted(set(other) - set(row))
-        if extra or missing:
-            parts = []
-            if extra:
-                parts.append(f"extra_mql_fields={extra}")
-            if missing:
-                parts.append(f"missing_mql_fields={missing}")
-            return f"; first_mismatch _id={key!r} " + " ".join(parts)
-        if row.get(target) != other.get(target):
+    for index, (row, other) in enumerate(zip(mql_norm[:500], oracle_norm[:500])):
+        if not isinstance(row, dict) or not isinstance(other, dict):
+            if row != other:
+                return f"; first_mismatch row={index} mql={row!r} oracle={other!r}"
+            continue
+        detail = _row_divergence_detail(row, other, f"row={index}", target=target)
+        if detail:
+            return detail
+    return ""
+
+
+def _row_divergence_detail(
+    row: dict[str, Any], other: dict[str, Any], label: str, *, target: str | None
+) -> str:
+    extra = sorted(set(row) - set(other))
+    missing = sorted(set(other) - set(row))
+    if extra or missing:
+        parts = []
+        if extra:
+            parts.append(f"extra_mql_fields={extra}")
+        if missing:
+            parts.append(f"missing_mql_fields={missing}")
+        return f"; first_mismatch {label} " + " ".join(parts)
+    fields = [target] if target else sorted(set(row) | set(other))
+    for field in fields:
+        if field is not None and row.get(field) != other.get(field):
             return (
-                f"; first_mismatch _id={key!r} field={target!r} "
-                f"mql={row.get(target)!r} oracle={other.get(target)!r}"
+                f"; first_mismatch {label} field={field!r} "
+                f"mql={row.get(field)!r} oracle={other.get(field)!r}"
             )
+    return ""
+
+
+def _round_trip_divergence_detail(rt_rows: list[Any], gold_rows: list[Any]) -> str:
+    rt_norm = [_normalize_doc(d) for d in rt_rows]
+    gold_norm = [_normalize_doc(d) for d in gold_rows]
+    if all(isinstance(row, dict) and "_id" in row for row in rt_norm[:500]) \
+            and all(isinstance(row, dict) and "_id" in row for row in gold_norm[:500]):
+        gold_by_id = {row["_id"]: row for row in gold_norm if isinstance(row, dict)}
+        for row in rt_norm[:500]:
+            key = row.get("_id")
+            other = gold_by_id.get(key)
+            if not isinstance(other, dict):
+                return f"; first_mismatch _id={key!r} missing from gold"
+            detail = _row_divergence_detail(row, other, f"_id={key!r}", target=None)
+            if detail:
+                return detail.replace("mql=", "round_trip=").replace("oracle=", "gold=")
+        return ""
+    for index, (row, other) in enumerate(zip(rt_norm[:500], gold_norm[:500])):
+        if not isinstance(row, dict) or not isinstance(other, dict):
+            if row != other:
+                return f"; first_mismatch row={index} round_trip={row!r} gold={other!r}"
+            continue
+        detail = _row_divergence_detail(row, other, f"row={index}", target=None)
+        if detail:
+            return detail.replace("mql=", "round_trip=").replace("oracle=", "gold=")
     return ""
 
 

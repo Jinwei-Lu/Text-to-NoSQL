@@ -7,8 +7,10 @@ from pathlib import Path
 import yaml
 
 from tend.execution import mql_signature, world_signature
+from tend.execution import mql_skeleton_signature, mql_skeleton_summary
 from tend.execution.ast_check import DISABLED_OPERATORS, DISABLED_SYSTEM_VARS
 from tend.publish import validate_composition, validate_record, validate_record_jsonschema, validate_release
+from tend.publish.validate import H11_SKELETON_FAMILY_MAX
 
 _SIX = sorted(DISABLED_OPERATORS | DISABLED_SYSTEM_VARS)
 
@@ -62,6 +64,93 @@ def test_validate_release_rejects_duplicate_mql(tmp_path: Path):
 
     assert not report.ok
     assert any("duplicate MQL" in issue and "r2" in issue for issue in report.record_violations)
+
+
+def test_validate_release_rejects_repeated_mql_skeleton_family(tmp_path: Path):
+    out = tmp_path / "release"
+    db = "financial"
+    data = {"account": [{"_id": 1}], "trans": [{"_id": 10, "account_id": 1}]}
+    sig = world_signature(data)
+    records = [
+        _valid_record(
+            record_id=i,
+            world_signature=sig,
+            MQL=(
+                'db.account.aggregate([{"$lookup":{"from":"trans","localField":"_id",'
+                '"foreignField":"account_id","as":"t"}},{"$addFields":{'
+                f'"x_{i}":1'
+                '}}])'
+            ),
+        )
+        for i in range(1, H11_SKELETON_FAMILY_MAX + 2)
+    ]
+
+    (out / "mongodb_data").mkdir(parents=True)
+    (out / "mongodb_schema").mkdir()
+    (out / "agent_design_rationale").mkdir()
+    (out / "test.json").write_text(json.dumps(records), encoding="utf-8")
+    (out / "TEND.json").write_text(json.dumps(records), encoding="utf-8")
+    (out / "mongodb_data" / f"{db}.json").write_text(json.dumps(data), encoding="utf-8")
+    (out / "mongodb_schema" / f"{db}.json").write_text(
+        json.dumps({"account": {"_id": "INT"}, "trans": {"account_id": "INT"}}),
+        encoding="utf-8",
+    )
+    (out / "agent_design_rationale" / f"{db}.yaml").write_text(
+        "db_id: financial\n", encoding="utf-8"
+    )
+
+    report = validate_release(out, require_all_dbs=False)
+
+    assert not report.ok
+    assert any("MQL skeleton family too large" in issue for issue in report.record_violations)
+
+
+def test_validate_release_rejects_duplicate_canonical_nl(tmp_path: Path):
+    out = tmp_path / "release"
+    db = "financial"
+    data = {"account": [{"_id": 1}], "trans": [{"_id": 10, "account_id": 1}]}
+    sig = world_signature(data)
+    records = [
+        _valid_record(
+            record_id=1,
+            world_signature=sig,
+            nl_queries={
+                "canonical": "Group accounts by frequency.",
+                "colloquial": "Group them.",
+            },
+        ),
+        _valid_record(
+            record_id=2,
+            world_signature=sig,
+            nl_queries={
+                "canonical": " group   ACCOUNTS by frequency. ",
+                "colloquial": "Group those accounts another way.",
+            },
+            MQL=(
+                'db.account.aggregate([{"$lookup":{"from":"trans","localField":"_id",'
+                '"foreignField":"account_id","as":"t"}},{"$addFields":{"x_2":1}}])'
+            ),
+        ),
+    ]
+
+    (out / "mongodb_data").mkdir(parents=True)
+    (out / "mongodb_schema").mkdir()
+    (out / "agent_design_rationale").mkdir()
+    (out / "test.json").write_text(json.dumps(records), encoding="utf-8")
+    (out / "TEND.json").write_text(json.dumps(records), encoding="utf-8")
+    (out / "mongodb_data" / f"{db}.json").write_text(json.dumps(data), encoding="utf-8")
+    (out / "mongodb_schema" / f"{db}.json").write_text(
+        json.dumps({"account": {"_id": "INT"}, "trans": {"account_id": "INT"}}),
+        encoding="utf-8",
+    )
+    (out / "agent_design_rationale" / f"{db}.yaml").write_text(
+        "db_id: financial\n", encoding="utf-8"
+    )
+
+    report = validate_release(out, require_all_dbs=False)
+
+    assert not report.ok
+    assert any("duplicate canonical NL" in issue and "r2" in issue for issue in report.record_violations)
 
 
 def test_c6_missing_disabled_ops():
@@ -157,6 +246,8 @@ def test_record_schema_accepts_diversity_metadata():
     schema = Path("proposals/schemas/record.schema.json")
     rec = _valid_record(
         mql_signature=mql_signature(_valid_record()["MQL"]),
+        mql_skeleton_signature=mql_skeleton_signature(_valid_record()["MQL"]),
+        mql_skeleton_summary=mql_skeleton_summary(_valid_record()["MQL"]),
         mechanism="sparse_embed",
         archetype="existence_count",
         diversity_key="sparse_embed:existence_count:financial.account.loan",

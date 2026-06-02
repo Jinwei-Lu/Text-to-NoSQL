@@ -78,11 +78,23 @@ class _Group:
 class ProgressReporter:
     """Thread-safe progress aggregator + optional rich Live renderer."""
 
-    def __init__(self, run_id: str, logger: RunLogger, *, enabled: bool = True) -> None:
+    def __init__(
+        self,
+        run_id: str,
+        logger: RunLogger,
+        *,
+        enabled: bool = True,
+        heartbeat_s: float = 5.0,
+        stall_warn_s: float = 120.0,
+    ) -> None:
         self.run_id = run_id
         self._log = logger
         self._console = Console(stderr=True)
         self._enabled = enabled and self._console.is_terminal and not self._console.is_dumb_terminal
+        self._heartbeat_s = heartbeat_s
+        self._stall_warn_s = stall_warn_s
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread: threading.Thread | None = None
         self._lock = threading.RLock()
         self._phase = "—"
         self._groups: dict[str, _Group] = {}
@@ -93,6 +105,7 @@ class ProgressReporter:
         self._anom_by_kind: dict[str, int] = {}
         self._alert_by_event: dict[str, int] = {}
         self._t0 = time.monotonic()
+        self._last_activity = self._t0
         self._live: Live | None = None
         self._snapshot_path = logger.run_dir / "progress.jsonl"
         self._snapshot_last = 0.0
@@ -105,6 +118,14 @@ class ProgressReporter:
     # lifecycle
     # ----------------------------------------------------------------- #
     def __enter__(self) -> "ProgressReporter":
+        if self._heartbeat_s > 0 and self._heartbeat_thread is None:
+            self._heartbeat_stop.clear()
+            self._heartbeat_thread = threading.Thread(
+                target=self._heartbeat_loop,
+                name=f"tend-progress-heartbeat-{self.run_id}",
+                daemon=True,
+            )
+            self._heartbeat_thread.start()
         if self._enabled:
             self._live = Live(self, console=self._console, refresh_per_second=8,
                               transient=False)
@@ -112,6 +133,10 @@ class ProgressReporter:
         return self
 
     def __exit__(self, *exc: object) -> None:
+        if self._heartbeat_thread is not None:
+            self._heartbeat_stop.set()
+            self._heartbeat_thread.join(timeout=1.0)
+            self._heartbeat_thread = None
         if self._live is not None:
             self._live.update(self)        # final frame
             self._live.stop()
@@ -122,12 +147,14 @@ class ProgressReporter:
 
     def phase(self, name: str) -> None:
         with self._lock:
+            self._last_activity = time.monotonic()
             self._phase = name
             self._write_snapshot(reason="phase", force=True)
 
     def add_group(self, group_id: str, label: str, *, phase: str | None = None,
                   total: int | None = None) -> None:
         with self._lock:
+            self._last_activity = time.monotonic()
             order = self._groups[group_id].order if group_id in self._groups else len(self._groups)
             self._groups[group_id] = _Group(label=label, phase=phase or self._phase,
                                             total=total, order=order)
@@ -138,6 +165,7 @@ class ProgressReporter:
     # ----------------------------------------------------------------- #
     def start_task(self, task_id: str, label: str, *, group: str = "", detail: str = "") -> None:
         with self._lock:
+            self._last_activity = time.monotonic()
             if group and group not in self._groups:
                 self.add_group(group, group)
             self._tasks[task_id] = _Task(label=label, group=group, detail=detail)
@@ -148,6 +176,7 @@ class ProgressReporter:
     def update_task(self, task_id: str, *, detail: str | None = None,
                     status: str | None = None) -> None:
         with self._lock:
+            self._last_activity = time.monotonic()
             t = self._tasks.get(task_id)
             if not t:
                 return
@@ -159,6 +188,7 @@ class ProgressReporter:
 
     def retry_task(self, task_id: str, *, detail: str = "") -> None:
         with self._lock:
+            self._last_activity = time.monotonic()
             t = self._tasks.get(task_id)
             if t:
                 t.status = "retry"
@@ -169,6 +199,7 @@ class ProgressReporter:
     def finish_task(self, task_id: str, *, ok: bool = True, anomaly: str | None = None,
                     detail: str | None = None) -> None:
         with self._lock:
+            self._last_activity = time.monotonic()
             t = self._tasks.get(task_id)
             if not t:
                 return
@@ -184,6 +215,7 @@ class ProgressReporter:
 
     def _on_anomaly(self, record: dict[str, Any]) -> None:
         with self._lock:
+            self._last_activity = time.monotonic()
             kind = record.get("anomaly", "internal")
             self._anom_by_kind[kind] = self._anom_by_kind.get(kind, 0) + 1
             self._anoms.append(record)
@@ -198,6 +230,7 @@ class ProgressReporter:
         if event not in _WATCH_EVENTS and level not in {"warning", "error"}:
             return
         with self._lock:
+            self._last_activity = time.monotonic()
             self._alert_by_event[event] = self._alert_by_event.get(event, 0) + 1
             self._alerts.append({"alert_kind": "event", **record})
             self._write_snapshot(reason="event", force=True)
@@ -211,6 +244,11 @@ class ProgressReporter:
         task_count = sum(1 for task in self._tasks.values() if task.group == group)
         if task_count > g.total:
             g.total = None
+
+    def _heartbeat_loop(self) -> None:
+        while not self._heartbeat_stop.wait(self._heartbeat_s):
+            with self._lock:
+                self._write_snapshot(reason="heartbeat", force=True)
 
     # ----------------------------------------------------------------- #
     # rendering
@@ -367,6 +405,10 @@ class ProgressReporter:
             for task_id, task in sorted(self._tasks.items())
             if task.status not in {"ok"}
         ]
+        oldest_running = max(
+            (item["elapsed_s"] for item in running if item["status"] in {"running", "retry"}),
+            default=0.0,
+        )
         payload = {
             "ts": time.time(),
             "reason": reason,
@@ -374,6 +416,9 @@ class ProgressReporter:
             "phase": self._phase,
             "tasks": dict(self._counts),
             "running_or_problem_tasks": running[-25:],
+            "last_activity_age_s": round(time.monotonic() - self._last_activity, 1),
+            "oldest_running_task_elapsed_s": oldest_running,
+            "suspected_stall": bool(oldest_running >= self._stall_warn_s),
             "anomalies_by_kind": dict(self._anom_by_kind),
             "alerts_by_event": dict(self._alert_by_event),
             "recent_alerts": list(self._alerts)[-8:],
