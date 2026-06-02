@@ -1291,6 +1291,8 @@ _BUILDER_CASES = [
      {"c": [{"_id": 1, "k": "loan", "amount": 100}, {"_id": 2, "k": "other"}]}),
     ("optional_embed_projection", {"parent_collection": "a", "embed_field": "loan", "value_path": "amount", "target_field": "amt", "missing_default": 0},
      {"a": [{"_id": 1, "loan": {"amount": 500}}, {"_id": 2}]}),
+    ("fk_rollup", {"parent_collection": "a", "child_collection": "c", "parent_key": "_id", "foreign_key": "aid", "agg": "sum", "value_field": "amt"},
+     {"a": [{"_id": 1}, {"_id": 2}, {"_id": 3}], "c": [{"_id": 11, "aid": 1, "amt": 10}, {"_id": 12, "aid": 1, "amt": 20}, {"_id": 13, "aid": 2, "amt": 5}]}),
 ]
 
 # archetypes the planner can tag structural_schema_flex must use $type/$objectToArray + $switch/$cond

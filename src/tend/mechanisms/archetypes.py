@@ -125,6 +125,9 @@ ARCHETYPES: dict[str, list[Archetype]] = {
            "group by key, count", "L1", "feasible", "reduce"),
         _a("none", "join_nested_group", "join/unwind then group",
            "lookup or unwind embedded array, then group", "L2", "feasible", "reduce"),
+        _a("none", "fk_rollup", "cross-collection rollup of child rows to each parent",
+           "$lookup a child collection by foreign key, aggregate per parent (multi-collection)",
+           "L3", "feasible", "reshape"),
     ],
 }
 

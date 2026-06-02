@@ -200,6 +200,15 @@ _ARCHETYPE_ORACLE_GUIDE = {
         "default}. Coalesces the first present candidate field (handles cross-version renames) "
         "then aggregates. Emit the literal template 'cross_version_agg' — no other name."
     ),
+    "fk_rollup": (
+        "Allowed reference_oracle template for this archetype:\n"
+        "- fk_rollup params {parent_collection, child_collection, parent_key, foreign_key, agg, "
+        "optional value_field, optional match:{field,value}}. Pick a REAL parent->child foreign "
+        "key: child_collection.foreign_key references parent_collection.parent_key (parent_key is "
+        "usually '_id'). agg is count|sum|avg|min|max; value_field is the child's numeric field "
+        "(required unless agg=count). This rolls each parent's child rows up via a $lookup join. "
+        "Emit the literal template 'fk_rollup' — no other name."
+    ),
 }
 _METRIC_FIELD_PRIORITY = (
     "amount", "balance", "payments", "value", "total", "sum", "cost", "price",
@@ -1560,10 +1569,48 @@ def _canonical_optional_embed_projection_mql(params: dict[str, Any], schema: dic
     return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
 
 
+def _canonical_fk_rollup_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    """Cross-collection rollup: per parent, $lookup its child rows by FK and aggregate — a
+    genuine multi-collection query (mirrors oracles._fk_rollup)."""
+    parent = params.get("parent_collection")
+    child = params.get("child_collection")
+    pk = params.get("parent_key")
+    fk = params.get("foreign_key")
+    if not all(isinstance(x, str) and x for x in (parent, child, pk, fk)):
+        return None
+    agg = str(params.get("agg", "count") or "count").lstrip("$").lower()
+    if agg not in {"count", "sum", "avg", "min", "max"}:
+        return None
+    vf = params.get("value_field")
+    match = params.get("match")
+    as_f = "__tend_kids"
+    src: Any = f"${as_f}"
+    if isinstance(match, dict) and match.get("field") is not None:
+        src = {"$filter": {"input": f"${as_f}", "as": "k",
+                           "cond": {"$eq": [f"$$k.{match['field']}", match.get("value")]}}}
+    if agg == "count":
+        value_expr: Any = {"$size": src}
+    else:
+        if not isinstance(vf, str) or not vf:
+            return None
+        numeric_vals = {"$filter": {
+            "input": {"$map": {"input": src, "as": "k", "in": f"$$k.{vf}"}},
+            "as": "v", "cond": {"$in": [{"$type": "$$v"}, _NUMERIC_BSON_TYPES]},
+        }}
+        value_expr = {"$ifNull": [{f"${agg}": numeric_vals}, 0]}  # empty -> 0, mirroring the oracle
+    stages = [
+        {"$lookup": {"from": child, "localField": pk, "foreignField": fk, "as": as_f}},
+        {"$addFields": {"value": value_expr}},
+        {"$project": {"_id": (1 if pk == "_id" else f"${pk}"), "value": 1}},
+    ]
+    return f"db.{parent}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
 #: archetype reference_oracle.template -> deterministic gold-MQL builder. Templates here
 #: lock by construction (gold derived from oracle params); the rest fall back to the
 #: LLM MQL and must match the oracle to lock.
 _CANONICAL_MQL_BUILDERS: dict[str, Callable[[dict[str, Any], dict[str, Any]], str | None]] = {
+    "fk_rollup": _canonical_fk_rollup_mql,
     "has_vs_absent_compare": _canonical_has_vs_absent_compare_mql,
     "present_missing_projection": _canonical_present_missing_projection_mql,
     "optional_embed_projection": _canonical_optional_embed_projection_mql,
@@ -1601,6 +1648,7 @@ _CANONICAL_SHAPE: dict[str, str] = {
     "simple_filter": "reshape",
     "subtype_specific_field": "reshape",
     "cross_keyset_value": "reshape",
+    "fk_rollup": "reshape",
 }
 
 

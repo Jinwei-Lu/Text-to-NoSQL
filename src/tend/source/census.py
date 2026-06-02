@@ -202,7 +202,8 @@ def plan_coverage_slots(
         # baseline 'none' cells are available on every db (domain/workload baseline)
         for arch in ARCHETYPES["none"]:
             diff = arch.difficulty
-            bucket = {"L2": mid_cells, "L1": low_cells, "L0": l0_cells}[diff]
+            bucket = {"L4": l4_cells, "L3": mid_cells, "L2": mid_cells,
+                      "L1": low_cells, "L0": l0_cells}[diff]
             bucket.append((db_id, "none", arch.id))
 
     l4_cells, mid_cells = _ordered_cells(census, l4_cells, seed), _ordered_cells(census, mid_cells, seed)

@@ -468,12 +468,46 @@ def _join_nested_group(snapshot: Snapshot, params: dict[str, Any]) -> list[dict[
     return [{"_id": k, "value": _aggregate(v, agg)} for k, v in buckets.items()]
 
 
+def _fk_rollup(snapshot: Snapshot, params: dict[str, Any]) -> list[dict[str, Any]]:
+    """Cross-collection rollup: per parent, aggregate a metric over its child rows joined by FK.
+
+    A genuine multi-collection query (the join/aggregate that single-collection archetypes
+    lack). params: {parent_collection, child_collection, parent_key, foreign_key,
+    agg(count default), value_field?, match?}. Returns one row per parent:
+    ``{_id: parent[parent_key], value: agg(children)}`` (parents with no children -> 0).
+    """
+    _require(params, "parent_collection", "child_collection", "parent_key", "foreign_key")
+    parents = _docs(snapshot, params["parent_collection"])
+    children = _docs(snapshot, params["child_collection"])
+    pk, fk = params["parent_key"], params["foreign_key"]
+    vf, agg = params.get("value_field"), params.get("agg", "count")
+    match = params.get("match")
+    mfield = match.get("field") if isinstance(match, dict) else None
+    mval = match.get("value") if isinstance(match, dict) else None
+    by_fk: dict[Any, list[dict[str, Any]]] = {}
+    for c in children:
+        if mfield is not None and _get(c, mfield)[1] != mval:
+            continue
+        by_fk.setdefault(_get(c, fk)[1], []).append(c)
+    out = []
+    for p in parents:
+        kids = by_fk.get(_get(p, pk)[1], [])
+        if _normal_agg(agg) == "count":
+            value: float = float(len(kids))
+        else:
+            vals = [n for k in kids if (n := _num(_get(k, vf)[1])) is not None] if vf else []
+            value = _aggregate(vals, agg)
+        out.append({"_id": _get(p, pk)[1], "value": value})
+    return out
+
+
 _REGISTRY: dict[str, Oracle] = {
     # baseline (mechanism="none")
     "simple_filter": _simple_filter,
     "topn": _topn,
     "group_count": _group_count,
     "join_nested_group": _join_nested_group,
+    "fk_rollup": _fk_rollup,
     # sparse_scalar
     "existence_count": _existence_count,
     "null_coalesce_agg": _null_coalesce_agg,
@@ -498,6 +532,7 @@ _REQUIRED_PARAMS: dict[str, tuple[str, ...]] = {
     "topn": ("collection", "sort_key", "n"),
     "group_count": ("collection", "group_by"),
     "join_nested_group": ("collection", "array_field", "group_by"),
+    "fk_rollup": ("parent_collection", "child_collection", "parent_key", "foreign_key"),
     "existence_count": ("collection", "field"),
     "null_coalesce_agg": ("collection", "field", "agg"),
     "per_subtype_agg": ("collection", "discriminator", "field_by_subtype", "agg"),
