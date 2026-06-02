@@ -36,27 +36,31 @@ _STUB: dict[str, dict[str, Any]] = {
         "intent": {"seed_mechanism": "sparse_embed",
                    "seed_signal": {"collection": "account", "field": "loan"},
                    "archetype": "present_missing_projection",
-                   "target_difficulty": "L4",
-                   "target_sql_infeasibility_class": "structural_schema_flex",
-                   "schema_flex_mode": "polymorphic",
+                   "domain_framing": {
+                       "entity_noun": "account",
+                       "metric_noun": "loan_amount",
+                   },
                    "analytical_op": {
                        "target_field": "loan_amount",
+                       "metric_source_fields": ["loan.amount"],
                        "formula": "IF loan is present THEN loan.amount ELSE 0",
-                       "missing_default": 0,
+                       "missing_default_semantics": {
+                           "loan": "missing or null loan emits loan_amount 0",
+                       },
                        "preserve_existing": True,
                    },
                    "shape_policy": "preserve",
-                   "output": {"fields": ["loan_amount"], "missing": 0},
-                   "semantic_properties": ["present/missing both covered"]},
-        "reference_oracle": {
-            "template": "optional_embed_projection",
-            "params": {
-                "parent_collection": "account",
-                "embed_field": "loan",
-                "value_path": "amount",
-                "target_field": "loan_amount",
-                "missing_default": 0,
-            },
+                   "semantic_properties": [
+                       {"id": "loan_present_branch", "expect": "loan-present accounts use loan.amount"},
+                       {"id": "loan_missing_branch", "expect": "loan-missing accounts emit 0"},
+                       {"id": "preserve_account_count", "expect": "one output document per account"},
+                   ],
+                   "target_difficulty": "L4"},
+        "qps_trace": {
+            "coverage_cell": "sparse_embed|present_missing_projection|stub",
+            "deficit_weight": 0,
+            "supply_constrained": False,
+            "rationale": "static stub QPS intent",
         },
     },
     "ms": {"MQL": _STUB_MQL, "mql_alt": _STUB_MQL, "shape_policy": "preserve",
@@ -287,14 +291,40 @@ def _seeded_nlp_stub(messages: list[Message]) -> dict[str, Any]:
     seed_signal = intent.get("seed_signal") if isinstance(intent.get("seed_signal"), dict) else {}
     collection = str(seed_signal.get("collection") or "the collection")
     signal_field = str(seed_signal.get("field") or field_text)
+    analytical_op = intent.get("analytical_op") if isinstance(intent.get("analytical_op"), dict) else {}
+    reference_oracle = (
+        intent.get("reference_oracle") if isinstance(intent.get("reference_oracle"), dict) else {}
+    )
+    oracle_params = (
+        reference_oracle.get("params")
+        if isinstance(reference_oracle.get("params"), dict)
+        else {}
+    )
     fingerprint = _mql_fingerprint_from_messages(messages)
     case_note = f" for case {fingerprint}" if fingerprint else ""
 
     if shape in {"reduce", "reshape"}:
-        canonical = (
-            f"Summarize {collection}{case_note} using the {archetype} pattern over {signal_field} "
-            f"and output {field_text}."
-        )
+        if archetype == "has_vs_absent_compare":
+            agg = str(oracle_params.get("agg") or analytical_op.get("aggregation") or "count")
+            metric = oracle_params.get("metric_field")
+            if not isinstance(metric, str) or not metric:
+                metric_sources = analytical_op.get("metric_source_fields")
+                if isinstance(metric_sources, list) and metric_sources:
+                    metric = str(metric_sources[0])
+            metric_clause = (
+                f" using the {agg} of {metric}"
+                if agg != "count" and metric
+                else " using the count of documents"
+            )
+            canonical = (
+                f"Summarize {collection}{case_note} into exact groups present and absent based "
+                f"on {signal_field}{metric_clause}, and output {field_text}."
+            )
+        else:
+            canonical = (
+                f"Summarize {collection}{case_note} using the {archetype} pattern over "
+                f"{signal_field} and output {field_text}."
+            )
         if archetype == "schema_flex_variant_summary":
             canonical += " Use exact variant labels present and missing."
         colloquial = f"Give the grouped {field_text} summary for {collection}{case_note}."
@@ -354,7 +384,7 @@ def _json_block_from_messages(messages: list[Message], marker: str) -> dict[str,
 def _seeded_qps_stub(seed: dict[str, Any], messages: list[Message]) -> dict[str, Any]:
     prompt = "\n".join(str(m.get("content", "")) for m in messages if isinstance(m, dict))
     archetype = _prompt_line(prompt, "archetype") or "group_count"
-    mechanism = _prompt_line(prompt, "seed_mechanism") or "none"
+    mechanism = _public_seed_mechanism(_prompt_line(prompt, "seed_mechanism"))
     params = seed.get("params") if isinstance(seed.get("params"), dict) else {}
     target = (
         params.get("target_field")
@@ -366,37 +396,51 @@ def _seeded_qps_stub(seed: dict[str, Any], messages: list[Message]) -> dict[str,
     preserve_templates = {"optional_embed_projection", "present_missing_projection",
                           "subtype_cond_projection"}
     shape = "preserve" if seed.get("template") in preserve_templates else "reduce"
+    missing_default = params.get("missing_default", params.get("default", 0))
+    collection = str(params.get("collection") or params.get("parent_collection") or "")
+    target_text = str(target)
     return {
         "intent": {
             "seed_mechanism": mechanism,
             "seed_signal": {
-                "collection": params.get("collection") or params.get("parent_collection") or "",
-                "field": target,
+                "collection": collection,
+                "field": target_text,
             },
             "archetype": archetype,
-            "target_difficulty": _prompt_line(prompt, "target_difficulty") or "L4",
-            "target_sql_infeasibility_class": (
-                _prompt_line(prompt, "target_sql_infeasibility_class")
-                or "structural_schema_flex"
-            ),
-            "schema_flex_mode": _prompt_line(prompt, "target_schema_flex") or "polymorphic",
+            "domain_framing": {
+                "entity_noun": collection or "record",
+                "metric_noun": target_text,
+            },
             "analytical_op": {
-                "target_field": str(target),
+                "target_field": target_text,
                 "formula": f"deterministic seeded oracle {seed.get('template')}",
-                "missing_default": params.get("missing_default", params.get("default", 0)),
+                "missing_default_semantics": {
+                    target_text: f"missing or null value emits {missing_default}",
+                },
+                "preserve_existing": shape == "preserve",
             },
             "shape_policy": shape,
-            "output": {"fields": [str(target)], "missing": params.get("missing_default", 0)},
-            "semantic_properties": ["deterministic diversity seed honored"],
+            "semantic_properties": [
+                {
+                    "id": "deterministic_seed_honored",
+                    "expect": "business intent follows the deterministic diversity seed",
+                }
+            ],
+            "target_difficulty": _prompt_line(prompt, "target_difficulty") or "L4",
         },
-        "reference_oracle": seed,
+        "qps_trace": {
+            "coverage_cell": f"{mechanism}|{archetype}|stub",
+            "deficit_weight": 0,
+            "supply_constrained": False,
+            "rationale": "stubbed deterministic QPS intent",
+        },
     }
 
 
 def _design_card_qps_stub(card: dict[str, Any], messages: list[Message]) -> dict[str, Any]:
     prompt = "\n".join(str(m.get("content", "")) for m in messages if isinstance(m, dict))
     archetype = _prompt_line(prompt, "archetype") or "group_count"
-    mechanism = _prompt_line(prompt, "seed_mechanism") or "none"
+    mechanism = _public_seed_mechanism(_prompt_line(prompt, "seed_mechanism"))
     field_hints = card.get("field_hints") if isinstance(card.get("field_hints"), list) else []
     collection_hints = (
         card.get("collection_hints") if isinstance(card.get("collection_hints"), list) else []
@@ -423,21 +467,33 @@ def _design_card_qps_stub(card: dict[str, Any], messages: list[Message]) -> dict
             "seed_mechanism": mechanism,
             "seed_signal": {"collection": collection, "field": target},
             "archetype": archetype,
-            "target_difficulty": _prompt_line(prompt, "target_difficulty") or "L4",
-            "target_sql_infeasibility_class": (
-                _prompt_line(prompt, "target_sql_infeasibility_class")
-                or "structural_schema_flex"
-            ),
-            "schema_flex_mode": _prompt_line(prompt, "target_schema_flex") or "polymorphic",
+            "domain_framing": {
+                "entity_noun": collection or "record",
+                "metric_noun": target,
+            },
             "analytical_op": {
                 "target_field": target,
                 "formula": f"stub-designed {archetype} over {schema_feature or target}",
-                "missing_default": 0,
+                "missing_default_semantics": {
+                    target: "missing or null value emits 0",
+                },
+                "preserve_existing": shape == "preserve",
             },
             "shape_policy": shape,
-            "output": {"fields": [target], "missing": 0},
-            "semantic_properties": ["stub design card honored"],
-        }
+            "semantic_properties": [
+                {
+                    "id": "design_card_honored",
+                    "expect": "business intent follows the runtime design card",
+                }
+            ],
+            "target_difficulty": _prompt_line(prompt, "target_difficulty") or "L4",
+        },
+        "qps_trace": {
+            "coverage_cell": f"{mechanism}|{archetype}|stub",
+            "deficit_weight": 0,
+            "supply_constrained": False,
+            "rationale": "stubbed design-card QPS intent",
+        },
     }
 
 
@@ -447,3 +503,8 @@ def _prompt_line(text: str, key: str) -> str | None:
         if line.startswith(prefix):
             return line.split(":", 1)[1].strip() or None
     return None
+
+
+def _public_seed_mechanism(value: str | None) -> str:
+    mechanism = str(value or "none")
+    return "none" if mechanism in {"", "baseline"} else mechanism

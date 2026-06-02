@@ -18,7 +18,6 @@
         "analytical_op",
         "shape_policy",
         "semantic_properties",
-        "reference_oracle",
         "target_difficulty"
       ],
       "properties": {
@@ -49,7 +48,8 @@
         "analytical_op": {
           "type": "object",
           "minProperties": 1,
-          "additionalProperties": true
+          "additionalProperties": true,
+          "description": "Business-level operation. For preserve structural-schema-flex outputs, this must fully specify labels, target fields, source metric fields, aggregation scope, and missing/null/default semantics."
         },
         "shape_policy": {
           "type": "string",
@@ -66,15 +66,6 @@
               "id": { "type": "string", "minLength": 1 },
               "expect": { "type": "string", "minLength": 1 }
             }
-          }
-        },
-        "reference_oracle": {
-          "type": "object",
-          "additionalProperties": true,
-          "required": ["template", "params"],
-          "properties": {
-            "template": { "type": "string", "minLength": 1 },
-            "params": { "type": "object" }
           }
         },
         "target_difficulty": {

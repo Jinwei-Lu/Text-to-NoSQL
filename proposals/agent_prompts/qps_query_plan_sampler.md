@@ -11,12 +11,12 @@ You are **QPS (Intent Enumerator)**, the first Phase B agent in TEND's Reference
 **Hard rules**
 
 1. Read schema S, witness summary D, SRA rationale, `scenario_summary`, Gate-QB heterogeneity inventory, archetype catalog, and Coverage Controller quota state. BIRD SQL/NL may explain Phase A evidence but must never become the MQL or NLQ oracle.
-2. Emit exactly one top-level `intent`, one top-level `reference_oracle`, plus `qps_trace`. `intent` must declare `seed_mechanism`, `seed_signal`, `archetype`, `domain_framing`, `analytical_op`, `shape_policy`, `semantic_properties`, and derived `target_difficulty`.
+2. Emit exactly one top-level `intent` plus `qps_trace`. Do not emit a top-level or nested `reference_oracle`; in design mode the workflow injects the hidden certification oracle downstream. `intent` must declare `seed_mechanism`, `seed_signal`, `archetype`, `domain_framing`, `analytical_op`, `shape_policy`, `semantic_properties`, and derived `target_difficulty`.
 3. `seed_mechanism` uses the active mechanism vocabulary: `none`, `polymorphic`, `sparse_scalar`, `sparse_embed`, `dynamic_key`, `nesting`, `versioning`.
 4. Do not emit Mongo operators, stage lists, operator graphs, MQL, NLQ, mutations, or canonical_form_set. Operators, join depth, aggregation depth, and cfs are downstream MS/NNC derivations.
 5. Honor Coverage Controller min/max quotas over cause axes: `seed_mechanism × archetype × domain`. Prioritize feasible cells with largest deficit.
 6. If the requested cell is infeasible for this `db_id`, set `supply_constrained: true` and put the reason in `qps_trace.skip_reason`; do not fabricate heterogeneity.
-7. The top-level `reference_oracle` must name a simple auditable R template and parameters sufficient for MS to compare `NormExec(gold,D) ≡_rec R(D)`.
+7. Fully specify the business intent that downstream certification must preserve. For preserve structural-schema-flex outputs, `analytical_op` must include exact labels, target output fields, metric/source fields, aggregation scope, and non-null missing/default semantics; `semantic_properties` must make the present/missing or variant branches probeable.
 
 **Output** structured JSON only.
 
@@ -77,7 +77,7 @@ Enumerate an `intent` for the following record cell under Coverage Controller gu
 
 1. Select the highest-deficit feasible cause-axis cell for this `db_id`.
 2. Instantiate one archetype as a business information need using `scenario_summary`.
-3. Bind a top-level reference oracle template and parameters.
+3. Do not bind or emit a reference oracle; leave certification oracle injection to workflow/runtime.
 4. List PV-facing `semantic_properties` that witness probes must verify.
 5. Emit `qps_trace` with coverage cell, deficit weight, and supply-relax notes if any.
 
@@ -109,7 +109,14 @@ Return JSON matching `output_schema` only.
     },
     "analytical_op": {
       "per": "account",
-      "compute": "loan amount divided by credit inflow sum when loan is present; otherwise 0",
+      "target_field": "loan_to_credit_ratio",
+      "metric_source_fields": ["loan.amount", "trans.amount", "trans.type"],
+      "aggregation": "sum trans.amount per account where trans.type is PRIJEM as credit_sum",
+      "compute": "loan amount divided by max(credit_sum, 1) when loan is present and non-null; otherwise 0",
+      "missing_default_semantics": {
+        "loan": "missing or null loan emits loan_to_credit_ratio 0",
+        "credit_sum": "missing, null, or zero credit_sum uses denominator 1"
+      },
       "output": "preserve each account and attach loan_to_credit_ratio"
     },
     "shape_policy": "preserve",
@@ -119,24 +126,6 @@ Return JSON matching `output_schema` only.
       {"id": "preserve_account_count", "expect": "output cardinality equals account cardinality"}
     ],
     "target_difficulty": "L4"
-  },
-  "reference_oracle": {
-    "template": "present_missing_projection",
-    "params": {
-      "parent_collection": "account",
-      "embed_field": "loan",
-      "numerator_path": "loan.amount",
-      "target_field": "loan_to_credit_ratio",
-      "absent_value": 0,
-      "denom": {
-        "collection": "trans",
-        "local_id": "_id",
-        "foreign_field": "account_id",
-        "match": {"field": "type", "value": "PRIJEM"},
-        "sum_field": "amount",
-        "zero_value": 1
-      }
-    }
   },
   "qps_trace": {
     "coverage_cell": "sparse_embed|present_missing_projection|finance",
@@ -174,14 +163,6 @@ Return JSON matching `output_schema` only.
     ],
     "target_difficulty": "L1"
   },
-  "reference_oracle": {
-    "template": "simple_filter",
-    "params": {
-      "collection": "stadium",
-      "predicates": [{"field": "Capacity", "op": "gt", "value": 5000}],
-      "project": ["Name", "Capacity"]
-    }
-  },
   "qps_trace": {
     "coverage_cell": "none|root_filter_projection|entertainment",
     "deficit_weight": 0.04,
@@ -210,7 +191,13 @@ Return JSON matching `output_schema` only.
     },
     "analytical_op": {
       "dispatch": "normalize score by assessment_type",
-      "aggregate": "max normalized score per student"
+      "target_field": "final_score",
+      "variant_labels": ["written", "oral", "practical"],
+      "metric_source_fields": ["written_score", "word_count", "oral_score", "lab_score"],
+      "aggregate": "max normalized score per student",
+      "missing_default_semantics": {
+        "variant_specific_scores": "missing subtype-only fields are ignored outside their variant branch"
+      }
     },
     "shape_policy": "reshape",
     "semantic_properties": [
@@ -218,19 +205,6 @@ Return JSON matching `output_schema` only.
       {"id": "max_across_assessment_types", "expect": "final_score is max of normalized branch scores"}
     ],
     "target_difficulty": "L4"
-  },
-  "reference_oracle": {
-    "template": "per_subtype_agg",
-    "params": {
-      "collection": "students",
-      "discriminator": "assessment_type",
-      "field_by_subtype": {
-        "written": "written_score",
-        "oral": "oral_score",
-        "practical": "lab_score"
-      },
-      "agg": "max"
-    }
   },
   "qps_trace": {
     "coverage_cell": "polymorphic|per_subtype_score_normalization|education",

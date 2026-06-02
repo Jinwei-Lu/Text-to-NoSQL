@@ -1,21 +1,35 @@
 {
   "intent": {
     "seed_mechanism": "sparse_embed",
-    "seed_signal": {},
-    "archetype": "present_missing_projection",
-    "domain_framing": {},
-    "analytical_op": {},
-    "shape_policy": "augment",
-    "semantic_properties": [],
-    "reference_oracle": {
-      "template": "",
-      "params": {}
+    "seed_signal": {
+      "collection": "account",
+      "field": "loan"
     },
+    "archetype": "present_missing_projection",
+    "domain_framing": {
+      "entity_noun": "account",
+      "metric_noun": "loan_to_credit_ratio"
+    },
+    "analytical_op": {
+      "target_field": "loan_to_credit_ratio",
+      "compute": "loan-present accounts use loan.amount; loan-missing accounts emit 0"
+    },
+    "shape_policy": "preserve",
+    "semantic_properties": [
+      { "id": "loan_missing_branch", "expect": "loan-missing accounts emit 0" }
+    ],
     "target_difficulty": "L4"
   },
   "qps_trace": {
-    "coverage_cell": "",
-    "deficit_weight": -0.1,
+    "coverage_cell": "sparse_embed|present_missing_projection|finance",
+    "deficit_weight": 0.22,
     "supply_constrained": false
+  },
+  "reference_oracle": {
+    "template": "present_missing_projection_ratio",
+    "params": {
+      "root_collection": "account",
+      "optional_field": "loan"
+    }
   }
 }

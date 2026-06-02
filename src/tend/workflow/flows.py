@@ -305,6 +305,7 @@ async def run_phase_b(
     slots: list[CoverageSlot],
     *,
     seen_mql: dict[tuple[str, str], int] | None = None,
+    seen_skeleton: dict[tuple[str, str], list[int]] | None = None,
 ) -> list[dict[str, Any]]:
     """Construct one record per coverage slot, pipelined across slots."""
     wf.phase("B")
@@ -313,7 +314,7 @@ async def run_phase_b(
 
     ledger = DiversityLedger(
         seen_mql=seen_mql if seen_mql is not None else {},
-        seen_skeleton={},
+        seen_skeleton=seen_skeleton if seen_skeleton is not None else {},
         lock=asyncio.Lock(),
     )
     records = await wf.pipeline(
@@ -396,7 +397,13 @@ async def _build_record(
     # MS: when the slot has a hidden deterministic oracle, compile the gold MQL first.
     # This keeps live throughput stable: LLMs still design intents/NL, but correctness of the
     # executable gold is no longer gated on the MS agent producing parseable bespoke JSON.
-    ms = await _compile_reference_oracle_ms(ctx, art, slot, intent, reference)
+    compiled_ms = await _compile_reference_oracle_ms(ctx, art, slot, intent, reference)
+    compiled_gold_provenance = (
+        dict(compiled_ms["compiled_gold_provenance"])
+        if compiled_ms is not None and isinstance(compiled_ms.get("compiled_gold_provenance"), dict)
+        else None
+    )
+    ms = compiled_ms
     ms_feedback = None
     if ms is None:
         for r in range(MS_MAX_ROUNDS + 1):
@@ -508,10 +515,67 @@ async def _build_record(
             if ctx.progress:
                 ctx.progress.finish_task(f"{slot.record_id}:mut")
 
+    def rtv_inputs_for(nlp: dict[str, Any] | None) -> dict[str, Any]:
+        inputs = {
+            "nl_queries": (nlp or {}).get("nl_queries"),
+            "MQL": ms["MQL"],
+            "schema": art.mongodb_schema,
+        }
+        if compiled_gold_provenance is not None:
+            inputs.update({
+                "verification_mode": "compiled_reference_oracle_nl_contract",
+                "reference_oracle": reference,
+                "result_fields": ms.get("result_fields"),
+                "shape_policy": ms.get("shape_policy"),
+                "compiled_gold_provenance": compiled_gold_provenance,
+            })
+        return inputs
+
+    def rtv_failure_fields(
+        rtv: dict[str, Any] | None,
+        *,
+        retry_round: int,
+    ) -> dict[str, Any]:
+        detail = rtv if isinstance(rtv, dict) else {}
+        rtv_mode = (
+            "compiled_reference_oracle_nl_contract"
+            if compiled_gold_provenance is not None
+            else "round_trip"
+        )
+        agent_rtv_mode = detail.get("rtv_mode") if isinstance(detail.get("rtv_mode"), str) else None
+        return {
+            "branch": "nlp_rtv",
+            "round": retry_round,
+            "retry_round": retry_round,
+            "rtv_mode": rtv_mode,
+            "agent_rtv_mode": agent_rtv_mode,
+            "template": reference.get("template") if isinstance(reference, dict) else None,
+            "rtv_reason": detail.get("rtv_reason"),
+            "violations": detail.get("violations"),
+            "missing_terms": detail.get("missing_terms"),
+        }
+
+    def rtv_progress_detail(
+        rtv: dict[str, Any] | None,
+        *,
+        retry_round: int,
+        final: bool = False,
+    ) -> str:
+        fields = rtv_failure_fields(rtv, retry_round=retry_round)
+        reason = fields.get("rtv_reason") or "RTV rejected"
+        mode = fields.get("rtv_mode") or "round_trip"
+        template = fields.get("template") or "unknown"
+        prefix = f"RTV failed after {retry_round} retries" if final else f"RTV retry {retry_round}"
+        return f"{prefix}: mode={mode}; template={template}; reason={reason}"
+
     async def nl_branch() -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         ctx.log.info("phase_b_branch_start", branch="nlp_rtv")
+        task_id = f"{slot.record_id}:nl"
+        rtv: dict[str, Any] | None = None
+        rounds = 0
+        nonlocal rtv_retries_used
         if ctx.progress:
-            ctx.progress.start_task(f"{slot.record_id}:nl", "NLP/RTV", group="phaseB")
+            ctx.progress.start_task(task_id, "NLP/RTV", group="phaseB")
         try:
             nlp_inputs = {
                 "intent": intent,
@@ -520,20 +584,31 @@ async def _build_record(
                 "result_fields": ms.get("result_fields"),
             }
             nlp = await wf.agent("nlp", nlp_inputs, ctx=ctx)
-            rtv = await wf.agent("rtv", {"nl_queries": (nlp or {}).get("nl_queries"),
-                                         "MQL": ms["MQL"], "schema": art.mongodb_schema}, ctx=ctx)
-            rounds = 0
+            rtv = await wf.agent("rtv", rtv_inputs_for(nlp), ctx=ctx)
             while (not rtv or not rtv.get("rtv_pass")) and rounds < RTV_MAX_ROUNDS:
                 rounds += 1
-                ctx.log.warning("rtv_reject", branch="nlp_rtv", round=rounds,
-                                reason=(rtv or {}).get("rtv_reason"))
+                rtv_retries_used = rounds
+                reject_fields = rtv_failure_fields(rtv, retry_round=rounds)
+                ctx.log.warning(
+                    "rtv_reject",
+                    reason=reject_fields.get("rtv_reason") or "RTV rejected",
+                    **reject_fields,
+                )
+                if ctx.progress:
+                    ctx.progress.retry_task(task_id, detail=rtv_progress_detail(rtv, retry_round=rounds))
                 nlp = await wf.agent("nlp", {**nlp_inputs, "rtv_feedback": rtv}, ctx=ctx)
-                rtv = await wf.agent("rtv", {"nl_queries": (nlp or {}).get("nl_queries"),
-                                             "MQL": ms["MQL"], "schema": art.mongodb_schema}, ctx=ctx)
+                rtv = await wf.agent("rtv", rtv_inputs_for(nlp), ctx=ctx)
             return nlp, rtv
         finally:
             if ctx.progress:
-                ctx.progress.finish_task(f"{slot.record_id}:nl")
+                if rtv is not None and rtv.get("rtv_pass"):
+                    ctx.progress.finish_task(task_id)
+                else:
+                    ctx.progress.finish_task(
+                        task_id,
+                        ok=False,
+                        detail=rtv_progress_detail(rtv, retry_round=rounds, final=True),
+                    )
 
     async def ra_branch() -> dict[str, Any] | None:
         ctx.log.info("phase_b_branch_start", branch="ra")
@@ -545,6 +620,7 @@ async def _build_record(
             if ctx.progress:
                 ctx.progress.finish_task(f"{slot.record_id}:ra")
 
+    rtv_retries_used = 0
     mutation_task = asyncio.create_task(mutation_branch())
     nl_task = asyncio.create_task(nl_branch())
     ra_task = asyncio.create_task(ra_branch())
@@ -565,7 +641,7 @@ async def _build_record(
                      detail=(pv or {}).get("property_verification"))
     if not rtv or not rtv.get("rtv_pass"):
         return _drop(ctx, "rtv", "canonical NLQ does not round-trip to gold",
-                     detail=(rtv or {}).get("rtv_reason"))
+                     **rtv_failure_fields(rtv, retry_round=rtv_retries_used))
     if not ra or not ra.get("ra_pass"):
         return _drop(ctx, "ra", "realism / P4 non-triviality failed")
 
@@ -754,6 +830,13 @@ async def _compile_reference_oracle_ms(
             shape_policy=shape,
             schema_flex=schema_flex,
         )
+        compiled_gold_provenance = {
+            "source": "workflow_direct_compile",
+            "compiler": "_canonical_reference_mql",
+            "template": reference.get("template"),
+            "gold_lock": "norm_exec_nonempty",
+            "reference_oracle_canonicalized": False,
+        }
         return {
             "gold_locked": True,
             "MQL": mql,
@@ -762,8 +845,8 @@ async def _compile_reference_oracle_ms(
             "schema_flex": schema_flex,
             "result_fields": sorted({k for row in rows for k in row}),
             "reference_oracle_verified": True,
-            "reference_oracle_canonicalized": True,
             "compiled_reference_oracle": True,
+            "compiled_gold_provenance": compiled_gold_provenance,
         }
     except TendError as exc:
         ctx.log.warning(
@@ -774,7 +857,6 @@ async def _compile_reference_oracle_ms(
             context=exc.context,
         )
         return None
-
 
 async def _reserve_mql_identity(
     ctx: AgentContext,
@@ -1014,13 +1096,14 @@ def _complete_rationale(
     next_id = len(decisions) + 1
     for parent, children in sorted((migration_log.get("embeds") or {}).items()):
         for child in children:
+            child_name = _release_text(child)
             decisions.append({
                 "id": f"D{next_id:02d}",
                 "type": "embed",
-                "parent": parent,
-                "child": child,
+                "parent": _release_text(parent),
+                "child": child_name,
                 "rationale": (
-                    f"DM embedded sparse satellite table {child} under {parent} from "
+                    f"DM embedded sparse satellite table {child_name} under {_release_text(parent)} from "
                     "the BIRD foreign-key/cardinality evidence."
                 ),
                 "reference": "migration_log.embeds",
@@ -1100,7 +1183,16 @@ def _release_decision(decision: dict[str, Any]) -> dict[str, Any]:
     raw_type = str(out.get("type", "")).strip()
     normalized = mapping.get(raw_type.lower(), raw_type)
     out["type"] = normalized if normalized in allowed else "attribute"
+    for key in ("parent", "child", "reference"):
+        if key in out:
+            out[key] = _release_text(out[key])
     return out
+
+
+def _release_text(value: Any) -> str:
+    if isinstance(value, (list, tuple, set)):
+        return ", ".join(_release_text(v) for v in value)
+    return str(value)
 
 
 def _release_patterns_applied(values: Any, *, fallback: list[str]) -> list[str]:

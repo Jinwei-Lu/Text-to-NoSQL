@@ -193,8 +193,12 @@ def test_artifact_diversity_runner_refills_with_unused_slots(
         query_bearing=True,
     )
     calls: list[list[int]] = []
+    seen_skeleton_ids: list[int] = []
 
-    async def fake_run_phase_b(_workflow, _artifacts, slots, *, seen_mql=None):
+    async def fake_run_phase_b(_workflow, _artifacts, slots, *, seen_mql=None, seen_skeleton=None):
+        assert isinstance(seen_mql, dict)
+        assert isinstance(seen_skeleton, dict)
+        seen_skeleton_ids.append(id(seen_skeleton))
         calls.append([slot.slot_index for slot in slots])
         return [
             {"db_id": slot.db_id, "record_id": slot.record_id}
@@ -217,6 +221,7 @@ def test_artifact_diversity_runner_refills_with_unused_slots(
     assert len(records) == 2
     assert calls[0] == [0, 1]
     assert calls[1] == [2]
+    assert len(set(seen_skeleton_ids)) == 1
     assert slot_count == 3
     assert targets == {"financial": 2}
     assert pool_sizes["financial"] >= 3

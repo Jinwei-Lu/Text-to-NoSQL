@@ -13,7 +13,14 @@
     },
     "analytical_op": {
       "per": "account",
-      "compute": "if loan present then loan.amount / max(credit_sum, 1), else 0",
+      "target_field": "loan_to_credit_ratio",
+      "metric_source_fields": ["loan.amount", "trans.amount", "trans.type"],
+      "aggregation": "sum trans.amount per account where trans.type is PRIJEM as credit_sum",
+      "compute": "if loan is present and non-null then loan.amount / max(credit_sum, 1), else 0",
+      "missing_default_semantics": {
+        "loan": "missing or null loan emits loan_to_credit_ratio 0",
+        "credit_sum": "missing, null, or zero credit_sum uses denominator 1"
+      },
       "output": "preserve original account document and attach loan_to_credit_ratio"
     },
     "shape_policy": "preserve",
@@ -22,15 +29,6 @@
       { "id": "loan_missing_branch", "expect": "loan-missing accounts emit 0" },
       { "id": "preserve_account_count", "expect": "one output document per account" }
     ],
-    "reference_oracle": {
-      "template": "present_missing_projection_ratio",
-      "params": {
-        "root_collection": "account",
-        "optional_field": "loan",
-        "credit_collection": "trans",
-        "credit_type": "PRIJEM"
-      }
-    },
     "target_difficulty": "L4"
   },
   "qps_trace": {

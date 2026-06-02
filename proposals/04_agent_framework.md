@@ -10,9 +10,9 @@
 
 TEND 在 BIRD mini-dev 锚定数据世界上，用 **QPS → MS → MUT → PV → NLP → RTV → NNC → RA** 八 Agent 流水线把 NL–MQL 对物化为可发布 record。构造路径（**RAR · Reference-Anchored Reverse**）：**枚举异构驱动 intent → 合成 gold 并对独立参照 R 锁死 → 派生 thin cfs → 生成 mutations → 性质验证 → 从 intent 派生自然 NLQ → 结果级往返 → 难度/原生性裁决 → realism 审计**。正确性由 P1 参照锚定（gold ≡_rec R）+ gold-as-class（EX 双条件）+ P1–P4 担保。逆向骨架（gold 先锁、NLQ 后派）保留，但**种子是信息需求（非算子）、NLQ 从 intent（非管线）派**——根治 operator-first 的不自然/自证两病。
 
-**QPS (Query Plan Sampler → Intent Enumerator)** 在 Coverage Controller 的 min+max 双配额驱动下，从 Phase A query-bearing 异构清单 × **archetype 目录**（§04-2-4）× `scenario_summary` 枚举结构化 `intent`：seed_mechanism、seed_signal、archetype、domain_framing、analytical_op、reference_oracle、semantic_properties。**不再产出 primary_pattern / operator_graph**；难度由 `mechanism × archetype` 派生。**不**以 BIRD SQL/NL 为 oracle（BIRD SQL/join 仅作 Phase A 真实信号）。
+**QPS (Query Plan Sampler → Intent Enumerator)** 在 Coverage Controller 的 min+max 双配额驱动下，从 Phase A query-bearing 异构清单 × **archetype 目录**（§04-2-4）× `scenario_summary` 枚举结构化 `intent`：seed_mechanism、seed_signal、archetype、domain_framing、analytical_op、semantic_properties。design-mode QPS **不输出** `reference_oracle`；workflow 根据 archetype/catalog 在下游注入 hidden certification oracle。**不再产出 primary_pattern / operator_graph**；难度由 `mechanism × archetype` 派生。**不**以 BIRD SQL/NL 为 oracle（BIRD SQL/join 仅作 Phase A 真实信号）。
 
-**MS (MQL Synthesizer)** 以 `intent` 为输入，用 ≥2 条独立合成策略产出 `mql_primary`/`mql_alt`；**gold 锁死判据 = `NormExec(gold,D) ≡_rec R(D)` ∧ 两路 ≡_rec**（参照 R 独立 oracle + 双路三角，取代纯逆向「gold 自证」）。MS 先于下游机械派生 **thin canonical_form_set**（idiom-不变量 + output 守卫），供 AST_check 消费。
+**MS (MQL Synthesizer)** 以 `intent` 为输入，用 ≥2 条独立合成策略产出 `mql_primary`/`mql_alt`；若 workflow 注入隐藏 R，**gold 锁死判据 = `NormExec(gold,D) ≡_rec R(D)` ∧ 两路 ≡_rec**（参照 R 独立 certification aid + 双路三角，取代纯逆向「gold 自证」）。MS 先于下游机械派生 **thin canonical_form_set**（idiom-不变量 + output 守卫），供 AST_check 消费。
 
 **MUT (Mutation Generator)** 基于 `(intent, mql_primary, canonical_form_set)` 产出 **5–8 条** plausible wrong 变体，覆盖算子/参数、shape、null、异构 stress（漏 present/missing 分支、忽略判别键）等维度；全部须 EX fail（P3，靠 witness 判别）。
 
@@ -41,7 +41,7 @@ TEND 构造分 Phase A（DataWorld）与 Phase B（Reverse-Engineered NL–MQL C
 
 | 阶段 | Agent | 输入 | 输出 | 失败动作 |
 |---|---|---|---|---|
-| B1 | QPS | S, D 摘要, scenario_summary, **Gate-QB 异构清单**, archetype 目录, 配额状态 | **intent** (+ reference_oracle R 参数) | cell 不可行 → Coverage Controller supply-relax |
+| B1 | QPS | S, D 摘要, scenario_summary, **Gate-QB 异构清单**, archetype 目录, 配额状态 | **intent**, qps_trace（workflow 后续注入 hidden R） | cell 不可行 → Coverage Controller supply-relax |
 | B2 | MS | intent | mql_primary, mql_alt, **thin canonical_form_set**, shape/join/agg 元数据 | gold ≢_rec R 或 双路不 ≡_rec → 回 MS / 重采 intent |
 | B3 | MUT | intent, mql_primary, canonical_form_set | mutations[5–8] | 生成失败 → 回 MS |
 | B4 | PV | mql_*, mutations, intent, R, cfs, D | property_verification | gold≢R / 性质 fail / mutation 未全 reject → 回 MS |
@@ -163,8 +163,9 @@ QPS 在 RAR 下从「算子采样器」重定位为 **意图枚举器**：它**�
 | `analytical_op` | 语义级操作：`{group_key?, metric?, filter?, dispatch_rule?}`（非算子） |
 | `shape_policy` | preserve / reshape / reduce（由 archetype 落出） |
 | `semantic_properties` | PV 将断言的性质（分派覆盖全 variant、null 覆盖、基数 ≥2、tie 等） |
-| `reference_oracle` | archetype 参照 R 的实例化参数（§04-2-4）；MS gold-lock 判据 |
 | `target_difficulty` | L0–L4，由 `seed_mechanism × archetype` **派生**（非采样目标） |
+
+design-mode QPS 的公开输出严格是 `intent + qps_trace`，**不得**发出 top-level 或 nested `reference_oracle`。参照 R 由 workflow/runtime 根据 archetype 目录与运行时 design card 注入给 MS/PV，作为隐藏 certification oracle。为避免把 oracle 模板暴露成公共契约，QPS 必须把业务意图本身写完整：特别是 `preserve + structural_schema_flex` 记录，`analytical_op` 要明确 exact labels / discriminator values、target output fields、metric/source fields、aggregation scope，以及 null/missing/default 的非空落值语义；这些语义再由 NLP/RTV 用自然语言公开表达。
 
 <a id="04-2-3"></a>
 #### 04-2-3 与 Coverage Controller 的交互
@@ -184,7 +185,7 @@ archetype 目录是一张**按 DAR 机制索引的封闭目录**；每条目挂�
 | **⑤版本演进**（时间分桶字段改名） | 跨版本聚合（字段改名/增删） | 多层 `$ifNull` fallback | 按版本取对应字段名 → 统一聚合 | L2–L3 `semantic` |
 | **none**（WP 真实 join/filter/group） | 单集合过滤投影 · topN · 分组计数 · join+嵌套 group | 常规 | 朴素 filter/group/sort | L0–L2 |
 
-**参照 R 的角色**：R ≠ gold。R 是独立 Python、跨执行范式的 naive 参照，**定义答案**；gold 是原生 MongoDB idiom，**演示拿到答案的 native 方式**。MS 的 gold 锁死判据是 `NormExec(gold,D) ≡_rec R(D)`（§04-3），取代纯逆向「gold 自证」——抓得到 gold 的系统性 bug（如 `$ifNull` 默认值写错）。R 须按 MongoDB 算子语义编写（null-vs-missing、类型序），其结果过同一 Norm 后比较；R 与双路合成正交三角定位 gold。**纪律**：只有「naive R 可审计」的操作才进目录；无简单 R 的 intent 不构造——这把 gold 可信度焊在目录层。
+**参照 R 的角色**：R ≠ gold。R 是独立 Python、跨执行范式的 naive 参照，**定义答案**；gold 是原生 MongoDB idiom，**演示拿到答案的 native 方式**。design-mode 中 QPS 只选择 archetype 并完整描述业务语义，workflow/runtime 再把隐藏的 R 注入给 MS/PV。MS 的 gold 锁死判据是 `NormExec(gold,D) ≡_rec R(D)`（§04-3），取代纯逆向「gold 自证」——抓得到 gold 的系统性 bug（如 `$ifNull` 默认值写错）。R 须按 MongoDB 算子语义编写（null-vs-missing、类型序），其结果过同一 Norm 后比较；R 与双路合成正交三角定位 gold。**纪律**：只有「naive R 可审计」的操作才进目录；无简单 R 的 intent 不构造——这把 gold 可信度焊在目录层。
 
 **worked example（financial/1001，机制②稀疏）**：seed_signal = `loan` 稀疏 embed（682/4500 present）；archetype = present/missing 条件投影；analytical_op =「有 loan 取 amount/credit_sum（0→1），无 loan 记 0」。R = 逐 account 判 loan 在否、在则除以 PRIJEM 贷记和、缺则 0。gold = `$lookup`（贷记和）+ `$cond[$type:loan]`（present/missing 分支），`≡_rec R` → 锁死。NLQ 从 intent（非管线）派生 → 自然。难度 L4 `structural_schema_flex`（relational 普遍 `INNER JOIN loan` 静默丢账户，反范式化后 present/missing 须显式处理 = 不可 SQL 平移）。
 
@@ -194,24 +195,25 @@ archetype 目录是一张**按 DAR 机制索引的封闭目录**；每条目挂�
 ### 04-3 MS · MQL Synthesizer
 
 <a id="04-3-1"></a>
-#### 04-3-1 双路合成
+#### 04-3-1 合成与 runtime gold-lock
 
-MS 接收 `intent`，执行 ≥2 条独立合成路径，并对独立参照 R 锁死：
+MS 接收 `intent`（以及 workflow 可选注入的 hidden `reference_oracle` certification aid），输出一个代表性可执行 `MQL` 与 `shape_policy`。当 hidden oracle 属于 workflow 可直接编译的模板时，workflow 可先用 `_canonical_reference_mql` 生成 deterministic gold 并跳过 MS 的 LLM 生成；否则 MS 负责 fallback 合成。MS 可提供 `mql_alt` / `synthesis_trace` 作为诊断，但双路不再是 public hard-output contract。
 
 | 路径 | 方法 | 产物 |
 |---|---|---|
-| **直接编译** | intent → stage 骨架 → MQL | mql_primary |
-| **等价变换** | 代数等价重写（stage 重排、accumulator 等价替换） | mql_alt |
+| **workflow direct compile** | hidden reference_oracle → `_canonical_reference_mql` | deterministic `MQL`（可绕过 MS LLM） |
+| **MS fallback** | intent semantics → representative MongoDB aggregation | `MQL` |
+| **可选等价变换** | 代数等价重写（stage 重排、accumulator 等价替换） | optional `mql_alt` / `synthesis_trace` |
 
 **收敛条件（合取）· RAR gold-lock**
 
-1. **参照锚定**：NormExec(mql_primary, D) ≡_rec **R(D)**（archetype 参照实现，§04-2-4）——gold 正确性的独立 oracle，取代纯逆向「gold 自证」，抓得到系统性 bug
-2. **双路三角**：NormExec(mql_primary, D) ≡_rec NormExec(mql_alt, D) ≠ ⊥（R 抓系统性 plan 级错、双路抓随机错，二者正交）
-3. AST_check 对两者使用 MS 派生的同一 canonical_form_set 均 pass
+1. **参照锚定**：若 workflow 注入 R，则 NormExec(MQL, D) ≡_rec **R(D)**（archetype 参照实现，§04-2-4）——gold 正确性的独立 certification aid，取代纯逆向「gold 自证」，抓得到系统性 bug；MS 不从 `intent.reference_oracle` 读取 QPS 公开输出
+2. **可选双路诊断**：若 MS 输出 `mql_alt`，则 NormExec(MQL, D) ≡_rec NormExec(mql_alt, D) ≠ ⊥；若没有 alternate，不因缺少双路本身判失败
+3. AST_check 使用 runtime/postprocess 派生的 canonical_form_set 对选定 MQL pass
 4. 禁用 operator 扫描均 pass
 5. shape_policy 推断与 intent 一致
 
-代表实例写入 record.MQL（默认 mql_primary；若 mql_alt AST 更紧则取 mql_alt）。另一路与 R 写入 audit `synthesis_trace` 供诊断。任一条件不满足 → 回流：R 不一致 = gold 有 bug → 回 MS 重合成；R 本身不可实现 → 回 QPS 重采 intent。
+代表实例写入 record.MQL。alternate 与 R 比较证据可写入 `synthesis_trace` 供诊断。任一 hard convergence 条件不满足 → 回流：R 不一致 = gold 有 bug → 回 MS 重合成；R 本身不可实现 → 回 QPS 重采 intent。
 
 <a id="04-3-2"></a>
 #### 04-3-2 canonical_form_set 派生（MS 所有权）
@@ -283,7 +285,7 @@ PV 对 gold MQL 与 mutations 执行：
 
 | 字段 | specificity | 约束 |
 |---|---|---|
-| nl_queries.canonical | L1 | schema-naive；无 `$` operator 术语；单一闭包意图 |
+| nl_queries.canonical | L1 | schema-naive；无 `$` operator 术语；单一闭包意图；若运行时输入携带 oracle/result 语义，须自然表达 exact labels、target fields、metric/source fields、aggregation 与 missing/default semantics |
 | nl_queries.colloquial | L0 | 口语 underspecified；不得出现 schema 字段名；不得引入第二意图 |
 
 Paraphrase 由 NLP 从 **intent（信息需求）+ `scenario_summary` 域语义**生成，**不从锁死的 gold MQL 管线转写**——这是 RAR 根治「NLQ 沦为伪代码」的关键：NLQ 描述的是「为每个账户标注贷款相对贷记流水占比、没有则记 0」式业务问题，而非 `$lookup`/`$cond`/`$type` 的 stage 序列。gold MQL 仅供 RTV 往返校验（§04-4-4），不作 paraphrase 输入。canonical 须完整覆盖 intent 的语义闭包；colloquial 为 optional robustness 子集。混合披露（[03 §03-6](./03_dataworld_construction.md#03-6)）下结构提示在 S、不在 NLQ，故 canonical 可保持自然又不丢唯一性。
@@ -508,7 +510,6 @@ Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`（legacy filenam
 | In | heterogeneity_inventory | object | ✓ |
 | In | archetype_catalog | object | ✓ |
 | Out | intent | object | ✓ |
-| Out | reference_oracle | object | ✓ |
 | Out | qps_trace | object | ✓ |
 
 #### MS
@@ -516,15 +517,16 @@ Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`（legacy filenam
 | 方向 | 字段 | 类型 | 必填 |
 |---|---|---|---|
 | In | intent | object | ✓ |
+| In | reference_oracle | object | 可选（workflow-injected certification aid） |
 | In | schema | object | ✓ |
 | In | snapshot | object | ✓ |
 | Out | MQL | string | ✓ |
-| Out | mql_alt | string | ✓ |
-| Out | canonical_form_set | object | ✓ |
+| Out | mql_alt | string | 可选（diagnostic alternate） |
+| Out | canonical_form_set | object | runtime/postprocess 派生；agent 可选提供 |
 | Out | shape_policy | enum | ✓ |
-| Out | join_depth | int | ✓ |
-| Out | aggregation_depth | enum | ✓ |
-| Out | synthesis_trace | object | ✓ |
+| Out | join_depth | int | 可选/derived |
+| Out | aggregation_depth | enum | 可选/derived |
+| Out | synthesis_trace | object | 可选 |
 
 #### MUT
 
@@ -556,7 +558,6 @@ Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`（legacy filenam
 | In | intent | object | ✓ |
 | In | scenario_summary | string | ✓ |
 | Out | nl_queries | {canonical, colloquial} | ✓ |
-| Out | nlp_trace | object | ✓ |
 
 #### RTV
 
@@ -721,8 +722,12 @@ def validate_mutations(muts, record, snapshot):
 # uses: typing
 ```
 
-def ms_synthesize(intent, schema, snapshot) -> dict:
-    R = reference_oracle(intent, snapshot)          # archetype naive Python impl; DEFINES the answer
+def ms_synthesize(intent, schema, snapshot, *, reference_oracle_payload=None) -> dict:
+    R = (
+        reference_oracle(reference_oracle_payload, snapshot)
+        if reference_oracle_payload is not None
+        else None
+    )  # workflow-injected certification aid, not QPS public output
     mql_primary = compile_intent(intent, schema, strategy="direct")
     mql_alt = compile_intent(intent, schema, strategy="algebraic_rewrite")
     cfs = derive_canonical_form_set(intent, mql_primary)   # thin: invariant + output-guard
@@ -733,7 +738,12 @@ def ms_synthesize(intent, schema, snapshot) -> dict:
         "MQL": mql,
         "mql_alt": mql_alt if mql == mql_primary else mql_primary,
         "canonical_form_set": cfs,
-        "synthesis_trace": {"primary": mql_primary, "alt": mql_alt, "reference": R},
+        "synthesis_trace": {
+            "primary": mql_primary,
+            "alt": mql_alt,
+            "reference_used": R is not None,
+            "reference": R,
+        },
     }
 
 def gold_locks(mql_a, mql_b, R, cfs, snapshot) -> bool:
@@ -744,7 +754,9 @@ def gold_locks(mql_a, mql_b, R, cfs, snapshot) -> bool:
     if ra is BOT:
         return False
     # RAR gold-lock: reference-anchored (independent oracle) AND dual-path triangulation
-    return equiv_rec(ra, R, order_sensitive=True) and equiv_rec(ra, rb, order_sensitive=True)
+    if R is not None and not equiv_rec(ra, R, order_sensitive=True):
+        return False
+    return equiv_rec(ra, rb, order_sensitive=True)
 ```
 
 ---
@@ -800,7 +812,7 @@ def paraphrase_nlq_pair(intent: dict, scenario_summary: str) -> dict:
         rules={"no_field_names": True, "underspecified": True, "min_tokens": 8, "max_tokens": 40},
     )
     assert single_intent(parse_loose(colloquial), intent)
-    return {"canonical": canonical, "colloquial": colloquial}
+    return {"nl_queries": {"canonical": canonical, "colloquial": colloquial}}
 ```
 
 机器可读 NLQ 形状：`schemas/nlq.schema.json`。
@@ -812,7 +824,7 @@ def paraphrase_nlq_pair(intent: dict, scenario_summary: str) -> dict:
 
 | 文件 | 校验对象 |
 |---|---|
-| `schemas/intent.schema.json` | QPS 输出 `intent` |
+| `schemas/intent.schema.json` | QPS 输出 `intent + qps_trace` |
 | `schemas/synthesis_trace.schema.json` | MS 双路合成轨迹 |
 | `schemas/property_verification.schema.json` | PV 性质断言表 |
 | `schemas/round_trip_verification.schema.json` | RTV 往返验证 |

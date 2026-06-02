@@ -39,16 +39,76 @@ def _stable_json(value: Any) -> str:
 # --------------------------------------------------------------------------- #
 _QPS_SCHEMA = {
     "type": "object",
-    "required": ["intent"],
+    "required": ["intent", "qps_trace"],
     "properties": {
         "intent": {
             "type": "object",
-            "required": ["seed_mechanism", "archetype", "analytical_op"],
-            "additionalProperties": True,
+            "required": [
+                "seed_mechanism",
+                "seed_signal",
+                "archetype",
+                "domain_framing",
+                "analytical_op",
+                "shape_policy",
+                "semantic_properties",
+                "target_difficulty",
+            ],
+            "properties": {
+                "seed_mechanism": {
+                    "type": "string",
+                    "enum": [
+                        "none",
+                        "polymorphic",
+                        "sparse_scalar",
+                        "sparse_embed",
+                        "dynamic_key",
+                        "nesting",
+                        "versioning",
+                    ],
+                },
+                "seed_signal": {"type": "object", "minProperties": 1, "additionalProperties": True},
+                "archetype": {"type": "string", "minLength": 1},
+                "domain_framing": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {"type": "string"},
+                },
+                "analytical_op": {"type": "object", "minProperties": 1, "additionalProperties": True},
+                "shape_policy": {"type": "string", "enum": ["preserve", "reshape", "reduce"]},
+                "semantic_properties": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "required": ["id", "expect"],
+                        "properties": {
+                            "id": {"type": "string", "minLength": 1},
+                            "expect": {"type": "string", "minLength": 1},
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+                "target_difficulty": {
+                    "type": "string",
+                    "enum": ["L0", "L1", "L2", "L3", "L4"],
+                },
+            },
+            "additionalProperties": False,
         },
-        "reference_oracle": {"type": "object"},
+        "qps_trace": {
+            "type": "object",
+            "required": ["coverage_cell", "deficit_weight", "supply_constrained"],
+            "properties": {
+                "coverage_cell": {"type": "string", "minLength": 1},
+                "deficit_weight": {"type": "number", "minimum": 0},
+                "supply_constrained": {"type": "boolean"},
+                "rationale": {"type": "string", "minLength": 1},
+                "skip_reason": {"type": "string", "minLength": 1},
+            },
+            "additionalProperties": False,
+        },
     },
-    "additionalProperties": True,
+    "additionalProperties": False,
 }
 
 
@@ -255,6 +315,7 @@ class QueryPlanSampler(LLMAgent):
 
     def render_inputs(self, ctx: AgentContext, inputs: dict[str, Any]) -> str:
         archetype = inputs.get("archetype", "")
+        seed_mechanism = _qps_public_seed_mechanism(inputs.get("mechanism"))
         recipe = _ARCHETYPE_RECIPE.get(archetype, "Choose a valid shape_policy "
                                        "(preserve/reshape/reduce) and a deterministic output.")
         oracle_guide = _ARCHETYPE_ORACLE_GUIDE.get(
@@ -299,7 +360,7 @@ class QueryPlanSampler(LLMAgent):
                 "```\n"
             )
         return ("# QPS — enumerate ONE concrete intent grounded in THIS schema (not operators)\n"
-                f"seed_mechanism: {inputs.get('mechanism')}\narchetype: {archetype}\n"
+                f"seed_mechanism: {seed_mechanism}\narchetype: {archetype}\n"
                 f"{target}"
                 f"record_id: {inputs.get('record_id', '')}\nslot_index: {inputs.get('slot_index', '')}\n"
                 f"scenario_summary: {inputs.get('scenario_summary', '')[:500]}\n"
@@ -314,32 +375,55 @@ class QueryPlanSampler(LLMAgent):
                 "financial analysis when the schema supports it: embedded-array unwind, "
                 "cross-collection rollup, optional-embed branch with a denominator, subtype "
                 "field differences, or a reshape that changes the result grain.\n"
-                "Emit top-level intent with: seed_mechanism; seed_signal {collection, field}; archetype; "
-                "target_difficulty; target_sql_infeasibility_class; schema_flex_mode; "
+                "The target lines above are scheduler context; do not copy "
+                "target_sql_infeasibility_class or schema_flex_mode into intent. "
+                "Emit exactly top-level intent plus qps_trace. intent fields: "
+                "seed_mechanism; seed_signal {collection, field}; archetype; target_difficulty; "
                 "domain_framing (use the REAL collection/field names — do NOT invent entities "
                 "like 'customers'/'phone' that aren't in the schema); analytical_op (a CONCRETE "
                 "computation: target field name + exact formula + missing-default); "
-                "shape_policy (preserve|reshape|reduce); output {fields, missing}; "
-                "semantic_properties. In llm_design_mode, DO NOT emit reference_oracle at top "
+                "shape_policy (preserve|reshape|reduce); semantic_properties. qps_trace fields: "
+                "coverage_cell, deficit_weight, supply_constrained, optional rationale/skip_reason. "
+                "In llm_design_mode, DO NOT emit reference_oracle at top "
                 "level or inside intent; the workflow attaches a hidden certification oracle "
                 "after QPS. The downstream gold is still certified by execution, mutation "
-                "discrimination, round trip, realism, and skeleton diversity gates.")
+                "discrimination, RTV, realism, and skeleton diversity gates.")
 
     def check_contract(self, ctx, inputs, output) -> list[str]:
         intent = output.get("intent", {})
+        v = []
         if inputs.get("llm_design_mode"):
-            output.pop("reference_oracle", None)
-            if isinstance(intent, dict):
-                intent.pop("reference_oracle", None)
+            if "reference_oracle" in output:
+                v.append("QPS design-mode output must not emit top-level reference_oracle")
+            if isinstance(intent, dict) and "reference_oracle" in intent:
+                v.append("QPS design-mode intent must not emit reference_oracle")
+            if isinstance(intent, dict) and "target_sql_infeasibility_class" in intent:
+                v.append(
+                    "QPS design-mode intent must not emit target_sql_infeasibility_class; "
+                    "workflow owns the scheduler target"
+                )
+            if isinstance(intent, dict) and "schema_flex_mode" in intent:
+                v.append(
+                    "QPS design-mode intent must not emit schema_flex_mode; workflow owns "
+                    "the scheduler target"
+                )
+            trace = output.get("qps_trace")
+            if not isinstance(trace, dict):
+                v.append("QPS design-mode output must include qps_trace")
+            else:
+                for key in ("coverage_cell", "deficit_weight", "supply_constrained"):
+                    if key not in trace:
+                        v.append(f"qps_trace.{key} is required")
         ref = output.get("reference_oracle") or intent.get("reference_oracle")
         sp = intent.get("shape_policy")
-        v = []
         if sp not in ("preserve", "reshape", "reduce"):
             v.append(f"intent.shape_policy must be preserve/reshape/reduce, got {sp!r}")
         if inputs.get("archetype") == "present_missing_projection" and sp != "preserve":
             v.append("present_missing_projection requires shape_policy=preserve")
-        if sp == "preserve" and inputs.get("target_sql_infeasibility_class") == \
-                "structural_schema_flex":
+        if (
+            sp == "preserve"
+            and inputs.get("target_sql_infeasibility_class") == "structural_schema_flex"
+        ):
             default_intent = (
                 {**intent, "reference_oracle": ref}
                 if isinstance(intent, dict) and isinstance(ref, dict)
@@ -351,11 +435,10 @@ class QueryPlanSampler(LLMAgent):
                 v.append("schema_flex_variant_summary requires shape_policy=reshape or reduce")
             if output.get("intent", {}).get("target_difficulty") not in (None, "L4"):
                 v.append("schema_flex_variant_summary must target difficulty L4")
-            if output.get("intent", {}).get("target_sql_infeasibility_class") not in (
-                None, "structural_schema_flex"
-            ):
-                v.append("schema_flex_variant_summary must target structural_schema_flex")
+            op = intent.get("analytical_op") if isinstance(intent.get("analytical_op"), dict) else {}
             fields = (intent.get("output") or {}).get("fields") or []
+            if not fields:
+                fields = op.get("result_fields") or op.get("output_fields") or []
             if "variant" not in fields:
                 v.append("schema_flex_variant_summary output.fields must include 'variant'")
             if "count" not in fields:
@@ -382,6 +465,11 @@ class QueryPlanSampler(LLMAgent):
                 if not param_errs:
                     v.extend(_qps_schema_ref_violations(ref, inputs.get("schema", {})))
         return v
+
+
+def _qps_public_seed_mechanism(value: Any) -> str:
+    mechanism = str(value or "none")
+    return "none" if mechanism in {"", "baseline"} else mechanism
 
 
 # --------------------------------------------------------------------------- #
@@ -523,7 +611,7 @@ def _oracle_lock_contract(oracle: Any) -> str:
             "Result contract: start from parent collection "
             f"{params.get('parent_collection')!r}, join child collection "
             f"{params.get('child_collection')!r} by parent key {params.get('parent_key')!r} "
-            f"to child FK {params.get('child_fk')!r}, then output one parent row with field "
+            f"to child FK {params.get('foreign_key')!r}, then output one parent row with field "
             "'value' from the requested child aggregate."
         )
     if template == "existence_count":
@@ -548,6 +636,682 @@ def _oracle_lock_contract(oracle: Any) -> str:
 def _oracle_lock_contract_inline(oracle: Any) -> str:
     contract = _oracle_lock_contract(oracle)
     return " ".join(contract.split())
+
+
+_COMPILED_REFERENCE_ORACLE_RTV_MODE = "compiled_reference_oracle_nl_contract"
+_NL_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+_AGG_NL_ALIASES: dict[str, tuple[str, ...]] = {
+    "count": ("count", "counts", "number"),
+    "sum": ("sum", "total"),
+    "avg": ("avg", "average", "mean"),
+    "min": ("min", "minimum", "smallest", "lowest"),
+    "max": ("max", "maximum", "largest", "highest"),
+}
+_OP_NL_ALIASES: dict[str, tuple[str, ...]] = {
+    "eq": ("equals", "equal", "is", "matching"),
+    "ne": ("not equal", "not equals", "different from", "not"),
+    "gt": ("greater than", "more than", "above", "over", "exceeds"),
+    "gte": ("greater than or equal", "at least", "no less than", "minimum"),
+    "lt": ("less than", "below", "under", "fewer than"),
+    "lte": ("less than or equal", "at most", "no more than", "maximum"),
+}
+_COMPILED_RTV_UNSUPPORTED_TEMPLATES: set[str] = set()
+
+
+def _compiled_reference_oracle_nl_contract(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic RTV for gold that was compiled from a reference oracle.
+
+    The executable gold is already certified by the reference-oracle compiler. This verifier keeps
+    the RTV boundary but checks the NL contract directly, avoiding an LLM NL->MQL translation whose
+    failures are mostly translator noise for compiled templates.
+    """
+    violations: list[str] = []
+    missing_terms: list[str] = []
+
+    nlq = inputs.get("nl_queries")
+    if not isinstance(nlq, dict):
+        violations.append("nl_queries must be an object with canonical and colloquial strings")
+        nlq = {}
+    canonical = str(nlq.get("canonical", "")).strip()
+    colloquial = str(nlq.get("colloquial", "")).strip()
+    if not canonical:
+        violations.append("canonical NLQ is empty")
+    if not colloquial:
+        violations.append("colloquial NLQ is empty")
+    if "$" in canonical:
+        violations.append("canonical NLQ must not contain $ operator terms")
+
+    ref = inputs.get("reference_oracle")
+    template: str | None = None
+    params: dict[str, Any] | None = None
+    if not isinstance(ref, dict):
+        violations.append("reference_oracle with supported template is required")
+    else:
+        raw_template = ref.get("template")
+        if not isinstance(raw_template, str) or not raw_template.strip():
+            violations.append("reference_oracle.template is required")
+        else:
+            template = raw_template.strip()
+            if not has_oracle(template):
+                violations.append(f"unsupported reference_oracle.template {template!r}")
+            elif template not in _CANONICAL_MQL_BUILDERS:
+                violations.append(
+                    f"reference_oracle.template {template!r} is not supported by compiled RTV"
+                )
+        raw_params = ref.get("params")
+        if not isinstance(raw_params, dict):
+            violations.append("reference_oracle.params must be an object")
+        else:
+            params = raw_params
+            if template and has_oracle(template):
+                violations.extend(oracle_param_errors(template, params))
+            if template:
+                violations.extend(_compiled_rtv_param_violations(template, params))
+
+    shape_policy = inputs.get("shape_policy")
+    if shape_policy not in {"preserve", "reshape", "reduce"}:
+        violations.append(f"shape_policy must be preserve/reshape/reduce, got {shape_policy!r}")
+    elif template in _CANONICAL_SHAPE and shape_policy != _CANONICAL_SHAPE[template]:
+        violations.append(
+            f"shape_policy {shape_policy!r} does not match compiled template {template!r} "
+            f"expected {_CANONICAL_SHAPE[template]!r}"
+        )
+
+    result_fields, result_field_errors = _compiled_rtv_result_fields(inputs.get("result_fields"))
+    violations.extend(result_field_errors)
+    if template and params is not None and result_fields:
+        violations.extend(_compiled_rtv_result_field_violations(template, params, result_fields))
+
+    compiled_gold_provenance = inputs.get("compiled_gold_provenance")
+    if not isinstance(compiled_gold_provenance, dict):
+        violations.append("compiled_gold_provenance from workflow direct compile is required")
+    else:
+        expected_provenance = {
+            "source": "workflow_direct_compile",
+            "compiler": "_canonical_reference_mql",
+            "template": template,
+            "gold_lock": "norm_exec_nonempty",
+        }
+        for key, expected in expected_provenance.items():
+            if compiled_gold_provenance.get(key) != expected:
+                violations.append(
+                    f"compiled_gold_provenance.{key} must be {expected!r}, "
+                    f"got {compiled_gold_provenance.get(key)!r}"
+                )
+
+    contract_spec: list[str] = []
+    if template and params is not None and template in _CANONICAL_MQL_BUILDERS:
+        if template in _compiled_rtv_contract_template_gaps():
+            violations.append(
+                f"uncovered compiled RTV contract spec for reference_oracle.template {template!r}"
+            )
+        else:
+            requirements = _compiled_rtv_contract_requirements(template, params, shape_policy)
+            if requirements is None:
+                violations.append(
+                    f"uncovered compiled RTV contract spec for reference_oracle.template {template!r}"
+                )
+            else:
+                contract_spec = [label for label, _alternatives in requirements]
+                missing_terms = _compiled_rtv_missing_terms(canonical, requirements)
+                if missing_terms:
+                    violations.append(
+                        "compiled reference-oracle NL contract missing required terms: "
+                        + ", ".join(missing_terms)
+                    )
+
+    if isinstance(shape_policy, str):
+        violations.extend(_compiled_rtv_shape_violations(shape_policy, canonical))
+
+    output: dict[str, Any] = {
+        "rtv_pass": not violations,
+        "rtv_reason": "; ".join(violations) if violations else "",
+        "rtv_mode": _COMPILED_REFERENCE_ORACLE_RTV_MODE,
+        "violations": violations,
+        "missing_terms": missing_terms,
+        "template": template,
+        "result_fields": result_fields,
+        "shape_policy": shape_policy,
+        "contract_spec": contract_spec,
+    }
+    if isinstance(compiled_gold_provenance, dict):
+        output["provenance"] = compiled_gold_provenance
+        output["compiled_gold_provenance"] = compiled_gold_provenance
+    return output
+
+
+def _compiled_rtv_result_fields(value: Any) -> tuple[list[str], list[str]]:
+    if not isinstance(value, list) or not value:
+        return [], ["result_fields must be a non-empty list of strings"]
+    fields: list[str] = []
+    bad = False
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            bad = True
+        else:
+            fields.append(item.strip())
+    return fields, (["result_fields must be a non-empty list of strings"] if bad or not fields else [])
+
+
+def _compiled_rtv_param_violations(template: str, params: dict[str, Any]) -> list[str]:
+    violations: list[str] = []
+    agg = str(params.get("agg", "count") or "count").lstrip("$").lower()
+    if template == "has_vs_absent_compare" and agg != "count":
+        metric = params.get("metric_field")
+        if not isinstance(metric, str) or not metric.strip():
+            violations.append(
+                "reference_oracle.params.metric_field is required when "
+                "has_vs_absent_compare agg is not count"
+            )
+    if template == "fk_rollup" and agg != "count":
+        value_field = params.get("value_field")
+        if not isinstance(value_field, str) or not value_field.strip():
+            violations.append(
+                "reference_oracle.params.value_field is required when fk_rollup agg is not count"
+            )
+    return violations
+
+
+def _compiled_rtv_result_field_violations(
+    template: str, params: dict[str, Any], result_fields: list[str]
+) -> list[str]:
+    expected = _compiled_rtv_expected_result_fields(template, params)
+    if not expected:
+        return []
+    missing = sorted(set(expected) - set(result_fields))
+    if not missing:
+        return []
+    return [
+        "result_fields missing template output fields for "
+        f"{template!r}: {', '.join(repr(f) for f in missing)}"
+    ]
+
+
+def _compiled_rtv_expected_result_fields(template: str, params: dict[str, Any]) -> set[str]:
+    if template in {
+        "optional_embed_projection",
+        "present_missing_projection",
+        "subtype_cond_projection",
+    }:
+        target = params.get("target_field")
+        return {target} if isinstance(target, str) and target else set()
+    if template == "group_count":
+        return {"_id", "count"}
+    if template == "existence_count":
+        return {"count"}
+    if template in {
+        "has_vs_absent_compare",
+        "null_coalesce_agg",
+        "per_subtype_agg",
+        "cross_subtype_compare",
+        "join_nested_group",
+        "dynamic_key_fold",
+        "cross_version_agg",
+        "fk_rollup",
+    }:
+        return {"value"} if template in {"null_coalesce_agg", "cross_version_agg"} else {"_id", "value"}
+    if template in {"simple_filter", "topn", "subtype_specific_field", "cross_keyset_value"}:
+        project = params.get("project")
+        if isinstance(project, list) and project:
+            return {field for field in project if isinstance(field, str) and field}
+        field_key = "key" if template == "cross_keyset_value" else "field"
+        field = params.get(field_key)
+        return {field} if isinstance(field, str) and field else set()
+    return set()
+
+
+def _compiled_rtv_shape_violations(shape_policy: str, canonical: str) -> list[str]:
+    if shape_policy not in {"reshape", "reduce"}:
+        return []
+    preserve_phrases = (
+        "add a field",
+        "adds a field",
+        "attach a field",
+        "attached field",
+        "to each document",
+        "each document",
+        "keep all other",
+        "keep each",
+        "keep every",
+        "kept unchanged",
+        "otherwise unchanged",
+        "unchanged",
+    )
+    if any(_compiled_rtv_mentions(canonical, phrase) for phrase in preserve_phrases):
+        return [f"{shape_policy} canonical NLQ must not describe preserve/add-field semantics"]
+    return []
+
+
+def _compiled_rtv_contract_template_gaps() -> list[str]:
+    covered = set(_COMPILED_RTV_CONTRACT_BUILDERS) | _COMPILED_RTV_UNSUPPORTED_TEMPLATES
+    return sorted(set(_CANONICAL_MQL_BUILDERS) - covered)
+
+
+def _compiled_rtv_contract_requirements(
+    template: str, params: dict[str, Any], shape_policy: Any
+) -> list[tuple[str, tuple[str, ...]]] | None:
+    builder = _COMPILED_RTV_CONTRACT_BUILDERS.get(template)
+    if builder is None:
+        return None
+    requirements = builder(params)
+    if shape_policy == "preserve":
+        collection = (
+            params.get("parent_collection")
+            if template in {"optional_embed_projection", "present_missing_projection"}
+            else params.get("collection")
+        )
+        requirements.extend(_compiled_rtv_preserve_requirements(collection))
+    return [req for req in requirements if req[1]]
+
+
+def _compiled_rtv_missing_terms(
+    canonical: str, requirements: list[tuple[str, tuple[str, ...]]]
+) -> list[str]:
+    missing: list[str] = []
+    for label, alternatives in requirements:
+        if not any(_compiled_rtv_mentions(canonical, alternative) for alternative in alternatives):
+            missing.append(label)
+    return missing
+
+
+def _compiled_rtv_mentions(text: str, phrase: str) -> bool:
+    needle = _compiled_rtv_tokens(phrase)
+    if not needle:
+        return False
+    haystack = _compiled_rtv_tokens(text)
+    if len(needle) > len(haystack):
+        return False
+    for index in range(len(haystack) - len(needle) + 1):
+        if haystack[index:index + len(needle)] == needle:
+            return True
+    return False
+
+
+def _compiled_rtv_tokens(text: Any) -> list[str]:
+    raw = str(text).replace("_", " ").replace(".", " ").replace("-", " ").lower()
+    return [_compiled_rtv_token_stem(token) for token in _NL_TOKEN_RE.findall(raw)]
+
+
+def _compiled_rtv_token_stem(token: str) -> str:
+    if len(token) > 3 and token.endswith("s"):
+        return token[:-1]
+    return token
+
+
+def _compiled_req(label: Any, *alternatives: Any) -> tuple[str, tuple[str, ...]]:
+    label_text = str(label).strip()
+    alts: list[str] = []
+    for alt in alternatives:
+        if isinstance(alt, (list, tuple, set)):
+            alts.extend(str(item).strip() for item in alt if str(item).strip())
+        elif alt is not None and str(alt).strip():
+            alts.append(str(alt).strip())
+    return label_text, tuple(dict.fromkeys(alt for alt in alts if alt != "_id"))
+
+
+def _compiled_field_terms(field: Any, *, leaf: bool = False) -> tuple[str, ...]:
+    if not isinstance(field, str) or not field.strip() or field == "_id":
+        return ()
+    terms = [field.strip()]
+    if leaf and "." in field:
+        terms.append(field.rsplit(".", 1)[-1])
+    return tuple(dict.fromkeys(terms))
+
+
+def _compiled_value_terms(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    terms = [str(value)]
+    if value == 0:
+        terms.append("zero")
+    elif value == 1:
+        terms.append("one")
+    return tuple(dict.fromkeys(term for term in terms if term.strip()))
+
+
+def _compiled_agg_terms(agg: Any) -> tuple[str, ...]:
+    name = str(agg or "count").lstrip("$").lower()
+    return _AGG_NL_ALIASES.get(name, (name,))
+
+
+def _compiled_op_terms(op: Any) -> tuple[str, ...]:
+    name = str(op or "").lstrip("$").lower()
+    return _OP_NL_ALIASES.get(name, (name,)) if name else ()
+
+
+def _compiled_null_order_terms(nulls: Any) -> tuple[str, ...]:
+    name = str(nulls or "last").lower()
+    if name == "first":
+        return ("nulls first", "missing first", "null first")
+    return ("nulls last", "missing last", "null last")
+
+
+def _compiled_projection_requirements(project: Any) -> list[tuple[str, tuple[str, ...]]]:
+    if not isinstance(project, list) or not project:
+        return []
+    requirements = [_compiled_req("projection/output fields", "project", "output", "return")]
+    for field in project:
+        requirements.append(_compiled_req(field, _compiled_field_terms(field, leaf=True)))
+    return requirements
+
+
+def _compiled_match_requirements(
+    match: Any,
+    *,
+    label_prefix: str,
+) -> list[tuple[str, tuple[str, ...]]]:
+    if not isinstance(match, dict) or match.get("field") is None:
+        return []
+    return [
+        _compiled_req(f"{label_prefix} filter", "filter", "where", "matching", "only"),
+        _compiled_req(
+            f"{label_prefix}.field={match.get('field')!r}",
+            _compiled_field_terms(match.get("field"), leaf=True),
+        ),
+        _compiled_req(
+            f"{label_prefix}.value={match.get('value')!r}",
+            _compiled_value_terms(match.get("value")),
+        ),
+    ]
+
+
+def _compiled_rtv_preserve_requirements(collection: Any) -> list[tuple[str, tuple[str, ...]]]:
+    keep_terms = [
+        "keep each",
+        "keep every",
+        "preserve each",
+        "preserve every",
+        "retain each",
+        "retain every",
+        "for each",
+        "each document",
+        "every document",
+        "otherwise unchanged",
+    ]
+    if isinstance(collection, str) and collection:
+        keep_terms.extend([f"each {collection}", f"every {collection}"])
+    return [
+        _compiled_req("preserve/add-field semantics", "add", "attach", "computed field", "new field"),
+        _compiled_req("keep-every-document semantics", keep_terms),
+    ]
+
+
+def _compiled_optional_embed_projection_requirements(
+    params: dict[str, Any]
+) -> list[tuple[str, tuple[str, ...]]]:
+    return [
+        _compiled_req(params.get("target_field"), _compiled_field_terms(params.get("target_field"))),
+        _compiled_req(params.get("embed_field"), _compiled_field_terms(params.get("embed_field"))),
+        _compiled_req(params.get("value_path"), _compiled_field_terms(params.get("value_path"), leaf=True)),
+        _compiled_req(
+            f"missing_default={params.get('missing_default')!r}",
+            _compiled_value_terms(params.get("missing_default")),
+            "default",
+            "otherwise",
+            "missing",
+        ),
+    ]
+
+
+def _compiled_present_missing_projection_requirements(
+    params: dict[str, Any]
+) -> list[tuple[str, tuple[str, ...]]]:
+    denom = params.get("denom") if isinstance(params.get("denom"), dict) else {}
+    requirements = [
+        _compiled_req(params.get("target_field"), _compiled_field_terms(params.get("target_field"))),
+        _compiled_req(params.get("embed_field"), _compiled_field_terms(params.get("embed_field"))),
+        _compiled_req(
+            params.get("numerator_path"),
+            _compiled_field_terms(params.get("numerator_path"), leaf=True),
+        ),
+        _compiled_req(
+            f"absent_value={params.get('absent_value', 0)!r}",
+            _compiled_value_terms(params.get("absent_value", 0)),
+            "absent",
+            "missing",
+            "default",
+        ),
+        _compiled_req(denom.get("collection"), _compiled_field_terms(denom.get("collection"))),
+        _compiled_req(denom.get("local_id"), _compiled_field_terms(denom.get("local_id"), leaf=True)),
+        _compiled_req(
+            denom.get("foreign_field"),
+            _compiled_field_terms(denom.get("foreign_field"), leaf=True),
+        ),
+        _compiled_req(denom.get("sum_field"), _compiled_field_terms(denom.get("sum_field"), leaf=True)),
+        _compiled_req(
+            f"zero_value={denom.get('zero_value', 1)!r}",
+            _compiled_value_terms(denom.get("zero_value", 1)),
+            "zero divisor",
+            "zero denominator",
+            "when denominator is zero",
+        ),
+    ]
+    requirements.extend(_compiled_match_requirements(denom.get("match"), label_prefix="denom.match"))
+    return requirements
+
+
+def _compiled_has_vs_absent_compare_requirements(
+    params: dict[str, Any]
+) -> list[tuple[str, tuple[str, ...]]]:
+    agg = str(params.get("agg", "count") or "count").lstrip("$").lower()
+    requirements = [
+        _compiled_req(params.get("embed_field"), _compiled_field_terms(params.get("embed_field"))),
+        _compiled_req("present", "present"),
+        _compiled_req("absent", "absent"),
+    ]
+    if agg != "count":
+        requirements.append(_compiled_req(agg, _compiled_agg_terms(agg)))
+        metric = params.get("metric_field")
+        requirements.append(
+            _compiled_req(metric, _compiled_field_terms(metric, leaf=True))
+            if isinstance(metric, str) and metric
+            else _compiled_req("metric_field", ())
+        )
+    else:
+        requirements.append(_compiled_req("count", _compiled_agg_terms("count")))
+    return requirements
+
+
+def _compiled_simple_filter_requirements(params: dict[str, Any]) -> list[tuple[str, tuple[str, ...]]]:
+    requirements: list[tuple[str, tuple[str, ...]]] = []
+    for pred in params.get("predicates", []) or []:
+        if not isinstance(pred, dict):
+            continue
+        requirements.append(_compiled_req(pred.get("field"), _compiled_field_terms(pred.get("field"))))
+        requirements.append(
+            _compiled_req(f"predicate op {pred.get('op')}", _compiled_op_terms(pred.get("op")))
+        )
+        if "value" in pred:
+            requirements.append(_compiled_req(pred.get("value"), _compiled_value_terms(pred.get("value"))))
+    requirements.extend(_compiled_projection_requirements(params.get("project")))
+    return requirements
+
+
+def _compiled_topn_requirements(params: dict[str, Any]) -> list[tuple[str, tuple[str, ...]]]:
+    order = params.get("order", "desc")
+    order_terms = ("ascending", "lowest", "smallest") if order == "asc" else (
+        "descending", "highest", "largest", "top"
+    )
+    requirements = [
+        _compiled_req(params.get("sort_key"), _compiled_field_terms(params.get("sort_key"), leaf=True)),
+        _compiled_req("top", "top", "first", "limit"),
+        _compiled_req(params.get("n"), _compiled_value_terms(params.get("n"))),
+        _compiled_req(order, order_terms),
+        _compiled_req(
+            f"nulls={params.get('nulls', 'last')!r}",
+            _compiled_null_order_terms(params.get("nulls", "last")),
+        ),
+    ]
+    requirements.extend(_compiled_projection_requirements(params.get("project")))
+    return requirements
+
+
+def _compiled_group_count_requirements(params: dict[str, Any]) -> list[tuple[str, tuple[str, ...]]]:
+    return [
+        _compiled_req(params.get("group_by"), _compiled_field_terms(params.get("group_by"), leaf=True)),
+        _compiled_req("count", _compiled_agg_terms("count")),
+    ]
+
+
+def _compiled_existence_count_requirements(params: dict[str, Any]) -> list[tuple[str, tuple[str, ...]]]:
+    return [
+        _compiled_req(params.get("field"), _compiled_field_terms(params.get("field"), leaf=True)),
+        _compiled_req("count", _compiled_agg_terms("count")),
+    ]
+
+
+def _compiled_null_coalesce_agg_requirements(
+    params: dict[str, Any]
+) -> list[tuple[str, tuple[str, ...]]]:
+    return [
+        _compiled_req(params.get("field"), _compiled_field_terms(params.get("field"), leaf=True)),
+        _compiled_req(params.get("agg"), _compiled_agg_terms(params.get("agg"))),
+        _compiled_req(
+            f"default={params.get('default', 0)!r}",
+            _compiled_value_terms(params.get("default", 0)),
+            "default",
+            "coalesce",
+            "missing",
+            "null",
+        ),
+    ]
+
+
+def _compiled_subtype_agg_requirements(params: dict[str, Any]) -> list[tuple[str, tuple[str, ...]]]:
+    requirements = [
+        _compiled_req(params.get("discriminator"), _compiled_field_terms(params.get("discriminator"))),
+        _compiled_req(params.get("agg"), _compiled_agg_terms(params.get("agg"))),
+    ]
+    fbs = params.get("field_by_subtype")
+    if isinstance(fbs, dict):
+        for field in fbs.values():
+            requirements.append(_compiled_req(field, _compiled_field_terms(field, leaf=True)))
+    return requirements
+
+
+def _compiled_subtype_cond_projection_requirements(
+    params: dict[str, Any]
+) -> list[tuple[str, tuple[str, ...]]]:
+    requirements = [
+        _compiled_req(params.get("target_field"), _compiled_field_terms(params.get("target_field"))),
+        _compiled_req(params.get("discriminator"), _compiled_field_terms(params.get("discriminator"))),
+        _compiled_req(
+            f"default={params.get('default', 0)!r}",
+            _compiled_value_terms(params.get("default", 0)),
+            "default",
+        ),
+    ]
+    fbs = params.get("field_by_subtype")
+    if isinstance(fbs, dict):
+        for field in fbs.values():
+            requirements.append(_compiled_req(field, _compiled_field_terms(field, leaf=True)))
+    return requirements
+
+
+def _compiled_subtype_specific_field_requirements(
+    params: dict[str, Any]
+) -> list[tuple[str, tuple[str, ...]]]:
+    return [
+        _compiled_req(params.get("discriminator"), _compiled_field_terms(params.get("discriminator"))),
+        _compiled_req(params.get("subtype_value"), params.get("subtype_value")),
+        _compiled_req(params.get("field"), _compiled_field_terms(params.get("field"), leaf=True)),
+    ]
+
+
+def _compiled_join_nested_group_requirements(
+    params: dict[str, Any]
+) -> list[tuple[str, tuple[str, ...]]]:
+    requirements = [
+        _compiled_req(params.get("array_field"), _compiled_field_terms(params.get("array_field"))),
+        _compiled_req(params.get("group_by"), _compiled_field_terms(params.get("group_by"), leaf=True)),
+        _compiled_req(params.get("agg", "count"), _compiled_agg_terms(params.get("agg", "count"))),
+    ]
+    if params.get("agg", "count") != "count" or params.get("value_field"):
+        requirements.append(
+            _compiled_req(
+                params.get("value_field"),
+                _compiled_field_terms(params.get("value_field"), leaf=True),
+            )
+        )
+    return requirements
+
+
+def _compiled_dynamic_key_fold_requirements(
+    params: dict[str, Any]
+) -> list[tuple[str, tuple[str, ...]]]:
+    return [
+        _compiled_req(params.get("name_field"), _compiled_field_terms(params.get("name_field"))),
+        _compiled_req(params.get("value_field"), _compiled_field_terms(params.get("value_field"), leaf=True)),
+        _compiled_req(params.get("agg"), _compiled_agg_terms(params.get("agg"))),
+    ]
+
+
+def _compiled_cross_keyset_value_requirements(
+    params: dict[str, Any]
+) -> list[tuple[str, tuple[str, ...]]]:
+    return [_compiled_req(params.get("key"), _compiled_field_terms(params.get("key"), leaf=True))]
+
+
+def _compiled_cross_version_agg_requirements(
+    params: dict[str, Any]
+) -> list[tuple[str, tuple[str, ...]]]:
+    requirements = [_compiled_req(params.get("agg"), _compiled_agg_terms(params.get("agg")))]
+    candidates = params.get("field_candidates")
+    if isinstance(candidates, list):
+        for field in candidates:
+            requirements.append(_compiled_req(field, _compiled_field_terms(field, leaf=True)))
+    requirements.append(
+        _compiled_req(
+            f"default={params.get('default', 0)!r}",
+            _compiled_value_terms(params.get("default", 0)),
+            "default",
+            "coalesce",
+        )
+    )
+    return requirements
+
+
+def _compiled_fk_rollup_requirements(params: dict[str, Any]) -> list[tuple[str, tuple[str, ...]]]:
+    requirements = [
+        _compiled_req(params.get("parent_collection"), _compiled_field_terms(params.get("parent_collection"))),
+        _compiled_req(params.get("child_collection"), _compiled_field_terms(params.get("child_collection"))),
+        _compiled_req(params.get("parent_key"), _compiled_field_terms(params.get("parent_key"), leaf=True)),
+        _compiled_req(params.get("foreign_key"), _compiled_field_terms(params.get("foreign_key"), leaf=True)),
+        _compiled_req("join/rollup", "join", "roll up", "rollup", "matching child"),
+        _compiled_req(params.get("agg", "count"), _compiled_agg_terms(params.get("agg", "count"))),
+    ]
+    if params.get("agg", "count") != "count":
+        requirements.append(
+            _compiled_req(
+                params.get("value_field"),
+                _compiled_field_terms(params.get("value_field"), leaf=True),
+            )
+        )
+    requirements.extend(_compiled_match_requirements(params.get("match"), label_prefix="match"))
+    return requirements
+
+
+_COMPILED_RTV_CONTRACT_BUILDERS: dict[
+    str, Callable[[dict[str, Any]], list[tuple[str, tuple[str, ...]]]]
+] = {
+    "simple_filter": _compiled_simple_filter_requirements,
+    "topn": _compiled_topn_requirements,
+    "group_count": _compiled_group_count_requirements,
+    "join_nested_group": _compiled_join_nested_group_requirements,
+    "fk_rollup": _compiled_fk_rollup_requirements,
+    "existence_count": _compiled_existence_count_requirements,
+    "null_coalesce_agg": _compiled_null_coalesce_agg_requirements,
+    "per_subtype_agg": _compiled_subtype_agg_requirements,
+    "subtype_cond_projection": _compiled_subtype_cond_projection_requirements,
+    "cross_subtype_compare": _compiled_subtype_agg_requirements,
+    "subtype_specific_field": _compiled_subtype_specific_field_requirements,
+    "present_missing_projection": _compiled_present_missing_projection_requirements,
+    "optional_embed_projection": _compiled_optional_embed_projection_requirements,
+    "has_vs_absent_compare": _compiled_has_vs_absent_compare_requirements,
+    "dynamic_key_fold": _compiled_dynamic_key_fold_requirements,
+    "cross_keyset_value": _compiled_cross_keyset_value_requirements,
+    "cross_version_agg": _compiled_cross_version_agg_requirements,
+}
 
 
 @register
@@ -915,7 +1679,7 @@ _NLP_SCHEMA = {
             "additionalProperties": False,
         },
     },
-    "additionalProperties": True,
+    "additionalProperties": False,
 }
 
 
@@ -981,6 +1745,8 @@ class NlParaphraser(LLMAgent):
                 "(not from any pipeline)\n"
                 "WRITE BOTH canonical AND colloquial IN ENGLISH ONLY — never Chinese or any "
                 "other language; non-English output is rejected.\n"
+                "Return exactly one JSON object with only the key nl_queries. Do NOT emit "
+                "nlp_trace, rationale, markdown, code fences, or any extra keys.\n"
                 f"## intent\n```json\n{json.dumps(intent, ensure_ascii=False, indent=2, sort_keys=True)}\n```\n"
                 "RULES: describe EXACTLY the computation in this intent over ITS named "
                 "collection/fields. Do NOT introduce entities/fields not in the intent "
@@ -1080,6 +1846,11 @@ class RoundTripVerifier(LLMAgent):
     temperature = 0.0
     offload_postprocess = True
 
+    async def run(self, ctx: AgentContext, inputs: dict[str, Any]) -> dict[str, Any]:
+        if inputs.get("verification_mode") == _COMPILED_REFERENCE_ORACLE_RTV_MODE:
+            return _compiled_reference_oracle_nl_contract(inputs)
+        return await super().run(ctx, inputs)
+
     def render_inputs(self, ctx: AgentContext, inputs: dict[str, Any]) -> str:
         nlq = inputs.get("nl_queries", {})
         return ("# RTV — independently translate the canonical NLQ to MQL using the schema "
@@ -1090,6 +1861,8 @@ class RoundTripVerifier(LLMAgent):
                 "REAL collections above. Reproduce the computation the NLQ describes exactly.")
 
     def postprocess(self, ctx, inputs, output, result) -> dict[str, Any]:
+        if inputs.get("verification_mode") == _COMPILED_REFERENCE_ORACLE_RTV_MODE:
+            return _compiled_reference_oracle_nl_contract(inputs)
         if ctx.settings.stub or ctx.mongo is None or not ctx.mongo.available():
             output["rtv_pass"] = True
             return output

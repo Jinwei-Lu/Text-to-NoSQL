@@ -1336,6 +1336,7 @@ async def _run_artifact_diversity_phase_b(
     records: list[dict] = []
     attempts_by_db: dict[str, int] = {db_id: 0 for db_id in targets}
     seen_mql: dict[tuple[str, str], int] = {}
+    seen_skeleton: dict[tuple[str, str], list[int]] = {}
     total_slots = 0
     next_record_id = 1001
     batch = 0
@@ -1380,7 +1381,13 @@ async def _run_artifact_diversity_phase_b(
         )
         before = len(records)
         records.extend(
-            await run_phase_b(rt.workflow, artifacts, slots, seen_mql=seen_mql)
+            await run_phase_b(
+                rt.workflow,
+                artifacts,
+                slots,
+                seen_mql=seen_mql,
+                seen_skeleton=seen_skeleton,
+            )
         )
         built_this_batch = len(records) - before
         dropped_this_batch = len(slots) - built_this_batch

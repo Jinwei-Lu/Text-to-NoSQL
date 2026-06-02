@@ -334,13 +334,17 @@ def test_qps_llm_design_mode_does_not_require_reference_oracle():
             "seed_signal": {"collection": "account", "field": "frequency"},
             "archetype": "group_count",
             "target_difficulty": "L1",
-            "target_sql_infeasibility_class": "feasible",
-            "schema_flex_mode": "none",
             "analytical_op": {"formula": "group accounts by frequency and count them"},
             "shape_policy": "reduce",
-            "output": {"fields": ["_id", "count"], "missing": {}},
-            "semantic_properties": ["non-empty grouped result"],
-        }
+            "semantic_properties": [
+                {"id": "grouped_result", "expect": "non-empty grouped result"}
+            ],
+        },
+        "qps_trace": {
+            "coverage_cell": "none|group_count|test",
+            "deficit_weight": 0,
+            "supply_constrained": False,
+        },
     }
 
     errs = QueryPlanSampler().check_contract(
@@ -357,7 +361,7 @@ def test_qps_llm_design_mode_does_not_require_reference_oracle():
     assert errs == []
 
 
-def test_qps_llm_design_mode_ignores_model_emitted_reference_oracle():
+def test_qps_llm_design_mode_rejects_model_emitted_reference_oracle():
     from tend.agents.phase_b import QueryPlanSampler
 
     output = {
@@ -366,15 +370,19 @@ def test_qps_llm_design_mode_ignores_model_emitted_reference_oracle():
             "seed_signal": {"collection": "account", "field": "frequency"},
             "archetype": "group_count",
             "target_difficulty": "L1",
-            "target_sql_infeasibility_class": "feasible",
-            "schema_flex_mode": "none",
             "analytical_op": {"formula": "group accounts by frequency and count them"},
             "shape_policy": "reduce",
-            "output": {"fields": ["_id", "count"], "missing": {}},
-            "semantic_properties": ["non-empty grouped result"],
+            "semantic_properties": [
+                {"id": "grouped_result", "expect": "non-empty grouped result"}
+            ],
             "reference_oracle": {"template": "not_real", "params": {}},
         },
         "reference_oracle": {"template": "also_not_real", "params": {}},
+        "qps_trace": {
+            "coverage_cell": "none|group_count|test",
+            "deficit_weight": 0,
+            "supply_constrained": False,
+        },
     }
 
     errs = QueryPlanSampler().check_contract(
@@ -388,9 +396,49 @@ def test_qps_llm_design_mode_ignores_model_emitted_reference_oracle():
         output,
     )
 
-    assert errs == []
-    assert "reference_oracle" not in output
-    assert "reference_oracle" not in output["intent"]
+    assert "QPS design-mode output must not emit top-level reference_oracle" in errs
+    assert "QPS design-mode intent must not emit reference_oracle" in errs
+    assert "reference_oracle" in output
+    assert "reference_oracle" in output["intent"]
+
+
+def test_qps_llm_design_mode_rejects_preserve_structural_schema_flex_without_default():
+    from tend.agents.phase_b import QueryPlanSampler
+
+    output = {
+        "intent": {
+            "seed_mechanism": "sparse_embed",
+            "seed_signal": {"collection": "account", "field": "loan"},
+            "archetype": "present_missing_projection",
+            "target_difficulty": "L4",
+            "analytical_op": {"target_field": "loan_amount_or_default"},
+            "shape_policy": "preserve",
+            "semantic_properties": [
+                {"id": "optional_embed_branch", "expect": "optional embed branch"}
+            ],
+        },
+        "qps_trace": {
+            "coverage_cell": "sparse_embed|present_missing_projection|test",
+            "deficit_weight": 0,
+            "supply_constrained": False,
+        },
+    }
+
+    errs = QueryPlanSampler().check_contract(
+        None,
+        {
+            "archetype": "present_missing_projection",
+            "llm_design_mode": True,
+            "target_sql_infeasibility_class": "structural_schema_flex",
+            "schema": {"account": {"_id": "INT", "loan": {"amount": "INT"}}},
+        },
+        output,
+    )
+
+    assert errs == [
+        "preserve structural_schema_flex intent must state a non-null missing/default "
+        "value for the computed target field"
+    ]
 
 
 def test_qps_prompt_includes_global_portfolio_context():
@@ -612,6 +660,47 @@ def test_complete_rationale_coerces_release_decision_types():
     )
 
     assert out["decisions"][0]["type"] == "attribute"
+
+
+def test_complete_rationale_coerces_release_decision_string_fields():
+    from tend.workflow.flows import _complete_rationale
+
+    out = _complete_rationale(
+        db_id="financial",
+        rationale={
+            "decisions": [{
+                "id": "D01",
+                "type": "embed",
+                "parent": "district",
+                "child": ["account", "client"],
+                "rationale": "co-locate district children",
+                "reference": ["migration_log", "embeds"],
+            }]
+        },
+        schema={"district": {"_id": "INT"}},
+        migration_log={},
+        source_schema=None,
+        sc={"verdict": "accept", "issues": []},
+    )
+
+    assert out["decisions"][0]["child"] == "account, client"
+    assert out["decisions"][0]["reference"] == "migration_log, embeds"
+
+
+def test_complete_rationale_coerces_migration_log_child_lists():
+    from tend.workflow.flows import _complete_rationale
+
+    out = _complete_rationale(
+        db_id="financial",
+        rationale={},
+        schema={"district": {"_id": "INT"}},
+        migration_log={"embeds": {"district": [["account", "client"]]}},
+        source_schema=None,
+        sc={"verdict": "accept", "issues": []},
+    )
+
+    assert out["decisions"][0]["child"] == "account, client"
+    assert "account, client" in out["decisions"][0]["rationale"]
 
 
 def test_complete_rationale_coerces_release_patterns_applied():
@@ -883,7 +972,9 @@ def test_build_record_backfills_hidden_certification_oracle_into_ms(stub_setting
     assert any(e["event"] == "reference_oracle_certification_backfilled" for e in events)
 
 
-def test_build_record_compiles_hidden_oracle_before_ms_agent(stub_settings, logger):
+def test_build_record_compiles_hidden_oracle_before_ms_but_still_calls_rtv(
+    stub_settings, logger
+):
     from tend.workflow.flows import CoverageSlot, DbArtifacts, _build_record
 
     reference = {
@@ -891,6 +982,7 @@ def test_build_record_compiles_hidden_oracle_before_ms_agent(stub_settings, logg
         "params": {"collection": "account", "group_by": "frequency"},
     }
     calls: dict[str, int] = {}
+    rtv_payloads: list[dict] = []
 
     class _Mongo:
         def available(self):
@@ -933,9 +1025,30 @@ def test_build_record_compiles_hidden_oracle_before_ms_agent(stub_settings, logg
             if agent_id == "pv":
                 return {"pv_pass": True, "property_verification": {}}
             if agent_id == "nlp":
-                return {"nl_queries": {"canonical": "Group accounts.", "colloquial": "Group them."}}
+                return {
+                    "nl_queries": {
+                        "canonical": "Group accounts by frequency and output count.",
+                        "colloquial": "Count accounts for each frequency.",
+                    }
+                }
             if agent_id == "rtv":
-                return {"rtv_pass": True}
+                rtv_payloads.append(dict(inputs))
+                assert inputs["verification_mode"] == "compiled_reference_oracle_nl_contract"
+                assert inputs["reference_oracle"] == reference
+                assert inputs["result_fields"] == ["_id", "count"]
+                assert inputs["shape_policy"] == "reduce"
+                assert inputs["compiled_gold_provenance"]["source"] == "workflow_direct_compile"
+                assert set(inputs) == {
+                    "verification_mode",
+                    "reference_oracle",
+                    "result_fields",
+                    "shape_policy",
+                    "compiled_gold_provenance",
+                    "nl_queries",
+                    "MQL",
+                    "schema",
+                }
+                return {"rtv_pass": True, "rtv_mode": "compiled_reference_oracle_nl_contract"}
             if agent_id == "nnc":
                 return {"gate_pass": True, "difficulty": "L1", "sql_infeasibility_class": "feasible"}
             if agent_id == "ra":
@@ -968,6 +1081,8 @@ def test_build_record_compiles_hidden_oracle_before_ms_agent(stub_settings, logg
 
     assert record is not None
     assert calls.get("ms", 0) == 0
+    assert calls.get("rtv", 0) == 1
+    assert rtv_payloads
     assert record["MQL"].startswith("db.account.aggregate")
     assert record["shape_policy"] == "reduce"
     events = [
@@ -1339,7 +1454,12 @@ def test_build_record_rejects_repeated_mql_skeleton_family(stub_settings, logger
             if agent_id == "pv":
                 return {"pv_pass": True, "property_verification": {}}
             if agent_id == "nlp":
-                return {"nl_queries": {"canonical": "Group accounts.", "colloquial": "Group them."}}
+                return {
+                    "nl_queries": {
+                        "canonical": f"Group accounts for record {rid}.",
+                        "colloquial": f"Group them for record {rid}.",
+                    }
+                }
             if agent_id == "rtv":
                 return {"rtv_pass": True}
             if agent_id == "nnc":
@@ -1392,6 +1512,120 @@ def test_build_record_rejects_repeated_mql_skeleton_family(stub_settings, logger
     assert rejection["record_id"] == 2000 + MQL_SKELETON_FAMILY_CAP
     drop = [e for e in events if e["event"] == "record_dropped"][-1]
     assert drop["reason"] == "MQL skeleton family over diversity cap"
+
+
+def test_run_phase_b_carries_mql_skeleton_state_across_batches(stub_settings, logger):
+    from tend.workflow.flows import (
+        MQL_SKELETON_FAMILY_CAP,
+        CoverageSlot,
+        DbArtifacts,
+        run_phase_b,
+    )
+
+    calls: dict[str, int] = {}
+
+    class _WF:
+        def __init__(self):
+            self.ctx = AgentContext(settings=stub_settings, llm=None, log=logger)
+
+        def phase(self, phase):
+            self.ctx = self.ctx.bind(phase=phase)
+
+        async def pipeline(self, items, fn, isolate=True):
+            return [await fn(item) for item in items]
+
+        def context(self, **fields):
+            return self.ctx.bind(**fields)
+
+        async def agent(self, agent_id, inputs, ctx=None):
+            calls[agent_id] = calls.get(agent_id, 0) + 1
+            rid = ctx.record_id if ctx else 0
+            if agent_id == "qps":
+                return {
+                    "intent": {
+                        "seed_mechanism": "baseline",
+                        "archetype": "group_count",
+                        "shape_policy": "reduce",
+                    },
+                    "reference_oracle": {
+                        "template": "group_count",
+                        "params": {"collection": "account", "group_by": "frequency"},
+                    },
+                }
+            if agent_id == "ms":
+                return {
+                    "gold_locked": True,
+                    "MQL": (
+                        'db.account.aggregate([{ "$group": { "_id": "$frequency", '
+                        f'"count_{rid}": {{ "$sum": 1 }} }} }}])'
+                    ),
+                    "canonical_form_set": {"must_contain": []},
+                    "shape_policy": "reduce",
+                    "schema_flex": "polymorphic",
+                }
+            if agent_id == "mut":
+                return {"mutations": [{"mutation_id": f"m{i}", "MQL": "x"} for i in range(5)]}
+            if agent_id == "pv":
+                return {"pv_pass": True, "property_verification": {}}
+            if agent_id == "nlp":
+                return {
+                    "nl_queries": {
+                        "canonical": f"Group accounts for record {rid}.",
+                        "colloquial": f"Group them for record {rid}.",
+                    }
+                }
+            if agent_id == "rtv":
+                return {"rtv_pass": True}
+            if agent_id == "nnc":
+                return {
+                    "gate_pass": True,
+                    "difficulty": "L4",
+                    "sql_infeasibility_class": "structural_schema_flex",
+                }
+            if agent_id == "ra":
+                return {"ra_pass": True}
+            raise AssertionError(agent_id)
+
+    artifacts = {
+        "financial": DbArtifacts(
+            db_id="financial",
+            mongodb_schema={"account": {"_id": "INT", "frequency": "TEXT"}},
+            mongodb_data={"account": [{"_id": 1, "frequency": "monthly"}]},
+            rationale={},
+            world_signature="sha256:" + "6" * 64,
+            scenario_summary="finance account grouping",
+            query_bearing=True,
+        )
+    }
+
+    async def run():
+        seen_mql: dict[tuple[str, str], int] = {}
+        seen_skeleton: dict[tuple[str, str], list[int]] = {}
+        first_batch = [
+            CoverageSlot("financial", "none", "group_count", 3000 + offset)
+            for offset in range(MQL_SKELETON_FAMILY_CAP)
+        ]
+        second_batch = [
+            CoverageSlot("financial", "none", "group_count", 3000 + MQL_SKELETON_FAMILY_CAP)
+        ]
+        first = await run_phase_b(
+            _WF(), artifacts, first_batch, seen_mql=seen_mql, seen_skeleton=seen_skeleton
+        )
+        second = await run_phase_b(
+            _WF(), artifacts, second_batch, seen_mql=seen_mql, seen_skeleton=seen_skeleton
+        )
+        return first, second
+
+    first, second = asyncio.run(run())
+
+    assert len(first) == MQL_SKELETON_FAMILY_CAP
+    assert second == []
+    assert calls["mut"] == MQL_SKELETON_FAMILY_CAP
+    events = [
+        json.loads(line) for line in (logger.run_dir / "events.jsonl").read_text().splitlines()
+    ]
+    rejection = next(e for e in events if e["event"] == "mql_skeleton_family_rejected")
+    assert rejection["record_id"] == 3000 + MQL_SKELETON_FAMILY_CAP
 
 
 def test_nlp_reflux_respects_reshape_shape_policy(stub_settings, logger):
@@ -1455,6 +1689,56 @@ def test_stub_nlp_respects_reduce_shape_contract():
     assert "each document" not in canonical.lower()
 
 
+def test_stub_nlp_names_has_vs_absent_labels():
+    from tend.agents.phase_b import _compiled_reference_oracle_nl_contract
+    from tend.agents.phase_b import _nl_shape_contract_violations
+    from tend.stubs import stub_fn
+
+    intent = {
+        "shape_policy": "reduce",
+        "archetype": "has_vs_absent_compare",
+        "seed_signal": {"collection": "account", "field": "loan"},
+        "output": {"fields": ["_id", "value"]},
+        "reference_oracle": {
+            "template": "has_vs_absent_compare",
+            "params": {
+                "parent_collection": "account",
+                "embed_field": "loan",
+                "metric_field": "loan.payments",
+                "agg": "max",
+            },
+        },
+    }
+    out = stub_fn(
+        "nlp",
+        [{"role": "user", "content": "## intent\n```json\n" + json.dumps(intent) + "\n```"}],
+        None,
+    )
+    canonical = out["nl_queries"]["canonical"]
+
+    assert "present" in canonical.lower()
+    assert "absent" in canonical.lower()
+    assert "max" in canonical.lower()
+    assert "payments" in canonical.lower()
+    assert _nl_shape_contract_violations(intent, canonical) == []
+    rtv = _compiled_reference_oracle_nl_contract({
+        "verification_mode": "compiled_reference_oracle_nl_contract",
+        "reference_oracle": intent["reference_oracle"],
+        "result_fields": ["_id", "value"],
+        "shape_policy": "reduce",
+        "compiled_gold_provenance": {
+            "source": "workflow_direct_compile",
+            "compiler": "_canonical_reference_mql",
+            "template": "has_vs_absent_compare",
+            "gold_lock": "norm_exec_nonempty",
+        },
+        "nl_queries": {"canonical": canonical, "colloquial": canonical},
+        "MQL": "db.account.aggregate([])",
+        "schema": {"account": {"_id": "INT", "loan": {"payments": "REAL"}}},
+    })
+    assert rtv["rtv_pass"] is True
+
+
 def test_nlp_prompt_and_contract_preserve_has_vs_absent_oracle_labels(stub_settings, logger):
     from tend.agents.phase_b import NlParaphraser, _nl_shape_contract_violations
 
@@ -1491,6 +1775,29 @@ def test_nlp_prompt_and_contract_preserve_has_vs_absent_oracle_labels(stub_setti
         "and output value as the maximum loan duration with missing values counted as 0.",
         ["_id", "value"],
     ) == []
+
+
+def test_nlp_runtime_prompt_and_schema_only_require_nl_queries(stub_settings, logger):
+    from tend.agents.phase_b import NlParaphraser
+
+    agent = NlParaphraser()
+    ctx = AgentContext(settings=stub_settings, llm=None, log=logger)
+    prompt = agent.render_inputs(
+        ctx,
+        {
+            "intent": {
+                "shape_policy": "reduce",
+                "archetype": "group_count",
+                "seed_signal": {"collection": "account", "field": "frequency"},
+            }
+        },
+    )
+    system_prompt = agent.prompt_text(ctx)
+
+    assert agent.output_schema["additionalProperties"] is False
+    assert set(agent.output_schema["required"]) == {"nl_queries"}
+    assert "Do NOT emit nlp_trace" in prompt
+    assert "nlp_trace" not in system_prompt
 
 
 def test_stub_qps_design_card_mode_leaves_oracle_hidden_for_workflow_backfill():
@@ -1663,7 +1970,20 @@ def test_progress_heartbeat_writes_file_snapshots(tmp_path: Path):
             stall_warn_s=0.01,
         ) as progress:
             progress.start_task("t1", "slow task", group="phaseB")
-            time.sleep(0.07)
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline:
+                if (tmp_path / "run" / "progress.jsonl").exists():
+                    live_snapshots = [
+                        json.loads(line)
+                        for line in (tmp_path / "run" / "progress.jsonl").read_text().splitlines()
+                    ]
+                    if any(
+                        snap["reason"] == "heartbeat"
+                        and snap["oldest_running_task_elapsed_s"] > 0
+                        for snap in live_snapshots
+                    ):
+                        break
+                time.sleep(0.02)
             progress.finish_task("t1")
         snapshots = [
             json.loads(line)
