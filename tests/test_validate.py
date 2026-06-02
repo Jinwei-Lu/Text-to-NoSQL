@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from tend.execution import world_signature
+from tend.execution import mql_signature, world_signature
 from tend.execution.ast_check import DISABLED_OPERATORS, DISABLED_SYSTEM_VARS
 from tend.publish import validate_composition, validate_record, validate_record_jsonschema, validate_release
 
@@ -32,6 +32,36 @@ def _valid_record(**over):
 
 def test_valid_record_passes():
     assert validate_record(_valid_record()) == []
+
+
+def test_validate_release_rejects_duplicate_mql(tmp_path: Path):
+    out = tmp_path / "release"
+    db = "financial"
+    data = {"account": [{"_id": 1}], "trans": [{"_id": 10, "account_id": 1}]}
+    sig = world_signature(data)
+    records = [
+        _valid_record(record_id=1, world_signature=sig),
+        _valid_record(record_id=2, world_signature=sig),
+    ]
+
+    (out / "mongodb_data").mkdir(parents=True)
+    (out / "mongodb_schema").mkdir()
+    (out / "agent_design_rationale").mkdir()
+    (out / "test.json").write_text(json.dumps(records), encoding="utf-8")
+    (out / "TEND.json").write_text(json.dumps(records), encoding="utf-8")
+    (out / "mongodb_data" / f"{db}.json").write_text(json.dumps(data), encoding="utf-8")
+    (out / "mongodb_schema" / f"{db}.json").write_text(
+        json.dumps({"account": {"_id": "INT"}, "trans": {"account_id": "INT"}}),
+        encoding="utf-8",
+    )
+    (out / "agent_design_rationale" / f"{db}.yaml").write_text(
+        "db_id: financial\n", encoding="utf-8"
+    )
+
+    report = validate_release(out, require_all_dbs=False)
+
+    assert not report.ok
+    assert any("duplicate MQL" in issue and "r2" in issue for issue in report.record_violations)
 
 
 def test_c6_missing_disabled_ops():
@@ -121,6 +151,18 @@ def test_record_schema_enforces_exact_world_signature_length():
     too_long = _valid_record(world_signature="sha256:" + "a" * 65)
     assert validate_record_jsonschema(too_short, schema)
     assert validate_record_jsonschema(too_long, schema)
+
+
+def test_record_schema_accepts_diversity_metadata():
+    schema = Path("proposals/schemas/record.schema.json")
+    rec = _valid_record(
+        mql_signature=mql_signature(_valid_record()["MQL"]),
+        mechanism="sparse_embed",
+        archetype="existence_count",
+        diversity_key="sparse_embed:existence_count:financial.account.loan",
+        schema_feature="account.loan",
+    )
+    assert validate_record_jsonschema(rec, schema) == []
 
 
 def test_library_schema_rejects_unsafe_field_names():

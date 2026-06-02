@@ -20,6 +20,7 @@ import asyncio
 import inspect
 import json
 import time
+import traceback
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -210,7 +211,29 @@ class LLMAgent(Agent):
         return []
 
     async def run(self, ctx: AgentContext, inputs: dict[str, Any]) -> dict[str, Any]:
-        messages = self.build_messages(ctx, inputs)
+        try:
+            messages = self.build_messages(ctx, inputs)
+        except TendError as err:
+            err.with_context(
+                agent=self.id,
+                prompt_file=self.prompt_file,
+                input_keys=sorted(str(k) for k in inputs),
+            )
+            raise
+        except Exception as exc:  # noqa: BLE001 - prompt construction must be diagnosable
+            raise PromptAnomalyError(
+                "agent prompt construction failed",
+                context={
+                    "agent": self.id,
+                    "prompt_file": self.prompt_file,
+                    "input_keys": sorted(str(k) for k in inputs),
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                    "traceback": "".join(
+                        traceback.format_exception(type(exc), exc, exc.__traceback__)
+                    ),
+                },
+            ) from exc
         schema = self.output_schema or None
         for attempt in range(self.contract_retries + 1):
             result = await ctx.llm.complete(
@@ -246,6 +269,12 @@ class LLMAgent(Agent):
                         processed = await processed
                     return processed
                 except TendError as err:
+                    err.with_context(
+                        agent=self.id,
+                        call_id=result.call_id,
+                        transcript_ref=result.transcript_ref,
+                        diagnostics_ref=result.diagnostics_ref,
+                    )
                     if not err.retryable or attempt >= self.contract_retries:
                         raise
                     ctx.progress and ctx.progress.retry_task(
@@ -287,7 +316,10 @@ class LLMAgent(Agent):
                 _active_task_id(ctx) or _agent_task_id(self.id, ctx, inputs),
                 detail=f"contract retry {attempt + 1}")
             ctx.log.warning("agent_contract_retry", agent=self.id, attempt=attempt + 1,
-                            violations=violations)
+                            violations=violations,
+                            call_id=result.call_id,
+                            transcript_ref=result.transcript_ref,
+                            diagnostics_ref=result.diagnostics_ref)
             messages = messages + [
                 {"role": "assistant", "content": result.text},
                 {"role": "user", "content": "Your output violated these requirements:\n"

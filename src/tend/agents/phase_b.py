@@ -30,6 +30,10 @@ def _contains_cjk(text: str) -> bool:
     return bool(_CJK_RE.search(text))
 
 
+def _stable_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
 # --------------------------------------------------------------------------- #
 # QPS — intent enumerator
 # --------------------------------------------------------------------------- #
@@ -265,13 +269,35 @@ class QueryPlanSampler(LLMAgent):
             f"{inputs.get('target_sql_infeasibility_class', 'structural_schema_flex')}\n"
             f"target_schema_flex: {inputs.get('target_schema_flex', 'polymorphic')}\n"
         )
+        seed = inputs.get("reference_oracle_seed")
+        seed_block = ""
+        if isinstance(seed, dict):
+            seed_block = (
+                "## deterministic diversity seed\n"
+                "You MUST emit this exact top-level reference_oracle.template and params. "
+                "Do not rename fields, change agg, or substitute a different template. "
+                "Use the intent text only to explain this seeded computation.\n"
+                "```json\n"
+                f"{json.dumps(seed, ensure_ascii=False, indent=2, sort_keys=True)}\n"
+                "```\n"
+            )
+        diversity = ""
+        if inputs.get("diversity_hint") or inputs.get("diversity_key"):
+            diversity = (
+                f"## diversity target\nkey: {inputs.get('diversity_key', '')}\n"
+                f"schema_feature: {inputs.get('schema_feature', '')}\n"
+                f"hint: {inputs.get('diversity_hint', '')}\n"
+            )
         return ("# QPS — enumerate ONE concrete intent grounded in THIS schema (not operators)\n"
                 f"seed_mechanism: {inputs.get('mechanism')}\narchetype: {archetype}\n"
                 f"{target}"
+                f"record_id: {inputs.get('record_id', '')}\nslot_index: {inputs.get('slot_index', '')}\n"
                 f"scenario_summary: {inputs.get('scenario_summary', '')[:500]}\n"
                 f"## schema (use ONLY these real collections/fields)\n{_schema_digest(inputs.get('schema', {}))}\n"
+                f"{diversity}"
                 f"## archetype recipe\n{recipe}\n\n"
                 f"## reference_oracle allowlist\n{oracle_guide}\n\n"
+                f"{seed_block}"
                 "Emit top-level intent with: seed_mechanism; seed_signal {collection, field}; archetype; "
                 "target_difficulty; target_sql_infeasibility_class; schema_flex_mode; "
                 "domain_framing (use the REAL collection/field names — do NOT invent entities "
@@ -321,6 +347,12 @@ class QueryPlanSampler(LLMAgent):
         if not isinstance(ref, dict):
             v.append("reference_oracle with supported template is required")
         else:
+            seed = inputs.get("reference_oracle_seed")
+            if isinstance(seed, dict) and _stable_json(ref) != _stable_json(seed):
+                v.append(
+                    "reference_oracle must exactly match deterministic diversity seed: "
+                    f"expected {_stable_json(seed)}, got {_stable_json(ref)}"
+                )
             template = ref.get("template")
             if not template:
                 v.append("reference_oracle.template is required")
@@ -1397,6 +1429,48 @@ def _canonical_group_count_mql(params: dict[str, Any], schema: dict[str, Any]) -
     return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
 
 
+def _canonical_topn_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    coll, sort_key = params.get("collection"), params.get("sort_key")
+    if not all(isinstance(x, str) and x for x in (coll, sort_key)):
+        return None
+    try:
+        n = int(params.get("n"))
+    except (TypeError, ValueError):
+        return None
+    if n <= 0:
+        return None
+    order = params.get("order", "desc")
+    if order not in {"asc", "desc"}:
+        return None
+    nulls = params.get("nulls", "last")
+    if nulls not in {"first", "last"}:
+        return None
+    missing_rank = 0 if nulls == "first" else 1
+    present_rank = 1 if nulls == "first" else 0
+    stages: list[dict[str, Any]] = [
+        {"$addFields": {
+            "__tend_missing_rank": {
+                "$cond": [
+                    {"$or": [
+                        {"$eq": [{"$type": f"${sort_key}"}, "missing"]},
+                        {"$eq": [f"${sort_key}", None]},
+                    ]},
+                    missing_rank,
+                    present_rank,
+                ]
+            }
+        }},
+        {"$sort": {"__tend_missing_rank": 1, sort_key: 1 if order == "asc" else -1}},
+        {"$limit": n},
+    ]
+    project = params.get("project")
+    if isinstance(project, list) and project:
+        stages.append(_mql_projection(project))
+    else:
+        stages.append({"$project": {"__tend_missing_rank": 0}})
+    return f"db.{coll}.aggregate({json.dumps(stages, ensure_ascii=False)})"
+
+
 def _canonical_null_coalesce_agg_mql(params: dict[str, Any], schema: dict[str, Any]) -> str | None:
     coll, field = params.get("collection"), params.get("field")
     agg = _agg_str(params.get("agg"))
@@ -1618,6 +1692,7 @@ _CANONICAL_MQL_BUILDERS: dict[str, Callable[[dict[str, Any], dict[str, Any]], st
     "simple_filter": _canonical_simple_filter_mql,
     "existence_count": _canonical_existence_count_mql,
     "group_count": _canonical_group_count_mql,
+    "topn": _canonical_topn_mql,
     "null_coalesce_agg": _canonical_null_coalesce_agg_mql,
     "subtype_specific_field": _canonical_subtype_specific_field_mql,
     "per_subtype_agg": _canonical_per_subtype_agg_mql,
@@ -1637,6 +1712,7 @@ _CANONICAL_SHAPE: dict[str, str] = {
     "has_vs_absent_compare": "reduce",
     "existence_count": "reduce",
     "group_count": "reduce",
+    "topn": "reshape",
     "null_coalesce_agg": "reduce",
     "per_subtype_agg": "reduce",
     "cross_subtype_compare": "reduce",

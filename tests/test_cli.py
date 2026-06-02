@@ -115,6 +115,114 @@ def test_construct_full_db_and_all_records(
     assert captured["structural_only"] is True
 
 
+def test_construct_records_per_db_expands_total_and_passes_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_build_runtime(settings):
+        return SimpleNamespace(
+            settings=settings,
+            source=SimpleNamespace(db_ids=("financial", "toxicology")),
+        )
+
+    async def fake_run_construct(_rt, db_ids, _phase, records, **kwargs):
+        captured["db_ids"] = db_ids
+        captured["records"] = records
+        captured["records_per_db"] = kwargs.get("records_per_db")
+        return 0
+
+    monkeypatch.setattr(cli, "build_runtime", fake_build_runtime)
+    monkeypatch.setattr(cli, "_run_construct", fake_run_construct)
+
+    assert cli.main([
+        "construct",
+        "--stub",
+        "--quiet",
+        "--dbs",
+        "financial,toxicology",
+        "--records",
+        "1",
+        "--records-per-db",
+        "100",
+        "--run-id",
+        "cli-per-db",
+    ]) == 0
+    assert captured["db_ids"] == ["financial", "toxicology"]
+    assert captured["records"] == 200
+    assert captured["records_per_db"] == 100
+
+
+def test_artifact_diversity_runner_refills_with_unused_slots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tend.workflow.flows import DbArtifacts
+
+    events: list[tuple[str, dict]] = []
+
+    class FakeLog:
+        def info(self, event: str, **fields):
+            events.append((event, fields))
+
+        def warning(self, event: str, **fields):
+            events.append((event, fields))
+
+    artifact = DbArtifacts(
+        db_id="financial",
+        mongodb_schema={
+            "account": {
+                "_id": "INT",
+                "frequency": "TEXT",
+                "loan": {"type": "OBJECT", "fields": {"amount": "REAL"}},
+                "trans": {
+                    "type": "ARRAY",
+                    "items": {"type": "OBJECT", "fields": {"amount": "REAL"}},
+                },
+                "__variants": [
+                    {"discriminator": {"loan": "present"}, "fields": {}},
+                    {"discriminator": {"loan": "missing"}, "fields": {}},
+                    {"discriminator": {"frequency": "present"}, "fields": {}},
+                    {"discriminator": {"frequency": "missing"}, "fields": {}},
+                ],
+            }
+        },
+        mongodb_data={"account": [{"_id": 1, "frequency": "monthly"}]},
+        rationale={},
+        world_signature="sha256:" + "5" * 64,
+        scenario_summary="financial",
+        query_bearing=True,
+    )
+    calls: list[list[int]] = []
+
+    async def fake_run_phase_b(_workflow, _artifacts, slots, *, seen_mql=None):
+        calls.append([slot.slot_index for slot in slots])
+        return [
+            {"db_id": slot.db_id, "record_id": slot.record_id}
+            for slot in slots
+            if slot.slot_index != 0
+        ]
+
+    monkeypatch.setattr(cli, "run_phase_b", fake_run_phase_b)
+    rt = SimpleNamespace(settings=SimpleNamespace(seed=0), log=FakeLog(), workflow=object())
+
+    records, slot_count, targets, pool_sizes = __import__("asyncio").run(
+        cli._run_artifact_diversity_phase_b(
+            rt,
+            {"financial": artifact},
+            n_records=2,
+            records_per_db=2,
+        )
+    )
+
+    assert len(records) == 2
+    assert calls[0] == [0, 1]
+    assert calls[1] == [2]
+    assert slot_count == 3
+    assert targets == {"financial": 2}
+    assert pool_sizes["financial"] >= 3
+    assert any(event == "artifact_diversity_batch_done" for event, _fields in events)
+
+
 def test_validate_smoke_relaxes_all_db_composition(capsys: pytest.CaptureFixture[str]) -> None:
     dataset = Path("tests/fixtures/smoke_release")
 

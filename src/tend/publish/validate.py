@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from ..execution import world_signature
+from ..execution import mql_signature, world_signature
 from ..execution import ast_check
 from ..execution.ast_check import DISABLED_OPERATORS, DISABLED_SYSTEM_VARS
 
@@ -231,6 +231,7 @@ def validate_release(
 
     rec_viol: list[str] = []
     sch_viol: list[str] = []
+    rec_viol += _duplicate_mql_violations(records)
     schemas_path = Path(schemas_dir) if schemas_dir else None
     schema_path = schemas_path / "record.schema.json" if schemas_path else None
     snapshots: dict[str, Any] = {}
@@ -284,6 +285,31 @@ def validate_release(
 
     ok = not (rec_viol or sch_viol or file_viol) and comp.ok
     return ReleaseReport(ok, len(records), rec_viol, sch_viol, comp, file_viol)
+
+
+def _duplicate_mql_violations(records: list[dict[str, Any]]) -> list[str]:
+    seen: dict[tuple[Any, str], dict[str, Any]] = {}
+    violations: list[str] = []
+    for record in records:
+        mql = record.get("MQL")
+        if not isinstance(mql, str) or not mql.strip():
+            continue
+        sig = mql_signature(mql)
+        key = (record.get("db_id"), sig)
+        previous = seen.get(key)
+        if previous is None:
+            seen[key] = record
+            continue
+        violations.append(
+            "[H10 r{rid}] duplicate MQL for db_id {db!r}; duplicates r{prev} "
+            "(mql_signature={sig})".format(
+                rid=record.get("record_id", "?"),
+                db=record.get("db_id"),
+                prev=previous.get("record_id", "?"),
+                sig=sig,
+            )
+        )
+    return violations
 
 
 def _validate_release_artifacts(

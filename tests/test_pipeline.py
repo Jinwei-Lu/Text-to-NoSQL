@@ -18,6 +18,7 @@ from tend.agents import Agent, AgentContext, LLMAgent, get_agent, register
 from tend.config import Settings
 from tend.errors import GateError, PromptAnomalyError, ResponseParseError, SchemaValidationError
 from tend.execution import (
+    mql_signature,
     derive_canonical_form_set,
     parse_pipeline,
     scan_disabled,
@@ -82,6 +83,13 @@ def test_parse_and_disabled_scan():
     assert coll == "account" and len(pipeline) == 3
     assert scan_disabled(ANCHOR_MQL) == []
     assert scan_disabled('db.x.aggregate([{ $out: "y" }])') == ["$out"]
+
+
+def test_mql_signature_canonicalizes_equivalent_pipeline_syntax():
+    compact = 'db.account.aggregate([{"$group":{"_id":"$frequency","count":{"$sum":1}}}])'
+    js_style = "db.account.aggregate([ { $group: { _id: '$frequency', count: { $sum: 1 } } } ])"
+
+    assert mql_signature(compact) == mql_signature(js_style)
 
 
 def test_thin_cfs_derivation():
@@ -388,6 +396,47 @@ def test_migration_financial(stub_settings: Settings):
         src.close()
 
 
+def test_financial_dm_exposes_schema_less_features_and_large_seed_pool(
+    stub_settings: Settings,
+):
+    from tend.agents.dm import DataMigrator
+    from tend.cli import _artifact_slot_pool
+    from tend.construct import build_plan, migrate
+    from tend.workflow.flows import DbArtifacts
+
+    src = BirdSource(stub_settings.paths.bird_root)
+    try:
+        plan = build_plan(src, "financial")
+        data = migrate(src, "financial", plan)
+        schema = DataMigrator()._derive_schema("financial", plan, data)
+    finally:
+        src.close()
+
+    families = {
+        feature["family"]
+        for node in schema.values()
+        if isinstance(node, dict)
+        for feature in node.get("__schema_less_features", [])
+    }
+    assert {"optional_embed", "nested_array", "sparse_scalar"} <= families
+
+    artifact = DbArtifacts(
+        db_id="financial",
+        mongodb_schema=schema,
+        mongodb_data=data,
+        rationale={},
+        world_signature=world_signature(data),
+        scenario_summary="financial benchmark",
+        query_bearing=True,
+    )
+    pool = _artifact_slot_pool(artifact, seed=stub_settings.seed)
+    assert len(pool) >= 100
+    assert len({spec["diversity_key"] for spec in pool}) == len(pool)
+    assert {"simple_filter", "topn", "join_nested_group"} <= {
+        spec["archetype"] for spec in pool
+    }
+
+
 def test_complete_rationale_replaces_null_heterogenization():
     from tend.workflow.flows import _complete_rationale
 
@@ -529,6 +578,56 @@ def test_coverage_request_adapter_targets_l4_schema_flex():
     ]
 
 
+def test_artifact_diversity_planner_populates_seeded_slot_metadata():
+    from tend.cli import _artifact_diversity_slots_for
+    from tend.workflow.flows import DbArtifacts
+
+    artifact = DbArtifacts(
+        db_id="financial",
+        mongodb_schema={
+            "account": {
+                "_id": "INT",
+                "frequency": "TEXT",
+                "loan": {"type": "OBJECT", "fields": {"amount": "REAL"}},
+                "trans": {
+                    "type": "ARRAY",
+                    "items": {"type": "OBJECT", "fields": {"amount": "REAL", "type": "TEXT"}},
+                },
+                "__variants": [
+                    {"discriminator": {"loan": "present"}, "fields": {}},
+                    {"discriminator": {"loan": "missing"}, "fields": {}},
+                    {"discriminator": {"frequency": "present"}, "fields": {}},
+                    {"discriminator": {"frequency": "missing"}, "fields": {}},
+                ],
+            }
+        },
+        mongodb_data={
+            "account": [
+                {"_id": 1, "frequency": "monthly", "loan": {"amount": 10.0}},
+                {"_id": 2, "frequency": "weekly", "trans": [{"amount": 3.0, "type": "PRIJEM"}]},
+            ]
+        },
+        rationale={},
+        world_signature="sha256:" + "4" * 64,
+        scenario_summary="financial schema-flex",
+        query_bearing=True,
+    )
+
+    slots = _artifact_diversity_slots_for(
+        {"financial": artifact},
+        n_records=3,
+        seed=7,
+        records_per_db=3,
+    )
+
+    assert len(slots) == 3
+    assert [slot.record_id for slot in slots] == [1001, 1002, 1003]
+    assert [slot.slot_index for slot in slots] == [0, 1, 2]
+    assert all(slot.db_id == "financial" for slot in slots)
+    assert all(slot.reference_oracle_seed for slot in slots)
+    assert all(slot.diversity_key and slot.schema_feature for slot in slots)
+
+
 def test_build_record_preserves_qps_reference_oracle_into_ms(stub_settings, logger):
     from tend.workflow.flows import CoverageSlot, DbArtifacts, _build_record
 
@@ -608,10 +707,120 @@ def test_build_record_preserves_qps_reference_oracle_into_ms(stub_settings, logg
     record = asyncio.run(_build_record(_WF(), artifacts, slot))
 
     assert record is not None
+    assert record["mechanism"] == "baseline"
+    assert record["archetype"] == "group_count"
+    assert record["mql_signature"] == mql_signature(record["MQL"])
     assert ms_inputs
     assert ms_inputs[0]["reference_oracle"] == reference
     assert ms_inputs[0]["intent"]["reference_oracle"] == reference
     assert ms_inputs[0]["mongodb_data"] == data
+
+
+def test_build_record_rejects_duplicate_mql_before_side_branches(stub_settings, logger):
+    from tend.workflow.flows import CoverageSlot, DbArtifacts, _build_record
+
+    reference = {
+        "template": "group_count",
+        "params": {"collection": "account", "group_by": "frequency"},
+    }
+    mql = 'db.account.aggregate([{ "$group": { "_id": "$frequency", "count": { "$sum": 1 } } }])'
+    calls: dict[str, int] = {}
+
+    class _WF:
+        def __init__(self):
+            self.ctx = AgentContext(settings=stub_settings, llm=None, log=logger)
+
+        def context(self, **fields):
+            return self.ctx.bind(**fields)
+
+        async def agent(self, agent_id, inputs, ctx=None):
+            calls[agent_id] = calls.get(agent_id, 0) + 1
+            if agent_id == "qps":
+                return {
+                    "intent": {
+                        "seed_mechanism": "baseline",
+                        "archetype": "group_count",
+                        "shape_policy": "reduce",
+                    },
+                    "reference_oracle": reference,
+                }
+            if agent_id == "ms":
+                return {
+                    "gold_locked": True,
+                    "MQL": mql,
+                    "canonical_form_set": {"must_contain": []},
+                    "shape_policy": "reduce",
+                    "schema_flex": "polymorphic",
+                }
+            if agent_id == "mut":
+                return {"mutations": [{"mutation_id": f"m{i}", "MQL": "x"} for i in range(5)]}
+            if agent_id == "pv":
+                return {"pv_pass": True, "property_verification": {}}
+            if agent_id == "nlp":
+                return {"nl_queries": {"canonical": "Group accounts.", "colloquial": "Group them."}}
+            if agent_id == "rtv":
+                return {"rtv_pass": True}
+            if agent_id == "nnc":
+                return {
+                    "gate_pass": True,
+                    "difficulty": "L4",
+                    "sql_infeasibility_class": "structural_schema_flex",
+                }
+            if agent_id == "ra":
+                return {"ra_pass": True}
+            raise AssertionError(agent_id)
+
+    artifacts = {
+        "financial": DbArtifacts(
+            db_id="financial",
+            mongodb_schema={"account": {"_id": "INT", "frequency": "TEXT"}},
+            mongodb_data={"account": [{"_id": 1, "frequency": "monthly"}]},
+            rationale={},
+            world_signature="sha256:" + "3" * 64,
+            scenario_summary="finance account grouping",
+            query_bearing=True,
+        )
+    }
+    seen: dict[tuple[str, str], int] = {}
+
+    async def run():
+        lock = asyncio.Lock()
+        first = await _build_record(
+            _WF(),
+            artifacts,
+            CoverageSlot("financial", "none", "group_count", 1001),
+            seen_mql=seen,
+            mql_lock=lock,
+        )
+        second = await _build_record(
+            _WF(),
+            artifacts,
+            CoverageSlot("financial", "none", "group_count", 1002),
+            seen_mql=seen,
+            mql_lock=lock,
+        )
+        return first, second
+
+    first, second = asyncio.run(run())
+
+    assert first is not None
+    assert first["mql_signature"] == mql_signature(mql)
+    assert second is None
+    assert calls["qps"] == 2 and calls["ms"] == 2
+    assert calls["mut"] == 1 and calls["nlp"] == 1 and calls["ra"] == 1
+    events = [
+        json.loads(line) for line in (logger.run_dir / "events.jsonl").read_text().splitlines()
+    ]
+    dup = next(e for e in events if e["event"] == "duplicate_mql_rejected")
+    assert dup["record_id"] == 1002
+    assert dup["duplicate_of_record_id"] == 1001
+    assert dup["mql_signature"] == mql_signature(mql)
+    drop = next(e for e in events if e["event"] == "record_dropped")
+    assert (
+        drop["reason"] == "duplicate MQL rejected"
+        and drop["duplicate_of_record_id"] == 1001
+    )
+    assert (logger.run_dir / "anomalies.jsonl").read_text() == ""
 
 
 def test_nlp_reflux_respects_reshape_shape_policy(stub_settings, logger):
@@ -652,6 +861,27 @@ def test_nlp_reflux_respects_reshape_shape_policy(stub_settings, logger):
         "and avg_loan_amount, using exact variant labels present and missing and 0 for "
         "missing loan amounts.",
     ) == []
+
+
+def test_stub_nlp_respects_reduce_shape_contract():
+    from tend.agents.phase_b import _nl_shape_contract_violations
+    from tend.stubs import stub_fn
+
+    intent = {
+        "shape_policy": "reduce",
+        "archetype": "group_count",
+        "seed_signal": {"collection": "account", "field": "frequency"},
+        "output": {"fields": ["frequency", "count"]},
+    }
+    out = stub_fn(
+        "nlp",
+        [{"role": "user", "content": "## intent\n```json\n" + json.dumps(intent) + "\n```"}],
+        None,
+    )
+    canonical = out["nl_queries"]["canonical"]
+
+    assert _nl_shape_contract_violations(intent, canonical) == []
+    assert "each document" not in canonical.lower()
 
 
 # --------------------------------------------------------------------------- #
@@ -799,8 +1029,52 @@ def test_llm_agent_retries_retryable_postprocess_errors(stub_settings, logger):
     assert retry["error_type"] == "ResponseParseError"
     assert retry["reason"] == "bad generated MQL"
     assert retry["transcript_ref"].endswith(".md")
+    assert retry["diagnostics_ref"].endswith(".diagnostics.json")
     anomalies = (logger.run_dir / "anomalies.jsonl").read_text()
     assert "bad generated MQL" not in anomalies
+
+
+def test_llm_agent_final_postprocess_failure_keeps_transcript_refs(stub_settings, logger):
+    class _FinalPostprocessFailure(LLMAgent):
+        id = "t_final_postprocess_failure"
+        phase = "B"
+        title = "final postprocess failure"
+        prompt_file = "unused.md"
+        contract_retries = 0
+        output_schema = {
+            "type": "object",
+            "required": ["MQL"],
+            "properties": {"MQL": {"type": "string"}},
+            "additionalProperties": True,
+        }
+
+        def prompt_text(self, ctx):
+            return "return a Mongo query"
+
+        def postprocess(self, ctx, inputs, output, result):
+            raise ResponseParseError(
+                "bad generated MQL",
+                context={"preview": output["MQL"]},
+            )
+
+    client = LLMClient(stub_settings, logger)
+    client.set_stub(lambda agent, messages, schema: {"MQL": "bad"})
+    ctx = AgentContext(settings=stub_settings, llm=client, log=logger, phase="B")
+
+    with pytest.raises(ResponseParseError) as excinfo:
+        asyncio.run(_FinalPostprocessFailure()(ctx, {"source": "unit"}))
+
+    assert excinfo.value.context["agent"] == "t_final_postprocess_failure"
+    assert excinfo.value.context["transcript_ref"].endswith(".md")
+    assert excinfo.value.context["diagnostics_ref"].endswith(".diagnostics.json")
+    anomalies = [
+        json.loads(line) for line in (logger.run_dir / "anomalies.jsonl").read_text().splitlines()
+    ]
+    anomaly = next(a for a in anomalies if a["message"] == "bad generated MQL")
+    assert anomaly["transcript_ref"].endswith(".md")
+    assert anomaly["diagnostics_ref"].endswith(".diagnostics.json")
+    assert anomaly["context"]["agent"] == "t_final_postprocess_failure"
+    assert anomaly["context"]["preview"] == "bad"
 
 
 def test_phase_b_parse_errors_are_gate_failures(stub_settings, logger):

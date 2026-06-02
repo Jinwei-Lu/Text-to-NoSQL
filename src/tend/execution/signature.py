@@ -1,4 +1,4 @@
-"""Deterministic canonicalization + ``world_signature`` over witness data.
+"""Deterministic canonicalization + signatures for witnesses and gold MQL.
 
 ``world_signature = sha256(canonical_json(mongodb_data))`` pins a record's gold to the
 exact witness it was verified against. Canonicalization sorts keys, uses compact
@@ -32,4 +32,27 @@ def canonical_json(obj: Any) -> str:
 
 def world_signature(mongodb_data: Any) -> str:
     digest = hashlib.sha256(canonical_json(mongodb_data).encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def canonical_mql(mql: str) -> str:
+    """Stable representation of a ``db.<collection>.aggregate([...])`` string.
+
+    The parser accepts the same json5-flavored MQL syntax as the execution layer. If a
+    malformed candidate reaches this helper, keep a whitespace-normalized raw fallback so
+    diagnostics and duplicate checks still have a deterministic value.
+    """
+    from .ast_check import parse_pipeline
+
+    try:
+        collection, pipeline = parse_pipeline(mql)
+        payload = {"collection": collection, "pipeline": pipeline}
+    except Exception:  # noqa: BLE001 - signature generation must not hide the real failure
+        payload = {"raw": " ".join(str(mql).split())}
+    return canonical_json(payload)
+
+
+def mql_signature(mql: str) -> str:
+    """SHA-256 signature for canonicalized representative MQL."""
+    digest = hashlib.sha256(canonical_mql(mql).encode("utf-8")).hexdigest()
     return f"sha256:{digest}"

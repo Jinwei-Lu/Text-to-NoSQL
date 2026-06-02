@@ -351,7 +351,9 @@ class LLMClient:
                         {"role": "user", "content": self._repair_prompt(verr, schema)},
                     ]
                     log.warning("llm_repair_retry", agent=agent, call_id=call_id,
-                                attempt=repair + 1, reason=verr.anomaly.value)
+                                attempt=repair + 1, reason=verr.anomaly.value,
+                                transcript_ref=start_ref,
+                                diagnostics_ref=start_diagnostics_ref)
             raise LLMError("exhausted repair retries", context={"agent": agent})  # unreachable
         except LLMError as err:
             ref = log.save_transcript(agent, call_id, {

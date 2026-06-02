@@ -16,7 +16,7 @@ from .ast_check import (
     parse_pipeline,
     scan_disabled,
 )
-from .signature import canonical_json, world_signature
+from .signature import canonical_json, canonical_mql, mql_signature, world_signature
 
 __all__ = [
     "DISABLED_OPERATORS",
@@ -25,5 +25,7 @@ __all__ = [
     "parse_pipeline",
     "scan_disabled",
     "canonical_json",
+    "canonical_mql",
+    "mql_signature",
     "world_signature",
 ]

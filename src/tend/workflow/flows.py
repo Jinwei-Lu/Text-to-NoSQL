@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..agents import AgentContext
-from ..errors import Anomaly, wrap_unexpected
+from ..execution import mql_signature
+from ..errors import TendError, wrap_unexpected
 from .engine import Workflow
 
 SC_MAX_ROUNDS = 2          # SC reject -> SRA revise, at most twice (04-1-2 / 03-II-4)
@@ -35,9 +36,24 @@ def _drop(ctx, stage: str, reason: str, **detail: Any) -> None:
     """Log a (expected) record drop with its cause so the reason is never silent."""
     ctx.log.warning("record_dropped", stage=stage, reason=reason,
                     record_id=ctx.record_id, **detail)
-    ctx.log.anomaly(kind=Anomaly.SUPPLY_EXHAUSTED, message="record dropped",
-                    stage=stage, reason=reason, record_id=ctx.record_id, **detail)
     return None
+
+
+def _log_branch_exception(ctx: AgentContext, exc: BaseException, *, stage: str) -> None:
+    if isinstance(exc, TendError) and exc.logged:
+        ctx.log.warning(
+            "branch_failed",
+            stage=stage,
+            already_logged=True,
+            error_type=type(exc).__name__,
+            message=exc.message,
+            anomaly=exc.anomaly.value if exc.anomaly else None,
+            context=exc.context,
+            transcript_ref=exc.context.get("transcript_ref"),
+            diagnostics_ref=exc.context.get("diagnostics_ref"),
+        )
+        return
+    ctx.log.anomaly(wrap_unexpected(exc, stage=stage))
 
 
 @dataclass
@@ -69,6 +85,12 @@ class CoverageSlot:
     target_difficulty: str = "L4"
     target_sql_infeasibility_class: str = "structural_schema_flex"
     target_schema_flex: str = "polymorphic"
+    slot_index: int = 0
+    diversity_key: str = ""
+    diversity_hint: str = ""
+    schema_feature: str = ""
+    reference_oracle_seed: dict[str, Any] | None = None
+    intent_seed: dict[str, Any] | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -91,9 +113,6 @@ async def _phase_a_one_db(wf: Workflow, db_id: str) -> DbArtifacts:
     ctx = wf.context(db_id=db_id, group=db_id)
     ctx.log.info("phase_a_db_start", db_id=db_id)
 
-    if ctx.progress:
-        ctx.progress.start_task(f"{db_id}:wp", "WP", group=db_id)
-        ctx.progress.start_task(f"{db_id}:dm", "DM", group=db_id)
     wp_task = asyncio.create_task(wf.agent("wp", {"db_id": db_id}, ctx=ctx))
     dm_task = asyncio.create_task(wf.agent("dm", {"db_id": db_id}, ctx=ctx))
     try:
@@ -112,14 +131,8 @@ async def _phase_a_one_db(wf: Workflow, db_id: str) -> DbArtifacts:
         results = await asyncio.gather(wp_task, dm_task, return_exceptions=True)
         for exc in results:
             if isinstance(exc, Exception) and not isinstance(exc, asyncio.CancelledError):
-                ctx.log.anomaly(wrap_unexpected(exc, stage="phase_a_branch"))
+                _log_branch_exception(ctx, exc, stage="phase_a_branch")
         raise
-    finally:
-        if ctx.progress:
-            ctx.progress.finish_task(
-                f"{db_id}:wp", ok=wp_task.done() and not _task_failed(wp_task))
-            ctx.progress.finish_task(
-                f"{db_id}:dm", ok=dm_task.done() and not _task_failed(dm_task))
 
     # DM's schema is authoritative (consistent with the migrated data by construction, Gate-SD)
     source_schema = ctx.source.schema(db_id) if ctx.source else None
@@ -187,23 +200,36 @@ async def _phase_a_one_db(wf: Workflow, db_id: str) -> DbArtifacts:
 # Phase B — reverse-engineered NL-MQL (per record: QPS -> MS -> ... -> RA)
 # --------------------------------------------------------------------------- #
 async def run_phase_b(
-    wf: Workflow, artifacts: dict[str, DbArtifacts], slots: list[CoverageSlot]
+    wf: Workflow,
+    artifacts: dict[str, DbArtifacts],
+    slots: list[CoverageSlot],
+    *,
+    seen_mql: dict[tuple[str, str], int] | None = None,
 ) -> list[dict[str, Any]]:
     """Construct one record per coverage slot, pipelined across slots."""
     wf.phase("B")
     if wf.ctx.progress:
         wf.ctx.progress.add_group("phaseB", "records", phase="B", total=len(slots))
 
+    seen_mql = seen_mql if seen_mql is not None else {}
+    mql_lock = asyncio.Lock()
     records = await wf.pipeline(
         slots,
-        lambda slot: _build_record(wf, artifacts, slot),
+        lambda slot: _build_record(
+            wf, artifacts, slot, seen_mql=seen_mql, mql_lock=mql_lock
+        ),
         isolate=True,
     )
     return [r for r in records if isinstance(r, dict)]
 
 
 async def _build_record(
-    wf: Workflow, artifacts: dict[str, DbArtifacts], slot: CoverageSlot
+    wf: Workflow,
+    artifacts: dict[str, DbArtifacts],
+    slot: CoverageSlot,
+    *,
+    seen_mql: dict[tuple[str, str], int] | None = None,
+    mql_lock: asyncio.Lock | None = None,
 ) -> dict[str, Any] | None:
     art = artifacts.get(slot.db_id)
     if art is None:
@@ -216,6 +242,13 @@ async def _build_record(
         "target_difficulty": slot.target_difficulty,
         "target_sql_infeasibility_class": slot.target_sql_infeasibility_class,
         "target_schema_flex": slot.target_schema_flex,
+        "record_id": slot.record_id,
+        "slot_index": slot.slot_index,
+        "diversity_key": slot.diversity_key,
+        "diversity_hint": slot.diversity_hint,
+        "schema_feature": slot.schema_feature,
+        "reference_oracle_seed": slot.reference_oracle_seed,
+        "intent_seed": slot.intent_seed,
         "scenario_summary": art.scenario_summary, "schema": art.mongodb_schema,
     }, ctx=ctx)
     if not qps:
@@ -240,6 +273,32 @@ async def _build_record(
         ctx.log.warning("ms_gold_lock_retry", round=r, reason=ms_feedback)
     if not ms or not ms.get("gold_locked"):
         return _drop(ctx, "ms", "gold not locked", detail=(ms or {}).get("gold_lock_reason"))
+    mql_sig, duplicate_of = await _reserve_mql_signature(
+        ctx, slot, ms["MQL"], seen_mql=seen_mql, mql_lock=mql_lock
+    )
+    if duplicate_of is not None:
+        ctx.log.warning(
+            "duplicate_mql_rejected",
+            record_id=slot.record_id,
+            duplicate_of_record_id=duplicate_of,
+            mql_signature=mql_sig,
+            mechanism=slot.mechanism,
+            archetype=slot.archetype,
+            diversity_key=slot.diversity_key,
+            schema_feature=slot.schema_feature,
+            mql_preview=str(ms["MQL"])[:240],
+        )
+        return _drop(
+            ctx,
+            "ms",
+            "duplicate MQL rejected",
+            duplicate_of_record_id=duplicate_of,
+            mql_signature=mql_sig,
+            mechanism=slot.mechanism,
+            archetype=slot.archetype,
+            diversity_key=slot.diversity_key,
+            schema_feature=slot.schema_feature,
+        )
 
     async def mutation_branch() -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         ctx.log.info("phase_b_branch_start", branch="mut_pv")
@@ -326,7 +385,7 @@ async def _build_record(
         results = await asyncio.gather(mutation_task, nl_task, ra_task, return_exceptions=True)
         for exc in results:
             if isinstance(exc, Exception) and not isinstance(exc, asyncio.CancelledError):
-                ctx.log.anomaly(wrap_unexpected(exc, stage="phase_b_branch"))
+                _log_branch_exception(ctx, exc, stage="phase_b_branch")
         raise
 
     if not pv or not pv.get("pv_pass"):
@@ -370,8 +429,13 @@ async def _build_record(
     record = {
         "record_id": slot.record_id,
         "db_id": slot.db_id,
+        "mechanism": slot.mechanism,
+        "archetype": slot.archetype,
+        "diversity_key": slot.diversity_key,
+        "schema_feature": slot.schema_feature,
         "nl_queries": nlp["nl_queries"],
         "MQL": ms["MQL"],
+        "mql_signature": mql_sig,
         "canonical_form_set": ms["canonical_form_set"],
         "difficulty": nnc["difficulty"],
         "sql_infeasibility_class": sql_class,
@@ -381,8 +445,48 @@ async def _build_record(
     if has_flex:
         record["schema_flex"] = _publish_schema_flex(ms["schema_flex"])
     ctx.log.info("record_built", record_id=slot.record_id, difficulty=record["difficulty"],
-                 sql_infeasibility_class=record["sql_infeasibility_class"])
+                 sql_infeasibility_class=record["sql_infeasibility_class"],
+                 mechanism=slot.mechanism, archetype=slot.archetype,
+                 diversity_key=slot.diversity_key,
+                 schema_feature=slot.schema_feature,
+                 mql_signature=mql_sig)
     return record
+
+
+async def _reserve_mql_signature(
+    ctx: AgentContext,
+    slot: CoverageSlot,
+    mql: str,
+    *,
+    seen_mql: dict[tuple[str, str], int] | None,
+    mql_lock: asyncio.Lock | None,
+) -> tuple[str, int | None]:
+    sig = mql_signature(mql)
+    if seen_mql is None:
+        return sig, None
+
+    key = (slot.db_id, sig)
+
+    async def reserve() -> int | None:
+        previous = seen_mql.get(key)
+        if previous is not None:
+            return previous
+        seen_mql[key] = slot.record_id
+        return None
+
+    duplicate_of = await reserve() if mql_lock is None else None
+    if mql_lock is not None:
+        async with mql_lock:
+            duplicate_of = await reserve()
+    if duplicate_of is None:
+        ctx.log.info(
+            "mql_signature_reserved",
+            record_id=slot.record_id,
+            mechanism=slot.mechanism,
+            archetype=slot.archetype,
+            mql_signature=sig,
+        )
+    return sig, duplicate_of
 
 
 def _publish_schema_flex(value: str) -> str:

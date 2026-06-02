@@ -38,6 +38,8 @@ _ICON = {
 _WATCH_EVENTS = {
     "agent_contract_retry",
     "agent_postprocess_retry",
+    "branch_failed",
+    "duplicate_mql_rejected",
     "llm_prompt_size_warning",
     "llm_repair_retry",
     "llm_slow_call",

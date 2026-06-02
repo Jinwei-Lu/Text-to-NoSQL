@@ -49,6 +49,27 @@
       "minLength": 1,
       "description": "Representative executable gold MQL; must pass AST_check against canonical_form_set."
     },
+    "mql_signature": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "SHA-256 pin of the canonicalized representative MQL, used to reject duplicate gold queries."
+    },
+    "mechanism": {
+      "type": "string",
+      "description": "Census mechanism selected by the construction coverage slot."
+    },
+    "archetype": {
+      "type": "string",
+      "description": "Archetype selected by the construction coverage slot."
+    },
+    "diversity_key": {
+      "type": "string",
+      "description": "Planner identity for the schema feature, archetype, and oracle seed used to build this record."
+    },
+    "schema_feature": {
+      "type": "string",
+      "description": "Materialized schema-less feature targeted by the coverage slot, such as collection.field or collection.array[]."
+    },
     "canonical_form_set": {
       "type": "object",
       "additionalProperties": false,

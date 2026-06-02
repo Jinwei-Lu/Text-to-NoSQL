@@ -31,7 +31,7 @@ def _print_summary(rt, artifacts, records, summary, out_dir) -> None:
         print(f"    #{r['record_id']} {r['db_id']} {r['difficulty']} "
               f"{r.get('sql_infeasibility_class')}")
     print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
-    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl")
+    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl | progress.jsonl | llm/")
     print(f"  output : {out_dir}")
     print("=" * 64)
 
@@ -59,7 +59,7 @@ def _print_solve_summary(
         print(f"    #{item.get('record_id')} {item.get('db_id')} "
               f"{item.get('error_code')}: {str(item.get('message', ''))[:96]}")
     print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
-    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl")
+    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl | progress.jsonl | llm/")
     print(f"  output : {out_path}")
     if failures:
         print(f"  failures output : {failures_path}")
@@ -96,7 +96,7 @@ def _print_baseline_summary(
         print(f"    failure {item.get('baseline_id')} #{item.get('record_id')} "
               f"{item.get('error_code')}: {str(item.get('message', ''))[:80]}")
     print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
-    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl")
+    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl | progress.jsonl | llm/")
     print(f"  output : {out_path}")
     if failures:
         print(f"  failures output : {failures_path}")
@@ -130,7 +130,7 @@ def _print_ablation_summary(
         print(f"    failure {item.get('ablation_id')} #{item.get('record_id')} "
               f"{item.get('error_code')}: {str(item.get('message', ''))[:80]}")
     print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
-    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl")
+    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl | progress.jsonl | llm/")
     print(f"  output : {out_path}")
     print(f"  summary: {summary_path}")
     if failures:

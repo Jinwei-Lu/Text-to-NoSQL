@@ -4,6 +4,7 @@ schema-valid; execution-dependent agents (MS/RTV/PV) treat stub mode as a pass.
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .llm import Message
@@ -174,6 +175,12 @@ _STUB: dict[str, dict[str, Any]] = {
 
 def stub_fn(agent: str, messages: list[Message], schema: dict | None) -> dict[str, Any]:
     """Return canned output for ``agent`` (falls back to an empty object)."""
+    if agent == "qps":
+        seed = _seed_from_messages(messages)
+        if seed:
+            return _seeded_qps_stub(seed, messages)
+    if agent == "nlp":
+        return _seeded_nlp_stub(messages)
     if agent.startswith("baseline_"):
         if agent.endswith("_sql"):
             return {
@@ -214,3 +221,109 @@ def stub_fn(agent: str, messages: list[Message], schema: dict | None) -> dict[st
             "assumptions": ["financial mini-dev stub case"],
         }
     return _STUB.get(agent, {"_stub": True, "agent": agent})
+
+
+def _seed_from_messages(messages: list[Message]) -> dict[str, Any] | None:
+    seed = _json_block_from_messages(messages, "## deterministic diversity seed")
+    return seed if isinstance(seed, dict) else None
+
+
+def _seeded_nlp_stub(messages: list[Message]) -> dict[str, Any]:
+    intent = _json_block_from_messages(messages, "## intent")
+    if not isinstance(intent, dict):
+        return _STUB["nlp"]
+    shape = str(intent.get("shape_policy") or "preserve")
+    archetype = str(intent.get("archetype") or "query")
+    output = intent.get("output") if isinstance(intent.get("output"), dict) else {}
+    fields = [str(field) for field in output.get("fields", []) if field]
+    field_text = ", ".join(fields) if fields else str(
+        (intent.get("analytical_op") or {}).get("target_field") or "result"
+    )
+    seed_signal = intent.get("seed_signal") if isinstance(intent.get("seed_signal"), dict) else {}
+    collection = str(seed_signal.get("collection") or "the collection")
+    signal_field = str(seed_signal.get("field") or field_text)
+
+    if shape in {"reduce", "reshape"}:
+        canonical = (
+            f"Summarize {collection} using the {archetype} pattern over {signal_field} "
+            f"and output {field_text}."
+        )
+        if archetype == "schema_flex_variant_summary":
+            canonical += " Use exact variant labels present and missing."
+        colloquial = f"Give the grouped {field_text} summary for {collection}."
+    else:
+        canonical = (
+            f"For every {collection} record, compute {field_text} from {signal_field} "
+            "and keep the original record fields."
+        )
+        colloquial = f"Show every {collection} record with {field_text} filled in."
+    return {"nl_queries": {"canonical": canonical, "colloquial": colloquial}}
+
+
+def _json_block_from_messages(messages: list[Message], marker: str) -> dict[str, Any] | None:
+    text = "\n".join(str(m.get("content", "")) for m in messages if isinstance(m, dict))
+    pos = text.find(marker)
+    if pos < 0:
+        return None
+    fenced = text.find("```json", pos)
+    if fenced < 0:
+        return None
+    start = text.find("\n", fenced)
+    end = text.find("```", start + 1)
+    if start < 0 or end < 0:
+        return None
+    try:
+        payload = json.loads(text[start:end].strip())
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _seeded_qps_stub(seed: dict[str, Any], messages: list[Message]) -> dict[str, Any]:
+    prompt = "\n".join(str(m.get("content", "")) for m in messages if isinstance(m, dict))
+    archetype = _prompt_line(prompt, "archetype") or "group_count"
+    mechanism = _prompt_line(prompt, "seed_mechanism") or "none"
+    params = seed.get("params") if isinstance(seed.get("params"), dict) else {}
+    target = (
+        params.get("target_field")
+        or params.get("field")
+        or params.get("group_by")
+        or params.get("discriminator")
+        or "value"
+    )
+    preserve_templates = {"optional_embed_projection", "present_missing_projection",
+                          "subtype_cond_projection"}
+    shape = "preserve" if seed.get("template") in preserve_templates else "reduce"
+    return {
+        "intent": {
+            "seed_mechanism": mechanism,
+            "seed_signal": {
+                "collection": params.get("collection") or params.get("parent_collection") or "",
+                "field": target,
+            },
+            "archetype": archetype,
+            "target_difficulty": _prompt_line(prompt, "target_difficulty") or "L4",
+            "target_sql_infeasibility_class": (
+                _prompt_line(prompt, "target_sql_infeasibility_class")
+                or "structural_schema_flex"
+            ),
+            "schema_flex_mode": _prompt_line(prompt, "target_schema_flex") or "polymorphic",
+            "analytical_op": {
+                "target_field": str(target),
+                "formula": f"deterministic seeded oracle {seed.get('template')}",
+                "missing_default": params.get("missing_default", params.get("default", 0)),
+            },
+            "shape_policy": shape,
+            "output": {"fields": [str(target)], "missing": params.get("missing_default", 0)},
+            "semantic_properties": ["deterministic diversity seed honored"],
+        },
+        "reference_oracle": seed,
+    }
+
+
+def _prompt_line(text: str, key: str) -> str | None:
+    prefix = f"{key}:"
+    for line in text.splitlines():
+        if line.startswith(prefix):
+            return line.split(":", 1)[1].strip() or None
+    return None

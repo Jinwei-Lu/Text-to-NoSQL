@@ -6,8 +6,8 @@
   "$defs": {
     "mongoFieldName": {
       "type": "string",
-      "pattern": "^(?!\\$)(?!\\s*$)(?!.*\\.)(?!__variants$).+$",
-      "description": "Mongo-safe field name: non-empty, not whitespace-only, no dot paths, no dollar prefix, and not reserved __variants."
+      "pattern": "^(?!\\$)(?!\\s*$)(?!.*\\.)(?!__(variants|schema_less_features)$).+$",
+      "description": "Mongo-safe field name: non-empty, not whitespace-only, no dot paths, no dollar prefix, and not reserved schema metadata."
     },
     "fieldMap": {
       "type": "object",
@@ -102,6 +102,33 @@
         }
       }
     },
+    "schemaLessFeature": {
+      "type": "object",
+      "required": ["family", "feature", "evidence"],
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "type": "string",
+          "enum": [
+            "optional_embed",
+            "optional_array",
+            "sparse_scalar",
+            "polymorphic",
+            "nested_array",
+            "array_cardinality",
+            "dynamic_key",
+            "schema_versioning"
+          ]
+        },
+        "feature": { "type": "string", "minLength": 1 },
+        "coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "evidence": { "type": "string", "minLength": 1 }
+      }
+    },
     "collectionSchema": {
       "type": "object",
       "minProperties": 1,
@@ -110,10 +137,15 @@
           "type": "array",
           "minItems": 2,
           "items": { "$ref": "#/$defs/shapeVariant" }
+        },
+        "__schema_less_features": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/schemaLessFeature" }
         }
       },
       "patternProperties": {
-        "^(?!\\$)(?!\\s*$)(?!.*\\.)(?!__variants$).+$": { "$ref": "#/$defs/fieldType" }
+        "^(?!\\$)(?!\\s*$)(?!.*\\.)(?!__(variants|schema_less_features)$).+$": { "$ref": "#/$defs/fieldType" }
       },
       "additionalProperties": false
     },
