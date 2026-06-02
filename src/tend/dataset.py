@@ -20,6 +20,20 @@ def _write_json(path: Path, obj: Any) -> None:
     path.write_text(json.dumps(obj, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
 
+def _as_mapping(obj: Any) -> Any:
+    if hasattr(obj, "to_dict"):
+        return obj.to_dict()
+    return obj
+
+
+def _write_yaml(path: Path, obj: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.safe_dump(_as_mapping(obj), allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
 def write_phase_a(out_dir: Path, artifacts: dict[str, DbArtifacts]) -> None:
     for db_id, art in artifacts.items():
         _write_json(out_dir / "mongodb_schema" / f"{db_id}.json", art.mongodb_schema)
@@ -63,3 +77,25 @@ def write_catalog(out_dir: Path, artifacts: dict[str, DbArtifacts]) -> None:
         ]
     }
     _write_json(out_dir / "bird_db_catalog.json", catalog)
+
+
+def write_native_recipe(out_dir: Path, db_id: str, recipe: Any) -> None:
+    _write_yaml(out_dir / "migration_recipe" / f"{db_id}.yaml", recipe)
+
+
+def write_native_feature_manifest(out_dir: Path, db_id: str, manifest: Any) -> None:
+    _write_yaml(out_dir / "native_feature_manifest" / f"{db_id}.yaml", manifest)
+
+
+def write_provenance(out_dir: Path, db_id: str, provenance: Any) -> None:
+    _write_json(out_dir / "provenance" / f"{db_id}.json", _as_mapping(provenance))
+
+
+def write_native_phase_a(out_dir: Path, artifacts: dict[str, Any]) -> None:
+    for db_id, art in artifacts.items():
+        _write_json(out_dir / "mongodb_schema" / f"{db_id}.json", art.mongodb_schema)
+        _write_json(out_dir / "mongodb_data" / f"{db_id}.json", art.mongodb_data)
+        write_native_recipe(out_dir, db_id, art.migration_recipe)
+        write_native_feature_manifest(out_dir, db_id, art.native_feature_manifest)
+        write_provenance(out_dir, db_id, art.provenance)
+    write_catalog(out_dir, artifacts)
