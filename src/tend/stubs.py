@@ -447,8 +447,29 @@ def _design_card_qps_stub(card: dict[str, Any], messages: list[Message]) -> dict
     )
     schema_feature = str(card.get("schema_feature") or "")
     collection = str(collection_hints[0]) if collection_hints else schema_feature.split(".", 1)[0]
-    target = str(field_hints[0]) if field_hints else (
-        schema_feature.split(".", 1)[1] if "." in schema_feature else "value"
+    schema_leaf = schema_feature.split(".", 1)[1] if "." in schema_feature else "value"
+    seed_field = (
+        schema_leaf
+        if "." in schema_feature
+        else (str(field_hints[0]) if field_hints else "value")
+    )
+    target_hint = next(
+        (str(field) for field in field_hints if str(field).endswith("_or_default")),
+        "",
+    )
+    target = str(
+        card.get("target_field")
+        or target_hint
+        or (str(field_hints[0]) if field_hints else schema_leaf)
+    )
+    missing_default = (
+        card["missing_default"]
+        if "missing_default" in card
+        else card["absent_value"]
+        if "absent_value" in card
+        else card["default"]
+        if "default" in card
+        else 0
     )
     preserve_archetypes = {
         "optional_embed_projection",
@@ -465,7 +486,7 @@ def _design_card_qps_stub(card: dict[str, Any], messages: list[Message]) -> dict
     return {
         "intent": {
             "seed_mechanism": mechanism,
-            "seed_signal": {"collection": collection, "field": target},
+            "seed_signal": {"collection": collection, "field": seed_field},
             "archetype": archetype,
             "domain_framing": {
                 "entity_noun": collection or "record",
@@ -474,8 +495,9 @@ def _design_card_qps_stub(card: dict[str, Any], messages: list[Message]) -> dict
             "analytical_op": {
                 "target_field": target,
                 "formula": f"stub-designed {archetype} over {schema_feature or target}",
+                "missing_default": missing_default,
                 "missing_default_semantics": {
-                    target: "missing or null value emits 0",
+                    target: f"missing or null value emits {missing_default!r}",
                 },
                 "preserve_existing": shape == "preserve",
             },

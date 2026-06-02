@@ -153,6 +153,53 @@ def test_validate_release_rejects_duplicate_canonical_nl(tmp_path: Path):
     assert any("duplicate canonical NL" in issue and "r2" in issue for issue in report.record_violations)
 
 
+def test_validate_release_reports_diversity_counts(tmp_path: Path):
+    out = tmp_path / "release"
+    db = "financial"
+    data = {"account": [{"_id": 1}], "trans": [{"_id": 10, "account_id": 1}]}
+    sig = world_signature(data)
+    records = [
+        _valid_record(record_id=1, world_signature=sig),
+        _valid_record(
+            record_id=2,
+            world_signature=sig,
+            nl_queries={
+                "canonical": "For each account attach a second ratio.",
+                "colloquial": "Label each account another way.",
+            },
+            MQL=(
+                'db.account.aggregate([{"$lookup":{"from":"trans","localField":"_id",'
+                '"foreignField":"account_id","as":"t"}},{"$addFields":{"x_2":1}}])'
+            ),
+        ),
+    ]
+
+    (out / "mongodb_data").mkdir(parents=True)
+    (out / "mongodb_schema").mkdir()
+    (out / "agent_design_rationale").mkdir()
+    (out / "test.json").write_text(json.dumps(records), encoding="utf-8")
+    (out / "TEND.json").write_text(json.dumps(records), encoding="utf-8")
+    (out / "mongodb_data" / f"{db}.json").write_text(json.dumps(data), encoding="utf-8")
+    (out / "mongodb_schema" / f"{db}.json").write_text(
+        json.dumps({"account": {"_id": "INT"}, "trans": {"account_id": "INT"}}),
+        encoding="utf-8",
+    )
+    (out / "agent_design_rationale" / f"{db}.yaml").write_text(
+        "db_id: financial\n", encoding="utf-8"
+    )
+
+    report = validate_release(out, require_all_dbs=False)
+
+    assert report.ok, report.summary()
+    assert report.diversity.n_records == 2
+    assert report.diversity.distinct_mql == 2
+    assert report.diversity.distinct_canonical_nl == 2
+    assert report.diversity.distinct_nl_mql_pairs == 2
+    assert report.diversity.distinct_nl_mql_pairs_per_db == {"financial": 2}
+    assert report.diversity.min_distinct_nl_mql_pairs_per_db == 2
+    assert "distinct_pair=2/2" in report.summary()
+
+
 def test_c6_missing_disabled_ops():
     rec = _valid_record(canonical_form_set={
         "must_contain": ["$lookup"], "must_not_contain": ["$unwind"],   # not the 6

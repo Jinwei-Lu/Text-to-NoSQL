@@ -194,14 +194,45 @@ def test_artifact_diversity_runner_refills_with_unused_slots(
     )
     calls: list[list[int]] = []
     seen_skeleton_ids: list[int] = []
+    seen_canonical_nl_ids: list[int] = []
+    seen_nl_mql_pair_ids: list[int] = []
 
-    async def fake_run_phase_b(_workflow, _artifacts, slots, *, seen_mql=None, seen_skeleton=None):
+    async def fake_run_phase_b(
+        _workflow,
+        _artifacts,
+        slots,
+        *,
+        seen_mql=None,
+        seen_skeleton=None,
+        seen_canonical_nl=None,
+        seen_nl_mql_pair=None,
+    ):
         assert isinstance(seen_mql, dict)
         assert isinstance(seen_skeleton, dict)
+        assert isinstance(seen_canonical_nl, dict)
+        assert isinstance(seen_nl_mql_pair, dict)
         seen_skeleton_ids.append(id(seen_skeleton))
+        seen_canonical_nl_ids.append(id(seen_canonical_nl))
+        seen_nl_mql_pair_ids.append(id(seen_nl_mql_pair))
         calls.append([slot.slot_index for slot in slots])
+        for slot in slots:
+            mql_sig = f"mql-{slot.slot_index}"
+            seen_mql[(slot.db_id, mql_sig)] = slot.record_id
+            seen_skeleton.setdefault((slot.db_id, "shared-skeleton"), []).append(slot.record_id)
+            if slot.slot_index == 0:
+                continue
+            nl_sig = f"nl-{slot.slot_index}"
+            seen_canonical_nl[(slot.db_id, nl_sig)] = slot.record_id
+            seen_nl_mql_pair[(slot.db_id, nl_sig, mql_sig)] = slot.record_id
         return [
-            {"db_id": slot.db_id, "record_id": slot.record_id}
+            {
+                "db_id": slot.db_id,
+                "record_id": slot.record_id,
+                "MQL": f'db.account.aggregate([{{"$match":{{"slot":{slot.slot_index}}}}}])',
+                "mql_signature": f"mql-{slot.slot_index}",
+                "mql_skeleton_signature": "shared-skeleton",
+                "nl_queries": {"canonical": f"Find slot {slot.slot_index}."},
+            }
             for slot in slots
             if slot.slot_index != 0
         ]
@@ -222,10 +253,28 @@ def test_artifact_diversity_runner_refills_with_unused_slots(
     assert calls[0] == [0, 1]
     assert calls[1] == [2]
     assert len(set(seen_skeleton_ids)) == 1
+    assert len(set(seen_canonical_nl_ids)) == 1
+    assert len(set(seen_nl_mql_pair_ids)) == 1
     assert slot_count == 3
     assert targets == {"financial": 2}
     assert pool_sizes["financial"] >= 3
     assert any(event == "artifact_diversity_batch_done" for event, _fields in events)
+    ledger_summary = next(
+        fields for event, fields in events if event == "artifact_diversity_ledger_summary"
+    )
+    assert ledger_summary["total_slots"] == 3
+    assert ledger_summary["built_records"] == 2
+    assert ledger_summary["built_by_db"] == {"financial": 2}
+    assert ledger_summary["distinct_mql"] == 2
+    assert ledger_summary["distinct_mql_skeletons"] == 1
+    assert ledger_summary["distinct_canonical_nl"] == 2
+    assert ledger_summary["distinct_nl_mql_pairs"] == 2
+    assert ledger_summary["max_mql_skeleton_family"] == 2
+    assert ledger_summary["reserved_mql"] == 3
+    assert ledger_summary["reserved_mql_skeletons"] == 1
+    assert ledger_summary["reserved_canonical_nl"] == 2
+    assert ledger_summary["reserved_nl_mql_pairs"] == 2
+    assert ledger_summary["reserved_max_mql_skeleton_family"] == 3
 
 
 def test_validate_smoke_relaxes_all_db_composition(capsys: pytest.CaptureFixture[str]) -> None:
@@ -239,6 +288,7 @@ def test_validate_smoke_relaxes_all_db_composition(capsys: pytest.CaptureFixture
     assert cli.main(["validate", "--dataset-dir", str(dataset), "--smoke"]) == 0
     smoke = capsys.readouterr().out
     assert "TEND validate · validation OK · mode=smoke" in smoke
+    assert "diversity: mql=" in smoke and "pairs=" in smoke
 
 
 def test_publish_refuses_invalid_input(

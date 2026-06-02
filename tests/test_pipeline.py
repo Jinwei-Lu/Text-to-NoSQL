@@ -441,6 +441,47 @@ def test_qps_llm_design_mode_rejects_preserve_structural_schema_flex_without_def
     ]
 
 
+def test_qps_llm_design_mode_accepts_missing_default_semantics():
+    from tend.agents.phase_b import QueryPlanSampler
+
+    output = {
+        "intent": {
+            "seed_mechanism": "sparse_embed",
+            "seed_signal": {"collection": "account", "field": "loan"},
+            "archetype": "present_missing_projection",
+            "target_difficulty": "L4",
+            "analytical_op": {
+                "target_field": "loan_date_or_default",
+                "missing_default_semantics": {
+                    "loan_date_or_default": "missing or null loan emits an empty string"
+                },
+            },
+            "shape_policy": "preserve",
+            "semantic_properties": [
+                {"id": "optional_embed_branch", "expect": "optional embed branch"}
+            ],
+        },
+        "qps_trace": {
+            "coverage_cell": "sparse_embed|present_missing_projection|test",
+            "deficit_weight": 0,
+            "supply_constrained": False,
+        },
+    }
+
+    errs = QueryPlanSampler().check_contract(
+        None,
+        {
+            "archetype": "present_missing_projection",
+            "llm_design_mode": True,
+            "target_sql_infeasibility_class": "structural_schema_flex",
+            "schema": {"account": {"_id": "INT", "loan": {"date": "TEXT"}}},
+        },
+        output,
+    )
+
+    assert not any("missing/default" in err for err in errs)
+
+
 def test_qps_prompt_includes_global_portfolio_context():
     from tend.agents.phase_b import QueryPlanSampler
 
@@ -639,6 +680,37 @@ def test_complete_rationale_replaces_null_heterogenization():
         sc={"verdict": "accept", "issues": []},
     )
     assert out["heterogenization"]["schema_flex"] == "polymorphic"
+
+
+def test_complete_rationale_normalizes_heterogenization_mechanism_aliases():
+    from tend.workflow.flows import _complete_rationale
+
+    out = _complete_rationale(
+        db_id="financial",
+        rationale={
+            "heterogenization": {
+                "schema_flex": "optional_embed",
+                "triggers": [
+                    {"mechanism": "optional/sparse", "fired": True},
+                    {"mechanism": "attribute_bag", "fired": True},
+                    {"mechanism": "schema_versioning", "fired": False},
+                    {"mechanism": "bespoke", "fired": True},
+                ],
+            }
+        },
+        schema={"account": {"_id": "INT", "__variants": [{"discriminator": {"loan": "present"}}]}},
+        migration_log={},
+        source_schema=None,
+        sc={"verdict": "accept", "issues": []},
+    )
+
+    assert out["heterogenization"]["schema_flex"] == "polymorphic"
+    assert [t["mechanism"] for t in out["heterogenization"]["triggers"]] == [
+        "sparse",
+        "dynamic_key",
+        "version",
+        "type",
+    ]
 
 
 def test_complete_rationale_coerces_release_decision_types():
@@ -1626,6 +1698,121 @@ def test_run_phase_b_carries_mql_skeleton_state_across_batches(stub_settings, lo
     ]
     rejection = next(e for e in events if e["event"] == "mql_skeleton_family_rejected")
     assert rejection["record_id"] == 3000 + MQL_SKELETON_FAMILY_CAP
+
+
+def test_run_phase_b_carries_nl_identity_state_across_batches(stub_settings, logger):
+    from tend.workflow.flows import CoverageSlot, DbArtifacts, run_phase_b
+
+    calls: dict[str, int] = {}
+
+    class _WF:
+        def __init__(self):
+            self.ctx = AgentContext(settings=stub_settings, llm=None, log=logger)
+
+        def phase(self, phase):
+            self.ctx = self.ctx.bind(phase=phase)
+
+        async def pipeline(self, items, fn, isolate=True):
+            return [await fn(item) for item in items]
+
+        def context(self, **fields):
+            return self.ctx.bind(**fields)
+
+        async def agent(self, agent_id, inputs, ctx=None):
+            calls[agent_id] = calls.get(agent_id, 0) + 1
+            rid = ctx.record_id if ctx else 0
+            if agent_id == "qps":
+                return {
+                    "intent": {
+                        "seed_mechanism": "baseline",
+                        "archetype": "group_count",
+                        "shape_policy": "reduce",
+                    }
+                }
+            if agent_id == "ms":
+                return {
+                    "gold_locked": True,
+                    "MQL": (
+                        'db.account.aggregate([{ "$group": { "_id": "$frequency", '
+                        f'"count_{rid}": {{ "$sum": 1 }} }} }}])'
+                    ),
+                    "canonical_form_set": {"must_contain": []},
+                    "shape_policy": "reduce",
+                    "schema_flex": "none",
+                }
+            if agent_id == "mut":
+                return {"mutations": [{"mutation_id": f"m{i}", "MQL": "x"} for i in range(5)]}
+            if agent_id == "pv":
+                return {"pv_pass": True, "property_verification": {}}
+            if agent_id == "nlp":
+                return {
+                    "nl_queries": {
+                        "canonical": "Group accounts by frequency.",
+                        "colloquial": f"Group the accounts for record {rid}.",
+                    }
+                }
+            if agent_id == "rtv":
+                return {"rtv_pass": True}
+            if agent_id == "nnc":
+                return {
+                    "gate_pass": True,
+                    "difficulty": "L1",
+                    "sql_infeasibility_class": "feasible",
+                }
+            if agent_id == "ra":
+                return {"ra_pass": True}
+            raise AssertionError(agent_id)
+
+    artifacts = {
+        "financial": DbArtifacts(
+            db_id="financial",
+            mongodb_schema={"account": {"_id": "INT", "frequency": "TEXT"}},
+            mongodb_data={"account": [{"_id": 1, "frequency": "monthly"}]},
+            rationale={},
+            world_signature="sha256:" + "7" * 64,
+            scenario_summary="finance account grouping",
+            query_bearing=True,
+        )
+    }
+
+    async def run():
+        seen_mql: dict[tuple[str, str], int] = {}
+        seen_skeleton: dict[tuple[str, str], list[int]] = {}
+        seen_canonical_nl: dict[tuple[str, str], int] = {}
+        seen_nl_mql_pair: dict[tuple[str, str, str], int] = {}
+        common_seen = {
+            "seen_mql": seen_mql,
+            "seen_skeleton": seen_skeleton,
+            "seen_canonical_nl": seen_canonical_nl,
+            "seen_nl_mql_pair": seen_nl_mql_pair,
+        }
+        first = await run_phase_b(
+            _WF(),
+            artifacts,
+            [CoverageSlot("financial", "none", "group_count", 4001)],
+            **common_seen,
+        )
+        second = await run_phase_b(
+            _WF(),
+            artifacts,
+            [CoverageSlot("financial", "none", "group_count", 4002)],
+            **common_seen,
+        )
+        return first, second
+
+    first, second = asyncio.run(run())
+
+    assert len(first) == 1
+    assert second == []
+    assert calls["mut"] == 2 and calls["nnc"] == 2
+    events = [
+        json.loads(line) for line in (logger.run_dir / "events.jsonl").read_text().splitlines()
+    ]
+    rejection = next(e for e in events if e["event"] == "duplicate_canonical_nl_rejected")
+    assert rejection["record_id"] == 4002
+    assert rejection["duplicate_of_record_id"] == 4001
+    drop = [e for e in events if e["event"] == "record_dropped"][-1]
+    assert drop["reason"] == "duplicate canonical NL rejected"
 
 
 def test_nlp_reflux_respects_reshape_shape_policy(stub_settings, logger):

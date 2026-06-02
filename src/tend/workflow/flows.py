@@ -306,6 +306,8 @@ async def run_phase_b(
     *,
     seen_mql: dict[tuple[str, str], int] | None = None,
     seen_skeleton: dict[tuple[str, str], list[int]] | None = None,
+    seen_canonical_nl: dict[tuple[str, str], int] | None = None,
+    seen_nl_mql_pair: dict[tuple[str, str, str], int] | None = None,
 ) -> list[dict[str, Any]]:
     """Construct one record per coverage slot, pipelined across slots."""
     wf.phase("B")
@@ -315,6 +317,8 @@ async def run_phase_b(
     ledger = DiversityLedger(
         seen_mql=seen_mql if seen_mql is not None else {},
         seen_skeleton=seen_skeleton if seen_skeleton is not None else {},
+        seen_canonical_nl=seen_canonical_nl if seen_canonical_nl is not None else {},
+        seen_nl_mql_pair=seen_nl_mql_pair if seen_nl_mql_pair is not None else {},
         lock=asyncio.Lock(),
     )
     records = await wf.pipeline(
@@ -337,6 +341,8 @@ async def _build_record(
     *,
     seen_mql: dict[tuple[str, str], int] | None = None,
     seen_skeleton: dict[tuple[str, str], list[int]] | None = None,
+    seen_canonical_nl: dict[tuple[str, str], int] | None = None,
+    seen_nl_mql_pair: dict[tuple[str, str, str], int] | None = None,
     mql_lock: asyncio.Lock | None = None,
     diversity_ledger: DiversityLedger | None = None,
 ) -> dict[str, Any] | None:
@@ -347,6 +353,8 @@ async def _build_record(
     ledger = diversity_ledger or DiversityLedger(
         seen_mql=seen_mql if seen_mql is not None else {},
         seen_skeleton=seen_skeleton if seen_skeleton is not None else {},
+        seen_canonical_nl=seen_canonical_nl if seen_canonical_nl is not None else {},
+        seen_nl_mql_pair=seen_nl_mql_pair if seen_nl_mql_pair is not None else {},
         lock=mql_lock or asyncio.Lock(),
     )
     diversity_context = await ledger.reserve_slot(ctx, slot)
@@ -1151,6 +1159,13 @@ def _complete_rationale(
                 hetero.get("schema_flex"),
                 has_variants=has_variants,
             )
+            triggers = hetero.get("triggers")
+            if isinstance(triggers, list):
+                for trigger in triggers:
+                    if isinstance(trigger, dict) and "mechanism" in trigger:
+                        trigger["mechanism"] = _release_heterogenization_mechanism(
+                            trigger.get("mechanism")
+                        )
     return out
 
 
@@ -1251,3 +1266,25 @@ def _release_schema_flex_value(value: Any, *, has_variants: bool) -> str:
     if normalized in allowed:
         return normalized
     return "polymorphic" if has_variants else "none"
+
+
+def _release_heterogenization_mechanism(value: Any) -> str:
+    allowed = {"polymorphic", "sparse", "dynamic_key", "nesting", "version", "type"}
+    raw = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    mapping = {
+        "optional": "sparse",
+        "optional_sparse": "sparse",
+        "optional/sparse": "sparse",
+        "optional_embed": "sparse",
+        "sparse_embed": "sparse",
+        "sparse_scalar": "sparse",
+        "schema_flex": "polymorphic",
+        "attribute": "dynamic_key",
+        "attribute_bag": "dynamic_key",
+        "dynamic": "dynamic_key",
+        "schema_version": "version",
+        "schema_versioning": "version",
+        "versioning": "version",
+    }
+    normalized = mapping.get(raw, raw)
+    return normalized if normalized in allowed else "type"

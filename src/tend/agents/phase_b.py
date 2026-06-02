@@ -2022,6 +2022,19 @@ def _preserve_schema_flex_default_violations(intent: dict[str, Any]) -> list[str
             candidates.append((f"analytical_op.output.{key}", op_output[key]))
         if key in ref_params:
             candidates.append((f"reference_oracle.params.{key}", ref_params[key]))
+    semantics = op.get("missing_default_semantics")
+    if isinstance(semantics, dict):
+        if target and target in semantics:
+            candidates.append(
+                (f"analytical_op.missing_default_semantics.{target}", semantics[target])
+            )
+        else:
+            candidates.extend(
+                (f"analytical_op.missing_default_semantics.{k}", v)
+                for k, v in semantics.items()
+            )
+    elif "missing_default_semantics" in op:
+        candidates.append(("analytical_op.missing_default_semantics", semantics))
     for prefix, out in (("output", output), ("analytical_op.output", op_output)):
         output_missing = out.get("missing")
         if isinstance(output_missing, dict):

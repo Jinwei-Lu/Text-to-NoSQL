@@ -39,6 +39,7 @@ from .config import Settings
 from .dataset import write_catalog, write_phase_a, write_records
 from .errors import Anomaly, SourceError, TendError, wrap_unexpected
 from .evaluation import EvaluationOutput, evaluate_predictions
+from .execution import mql_signature, mql_skeleton_signature
 from .execution.mongo import MongoExecutor
 from .llm import LLMClient
 from .mechanisms import get_archetype
@@ -335,7 +336,7 @@ def _design_card_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
         match = params["match"]
         if isinstance(match.get("field"), str):
             fields.append(match["field"])
-    return {
+    card = {
         "schema_feature": spec.get("schema_feature", ""),
         "feature_family": spec.get("feature_family", ""),
         "collection_hints": _ordered_unique([str(value) for value in collections]),
@@ -356,6 +357,10 @@ def _design_card_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
             "schema pressure, not a query template."
         ),
     }
+    for key in ("target_field", "missing_default", "absent_value", "default"):
+        if key in params:
+            card[key] = params[key]
+    return card
 
 
 def _design_pressure_for(mechanism: str, archetype: str, family: str) -> list[str]:
@@ -1337,6 +1342,8 @@ async def _run_artifact_diversity_phase_b(
     attempts_by_db: dict[str, int] = {db_id: 0 for db_id in targets}
     seen_mql: dict[tuple[str, str], int] = {}
     seen_skeleton: dict[tuple[str, str], list[int]] = {}
+    seen_canonical_nl: dict[tuple[str, str], int] = {}
+    seen_nl_mql_pair: dict[tuple[str, str, str], int] = {}
     total_slots = 0
     next_record_id = 1001
     batch = 0
@@ -1387,6 +1394,8 @@ async def _run_artifact_diversity_phase_b(
                 slots,
                 seen_mql=seen_mql,
                 seen_skeleton=seen_skeleton,
+                seen_canonical_nl=seen_canonical_nl,
+                seen_nl_mql_pair=seen_nl_mql_pair,
             )
         )
         built_this_batch = len(records) - before
@@ -1415,6 +1424,20 @@ async def _run_artifact_diversity_phase_b(
             )
 
     final_built_by_db = Counter(str(record.get("db_id")) for record in records)
+    final_diversity = _phase_b_record_diversity(records)
+    reserved_skeleton_family_sizes = [len(record_ids) for record_ids in seen_skeleton.values()]
+    rt.log.info(
+        "artifact_diversity_ledger_summary",
+        total_slots=total_slots,
+        built_records=len(records),
+        built_by_db=dict(final_built_by_db),
+        **final_diversity,
+        reserved_mql=len(seen_mql),
+        reserved_mql_skeletons=len(seen_skeleton),
+        reserved_canonical_nl=len(seen_canonical_nl),
+        reserved_nl_mql_pairs=len(seen_nl_mql_pair),
+        reserved_max_mql_skeleton_family=max(reserved_skeleton_family_sizes, default=0),
+    )
     shortfalls = {
         db_id: target - final_built_by_db.get(db_id, 0)
         for db_id, target in targets.items()
@@ -1429,6 +1452,47 @@ async def _run_artifact_diversity_phase_b(
             pool_sizes=pool_sizes,
         )
     return records, total_slots, targets, pool_sizes
+
+
+def _phase_b_record_diversity(records: list[dict[str, Any]]) -> dict[str, int]:
+    mql_sigs: set[tuple[str, str]] = set()
+    skeleton_families: Counter[tuple[str, str]] = Counter()
+    canonical_sigs: set[tuple[str, str]] = set()
+    pair_sigs: set[tuple[str, str, str]] = set()
+
+    for record in records:
+        db_id = str(record.get("db_id") or "")
+        mql = record.get("MQL")
+        mql_sig = str(record.get("mql_signature") or "")
+        if not mql_sig and isinstance(mql, str) and mql.strip():
+            mql_sig = mql_signature(mql)
+        skeleton_sig = str(record.get("mql_skeleton_signature") or "")
+        if not skeleton_sig and isinstance(mql, str) and mql.strip():
+            skeleton_sig = mql_skeleton_signature(mql)
+        if mql_sig:
+            mql_sigs.add((db_id, mql_sig))
+        if skeleton_sig:
+            skeleton_families[(db_id, skeleton_sig)] += 1
+
+        nl_queries = record.get("nl_queries")
+        canonical = (
+            " ".join(str(nl_queries.get("canonical") or "").strip().lower().split())
+            if isinstance(nl_queries, dict)
+            else ""
+        )
+        if canonical:
+            nl_sig = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+            canonical_sigs.add((db_id, nl_sig))
+            if mql_sig:
+                pair_sigs.add((db_id, nl_sig, mql_sig))
+
+    return {
+        "distinct_mql": len(mql_sigs),
+        "distinct_mql_skeletons": len(skeleton_families),
+        "distinct_canonical_nl": len(canonical_sigs),
+        "distinct_nl_mql_pairs": len(pair_sigs),
+        "max_mql_skeleton_family": max(skeleton_families.values(), default=0),
+    }
 
 
 async def _run_construct(
@@ -2018,9 +2082,16 @@ def _print_validation_summary(
         print(f"  error   : {error}")
     if report is not None:
         c = report.composition
+        d = report.diversity
         print(f"  records : {report.n_records}")
         print(f"  coverage: dbs={len(c.db_ids)} L4={c.l4_ratio:.0%} "
               f"L0={c.l0_ratio:.0%} flex={c.flex_ratio:.0%} ssf={c.ssf_ratio:.0%}")
+        print(
+            f"  diversity: mql={d.distinct_mql} skeletons={d.distinct_mql_skeletons} "
+            f"canonical_nl={d.distinct_canonical_nl} "
+            f"pairs={d.distinct_nl_mql_pairs} "
+            f"max_skeleton_family={d.max_mql_skeleton_family}"
+        )
         print(f"  status  : {'valid' if report.ok else 'invalid'}")
         issues = _collect_validation_issues(report)
         print(f"  issues  : {len(issues)}")

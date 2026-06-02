@@ -204,13 +204,29 @@ class ReleaseReport:
     schema_violations: list[str]
     composition: CompositionReport
     file_violations: list[str]
+    diversity: "DiversityReport"
 
     def summary(self) -> str:
         c = self.composition
+        d = self.diversity
         return (f"release {'OK' if self.ok else 'INVALID'}: {self.n_records} records, "
                 f"L4={c.l4_ratio:.0%} L0={c.l0_ratio:.0%} flex={c.flex_ratio:.0%} ssf={c.ssf_ratio:.0%}; "
+                f"distinct_pair={d.distinct_nl_mql_pairs}/{d.n_records} "
+                f"min_db_pair={d.min_distinct_nl_mql_pairs_per_db}; "
                 f"{len(self.record_violations)} record + {len(self.schema_violations)} schema + "
                 f"{len(self.file_violations)} file violations")
+
+
+@dataclass
+class DiversityReport:
+    n_records: int
+    distinct_mql: int
+    distinct_mql_skeletons: int
+    distinct_canonical_nl: int
+    distinct_nl_mql_pairs: int
+    max_mql_skeleton_family: int
+    distinct_nl_mql_pairs_per_db: dict[str, int]
+    min_distinct_nl_mql_pairs_per_db: int
 
 
 def validate_release(
@@ -282,6 +298,7 @@ def validate_release(
             sch_viol += local_sch
 
     comp = validate_composition(records, supply_relax=supply_relax, require_all_dbs=require_all_dbs)
+    diversity = _diversity_report(records)
 
     # C4 3-way per-db file presence
     for db in comp.db_ids:
@@ -293,7 +310,7 @@ def validate_release(
         file_viol += _validate_release_artifacts(out_dir, comp.db_ids, schemas_path)
 
     ok = not (rec_viol or sch_viol or file_viol) and comp.ok
-    return ReleaseReport(ok, len(records), rec_viol, sch_viol, comp, file_viol)
+    return ReleaseReport(ok, len(records), rec_viol, sch_viol, comp, file_viol, diversity)
 
 
 def _duplicate_mql_violations(records: list[dict[str, Any]]) -> list[str]:
@@ -383,6 +400,50 @@ def _duplicate_canonical_nl_violations(records: list[dict[str, Any]]) -> list[st
             )
         )
     return violations
+
+
+def _diversity_report(records: list[dict[str, Any]]) -> DiversityReport:
+    mql_sigs: set[tuple[Any, str]] = set()
+    skeleton_families: dict[tuple[Any, str], int] = {}
+    canonical_sigs: set[tuple[Any, str]] = set()
+    pair_sigs: set[tuple[Any, str, str]] = set()
+    pair_sigs_by_db: dict[str, set[tuple[str, str]]] = {}
+
+    for record in records:
+        db_id = str(record.get("db_id") or "")
+        mql = record.get("MQL")
+        mql_sig = ""
+        if isinstance(mql, str) and mql.strip():
+            mql_sig = mql_signature(mql)
+            mql_sigs.add((db_id, mql_sig))
+            skeleton_sig = mql_skeleton_signature(mql)
+            skeleton_key = (db_id, skeleton_sig)
+            skeleton_families[skeleton_key] = skeleton_families.get(skeleton_key, 0) + 1
+
+        nl_queries = record.get("nl_queries")
+        canonical = (
+            _normalized_nl_text(nl_queries.get("canonical"))
+            if isinstance(nl_queries, dict)
+            else ""
+        )
+        if canonical:
+            nl_sig = _text_signature(canonical)
+            canonical_sigs.add((db_id, nl_sig))
+            if mql_sig:
+                pair_sigs.add((db_id, nl_sig, mql_sig))
+                pair_sigs_by_db.setdefault(db_id, set()).add((nl_sig, mql_sig))
+
+    per_db = {db_id: len(sigs) for db_id, sigs in sorted(pair_sigs_by_db.items())}
+    return DiversityReport(
+        n_records=len(records),
+        distinct_mql=len(mql_sigs),
+        distinct_mql_skeletons=len(skeleton_families),
+        distinct_canonical_nl=len(canonical_sigs),
+        distinct_nl_mql_pairs=len(pair_sigs),
+        max_mql_skeleton_family=max(skeleton_families.values(), default=0),
+        distinct_nl_mql_pairs_per_db=per_db,
+        min_distinct_nl_mql_pairs_per_db=min(per_db.values(), default=0),
+    )
 
 
 def _normalized_nl_text(text: Any) -> str:
