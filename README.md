@@ -5,7 +5,7 @@ TEND 是一个面向 MongoDB 的 Text-to-NoSQL 基准构造与评测工作区。
 这个仓库同时是研究产物和可执行流水线：
 
 - `src/tend/` 是当前活跃的构造、验证、执行、日志和求解器代码。
-- `proposals/` 存放方法论文档、提示词契约、JSON Schema、烟测夹具以及运行时代码实现的发布标准。
+- `proposals/*.md` 是当前保留的方案设计文档。`proposals/` 下的 prompt、schema、fixtures 是运行时/测试资产，不属于 Proposal 正文叙事。
 - `src/tend/baselines/` 是当前维护的受限 LLM baseline runtime，可通过 `tend baseline` 运行。
 - 顶层 `baselines/` 目录已经废弃并从项目中移除；新的 baseline 实现和实验入口统一放在 `src/tend/baselines/`。
 
@@ -44,15 +44,18 @@ TEND 关注那些很难通过机械 SQL 翻译得到的 MongoDB 查询。构造�
 
 更细的模块级说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
-## Final benchmark artifact
+## Final benchmark release
 
-The final 11-database, 1,210-record TEND benchmark artifact is tracked under
-`runs/native-variant-11db-110distinct-final3/`. GitHub keeps the release JSON,
-schemas, provenance, paper statistics, and surgical audit evidence. The large
-MongoDB witness data is distributed through Google Drive rather than Git/LFS:
+The final 11-database, 1,210-record TEND benchmark is packaged under
+`release/tend-native-mongodb-v1/`. GitHub keeps the release JSON, schemas,
+provenance, paper statistics, and surgical audit evidence there. The large
+MongoDB witness data is distributed through Google Drive rather than Git/LFS.
+The `runs/` tree is retained only as local generation evidence and intermediate
+state.
 
 - Artifact index: [docs/TEND_FINAL_ARTIFACTS.md](docs/TEND_FINAL_ARTIFACTS.md)
-- MongoDB data recovery notes: [runs/native-variant-11db-110distinct-final3/dataset/MONGODB_DATA.md](runs/native-variant-11db-110distinct-final3/dataset/MONGODB_DATA.md)
+- Release package: [release/tend-native-mongodb-v1/](release/tend-native-mongodb-v1/)
+- MongoDB data recovery notes: [release/tend-native-mongodb-v1/MONGODB_DATA.md](release/tend-native-mongodb-v1/MONGODB_DATA.md)
 - Drive folder: https://drive.google.com/drive/folders/1s7LgW-zub1gIx9A1OpuWdx7lyNVwXhi5
 
 ## 构造流水线
@@ -86,14 +89,16 @@ Phase B 从 Phase A 产出的 `native_feature_manifest` 规划 coverage slots，
 
 ## SMART 求解器
 
-`tend solve` 命令会在 release 风格的数据集上运行 SMART schema-less 参考求解器。它会刻意隔离 solver 可见信息和构造阶段 gold 信息：
+SMART-EG 的方案设计见 `proposals/06_solution_design.md`。目标求解侧接口是 `NLQ + read-only MongoDB db_handle`，schema 只能通过数据库探索工具归纳出来；solver 不应把 difficulty、shape policy、gold MQL、canonical form、audit 或 train artifacts 当作输入。
 
-1. Shape comprehension 按 collection 探测公开 schema，并归约为 shape model。
-2. Intent formalization 将 NLQ 转换为逻辑规格。
-3. NoSQL planning 生成带 variant-handling 说明的 MongoDB 物理计划。
-4. Query realization 渲染 MQL，检查禁用 operator，并在本地 MongoDB executor 可用时逐 stage 执行 prefix。
+SMART-EG 是 provider-native tool-call ReAct agent，而不是结构化 LLM call：
 
-solver 边界会在构建 prompt 之前移除禁止泄露的 gold/audit 字段，例如 `MQL`、`canonical_form_set` 和 `*_ref`。solver 终止失败会写成类型化的 `solver_failure` JSONL 记录，而不是写入伪造查询。
+1. Shape comprehension 通过 MongoDB 探索工具发现 collection、path、shape、dynamic key、array nesting、missing/null 分布和关系线索。
+2. Intent formalization 将 NLQ 转换为带 evidence refs 的意图假设。
+3. NoSQL planning 生成带 variant handling 和 sentinel coverage 的 MongoDB 物理计划。
+4. Query realization 渲染 MQL，检查禁用 operator，并通过 prefix execution 与 `submit_final_mql` 完成显式终止。
+
+solver 边界会在构建 prompt 之前移除禁止泄露的 gold/audit 字段，例如 `MQL`、`canonical_form_set`、`shape_policy` 和 `*_ref`。solver 终止失败会写成类型化的 `solver_failure` JSONL 记录，而不是写入伪造查询。
 
 ## 活跃 Baseline Runtime
 
@@ -118,10 +123,10 @@ baseline prompt 只读取 release 可见信息：`nl_queries.canonical`、`db_id
 src/tend/                    活跃 Python 包
 tests/                       runtime、validation、solver 和 contract 测试
 docs/                        活跃 runtime 的架构说明
-proposals/                   方法论文档、agent prompts、schemas、烟测夹具
-proposals/agent_prompts/     LLM-backed agents 使用的提示词契约
-proposals/schemas/           JSON Schemas、valid/invalid 夹具、solver allow-list
-proposals/fixtures/          proposal 烟测夹具，不是生产发布数据
+proposals/*.md               方案设计文档
+proposals/agent_prompts/     runtime 仍加载的 LLM prompt 资产
+proposals/schemas/           runtime/validation 使用的 JSON Schemas 与夹具
+proposals/fixtures/          contract smoke fixtures，不是生产发布数据
 runs/                        本地运行输出和日志
 release/TEND-dataset/        默认生产发布目标目录
 minidev/MINIDEV/             期望的 BIRD mini-dev 源数据根目录，如果本机存在
@@ -341,7 +346,7 @@ runs/<run_id>/
 
 ## 发布契约
 
-活跃发布验证器检查 `proposals/schemas/` 和 `src/tend/publish/validate.py` 中编码的契约。
+活跃发布验证器检查 `proposals/schemas/` 和 `src/tend/publish/validate.py` 中编码的运行时契约；这些资产不属于 Proposal 正文设计文档。
 
 重要不变量：
 

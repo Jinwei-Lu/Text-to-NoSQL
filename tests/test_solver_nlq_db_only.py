@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -166,6 +168,69 @@ def test_solver_input_helpers_are_publicly_reexported() -> None:
 
     assert build_nlq_db_solver_input is solver_inputs.build_nlq_db_solver_input
     assert load_solver_release_inputs is solver_inputs.load_solver_release_inputs
+
+
+def test_solver_release_inputs_support_formal_release_package_layout(tmp_path: Path) -> None:
+    package = tmp_path / "release" / "tend-native-mongodb-v1"
+    (package / "data").mkdir(parents=True)
+    (package / "schema" / "mongodb_schema").mkdir(parents=True)
+    (package / "mongodb_data").mkdir()
+    records = [
+        {
+            "record_id": 11,
+            "db_id": "financial",
+            "MQL": "db.account_ledgers.aggregate([])",
+            "nl_queries": {
+                "canonical": "List financial ledgers.",
+                "colloquial": "Show ledger rows.",
+            },
+        },
+        {
+            "record_id": 12,
+            "db_id": "superhero",
+            "MQL": "db.hero.aggregate([])",
+            "nl_queries": {
+                "canonical": "List heroes.",
+                "colloquial": "Show heroes.",
+            },
+        },
+    ]
+    (package / "data" / "test.json").write_text(json.dumps(records), encoding="utf-8")
+    (package / "data" / "TEND.json").write_text(json.dumps(records), encoding="utf-8")
+    (package / "schema" / "mongodb_schema" / "financial.json").write_text(
+        json.dumps({"collections": {"account_ledgers": {}}}),
+        encoding="utf-8",
+    )
+    (package / "mongodb_data" / "financial.json").write_text(
+        json.dumps({"account_ledgers": [{"_id": 1}]}),
+        encoding="utf-8",
+    )
+
+    selected = solver_inputs.select_solver_release_records(
+        package,
+        db_id="financial",
+        limit=1,
+        nlq_track="colloquial",
+    )
+    loaded = solver_inputs.load_solver_release_inputs(
+        package,
+        db_id="financial",
+        limit=1,
+        nlq_track="colloquial",
+    )
+
+    assert selected == [
+        {
+            **records[0],
+            "nl_queries": {"canonical": "Show ledger rows."},
+            "nlq_track": "colloquial",
+        }
+    ]
+    record, schema, data = loaded[0]
+    assert record["record_id"] == 11
+    assert record["nl_queries"] == {"canonical": "Show ledger rows."}
+    assert schema == {"collections": {"account_ledgers": {}}}
+    assert data == {"account_ledgers": [{"_id": 1}]}
 
 
 def test_witness_digest_remains_available_for_non_eg_baselines() -> None:

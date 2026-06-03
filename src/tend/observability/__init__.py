@@ -1,7 +1,7 @@
 """Observability: structured logging with anomaly capture, and live terminal progress.
 
 Two cooperating subsystems:
-  - :mod:`tend.observability.logging` — file-first JSONL logs. ``events.jsonl`` (all),
+  - :mod:`tend.observability._runtime` — file-first JSONL logs. ``events.jsonl`` (all),
     ``anomalies.jsonl`` (the subset an operator/Claude-Code greps first), and
     ``llm/<agent>/<call_id>.md`` plus ``.diagnostics.json`` sidecars for LLM calls.
     Anomalies fire subscriber callbacks so the UI can surface them the instant they happen.
@@ -10,8 +10,8 @@ Two cooperating subsystems:
 """
 from __future__ import annotations
 
-from .logging import RunLogger, new_run_id, setup_logging
 from .progress import ProgressReporter, make_reporter
+from ._runtime import RunLogger, new_run_id, setup_logging
 
 __all__ = [
     "RunLogger",

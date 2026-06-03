@@ -2,7 +2,7 @@
 
     tend construct --phase all --dbs financial --records 1 [--stub] [--quiet]
     tend validate --dataset-dir runs/<run_id>/dataset [--smoke]
-    tend publish --dataset-dir runs/<run_id>/dataset --out release/TEND-dataset
+    tend publish --dataset-dir runs/<run_id>/dataset --out release/tend-native-mongodb-v1
     tend solve --db-id financial --record-id 1001 [--stub] [--quiet]
 
 Assembles the runtime (logging + progress + BIRD source + LLM client + MongoDB executor),
@@ -48,6 +48,7 @@ from .execution.mongo import MongoExecutor
 from .llm import LLMClient
 from .observability import make_reporter, new_run_id, setup_logging
 from .publish import ReleaseReport, validate_release
+from .release_layout import resolve_release_dataset_layout
 from .source import BirdSource
 from .source.census import run_census
 from .stubs import stub_fn
@@ -59,7 +60,7 @@ from .solver.inputs import (
 )
 from .workflow import Workflow
 
-PRODUCTION_RELEASE_DIR = Path("release/TEND-dataset")
+PRODUCTION_RELEASE_DIR = Path("release/tend-native-mongodb-v1")
 VALIDATION_ISSUE_LIMIT = 12
 
 
@@ -471,6 +472,7 @@ def _materialize_evaluation_dataset_subset(
     out_dir: Path,
 ) -> Path:
     """Build a run-local release-like dataset for the records this run attempted."""
+    layout = resolve_release_dataset_layout(dataset_dir)
 
     unique_records: list[dict[str, Any]] = []
     seen: set[tuple[str, Any]] = set()
@@ -491,24 +493,43 @@ def _materialize_evaluation_dataset_subset(
         json.dumps(unique_records, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
     )
-    tend_records = _filter_record_file(dataset_dir / "TEND.json", seen) or unique_records
+    tend_records = _filter_record_file(layout.tend_path, seen) or unique_records
     (out_dir / "TEND.json").write_text(
         json.dumps(tend_records, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
     )
+    (out_dir / "evaluation_selection.json").write_text(
+        json.dumps(
+            {
+                "source_dataset_dir": str(dataset_dir),
+                "selected_record_count": len(unique_records),
+                "selected_records": [
+                    {"db_id": record.get("db_id"), "record_id": record.get("record_id")}
+                    for record in unique_records
+                ],
+                "db_ids": sorted({str(record.get("db_id") or "") for record in unique_records}),
+            },
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        ),
+        encoding="utf-8",
+    )
 
-    catalog = dataset_dir / "bird_db_catalog.json"
-    if catalog.exists():
-        _link_or_copy_file(catalog, out_dir / "bird_db_catalog.json")
+    if layout.catalog_path.exists():
+        _link_or_copy_file(layout.catalog_path, out_dir / "bird_db_catalog.json")
 
     for db in sorted({str(record.get("db_id") or "") for record in unique_records}):
         if not db:
             continue
-        for dirname in ("mongodb_data", "mongodb_schema"):
-            src = dataset_dir / dirname / f"{db}.json"
+        layout_sources = (
+            (layout.mongodb_data_dir / f"{db}.json", out_dir / "mongodb_data" / f"{db}.json"),
+            (layout.mongodb_schema_dir / f"{db}.json", out_dir / "mongodb_schema" / f"{db}.json"),
+        )
+        for src, dst in layout_sources:
             if src.exists():
-                _link_or_copy_file(src, out_dir / dirname / src.name)
-        rationale_dir = dataset_dir / "agent_design_rationale"
+                _link_or_copy_file(src, dst)
+        rationale_dir = layout.agent_design_rationale_dir
         for suffix in (".yaml", ".yml", ".json"):
             src = rationale_dir / f"{db}{suffix}"
             if src.exists():
@@ -1263,11 +1284,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("publish", help="validate and copy a production release")
     p.add_argument("--dataset-dir", required=True, help="candidate dataset dir")
     p.add_argument("--out", default=str(PRODUCTION_RELEASE_DIR),
-                   help="production release dir (default: release/TEND-dataset)")
+                   help="production release dir (default: release/tend-native-mongodb-v1)")
 
     s = sub.add_parser("solve", help="run the SMART-EG schema-less solver")
     s.add_argument("--dataset-dir", default=None,
-                   help="release dataset dir (default: release/TEND-dataset)")
+                   help="release dataset dir (default: release/tend-native-mongodb-v1)")
     s.add_argument("--db-id", default=None, help="optional db_id filter")
     s.add_argument("--nlq-track", choices=["record", "canonical", "colloquial"],
                    default="record",
@@ -1290,7 +1311,7 @@ def main(argv: list[str] | None = None) -> int:
 
     b = sub.add_parser("baseline", help="run constrained LLM baselines")
     b.add_argument("--dataset-dir", default=None,
-                   help="release dataset dir (default: release/TEND-dataset)")
+                   help="release dataset dir (default: release/tend-native-mongodb-v1)")
     b.add_argument("--baselines", default="all",
                    help=f"comma-separated baseline ids or all; known={','.join(BASELINE_IDS)}")
     b.add_argument("--db-id", default=None, help="optional db_id filter")
@@ -1311,7 +1332,7 @@ def main(argv: list[str] | None = None) -> int:
 
     a = sub.add_parser("ablation", help="run SMART-EG solver ablation study")
     a.add_argument("--dataset-dir", default=None,
-                   help="release dataset dir (default: release/TEND-dataset)")
+                   help="release dataset dir (default: release/tend-native-mongodb-v1)")
     a.add_argument("--ablations", default="all",
                    help=f"comma-separated ablation ids or all; known={','.join(ABLATION_IDS)}")
     a.add_argument("--db-id", default=None, help="optional db_id filter")

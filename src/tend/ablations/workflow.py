@@ -116,7 +116,7 @@ async def smart_solve_record_eg(*args: Any, **kwargs: Any) -> Any:
         raise TypeError("smart_solve_record_eg record must be a dict")
     options = kwargs.get("options") if isinstance(kwargs.get("options"), dict) else {}
     policy = kwargs.get("policy") or SmartEGPolicy(
-        max_tool_turns=int(kwargs.get("max_tool_turns", options.get("max_tool_turns", 24))),
+        max_tool_turns=int(kwargs.get("max_tool_turns", options.get("max_tool_turns", 48))),
         max_revisits=int(kwargs.get("max_revisits", options.get("max_revisits", 2))),
         cost_budget_usd=float(kwargs.get("cost_budget_usd", options.get("cost_budget_usd", 1.0))),
         evidence_gate=bool(options.get("use_evidence_gate", True)),
@@ -146,7 +146,7 @@ async def run_ablation_suite(
     nlq_track: NlqTrack = "record",
     record_id: int | None = None,
     limit: int = 1,
-    max_tool_turns: int = 24,
+    max_tool_turns: int = 48,
     max_revisits: int = 2,
     cost_budget_usd: float = 1.0,
 ) -> list[dict[str, Any]]:
@@ -288,7 +288,7 @@ async def run_ablation_record(
     schema: dict[str, Any],
     *,
     local_data: dict[str, list[dict[str, Any]]] | None = None,
-    max_tool_turns: int = 24,
+    max_tool_turns: int = 48,
     max_revisits: int = 2,
     cost_budget_usd: float = 1.0,
     batch_index: int | None = None,

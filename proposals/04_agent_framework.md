@@ -330,7 +330,7 @@ RTV 改判**结果等价**而非 gold-class 指纹闭包：它验的是「NLQ �
 
 **发布硬约束**：test 集 `difficulty = L4` 比例 ≥ 30%（[02 H5](./02_dataset_design.md#02-4-3)）；test 集 L0 ≤ 5%（[02 H8](./02_dataset_design.md#02-4-3)）。NNC 赋值须与 canonical_form_set / MQL 算子相容（record C7）。
 
-**`sql_infeasibility_class` 枚举**（NNC 必填，见 `agent_prompts/nnc_nosql_nativeness_critic.md`）：
+**`sql_infeasibility_class` 枚举**（NNC 必填）：
 
 | 类别 | 含义 | 典型 record |
 |---|---|---|
@@ -385,7 +385,7 @@ financial/1001 是 **RAR 构造管线**的示范：QPS 从 Phase A 的 query-bea
 
 该 record **不是** BIRD SQL 的翻译产物，而是稀疏 loan 异构逼出的真实业务意图；relational 普遍 `INNER JOIN loan` 静默丢无 loan 账户，反范式化后 present/missing 须显式处理——dual-bridge（纯结果）下两桥均够不到 `≡_rec gold`。
 
-> **⚠ PENDING DAR Phase A**: 下方 canonical record 块为 `financial/1001`（跨卷逐字节一致，Gate 3）；布局/gold MQL/`world_signature` 待 DAR Phase A 在真实 MongoDB 构造 + 执行验证。锚 cfs 已是 RAR thin contract（`$lookup` 不变量 + 6 禁用 operator + preserve root guard）。`agent_prompts/` 中的 `orchestra` Example 1 仅为 smoke fixture,不是 production release 记录。
+> **⚠ PENDING DAR Phase A**: 下方 canonical record 块为 `financial/1001`（跨卷逐字节一致，Gate 3）；布局/gold MQL/`world_signature` 待 DAR Phase A 在真实 MongoDB 构造 + 执行验证。锚 cfs 已是 RAR thin contract（`$lookup` 不变量 + 6 禁用 operator + preserve root guard）。
 
 <!-- canonical-anchor: financial/1001 -->
 ```json
@@ -487,7 +487,7 @@ record 发布前须通过：
 | 6 指标、4-panel 观测、SQL-route 诊断切片 | [05](./05_evaluation_methodology.md) |
 | SMART solver、disjointness 池 | [06](./06_solution_design.md) |
 
-Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`（legacy filename; active prompt emits `intent`）、`ms_mql_synthesizer.md`、`mut_mutation_generator.md`、`pv_property_verifier.md`、`nlp_nl_paraphraser.md`、`rtv_round_trip_verifier.md`、`nnc_nosql_nativeness_critic.md`、`ra_realism_auditor.md`。
+工程 prompt 模板不属于 Proposal 正文维护范围；本文只保留 Phase B Agent 的方案角色、信息流与 gate 设计。
 
 ---
 

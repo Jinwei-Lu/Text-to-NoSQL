@@ -4,7 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-DEFAULT_MAX_TOOL_TURNS = 24
+DEFAULT_MAX_TOOL_TURNS = 48
+MEDIUM_BUDGET_MAX_TOOL_TURNS = 24
 DEFAULT_MAX_REVISITS = 2
 DEFAULT_COST_BUDGET_USD = 1.0
 
@@ -175,7 +176,7 @@ _ABLATIONS: dict[str, SmartEGAblationSpec] = {
         id="smart_eg_budget_medium",
         title="Medium budget",
         description="Run SMART-EG with the reference medium budget.",
-        max_tool_turns=DEFAULT_MAX_TOOL_TURNS,
+        max_tool_turns=MEDIUM_BUDGET_MAX_TOOL_TURNS,
         max_revisits=DEFAULT_MAX_REVISITS,
         cost_budget_usd=DEFAULT_COST_BUDGET_USD,
     ),

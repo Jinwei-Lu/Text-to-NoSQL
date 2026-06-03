@@ -30,6 +30,7 @@ from ..execution.ast_check import ast_check, parse_pipeline, root_ops, scan_disa
 from ..execution.mongo import equiv_rec
 from ..execution.signature import canonical_json
 from ..observability import RunLogger
+from ..release_layout import resolve_release_dataset_layout
 
 HEADLINE_METRIC = "EX"
 EVALUATION_METRICS: tuple[str, ...] = ("EM", "QSM", "QFC", HEADLINE_METRIC, "EFM", "EVM")
@@ -335,7 +336,7 @@ def evaluate_predictions(
 
 
 def _load_records(dataset_dir: Path) -> list[dict[str, Any]]:
-    path = dataset_dir / "test.json"
+    path = resolve_release_dataset_layout(dataset_dir).test_path
     if not path.exists():
         raise TendError(
             "dataset test.json not found",
@@ -414,9 +415,10 @@ def _load_witnesses(
     executor: EvaluationExecutor,
     log: RunLogger,
 ) -> None:
+    layout = resolve_release_dataset_layout(dataset_dir)
     db_ids = sorted({str(record.get("db_id") or "") for record in records if record.get("db_id")})
     for db_id in db_ids:
-        data_path = dataset_dir / "mongodb_data" / f"{db_id}.json"
+        data_path = layout.mongodb_data_dir / f"{db_id}.json"
         if not data_path.exists():
             raise TendError(
                 "mongodb witness data not found",
@@ -1145,7 +1147,13 @@ def _build_report(
         "metrics_order": list(EVALUATION_METRICS),
         "diagnostic_metrics_order": list(DIAGNOSTIC_METRICS),
         "record_count": len(rows),
+        "scored_row_count": len(rows),
         "release_record_count": len(records),
+        "denominator": _denominator_summary(
+            rows=rows,
+            records=records,
+            dataset_dir=dataset_dir,
+        ),
         "scores": scores,
         "systems": {
             system_id: {
@@ -1183,6 +1191,35 @@ def _aggregate(rows: list[dict[str, Any]]) -> dict[str, float]:
         )
         for name in EVALUATION_METRICS
     }
+
+
+def _denominator_summary(
+    *,
+    rows: list[dict[str, Any]],
+    records: dict[tuple[str, Any], dict[str, Any]],
+    dataset_dir: Path,
+) -> dict[str, Any]:
+    manifest = _load_evaluation_selection_manifest(dataset_dir)
+    return {
+        "scope": "selected_release_records" if manifest else "dataset_records",
+        "release_record_count": len(records),
+        "scored_row_count": len(rows),
+        "system_count": len({str(row.get("system_id")) for row in rows}),
+        "selection": manifest,
+    }
+
+
+def _load_evaluation_selection_manifest(dataset_dir: Path) -> dict[str, Any] | None:
+    path = dataset_dir / "evaluation_selection.json"
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"manifest_path": str(path), "read_error": True}
+    if not isinstance(payload, dict):
+        return {"manifest_path": str(path), "invalid": True}
+    return {"manifest_path": str(path), **payload}
 
 
 def _aggregate_slices(rows: list[dict[str, Any]], axes: tuple[str, ...]) -> dict[str, Any]:

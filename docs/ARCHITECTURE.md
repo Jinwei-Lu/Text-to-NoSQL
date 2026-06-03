@@ -105,18 +105,16 @@ Records include native metadata such as `native_feature_id`, `native_query_patte
 `mongo_native_constructs`, `anti_sql_transfer_level`, `provenance_refs`, and
 `migration_recipe_ref`.
 
-## Prompts
+## Runtime Prompts
 
-The active prompt directory `proposals/agent_prompts/` contains only prompts still
-loaded by runtime code:
+The active prompt directory `proposals/agent_prompts/` is a runtime asset directory,
+not part of the proposal narrative. It contains only prompts still loaded by runtime
+code:
 
 - `native_migration_designer.md`
 - `native_nl_generator.md`
 - `smart_intent_formalizer.md`
 - `smart_nosql_planner.md`
-
-Legacy construction prompts are archived under
-`proposals/archive/legacy_agent_prompts/` and are not part of the active runtime.
 
 ## Logging And Anomaly Capture
 
@@ -130,6 +128,7 @@ is the complete event stream; `progress.jsonl` stores progress snapshots even wh
 
 The active construction stack supports all 11 BIRD mini-dev databases through
 database-specific native design modules and manifest-driven Phase B. The repository's
-final dataset artifact, statistics, provenance, and audit evidence are tracked under
-`runs/native-variant-11db-110distinct-final3/`; large MongoDB witness data is referenced
-through the artifact notes rather than stored directly in Git.
+formal dataset release, statistics, provenance, and audit evidence are tracked under
+`release/tend-native-mongodb-v1/`. `runs/` is local generation evidence only; large
+MongoDB witness data is referenced through the artifact notes rather than stored
+directly in Git.

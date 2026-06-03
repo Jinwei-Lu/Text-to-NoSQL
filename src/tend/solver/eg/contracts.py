@@ -13,7 +13,7 @@ NextAction = Literal["continue", "revisit", "terminal_only", "abandon", "finaliz
 
 @dataclass
 class SmartEGBudgets:
-    max_tool_turns: int = 24
+    max_tool_turns: int = 48
     max_revisits: int = 3
     max_repeated_submit_rejections: int = 2
     max_repeated_protocol_violations: int = 2
@@ -69,6 +69,7 @@ class ExecutionTrace:
 class SmartEGState:
     nlq: str
     db_id: str
+    record_id: str | int | None = None
     mode: SmartEGMode = "environment"
     environment: dict[str, Any] | None = None
     intent: dict[str, Any] | None = None
@@ -97,6 +98,7 @@ class SmartEGState:
         return {
             "nlq": self.nlq,
             "db_id": self.db_id,
+            "record_id": self.record_id,
             "mode": self.mode,
             "terminal": self.terminal,
             "terminal_only": self.terminal_only,
@@ -161,6 +163,7 @@ class ToolObservation:
 class SmartEGPrediction:
     result_type: Literal["solver_prediction"]
     db_id: str
+    record_id: str | int | None
     nlq: str
     collection: str
     pipeline: list[dict[str, Any]]
@@ -182,6 +185,7 @@ class SmartEGPrediction:
 class SmartEGFailure:
     result_type: Literal["solver_failure"]
     db_id: str
+    record_id: str | int | None
     nlq: str
     error_code: Literal[
         "INSUFFICIENT_EVIDENCE",

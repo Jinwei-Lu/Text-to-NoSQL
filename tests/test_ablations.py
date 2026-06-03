@@ -134,6 +134,7 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
         **full_options,
         "ablation_id": "smart_eg_budget_medium",
         "solver_variant": "smart_eg_budget_medium",
+        "max_tool_turns": 24,
     }
     assert resolve_ablations("smart_eg_budget_high")[0].to_runtime_options() == {
         **full_options,

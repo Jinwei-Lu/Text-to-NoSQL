@@ -8,7 +8,7 @@
 
 ## TL;DR
 
-TEND (Text-to-NoSQL benchmark for Mongo-flavored pipelines) 研究自然语言查询意图如何被可执行的 MongoDB 聚合管道精确表达。任务签名是 f(NLQ, S, db_id) → q^MQL：给定单条自然语言查询、完整 Schema 与 BIRD mini-dev 数据库标识，模型须输出 mongosh 可执行的 MQL 字符串。
+TEND (Text-to-NoSQL benchmark for Mongo-flavored pipelines) 研究自然语言查询意图如何被可执行的 MongoDB 聚合管道精确表达。求解侧目标是 f(NLQ, db_handle) → q^MQL：给定单条自然语言查询与可交互的只读 MongoDB database，模型须输出 mongosh 可执行的 MQL 字符串。旧写法 f(NLQ, S, db_id) 用于发布物索引与评测器内部定位，不表示 SMART-EG solver 可直接读取完整 Schema 或 release metadata。
 
 TEND 以 BIRD mini-dev (11 库) 为数据源与场景源，由十一智能体流水线 (WP / SRA / SC / DM / QPS / MS / MUT / PV / NLP / RTV / NNC / RA) 产出 record。Phase B 采用 RAR 逆向工程构造 NL–MQL 对：先枚举异构驱动 `intent`，再以参照 R 锁死 gold MQL，最后从 intent 生成 NLQ。Agent 框架在构造期直接保证 P1 执行良构、P3 判别力、P4 世界非平凡性；P2 语义唯一性由 intent 控制 + RTV 结果级往返闭包 + NNC 歧义攻击共同承担。
 
@@ -24,7 +24,7 @@ Canonical 锚 (pending DAR Phase A 执行验证) financial/1001 贯穿全文：L
 TEND 刻画如下映射的学习与评测问题：
 
 $$
-f:\ (\texttt{NLQ},\ S,\ \texttt{db\_id})\ \longrightarrow\ q^{\text{MQL}}
+f:\ (\texttt{NLQ},\ \texttt{db\_handle})\ \longrightarrow\ q^{\text{MQL}}
 $$
 
 与关系式 Text-to-SQL 基准的根本区别在于：NoSQL 数据世界原生包含嵌套文档、数组字段、稀疏列与混合类型，其意图空间本质上不是 SQL AST 的子集。因此 TEND 不以 MQL 字面相等作为正确性锚，而以 **gold-as-class 等价类** + **EX 双条件** + **Norm 四层** + **≡_rec** + **P1–P4 根原则** 作为公理层。
@@ -35,7 +35,7 @@ $$
 
 ### 本文五项核心承诺
 
-1. **§01-1 任务签名**：IO 三元组与 Parse / Exec / Norm / NormExec 算子链。
+1. **§01-1 任务签名**：求解侧 IO 二元组与 Parse / Exec / Norm / NormExec 算子链。
 2. **§01-2 输出空间约束**：read-only / deterministic / mongosh-executable 与六件禁用 operator。
 3. **§01-3 正确性锚**：gold-as-class、AST_check、EX 双条件、三层构造期保证 (L1–L3)。
 4. **§01-4 Norm 契约**：四层归一化规则。
@@ -49,7 +49,7 @@ $$
 | BIRD mini-dev 锚定 schema / 数据迁移 / SRA 设计 | [03 §3](./03_dataworld_construction.md#03-3) |
 | Phase B Agent 框架、canonical_form_set 派生、mutations | [04 §4](./04_agent_framework.md#04-4) |
 | 六指标公式、4-panel 报表 | [05 §2](./05_evaluation_methodology.md#05-2) |
-| SMART schema-less agentic 双智能体 / 四阶段解法 | [06 §1](./06_solution_design.md#06-1) |
+| SMART-EG schema-less ReAct 求解方案 | [06 §1](./06_solution_design.md#06-1) |
 
 <a id="01-1"></a>
 ## §01-1 任务签名
@@ -57,16 +57,16 @@ $$
 <a id="01-1-1"></a>
 ### §01-1-1 输入空间
 
-任务输入为三元组 $(\texttt{NLQ},\ S,\ \texttt{db\_id})$：
+求解侧输入为二元组 $(\texttt{NLQ},\ \texttt{db\_handle})$。评测器内部仍以 `db_id` 定位冻结数据库 D(db_id)，发布物仍可携带 schema 与 metadata 供构造、验证和审计使用；但 SMART-EG 类 solver 的 prompt/tool 可见面不得直接读取完整 schema 文件、difficulty、shape_policy、gold MQL、canonical_form_set 或 audit artifacts。
 
-- **NLQ**：单条自然语言查询。须满足单一闭包性（无多轮指示、无上下文代词链）、只读语义（不含写操作意图）、封闭引用（实体 / 属性 / 关系全部落在 S 内）。每条 record 提供 canonical 与 colloquial 二联 NLQ，评测默认以 canonical 为主、colloquial 为鲁棒性子集（字段定义见 [02 §2](./02_dataset_design.md#02-2)）。
-- **S**：`db_id` 对应 MongoDB 数据库的完整 Schema——集合树、字段类型、嵌套路径、SRA 设计 rationale。由 [03 §3](./03_dataworld_construction.md#03-3) 的 SRA 产出。
-- **db_id**：BIRD mini-dev 数据库标识符，索引 S 与冻结快照 D(db_id)。
+- **NLQ**：单条自然语言查询。须满足单一闭包性（无多轮指示、无上下文代词链）、只读语义（不含写操作意图）、封闭引用（实体 / 属性 / 关系全部落在当前 MongoDB database 可探索语义内）。每条 record 提供 canonical 与 colloquial 二联 NLQ，评测默认以 canonical 为主、colloquial 为鲁棒性子集（字段定义见 [02 §2](./02_dataset_design.md#02-2)）。
+- **db_handle**：可交互、只读的 MongoDB database handle。solver 通过受限工具探索 collection、路径、类型、动态键、数组层级、缺失/null 分布与关系线索；不得把预生成 schema 文件当作输入。
+- **db_id**：评测器内部标识符，用于索引冻结快照 D(db_id)；不作为 SMART-EG agent 的语义提示。
 
-形式化：设 $\mathcal{N}$ 为合法 NLQ 集合，$\mathcal{S}$ 为合法 Schema 集合，$\mathcal{I}$ 为合法 db_id 集合，则
+形式化：设 $\mathcal{N}$ 为合法 NLQ 集合，$\mathcal{D}$ 为可交互只读 MongoDB database handle 集合，则求解侧输入空间为
 
 $$
-\mathcal{X} = \big\{\ (n, S, i)\ \in\ \mathcal{N} \times \mathcal{S} \times \mathcal{I}\ \big|\ S = \text{schema}(i)\ \big\}.
+\mathcal{X}_{solver} = \mathcal{N} \times \mathcal{D}.
 $$
 
 <a id="01-1-2"></a>
@@ -358,7 +358,7 @@ L1–L3 与 P 的耦合关系保持不变：L1 ↔ P1 类内；L2 ↔ P3∧P4 �
 
 - difficulty L4：$lookup 关联子管道（多态 trans 贷记求和）+ 稀疏 loan 的 $cond 变体调和，dual-bridge defeat 须拒绝纯 SQL 翻译捷径（[04 §3](./04_agent_framework.md#04-3)）。
 - canonical_form_set：RAR thin guard；`must_contain` 仅 `$lookup`，`must_not_contain` 恒含 6 件禁用 operator，`must_contain_at_root` 可空，`preserve` shape 以根禁 `$unwind`/`$group` 守住文档数与嵌套结构。
-- shape_policy preserve：只 $addFields 就地新增 loan_to_credit_ratio，禁 $unwind+$group 重建（§06-5）。
+- shape_policy preserve：只 $addFields 就地新增 loan_to_credit_ratio，禁 $unwind+$group 重建；求解侧必须从 NLQ 自行推断 preserve / reshape / reduce，而不是读取 `shape_policy` 字段（[06 §06-4-2](./06_solution_design.md#06-4-2)）。
 - mutations_ref 中典型错解（用 INNER-JOIN 式 drop 丢无 loan 账户、漏 $cond/$type、多态 trans 未按 type 过滤、credit_sum 为 0 未兜底）须在 witness 上 NormExec ≢_rec gold（P3）。
 
 <a id="01-8"></a>
@@ -366,7 +366,8 @@ L1–L3 与 P 的耦合关系保持不变：L1 ↔ P1 类内；L2 ↔ P3∧P4 �
 
 | 符号 | 含义 |
 |------|------|
-| NLQ, S, db_id | 输入三元组 |
+| NLQ, db_handle | 求解侧输入二元组 |
+| db_id | 评测器内部数据库标识 |
 | q^MQL, q_p, q_g | 预测 / gold representative MQL |
 | D(db_id), world_signature | witness 快照及其 canonical 哈希 |
 | Parse, Exec, Norm, NormExec | 算子链 |

@@ -312,7 +312,7 @@ Coverage Controller（[04](./04_agent_framework.md)）读取该报告，在 Phas
 | **SC** | SRA schema + rationale, WP output, anti-pattern rules, `min_query_bearing_ratio` config | `pass/reject` verdict + `issues[]`；Gate-QB 裁决；per-db `query_bearing`；`audit/_global/query_bearing_supply_report.json` | 不得重写 witness；不得产出最终 schema 文件 |
 | **DM** | SRA schema + rationale, BIRD SQLite | `mongodb_data/<db_id>.json`, `migration_log.json`, `world_signature` | 不得改 schema 字段集；按真实判别值路由 `__variants`；不得 delete 源映射行 |
 
-Prompt 文件：`agent_prompts/wp_workload_profiler.md`、`sra_schema_rearchitect.md`、`sc_schema_critic.md`、`dm_data_migrator.md`。
+工程 prompt 文件不属于 Proposal 正文维护范围；本文只定义 WP / SRA / SC / DM 的方案职责与产物契约。
 
 ---
 

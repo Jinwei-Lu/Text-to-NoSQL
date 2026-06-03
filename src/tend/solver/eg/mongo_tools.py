@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from collections import Counter
+import json
 from typing import Any, Mapping
 
 from ...execution.ast_check import scan_disabled
 
+from .execution import render_mql
 from .safety import (
     DEFAULT_DOC_LIMIT,
     DEFAULT_VALUE_LIMIT,
@@ -22,6 +24,11 @@ from .safety import (
     value_kind,
     walk_document_paths,
 )
+
+MAX_SAMPLE_PATHS = 40
+MAX_SAMPLE_KIND_PATHS = 24
+MAX_DYNAMIC_KEY_PATHS = 24
+MAX_DYNAMIC_KEY_SAMPLES = 8
 
 
 class SmartEgMongoTools:
@@ -65,14 +72,35 @@ class SmartEgMongoTools:
             maximum=MAX_DOC_LIMIT,
         )
         docs = self._sample(collection, sample_limit)
+        path_values: dict[str, list[Any]] = {}
+        top_level_values: dict[str, list[Any]] = {}
+        for doc in docs:
+            for key, value in doc.items():
+                top_level_values.setdefault(str(key), []).append(value)
+            for path, values in walk_document_paths(doc).items():
+                path_values.setdefault(path, []).extend(values)
         return {
             "tool": "sample_documents",
             "db_id": self.db_id,
             "collection": collection_name,
             "limit": sample_limit,
             "sample_count": len(docs),
-            "redacted_samples": [redact_value(doc) for doc in docs],
-            "redaction": {"raw_rows": False, "scalar_values": "hash_only"},
+            "path_count": len(path_values),
+            "top_level_keys": sorted(top_level_values)[:MAX_SAMPLE_PATHS],
+            "top_level_type_counts": {
+                key: summarize_type_counts(values)
+                for key, values in sorted(top_level_values.items())[:MAX_SAMPLE_PATHS]
+            },
+            "paths": _bounded_path_summary(path_values, limit=MAX_SAMPLE_PATHS),
+            "array_paths": _path_kind_samples(path_values, "array", limit=MAX_SAMPLE_KIND_PATHS),
+            "object_paths": _path_kind_samples(path_values, "object", limit=MAX_SAMPLE_KIND_PATHS),
+            "dynamic_key_candidates": _dynamic_key_candidates(docs),
+            "redaction": {
+                "raw_rows": False,
+                "raw_documents": False,
+                "scalar_values": "hash_only",
+                "dynamic_keys": "hash_only",
+            },
         }
 
     def discover_paths(self, collection: str, *, limit: int | None = None) -> dict[str, Any]:
@@ -82,13 +110,16 @@ class SmartEgMongoTools:
         for doc in docs:
             for path, values in walk_document_paths(doc).items():
                 path_values.setdefault(path, []).extend(values)
+        paths = _bounded_path_summary(path_values, limit=MAX_SAMPLE_PATHS)
         return {
             "tool": "discover_paths",
             "db_id": self.db_id,
             "collection": collection,
             "document_count": len(docs),
             "path_count": len(path_values),
-            "paths": summarize_path_map(path_values),
+            "returned_path_count": len(paths),
+            "omitted_path_count": max(0, len(path_values) - len(paths)),
+            "paths": paths,
             "redaction": {"raw_rows": False},
         }
 
@@ -260,7 +291,10 @@ class SmartEgMongoTools:
             "min_length": min(lengths) if lengths else 0,
             "max_length": max(lengths) if lengths else 0,
             "element_type_counts": summarize_type_counts(element_values),
-            "object_paths": summarize_path_map(object_path_values),
+            "object_paths": _bounded_path_summary(object_path_values, limit=MAX_SAMPLE_PATHS),
+            "object_path_count": len(object_path_values),
+            "returned_object_path_count": min(len(object_path_values), MAX_SAMPLE_PATHS),
+            "omitted_object_path_count": max(0, len(object_path_values) - MAX_SAMPLE_PATHS),
             "redaction": {"raw_rows": False},
         }
 
@@ -384,7 +418,7 @@ class SmartEgMongoTools:
         limit: int | None = None,
     ) -> dict[str, Any]:
         request = mql if isinstance(mql, Mapping) else {}
-        mql_text = str(request.get("MQL") or request.get("mql") if request else mql)
+        mql_text = _probe_mql_text(request, mql)
         probe_limit = bounded_limit(
             request.get("limit", limit) if request else limit,
             default=DEFAULT_DOC_LIMIT,
@@ -427,6 +461,100 @@ def _value_matches(value: Any, needle: str) -> bool:
     return needle in str(value).lower()
 
 
+def _bounded_path_summary(
+    path_values: dict[str, list[Any]],
+    *,
+    limit: int,
+) -> dict[str, dict[str, Any]]:
+    selected = sorted(
+        path_values.items(),
+        key=lambda item: (-len(item[1]), item[0].count("."), item[0]),
+    )[:limit]
+    return {
+        path: {
+            "value_count": len(values),
+            "type_counts": summarize_type_counts(values),
+        }
+        for path, values in selected
+    }
+
+
+def _path_kind_samples(
+    path_values: dict[str, list[Any]],
+    kind: str,
+    *,
+    limit: int,
+) -> list[str]:
+    paths = [
+        path
+        for path, values in sorted(path_values.items())
+        if any(value_kind(value) == kind for value in values)
+    ]
+    return paths[:limit]
+
+
+def _dynamic_key_candidates(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    keys_by_path: dict[str, Counter[str]] = {}
+    for doc in docs:
+        _collect_mapping_keys(doc, (), keys_by_path)
+    candidates: list[dict[str, Any]] = []
+    for path, counts in sorted(keys_by_path.items()):
+        if len(counts) < 3:
+            continue
+        ordered_keys = sorted(counts, key=lambda key: (-counts[key], stable_hash(key)))
+        candidates.append(
+            {
+                "path": path,
+                "unique_key_count": len(counts),
+                "total_key_occurrences": sum(counts.values()),
+                "key_samples": [
+                    summarize_redacted_value(key)
+                    for key in ordered_keys[:MAX_DYNAMIC_KEY_SAMPLES]
+                ],
+            }
+        )
+    candidates.sort(
+        key=lambda item: (
+            -int(item["unique_key_count"]),
+            -int(item["total_key_occurrences"]),
+            str(item["path"]),
+        )
+    )
+    return candidates[:MAX_DYNAMIC_KEY_PATHS]
+
+
+def _collect_mapping_keys(
+    value: Any,
+    path: tuple[str, ...],
+    keys_by_path: dict[str, Counter[str]],
+) -> None:
+    if isinstance(value, Mapping):
+        if path:
+            key = _format_path(path)
+            bucket = keys_by_path.setdefault(key, Counter())
+            for child_key in value:
+                bucket[str(child_key)] += 1
+        for child_key, child in value.items():
+            _collect_mapping_keys(child, path + (str(child_key),), keys_by_path)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _collect_mapping_keys(item, path + ("[]",), keys_by_path)
+
+
+def _format_path(path: tuple[str, ...]) -> str:
+    out: list[str] = []
+    for part in path:
+        if part == "[]":
+            if out:
+                out[-1] += "[]"
+            else:
+                out.append("[]")
+        else:
+            out.append(part)
+    return ".".join(out)
+
+
 SmartEGMongoTools = SmartEgMongoTools
 
 
@@ -435,3 +563,38 @@ def _disabled_hits_in_mql(mql: str) -> list[str]:
         return scan_disabled(mql)
     except Exception:
         return []
+
+
+def _probe_mql_text(request: Mapping[str, Any], mql: Any) -> str:
+    if not request:
+        if isinstance(mql, str) and mql.strip():
+            return mql
+        raise ValueError("readonly probe requires MQL or collection and pipeline")
+
+    candidate = request.get("MQL") or request.get("mql")
+    collection = str(request.get("collection") or "").strip()
+    pipeline = request.get("pipeline")
+    if pipeline is None:
+        pipeline = request.get("stages")
+
+    if isinstance(candidate, str) and candidate.strip().startswith("["):
+        pipeline = _parse_pipeline_json(candidate)
+        candidate = None
+    if isinstance(candidate, str) and candidate.strip():
+        return candidate
+
+    if not collection:
+        raise ValueError("readonly probe collection is required when MQL is omitted")
+    if not isinstance(pipeline, list) or not all(isinstance(stage, dict) for stage in pipeline):
+        raise ValueError("readonly probe pipeline must be a list of stage objects")
+    return render_mql(collection, pipeline)
+
+
+def _parse_pipeline_json(value: str) -> list[dict[str, Any]]:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError("readonly probe raw pipeline string must be valid JSON") from exc
+    if not isinstance(parsed, list) or not all(isinstance(stage, dict) for stage in parsed):
+        raise ValueError("readonly probe raw pipeline string must decode to stage objects")
+    return parsed

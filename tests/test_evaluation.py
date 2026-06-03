@@ -188,6 +188,14 @@ def test_evaluate_predictions_prepares_only_predicted_gold_records(tmp_path: Pat
     assert output.status == "partial"
     assert output.report["release_record_count"] == 2
     assert output.report["record_count"] == 2
+    assert output.report["scored_row_count"] == 2
+    assert output.report["denominator"] == {
+        "scope": "dataset_records",
+        "release_record_count": 2,
+        "scored_row_count": 2,
+        "system_count": 1,
+        "selection": None,
+    }
     assert output.report["scores"]["EX"] == 0.5
     assert output.report["systems"]["only_one"]["record_count"] == 2
     assert output.report["systems"]["only_one"]["scores"]["EX"] == 0.5
@@ -213,6 +221,56 @@ def test_evaluate_predictions_prepares_only_predicted_gold_records(tmp_path: Pat
     ]
     assert missing_event["per_record_jsonl"] == str(output.paths.per_record_jsonl)
     assert missing_event["report_json"] == str(output.paths.report_json)
+
+
+def test_evaluate_predictions_supports_release_package_layout(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "release" / "tend-native-mongodb-v1"
+    (dataset_dir / "data").mkdir(parents=True)
+    (dataset_dir / "mongodb_data").mkdir()
+    record = {
+        "record_id": 10,
+        "db_id": "financial",
+        "MQL": "db.gold_one.aggregate([])",
+        "canonical_form_set": {},
+    }
+    (dataset_dir / "data" / "test.json").write_text(
+        json.dumps([record]),
+        encoding="utf-8",
+    )
+    (dataset_dir / "mongodb_data" / "financial.json").write_text(
+        json.dumps({"gold_one": [{"_id": 1}]}),
+        encoding="utf-8",
+    )
+    predictions = tmp_path / "predictions.jsonl"
+    predictions.write_text(
+        json.dumps({
+            "solver_variant": "package_exact",
+            "record_id": 10,
+            "db_id": "financial",
+            "MQL": record["MQL"],
+        }) + "\n",
+        encoding="utf-8",
+    )
+    log = setup_logging(tmp_path / "run", console=False)
+    try:
+        output = evaluate_predictions(
+            dataset_dir=dataset_dir,
+            predictions_path=predictions,
+            out_dir=tmp_path / "eval",
+            experiment_kind="solver",
+            run_id="eval-package",
+            logger=log,
+            progress=None,
+            executor=_SelectiveGoldExecutor(),
+            max_workers=1,
+        )
+    finally:
+        log.close()
+
+    assert output.ok
+    assert output.report["release_record_count"] == 1
+    assert output.report["denominator"]["scope"] == "dataset_records"
+    assert output.report["scores"]["EX"] == 1.0
 
 
 def test_evaluate_predictions_normalizes_stale_preserve_cfs_for_gold_unwind(

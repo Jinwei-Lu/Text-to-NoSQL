@@ -1,0 +1,24 @@
+raw_mongodb_data_sha256
+1f525eb35024fc2e92eca945091445a27aacd9fe888724670f8a56706c714827  release/tend-native-mongodb-v1/mongodb_data/california_schools.json
+ac62e4ac0d5d62a7be56d48253b99de0e4b53a3549d54a816fc947d7546b36f9  release/tend-native-mongodb-v1/mongodb_data/card_games.json
+23a09edbb50c58bee4eb89a845cf0c35a2c41b3f612ea3e588875181e199e7ae  release/tend-native-mongodb-v1/mongodb_data/codebase_community.json
+ef9bd59e3df0e2576e0e4ce66cb77cd7bda26d24830bcbd3288ccb6fbf8486b8  release/tend-native-mongodb-v1/mongodb_data/debit_card_specializing.json
+004bbb56c130790e1053e88fde79ba114327a853c3d219132d0a6d4def2b38a2  release/tend-native-mongodb-v1/mongodb_data/european_football_2.json
+936e5c0a4264bdd3638eee6c134dfc2f304140ac29b70e3111f52b5a5f8096f8  release/tend-native-mongodb-v1/mongodb_data/financial.json
+7530db84fa375e460f0d87762a6c04f7ef469c23c56f168dfc8a10a612acd3a0  release/tend-native-mongodb-v1/mongodb_data/formula_1.json
+64c33f4bdc7ad7f291eddd76360df78f07d55cf9f08950ab2c623d4fcd7b9c04  release/tend-native-mongodb-v1/mongodb_data/student_club.json
+6b09ccc2d90db17a62b1af4a598fa13eb24460601b262d967e3808f4fb7dcc56  release/tend-native-mongodb-v1/mongodb_data/superhero.json
+52701dce10ab9bf410ae6545b149dd0e1067d2633284b2a8a249c8f41bd99e2a  release/tend-native-mongodb-v1/mongodb_data/thrombosis_prediction.json
+3ae8903b7528a5a0cca19ce6c42206136c626f2fd6127ee7da7a2f7d086c2697  release/tend-native-mongodb-v1/mongodb_data/toxicology.json
+raw_mongodb_data_sizes
+133760965 release/tend-native-mongodb-v1/mongodb_data/california_schools.json
+708311206 release/tend-native-mongodb-v1/mongodb_data/card_games.json
+328078849 release/tend-native-mongodb-v1/mongodb_data/codebase_community.json
+370391889 release/tend-native-mongodb-v1/mongodb_data/debit_card_specializing.json
+2378475452 release/tend-native-mongodb-v1/mongodb_data/european_football_2.json
+575975761 release/tend-native-mongodb-v1/mongodb_data/financial.json
+616698385 release/tend-native-mongodb-v1/mongodb_data/formula_1.json
+1211022 release/tend-native-mongodb-v1/mongodb_data/student_club.json
+16026379 release/tend-native-mongodb-v1/mongodb_data/superhero.json
+130655705 release/tend-native-mongodb-v1/mongodb_data/thrombosis_prediction.json
+46206778 release/tend-native-mongodb-v1/mongodb_data/toxicology.json

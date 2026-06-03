@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+MAX_TOOL_RESULT_CHARS = 12_000
+
 
 class SmartEGHistory:
     def __init__(self, *, system_prompt: str | None = None) -> None:
@@ -110,8 +112,11 @@ class SmartEGHistory:
     @staticmethod
     def _content_text(content: Any) -> str:
         if isinstance(content, str):
-            return content
-        return json.dumps(content, ensure_ascii=False, sort_keys=True, default=str)
+            return _truncate_tool_content(content)
+        return _truncate_tool_content(
+            json.dumps(content, ensure_ascii=False, sort_keys=True, default=str),
+            original=content,
+        )
 
     @staticmethod
     def _complete_groups(messages: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
@@ -133,3 +138,47 @@ class SmartEGHistory:
             groups.append([message])
             index += 1
         return groups
+
+
+def _truncate_tool_content(text: str, *, original: Any | None = None) -> str:
+    if len(text) <= MAX_TOOL_RESULT_CHARS:
+        return text
+    payload = {
+        "truncated_for_prompt": True,
+        "original_char_count": len(text),
+        "content_preview": text[:2000],
+        "preserved": _preserved_fields(original),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    if len(encoded) <= MAX_TOOL_RESULT_CHARS:
+        return encoded
+    payload["content_preview"] = str(payload["content_preview"])[:1000]
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _preserved_fields(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    preserved: dict[str, Any] = {}
+    for key in (
+        "tool",
+        "ok",
+        "evidence_id",
+        "evidence_ids",
+        "gate_ref",
+        "observation_ref",
+        "path_count",
+        "returned_path_count",
+        "omitted_path_count",
+        "sample_count",
+        "collection",
+        "db_id",
+    ):
+        if key in value:
+            preserved[key] = value[key]
+    observation = value.get("observation")
+    if isinstance(observation, dict):
+        preserved_observation = _preserved_fields(observation)
+        if preserved_observation:
+            preserved["observation"] = preserved_observation
+    return preserved

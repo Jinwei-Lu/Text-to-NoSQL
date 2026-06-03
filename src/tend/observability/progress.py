@@ -25,7 +25,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
-from .logging import RunLogger
+from ._runtime import RunLogger
 
 _ICON = {
     "pending": ("○", "grey50"),

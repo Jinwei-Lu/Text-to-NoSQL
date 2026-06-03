@@ -261,6 +261,43 @@ def test_llm_diagnostics_include_json_safe_provider_metadata(
     assert diagnostics["attempts"][0]["raw_response"]["provider_request_id"] == "req-123"
 
 
+def test_complete_diagnostics_preserve_request_configuration(tmp_path: Path, monkeypatch) -> None:
+    log = setup_logging(tmp_path / "run", console=False)
+    client = LLMClient(_stub_settings(tmp_path), log)
+    schema = {
+        "type": "object",
+        "required": ["foo"],
+        "properties": {"foo": {"type": "string"}},
+        "additionalProperties": False,
+    }
+
+    async def raw_call(*_args):
+        return '{"foo":"ok"}', "stop", {"total_tokens": 1}, None
+
+    async def run() -> str:
+        monkeypatch.setattr(client, "_raw_call", raw_call)
+        result = await client.complete(
+            agent="solver",
+            messages=[{"role": "user", "content": "go"}],
+            schema=schema,
+            expect_json=True,
+            temperature=0.2,
+            max_tokens=123,
+            json_repair_retries=0,
+        )
+        return result.diagnostics_ref
+
+    diagnostics_ref = asyncio.run(run())
+    log.close()
+
+    diagnostics = json.loads((tmp_path / "run" / diagnostics_ref).read_text(encoding="utf-8"))
+    assert diagnostics["schema"] == schema
+    assert diagnostics["expect_json"] is True
+    assert diagnostics["temperature"] == 0.2
+    assert diagnostics["max_tokens"] == 123
+    assert diagnostics["json_repair_retries"] == 0
+
+
 def test_workflow_isolated_raw_exceptions_emit_internal_anomalies(tmp_path: Path) -> None:
     log = setup_logging(tmp_path / "run", console=False)
     settings = _stub_settings(tmp_path)

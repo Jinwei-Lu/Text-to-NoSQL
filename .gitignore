@@ -115,51 +115,28 @@ Llama-3.2-1B/*.safetensors
 *.ckpt
 *.onnx
 *.gguf
+*.tar.zst
 
 # ============================================================
 # Generated benchmark, experiment, and analysis output
 # ============================================================
-/release/
 /vector_store/
 /results/
 /error_case/
 /error_analysis/
 /output/
 /outputs/
-/drive_upload/
+/drive_upload/*
+!/drive_upload/README.md
+!/drive_upload/SHA256SUMS.txt
+!/drive_upload/raw_mongodb_data_checksums_and_sizes.txt
+
+# Formal release packages are tracked, but raw MongoDB witness exports are
+# distributed through Drive and must not be committed.
+/release/**/mongodb_data/*
+!/release/**/mongodb_data/README.md
+
+# Local staging copies and intermediate generation runs.
+/datasets/
 /runs/*
-!/runs/native-variant-11db-110distinct-final3/
-/runs/native-variant-11db-110distinct-final3/*
-
-# Final TEND benchmark artifact kept for paper writing and release review.
-!/runs/native-variant-11db-110distinct-final3/dataset/
-/runs/native-variant-11db-110distinct-final3/dataset/*
-!/runs/native-variant-11db-110distinct-final3/dataset/TEND.json
-!/runs/native-variant-11db-110distinct-final3/dataset/TEND_lean.json
-!/runs/native-variant-11db-110distinct-final3/dataset/TEND_lean.jsonl
-!/runs/native-variant-11db-110distinct-final3/dataset/test.json
-!/runs/native-variant-11db-110distinct-final3/dataset/test_lean.json
-!/runs/native-variant-11db-110distinct-final3/dataset/bird_db_catalog.json
-!/runs/native-variant-11db-110distinct-final3/dataset/MONGODB_DATA.md
-!/runs/native-variant-11db-110distinct-final3/dataset/mongodb_data_manifest.json
-!/runs/native-variant-11db-110distinct-final3/dataset/mongodb_schema/
-!/runs/native-variant-11db-110distinct-final3/dataset/mongodb_schema/**
-!/runs/native-variant-11db-110distinct-final3/dataset/native_feature_manifest/
-!/runs/native-variant-11db-110distinct-final3/dataset/native_feature_manifest/**
-!/runs/native-variant-11db-110distinct-final3/dataset/migration_recipe/
-!/runs/native-variant-11db-110distinct-final3/dataset/migration_recipe/**
-!/runs/native-variant-11db-110distinct-final3/dataset/agent_design_rationale/
-!/runs/native-variant-11db-110distinct-final3/dataset/agent_design_rationale/**
-!/runs/native-variant-11db-110distinct-final3/dataset/provenance/
-!/runs/native-variant-11db-110distinct-final3/dataset/provenance/**
-
-!/runs/native-variant-11db-110distinct-final3/audits/
-/runs/native-variant-11db-110distinct-final3/audits/*
-!/runs/native-variant-11db-110distinct-final3/audits/paper_statistics/
-!/runs/native-variant-11db-110distinct-final3/audits/paper_statistics/**
-!/runs/native-variant-11db-110distinct-final3/audits/surgery/
-/runs/native-variant-11db-110distinct-final3/audits/surgery/*
-!/runs/native-variant-11db-110distinct-final3/audits/surgery/post_surgery_exact_execution.json
-!/runs/native-variant-11db-110distinct-final3/audits/surgery/surgical_nl_mql_patch_report.json
-!/runs/native-variant-11db-110distinct-final3/audits/surgery/surgical_nl_mql_patch_report.md
 /wandb/

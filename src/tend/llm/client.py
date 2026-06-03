@@ -295,6 +295,13 @@ class LLMClient:
         convo = list(messages)
         attempts: list[dict[str, Any]] = []
         t0 = time.monotonic()
+        request_config = {
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "expect_json": expect_json,
+            "schema": schema,
+            "json_repair_retries": json_repair_retries,
+        }
         try:
             prompt_chars = sum(
                 len(str(m.get("content", ""))) if isinstance(m, dict) else 0
@@ -302,6 +309,7 @@ class LLMClient:
             )
             start_ref = log.save_transcript(agent, call_id, {
                 "model": model,
+                **request_config,
                 "messages": convo,
                 "attempts": attempts,
                 "started": True,
@@ -339,7 +347,8 @@ class LLMClient:
                 )
                 if not expect_json:
                     return self._finish(agent, call_id, model, text, None, finish, usage,
-                                        t0, attempts, log, messages=convo)
+                                        t0, attempts, log, messages=convo,
+                                        request_config=request_config)
                 try:
                     parsed = _extract_json(text)
                     if schema is not None:
@@ -350,7 +359,8 @@ class LLMClient:
                                 context={"violations": errs},
                             )
                     return self._finish(agent, call_id, model, text, parsed, finish, usage,
-                                        t0, attempts, log, messages=convo)
+                                        t0, attempts, log, messages=convo,
+                                        request_config=request_config)
                 except (ResponseParseError, SchemaValidationError) as verr:
                     attempts[-1]["validation_error"] = verr.to_record()
                     if repair >= json_repair_retries:
@@ -366,7 +376,7 @@ class LLMClient:
             raise LLMError("exhausted repair retries", context={"agent": agent})  # unreachable
         except LLMError as err:
             ref = log.save_transcript(agent, call_id, {
-                "model": model, "messages": convo, "attempts": attempts,
+                "model": model, **request_config, "messages": convo, "attempts": attempts,
                 "failed": True, "error": err.to_record(),
             })
             diagnostics_ref = _diagnostics_ref_from_transcript(ref)
@@ -388,6 +398,7 @@ class LLMClient:
             tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
             ref = log.save_transcript(agent, call_id, {
                 "model": model,
+                **request_config,
                 "messages": convo,
                 "attempts": attempts,
                 "failed": True,
@@ -449,6 +460,14 @@ class LLMClient:
         convo = list(messages)
         attempts: list[dict[str, Any]] = []
         t0 = time.monotonic()
+        request_config = {
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "tools": tools,
+            "tool_choice": tool_choice,
+            "stream": stream,
+            "first_token_timeout_s": first_token_timeout_s,
+        }
         try:
             prompt_chars = sum(
                 len(str(m.get("content", ""))) if isinstance(m, dict) else 0
@@ -456,11 +475,8 @@ class LLMClient:
             )
             start_ref = log.save_transcript(agent, call_id, {
                 "model": model,
+                **request_config,
                 "messages": convo,
-                "tools": tools,
-                "tool_choice": tool_choice,
-                "stream": stream,
-                "first_token_timeout_s": first_token_timeout_s,
                 "attempts": attempts,
                 "started": True,
             })
@@ -520,20 +536,14 @@ class LLMClient:
                 attempts,
                 log,
                 messages=convo,
-                tools=tools,
-                tool_choice=tool_choice,
-                stream=stream,
-                first_token_timeout_s=first_token_timeout_s,
+                request_config=request_config,
                 tool_choice_fallback=fallback,
             )
         except LLMError as err:
             ref = log.save_transcript(agent, call_id, {
                 "model": model,
+                **request_config,
                 "messages": convo,
-                "tools": tools,
-                "tool_choice": tool_choice,
-                "stream": stream,
-                "first_token_timeout_s": first_token_timeout_s,
                 "attempts": attempts,
                 "failed": True,
                 "error": err.to_record(),
@@ -557,11 +567,8 @@ class LLMClient:
             tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
             ref = log.save_transcript(agent, call_id, {
                 "model": model,
+                **request_config,
                 "messages": convo,
-                "tools": tools,
-                "tool_choice": tool_choice,
-                "stream": stream,
-                "first_token_timeout_s": first_token_timeout_s,
                 "attempts": attempts,
                 "failed": True,
                 "unexpected_exception": {
@@ -1348,6 +1355,7 @@ class LLMClient:
         self, agent: str, call_id: str, model: str, text: str, parsed: Any,
         finish: str | None, usage: dict[str, int], t0: float,
         attempts: list[dict[str, Any]], log: RunLogger, *, messages: list[Message],
+        request_config: dict[str, Any],
     ) -> LLMResult:
         latency = round(time.monotonic() - t0, 3)
         provider_metadata = next(
@@ -1360,6 +1368,7 @@ class LLMClient:
         )
         ref = log.save_transcript(agent, call_id, {
             "model": model,
+            **request_config,
             "messages": messages,
             "attempts": attempts,
             "response_text": text,
@@ -1408,10 +1417,7 @@ class LLMClient:
         log: RunLogger,
         *,
         messages: list[Message],
-        tools: list[ToolSchema],
-        tool_choice: ToolChoice | None,
-        stream: bool,
-        first_token_timeout_s: float,
+        request_config: dict[str, Any],
         tool_choice_fallback: bool,
     ) -> ToolLLMResult:
         latency = round(time.monotonic() - t0, 3)
@@ -1426,12 +1432,9 @@ class LLMClient:
         cost_source = self._cost_source(usage)
         ref = log.save_transcript(agent, call_id, {
             "model": model,
+            **request_config,
             "messages": messages,
-            "tools": tools,
-            "tool_choice": tool_choice,
             "tool_choice_fallback": tool_choice_fallback,
-            "stream": stream,
-            "first_token_timeout_s": first_token_timeout_s,
             "attempts": attempts,
             "response_text": text,
             "tool_calls": tool_calls,

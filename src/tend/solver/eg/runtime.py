@@ -12,9 +12,17 @@ from .tools import SmartEGToolAPI, tool_schemas
 from ..inputs import _canonical_nlq
 
 SYSTEM_PROMPT = (
-    "You are SMART-EG. You must use provider-native tools. "
-    "Successful completion is only submit_final_mql. "
-    "Normal failure is only abandon_with_failure."
+    "You are SMART-EG, a provider-native ReAct solver for NLQ plus an interactive "
+    "MongoDB database. Use only exposed tool calls, not natural-language final answers. "
+    "Proceed in stages: first explore the database with list_collections and compact "
+    "Mongo tools, then call submit_environment_model with candidate_collections and "
+    "evidence_refs, then submit_intent_hypothesis, then submit_query_plan, then validate "
+    "and finish with submit_final_mql. Successful completion is only submit_final_mql. "
+    "Normal failure is only abandon_with_failure. read_documents and run_query are not "
+    "available tools; use sample_documents, discover_paths, profile_path_values, "
+    "run_readonly_probe, and the submit_* tools instead. Keep exploration bounded: prefer "
+    "one or two targeted tool calls per turn, use evidence_id values returned by tools in "
+    "evidence_refs, and stop exploring once the current stage has enough evidence."
 )
 
 
@@ -56,6 +64,7 @@ async def smart_solve_nlq_db_eg(
     state = SmartEGState(
         nlq=nlq,
         db_id=db_id,
+        record_id=record_id,
         budgets=policy.budgets,
         session_id=observer.session_id,
     )
@@ -77,6 +86,7 @@ async def smart_solve_nlq_db_eg(
                 state.terminal_reason = convergence.reason
 
             exposed_tools = api.tools_for_state(state)
+            exposed_tool_names = {tool["function"]["name"] for tool in exposed_tools}
             tool_choice = api.tool_choice_for_state(state)
             observer.agent_event(
                 "turn_start",
@@ -128,6 +138,7 @@ async def smart_solve_nlq_db_eg(
                 state.result = SmartEGFailure(
                     result_type="solver_failure",
                     db_id=state.db_id,
+                    record_id=state.record_id,
                     nlq=state.nlq,
                     error_code="PROVIDER_FAILURE",
                     message=str(exc)[:500],
@@ -178,7 +189,7 @@ async def smart_solve_nlq_db_eg(
                         "tool": (call.get("function") or {}).get("name"),
                     },
                 )
-                observation = api.execute(call, state)
+                observation = api.execute(call, state, exposed_tool_names=exposed_tool_names)
                 state.counters.tool_turns += 1
                 history.add_tool_result(
                     observation.tool_call_id,
@@ -337,6 +348,7 @@ def _budget_failure(
     return SmartEGFailure(
         result_type="solver_failure",
         db_id=state.db_id,
+        record_id=state.record_id,
         nlq=state.nlq,
         error_code="TOOL_BUDGET_EXHAUSTED",
         message=f"SMART-EG stopped at runtime limit: {reason}",

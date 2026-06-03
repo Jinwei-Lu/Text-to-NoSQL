@@ -1,0 +1,22 @@
+{
+  "folder": {
+    "title": "TEND native variant final artifacts",
+    "url": "https://drive.google.com/drive/folders/1s7LgW-zub1gIx9A1OpuWdx7lyNVwXhi5"
+  },
+  "files": [
+    {
+      "title": "TEND_native_variant_11db_110distinct_final3_full_2026-06-03.tar.zst",
+      "id": "1O9ctyY6mUuKBF6OMCqk_UXyGdNkM8MRE",
+      "url": "https://drive.google.com/file/d/1O9ctyY6mUuKBF6OMCqk_UXyGdNkM8MRE/view?usp=drivesdk",
+      "sha256": "3fabc19772bbe6e70c322944a3e7ce0e1a29c3c753ee04cb30d26580622f2594",
+      "contents": "Full final run, including raw MongoDB JSON witness exports."
+    },
+    {
+      "title": "TEND_native_variant_11db_110distinct_final3_paper_2026-06-03.tar.zst",
+      "id": "1uEE_rVYBE1rNlKgCFOlHjI3omchdE_SA",
+      "url": "https://drive.google.com/file/d/1uEE_rVYBE1rNlKgCFOlHjI3omchdE_SA/view?usp=drivesdk",
+      "sha256": "05173b579fabdb7ff89828378e4293455cba063e776acef33cfa0e3753dfc80c",
+      "contents": "Paper statistics, schemas, provenance, manifests, and audit evidence, excluding raw mongodb_data."
+    }
+  ]
+}

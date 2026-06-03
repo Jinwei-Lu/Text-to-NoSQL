@@ -260,10 +260,71 @@ def test_materialize_evaluation_dataset_subset_keeps_only_selected_records(tmp_p
 
     assert json.loads((subset / "test.json").read_text(encoding="utf-8")) == [records[0]]
     assert json.loads((subset / "TEND.json").read_text(encoding="utf-8")) == [records[0]]
+    manifest = json.loads((subset / "evaluation_selection.json").read_text(encoding="utf-8"))
+    assert manifest["selected_record_count"] == 1
+    assert manifest["selected_records"] == [{"db_id": "financial", "record_id": 1}]
     assert (subset / "mongodb_data" / "financial.json").exists()
     assert (subset / "mongodb_schema" / "financial.json").exists()
     assert (subset / "agent_design_rationale" / "financial.yaml").exists()
     assert (subset / "bird_db_catalog.json").exists()
+    assert not (subset / "mongodb_data" / "superhero.json").exists()
+    assert not (subset / "mongodb_schema" / "superhero.json").exists()
+
+
+def test_materialize_evaluation_dataset_subset_supports_release_package_layout(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "release" / "tend-native-mongodb-v1"
+    (source / "data").mkdir(parents=True)
+    (source / "schema" / "mongodb_schema").mkdir(parents=True)
+    (source / "mongodb_data").mkdir()
+    (source / "metadata" / "agent_design_rationale").mkdir(parents=True)
+    records = [
+        {"record_id": 1, "db_id": "financial", "MQL": "db.account.aggregate([])"},
+        {"record_id": 2, "db_id": "superhero", "MQL": "db.hero.aggregate([])"},
+    ]
+    (source / "data" / "test.json").write_text(json.dumps(records), encoding="utf-8")
+    (source / "data" / "TEND.json").write_text(json.dumps(records), encoding="utf-8")
+    (source / "data" / "bird_db_catalog.json").write_text(
+        json.dumps({"dbs": ["financial"]}),
+        encoding="utf-8",
+    )
+    (source / "mongodb_data" / "financial.json").write_text(
+        json.dumps({"account": []}),
+        encoding="utf-8",
+    )
+    (source / "schema" / "mongodb_schema" / "financial.json").write_text(
+        json.dumps({"account": {}}),
+        encoding="utf-8",
+    )
+    (source / "mongodb_data" / "superhero.json").write_text(
+        json.dumps({"hero": []}),
+        encoding="utf-8",
+    )
+    (source / "schema" / "mongodb_schema" / "superhero.json").write_text(
+        json.dumps({"hero": {}}),
+        encoding="utf-8",
+    )
+    (source / "metadata" / "agent_design_rationale" / "financial.yaml").write_text(
+        "financial: true\n",
+        encoding="utf-8",
+    )
+
+    subset = cli._materialize_evaluation_dataset_subset(
+        source,
+        [records[0]],
+        tmp_path / "subset",
+    )
+
+    assert json.loads((subset / "test.json").read_text(encoding="utf-8")) == [records[0]]
+    assert json.loads((subset / "TEND.json").read_text(encoding="utf-8")) == [records[0]]
+    manifest = json.loads((subset / "evaluation_selection.json").read_text(encoding="utf-8"))
+    assert manifest["selected_record_count"] == 1
+    assert manifest["source_dataset_dir"] == str(source)
+    assert (subset / "bird_db_catalog.json").exists()
+    assert (subset / "mongodb_data" / "financial.json").exists()
+    assert (subset / "mongodb_schema" / "financial.json").exists()
+    assert (subset / "agent_design_rationale" / "financial.yaml").exists()
     assert not (subset / "mongodb_data" / "superhero.json").exists()
     assert not (subset / "mongodb_schema" / "superhero.json").exists()
 

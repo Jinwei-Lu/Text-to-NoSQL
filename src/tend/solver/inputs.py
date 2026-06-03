@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from ..errors import PromptAnomalyError
+from ..release_layout import resolve_release_dataset_layout
 from .introspection import introspect_solver_database
 
 if TYPE_CHECKING:
@@ -69,6 +70,7 @@ def load_solver_release_inputs(
     nlq_track: NlqTrack = "record",
 ) -> list[tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]]:
     """Load release records plus public schema/data assets."""
+    layout = resolve_release_dataset_layout(dataset_dir)
     out: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]] = []
     for record in select_solver_release_records(
         dataset_dir,
@@ -78,10 +80,10 @@ def load_solver_release_inputs(
         nlq_track=nlq_track,
     ):
         rid = record["db_id"]
-        schema = json.loads((dataset_dir / "mongodb_schema" / f"{rid}.json").read_text(
+        schema = json.loads((layout.mongodb_schema_dir / f"{rid}.json").read_text(
             encoding="utf-8"
         ))
-        data_path = dataset_dir / "mongodb_data" / f"{rid}.json"
+        data_path = layout.mongodb_data_dir / f"{rid}.json"
         data = json.loads(data_path.read_text(encoding="utf-8")) if data_path.exists() else None
         out.append((record, schema, data))
     return out
@@ -96,7 +98,8 @@ def select_solver_release_records(
     nlq_track: NlqTrack = "record",
 ) -> list[dict[str, Any]]:
     """Select release records without loading schema/data assets."""
-    records = json.loads((dataset_dir / "test.json").read_text(encoding="utf-8"))
+    layout = resolve_release_dataset_layout(dataset_dir)
+    records = json.loads(layout.test_path.read_text(encoding="utf-8"))
     out: list[dict[str, Any]] = []
     for record in records:
         if db_id and record.get("db_id") != db_id:

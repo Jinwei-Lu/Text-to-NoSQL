@@ -221,6 +221,10 @@ class EvidenceLedger:
     def has_evidence_refs(self, refs: list[str]) -> bool:
         return all(ref in self.records for ref in refs)
 
+    def has_evidence_sources(self, sources: list[str]) -> bool:
+        available = {record.source_tool for record in self.records.values()}
+        return set(sources).issubset(available)
+
     def summary(self) -> dict[str, Any]:
         self._resolve_supported_debts()
         return {

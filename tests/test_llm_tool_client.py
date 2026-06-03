@@ -163,6 +163,50 @@ def test_complete_with_tools_returns_native_tool_calls(tmp_path) -> None:
     assert result.transcript_ref.startswith("llm/smart_eg/")
 
 
+def test_complete_with_tools_markdown_renders_full_request_and_tool_context(tmp_path) -> None:
+    settings = _settings(tmp_path)
+    log = setup_logging(settings.run_dir, console=False)
+    client = LLMClient(settings, log)
+    tool_choice = {"type": "function", "function": {"name": "list_collections"}}
+
+    def stub(agent, messages, schema):
+        assert agent == "smart_eg"
+        assert messages[-1]["role"] == "user"
+        return {"tool_calls": [_tool_call_dict()]}
+
+    client.set_stub(stub)
+    result = asyncio.run(
+        client.complete_with_tools(
+            agent="smart_eg",
+            messages=[{"role": "user", "content": "inspect db"}],
+            tools=[_tool_schema()],
+            tool_choice=tool_choice,
+            stream=True,
+            first_token_timeout_s=4.5,
+        )
+    )
+    log.close()
+
+    transcript_md = (log.run_dir / result.transcript_ref).read_text(encoding="utf-8")
+    diagnostics = json.loads((log.run_dir / result.diagnostics_ref).read_text(encoding="utf-8"))
+
+    assert diagnostics["tools"] == [_tool_schema()]
+    assert diagnostics["tool_choice"] == tool_choice
+    assert diagnostics["tool_calls"] == [_tool_call_dict()]
+    assert "## Request Configuration" in transcript_md
+    assert "| Temperature |" in transcript_md
+    assert "| Max Tokens |" in transcript_md
+    assert "| Tool Count | 1 |" in transcript_md
+    assert "| Stream | True |" in transcript_md
+    assert "| First Token Timeout (s) | 4.5 |" in transcript_md
+    assert "## Tools" in transcript_md
+    assert '"name": "list_collections"' in transcript_md
+    assert "## Tool Choice" in transcript_md
+    assert "## Tool Calls" in transcript_md
+    assert "### list_collections (`call_1`)" in transcript_md
+    assert '"db_id": "financial"' in transcript_md
+
+
 def test_complete_with_tools_uses_streaming_with_first_token_timeout_metadata(tmp_path) -> None:
     settings = _settings(tmp_path, stub=False)
     log = setup_logging(settings.run_dir, console=False)

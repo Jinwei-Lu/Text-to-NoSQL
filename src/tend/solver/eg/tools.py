@@ -54,6 +54,13 @@ EXECUTION_TOOLS = {
     "run_final_sanity_execution",
 }
 TERMINAL_TOOLS = {"submit_final_mql", "abandon_with_failure"}
+STAGE_CONTROL_TOOLS = {
+    "submit_environment_model",
+    "submit_intent_hypothesis",
+    "submit_query_plan",
+    "request_revisit",
+    "request_mode_shift",
+}
 FAILURE_CODES = {
     "INSUFFICIENT_EVIDENCE",
     "TOOL_BUDGET_EXHAUSTED",
@@ -80,29 +87,30 @@ class SmartEGToolAPI:
 
     def tools_for_state(self, state: SmartEGState) -> list[dict[str, Any]]:
         if state.terminal_only:
-            return tool_schemas(terminal_only=True)
+            return [_schema(name) for name in sorted(_terminal_tool_names_for_state(state))]
         if state.mode == "environment":
-            names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | {
-                "submit_environment_model",
-                "request_mode_shift",
-                "abandon_with_failure",
-            }
+            if _environment_ready_for_submit(state):
+                names = {
+                    "submit_environment_model",
+                    "inspect_evidence_ledger",
+                    "inspect_evidence_debt",
+                    "abandon_with_failure",
+                }
+            else:
+                names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | {
+                    "submit_environment_model",
+                    "request_mode_shift",
+                    "abandon_with_failure",
+                }
         elif state.mode == "intent":
-            names = EVIDENCE_TOOLS | {
-                "discover_paths",
-                "profile_path",
-                "profile_path_values",
-                "search_values",
+            names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | {
                 "submit_intent_hypothesis",
                 "request_revisit",
                 "request_mode_shift",
                 "abandon_with_failure",
             }
         elif state.mode == "planning":
-            names = EVIDENCE_TOOLS | {
-                "inspect_array_shape",
-                "inspect_dynamic_keys",
-                "profile_relationship_candidates",
+            names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | {
                 "render_pipeline",
                 "check_ast_filter",
                 "submit_query_plan",
@@ -110,7 +118,7 @@ class SmartEGToolAPI:
                 "abandon_with_failure",
             }
         else:
-            names = EVIDENCE_TOOLS | EXECUTION_TOOLS | {
+            names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | EXECUTION_TOOLS | {
                 "submit_final_mql",
                 "request_revisit",
                 "request_mode_shift",
@@ -118,18 +126,55 @@ class SmartEGToolAPI:
             }
         return [_schema(name) for name in sorted(names)]
 
-    def tool_choice_for_state(self, state: SmartEGState) -> dict[str, Any] | str:
+    def tool_choice_for_state(self, state: SmartEGState) -> dict[str, Any] | str | None:
         if state.terminal_only:
-            return {"type": "function", "function": {"name": "abandon_with_failure"}}
+            return {"type": "function", "function": {"name": _terminal_submit_tool_for_mode(state.mode)}}
+        if not self.policy.force_tool_choice:
+            return None
         return "required"
 
-    def execute(self, tool_call: dict[str, Any], state: SmartEGState) -> ToolObservation:
+    def execute(
+        self,
+        tool_call: dict[str, Any],
+        state: SmartEGState,
+        *,
+        exposed_tool_names: set[str] | None = None,
+    ) -> ToolObservation:
         function = tool_call.get("function") or {}
         name = str(function.get("name") or tool_call.get("name") or "")
         args = _parse_args(function.get("arguments"))
         call_id = str(tool_call.get("id") or "")
-        exposed = {tool["function"]["name"] for tool in self.tools_for_state(state)}
+        exposed = exposed_tool_names or {tool["function"]["name"] for tool in self.tools_for_state(state)}
         if name not in exposed and name not in TERMINAL_TOOLS:
+            if state.mode == "environment" and _environment_ready_for_submit(state) and name in ENVIRONMENT_TOOLS:
+                return _observation(
+                    name,
+                    call_id,
+                    False,
+                    {
+                        "reason": "environment_ready_to_submit",
+                        "required_tool": "submit_environment_model",
+                        "message": (
+                            "The environment model has enough bounded evidence. "
+                            "Do not run more environment probes; call submit_environment_model next."
+                        ),
+                    },
+                )
+            if state.terminal_only and name in _known_tool_names():
+                allowed = _terminal_tool_names_for_state(state)
+                return _observation(
+                    name,
+                    call_id,
+                    False,
+                    {
+                        "reason": "terminal_only",
+                        "allowed_tools": sorted(allowed),
+                        "message": (
+                            "The runtime is in terminal-only mode; call the current stage submit "
+                            "tool or abandon_with_failure."
+                        ),
+                    },
+                )
             state.counters.protocol_violations += 1
             if self.observer:
                 self.observer.record_error(
@@ -176,14 +221,35 @@ class SmartEGToolAPI:
         if name == "render_pipeline":
             return self._render_pipeline(call_id, args)
         if name == "check_ast_filter":
-            result = check_ast_filter(str(args.get("MQL") or args.get("mql") or ""))
+            try:
+                _, _, mql = parse_or_render_mql(
+                    collection=args.get("collection"),
+                    pipeline=args.get("pipeline"),
+                    mql=args.get("MQL") or args.get("mql"),
+                )
+                result = check_ast_filter(mql)
+            except Exception as exc:  # noqa: BLE001 - tool feedback, not solver failure
+                return _observation(
+                    name,
+                    call_id,
+                    False,
+                    {"ok": False, "error": str(exc), "error_type": type(exc).__name__},
+                )
             return _observation(name, call_id, bool(result["ok"]), result)
         if name == "run_final_sanity_execution":
-            result = run_final_sanity_execution(
-                executor=self.executor,
-                db_id=state.db_id,
-                mql=str(args.get("MQL") or args.get("mql") or ""),
-            )
+            try:
+                _, _, mql = parse_or_render_mql(
+                    collection=args.get("collection"),
+                    pipeline=args.get("pipeline"),
+                    mql=args.get("MQL") or args.get("mql"),
+                )
+                result = run_final_sanity_execution(
+                    executor=self.executor,
+                    db_id=state.db_id,
+                    mql=mql,
+                )
+            except Exception as exc:  # noqa: BLE001 - tool feedback, not solver failure
+                result = {"ok": False, "error": str(exc), "error_type": type(exc).__name__}
             state.execution_trace.final_sanity_runs.append(result)
             if self.observer:
                 self.observer.record_execution_trace({"event": "final_sanity", **result})
@@ -438,6 +504,7 @@ class SmartEGToolAPI:
             state.result = SmartEGPrediction(
                 result_type="solver_prediction",
                 db_id=state.db_id,
+                record_id=state.record_id,
                 nlq=state.nlq,
                 collection=collection,
                 pipeline=pipeline,
@@ -463,6 +530,7 @@ class SmartEGToolAPI:
         state.result = SmartEGFailure(
             result_type="solver_failure",
             db_id=state.db_id,
+            record_id=state.record_id,
             nlq=state.nlq,
             error_code=code,  # type: ignore[arg-type]
             message=str(args.get("message") or "SMART-EG abandoned with failure."),
@@ -537,18 +605,226 @@ class SmartEGToolAPI:
 def tool_schemas(*, terminal_only: bool = False) -> list[dict[str, Any]]:
     if terminal_only:
         return [_schema(name) for name in ["submit_final_mql", "abandon_with_failure"]]
-    return [_schema(name) for name in sorted(ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | EXECUTION_TOOLS | TERMINAL_TOOLS)]
+    return [
+        _schema(name)
+        for name in sorted(
+            ENVIRONMENT_TOOLS
+            | EVIDENCE_TOOLS
+            | EXECUTION_TOOLS
+            | TERMINAL_TOOLS
+            | STAGE_CONTROL_TOOLS
+        )
+    ]
+
+
+def _terminal_tool_names_for_state(state: SmartEGState) -> set[str]:
+    return {_terminal_submit_tool_for_mode(state.mode), "abandon_with_failure"}
+
+
+def _terminal_submit_tool_for_mode(mode: str) -> str:
+    if mode == "environment":
+        return "submit_environment_model"
+    if mode == "intent":
+        return "submit_intent_hypothesis"
+    if mode == "planning":
+        return "submit_query_plan"
+    return "submit_final_mql"
 
 
 def _schema(name: str) -> dict[str, Any]:
+    description, properties, required = _schema_definition(name)
     return {
         "type": "function",
         "function": {
             "name": name,
-            "description": f"SMART-EG tool: {name}",
-            "parameters": {"type": "object", "properties": {}, "additionalProperties": True},
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+                "additionalProperties": True,
+            },
         },
     }
+
+
+def _schema_definition(name: str) -> tuple[str, dict[str, Any], list[str]]:
+    collection = {"type": "string", "description": "MongoDB collection name."}
+    path = {"type": "string", "description": "Dot path; use [] for arrays and * for dynamic keys."}
+    limit = {"type": "integer", "minimum": 1, "description": "Bounded sample/probe limit."}
+    evidence_refs = {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Evidence ids returned by prior observation tools.",
+    }
+    if name == "sample_documents":
+        return (
+            "Return a compact redacted shape summary for sampled documents. It never returns raw rows.",
+            {"collection": collection, "limit": limit},
+            ["collection"],
+        )
+    if name == "discover_paths":
+        return (
+            "Discover bounded document paths and value type counts for one collection.",
+            {"collection": collection, "limit": limit},
+            ["collection"],
+        )
+    if name == "profile_path":
+        return (
+            "Profile presence, missing count, value count, and type counts for one path.",
+            {"collection": collection, "path": path, "limit": limit},
+            ["collection", "path"],
+        )
+    if name == "profile_path_values":
+        return (
+            "Profile hashed value buckets for one path to ground constants without exposing raw rows.",
+            {
+                "collection": collection,
+                "path": path,
+                "limit": limit,
+                "value_limit": {"type": "integer", "minimum": 1},
+            },
+            ["collection", "path"],
+        )
+    if name == "search_values":
+        return (
+            "Search sampled scalar values for a user-mentioned term and return redacted path matches.",
+            {
+                "collection": collection,
+                "query": {"type": "string"},
+                "limit": limit,
+                "value_limit": {"type": "integer", "minimum": 1},
+            },
+            ["collection", "query"],
+        )
+    if name == "inspect_array_shape":
+        return (
+            "Inspect array lengths, element types, and object subpaths at a path.",
+            {"collection": collection, "path": path, "limit": limit},
+            ["collection", "path"],
+        )
+    if name == "inspect_dynamic_keys":
+        return (
+            "Inspect dynamic object keys at a path with hashed key samples and value type counts.",
+            {
+                "collection": collection,
+                "path": path,
+                "limit": limit,
+                "key_limit": {"type": "integer", "minimum": 1},
+            },
+            ["collection", "path"],
+        )
+    if name == "profile_relationship_candidates":
+        return (
+            "Find sampled _id and *_id relationship candidates across collections.",
+            {"limit": limit},
+            [],
+        )
+    if name == "run_readonly_probe":
+        return (
+            (
+                "Run a bounded read-only aggregate probe. Provide either MQL/mql or "
+                "collection plus pipeline. Disabled operators are rejected."
+            ),
+            {
+                "collection": collection,
+                "pipeline": {"type": "array", "items": {"type": "object"}},
+                "MQL": {"type": "string"},
+                "mql": {"type": "string"},
+                "limit": limit,
+            },
+            [],
+        )
+    if name == "submit_environment_model":
+        return (
+            "Submit the accepted environment model after exploration. This advances to intent mode.",
+            {
+                "candidate_collections": {"type": "array", "items": {"type": "string"}},
+                "relevant_paths": {"type": "object"},
+                "relationship_hypotheses": {"type": "array"},
+                "evidence_refs": evidence_refs,
+                "notes": {"type": "string"},
+            },
+            ["candidate_collections", "evidence_refs"],
+        )
+    if name == "submit_intent_hypothesis":
+        return (
+            "Submit the grounded NLQ intent after accepted environment evidence.",
+            {
+                "task_kind": {"type": "string"},
+                "target_collection": {"type": "string"},
+                "target_fields": {"type": "array", "items": {"type": "string"}},
+                "filters": {"type": "array"},
+                "aggregations": {"type": "array"},
+                "evidence_refs": evidence_refs,
+            },
+            ["task_kind", "evidence_refs"],
+        )
+    if name == "submit_query_plan":
+        return (
+            "Submit a MongoDB aggregation plan after accepted intent evidence.",
+            {
+                "collection": collection,
+                "stages": {"type": "array", "items": {"type": "object"}},
+                "plan_summary": {"type": "string"},
+                "evidence_refs": evidence_refs,
+            },
+            ["collection", "stages", "evidence_refs"],
+        )
+    if name == "submit_final_mql":
+        return (
+            "Submit the final MQL. This is the only successful solver exit.",
+            {
+                "collection": collection,
+                "pipeline": {"type": "array", "items": {"type": "object"}},
+                "MQL": {"type": "string"},
+                "mql": {"type": "string"},
+                "candidate_id": {"type": "string"},
+                "evidence_refs": evidence_refs,
+            },
+            [],
+        )
+    if name == "abandon_with_failure":
+        return (
+            "Terminate with a structured normal failure when no valid query can be produced.",
+            {"error_code": {"type": "string"}, "message": {"type": "string"}},
+            [],
+        )
+    if name == "add_evidence_claim":
+        return (
+            "Record a claim that must be linked to evidence ids before gated submission.",
+            {
+                "claim_type": {"type": "string"},
+                "statement": {"type": "string"},
+                "required_evidence": {"type": "array", "items": {"type": "string"}},
+                "evidence_refs": evidence_refs,
+                "used_by": {"type": "array", "items": {"type": "string"}},
+            },
+            ["statement"],
+        )
+    if name == "link_evidence":
+        return (
+            "Link an existing evidence id to a claim id.",
+            {"claim_id": {"type": "string"}, "evidence_id": {"type": "string"}},
+            ["claim_id", "evidence_id"],
+        )
+    if name in {"render_pipeline", "render_pipeline_prefix", "execute_pipeline_prefix", "check_prefix_checkpoint", "check_ast_filter", "run_final_sanity_execution"}:
+        return (
+            f"Execution/checkpoint tool: {name}. Provide collection/pipeline/MQL as applicable.",
+            {
+                "collection": collection,
+                "pipeline": {"type": "array", "items": {"type": "object"}},
+                "MQL": {"type": "string"},
+                "mql": {"type": "string"},
+                "prefix_length": {"type": "integer", "minimum": 1},
+            },
+            [],
+        )
+    return (
+        f"SMART-EG tool: {name}. Use this only when exposed in the current mode.",
+        {},
+        [],
+    )
 
 
 def _parse_args(raw: Any) -> dict[str, Any]:
@@ -604,6 +880,24 @@ def _dispatch_mongo_tool(
     if name == "run_readonly_probe":
         return tools.run_readonly_probe(args)
     raise ValueError(f"unknown environment tool: {name}")
+
+
+def _environment_ready_for_submit(state: SmartEGState) -> bool:
+    sources = {record.source_tool for record in state.evidence_ledger.records.values()}
+    shape_sources = {
+        "sample_documents",
+        "discover_paths",
+        "profile_path",
+        "profile_path_values",
+        "inspect_array_shape",
+        "inspect_dynamic_keys",
+        "profile_relationship_candidates",
+    }
+    return "list_collections" in sources and bool(sources & shape_sources)
+
+
+def _known_tool_names() -> set[str]:
+    return ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | EXECUTION_TOOLS | TERMINAL_TOOLS | STAGE_CONTROL_TOOLS
 
 
 def _refs(payload: Any) -> list[str]:
