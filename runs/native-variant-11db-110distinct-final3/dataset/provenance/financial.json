@@ -1,0 +1,73 @@
+{
+  "db_id": "financial",
+  "conversion_code_ref": "tend.construct.native_designs.financial",
+  "entries": {
+    "account_ledgers.monthly_activity_matrix": {
+      "source_tables": [
+        "trans"
+      ],
+      "provenance_refs": [
+        "trans.date",
+        "trans.amount",
+        "trans.type",
+        "trans.operation",
+        "trans.k_symbol"
+      ],
+      "field": "cashflow.activity_by_month"
+    },
+    "account_ledgers.loan_repayment_schedule": {
+      "source_tables": [
+        "loan"
+      ],
+      "provenance_refs": [
+        "loan.date",
+        "loan.amount",
+        "loan.duration",
+        "loan.payments",
+        "loan.status"
+      ],
+      "field": "loan.repayment_schedule.by_due_month"
+    },
+    "party_relationship_graphs.disposition_party_network": {
+      "source_tables": [
+        "card",
+        "client",
+        "disp"
+      ],
+      "provenance_refs": [
+        "disp.type",
+        "disp.client_id",
+        "client.gender",
+        "card.type"
+      ],
+      "field": "relationships.members_by_role"
+    },
+    "district_market_contexts.account_market_segments": {
+      "source_tables": [
+        "account",
+        "district"
+      ],
+      "provenance_refs": [
+        "district.A11",
+        "district.A3",
+        "account.frequency",
+        "account.account_id"
+      ],
+      "field": "accounts_by_frequency"
+    },
+    "counterparty_flow_profiles.bank_symbol_flow_matrix": {
+      "source_tables": [
+        "order",
+        "trans"
+      ],
+      "provenance_refs": [
+        "trans.bank",
+        "trans.account",
+        "trans.k_symbol",
+        "trans.amount",
+        "order.bank_to"
+      ],
+      "field": "flows_by_symbol"
+    }
+  }
+}

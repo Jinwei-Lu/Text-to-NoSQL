@@ -1,0 +1,54 @@
+{
+  "db_id": "formula_1",
+  "entries": {
+    "race_weekends_v2.results_by_status": {
+      "module": "tend.construct.native_designs.formula_1",
+      "source_tables": [
+        "results",
+        "status",
+        "drivers",
+        "constructors"
+      ],
+      "field": "sessions.race.results_by_status"
+    },
+    "race_weekends_v2.laps_by_number": {
+      "module": "tend.construct.native_designs.formula_1",
+      "source_tables": [
+        "lapTimes",
+        "results",
+        "drivers",
+        "constructors"
+      ],
+      "field": "sessions.race.laps_by_number"
+    },
+    "race_weekends_v2.driver_pace_profiles": {
+      "module": "tend.construct.native_designs.formula_1",
+      "source_tables": [
+        "lapTimes",
+        "results",
+        "pitStops"
+      ],
+      "field": "sessions.race.entries.pace_profile.laps_by_number"
+    },
+    "race_weekends_v2.qualifying_windows": {
+      "module": "tend.construct.native_designs.formula_1",
+      "source_tables": [
+        "qualifying",
+        "drivers"
+      ],
+      "field": "sessions.qualifying.elimination_windows"
+    },
+    "f1_actor_profiles.polymorphic_profiles": {
+      "module": "tend.construct.native_designs.formula_1",
+      "source_tables": [
+        "drivers",
+        "constructors",
+        "circuits",
+        "results",
+        "races"
+      ],
+      "field": "entity_type"
+    }
+  },
+  "conversion_code_ref": "tend.construct.native_designs.formula_1"
+}

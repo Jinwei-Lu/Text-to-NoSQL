@@ -1,0 +1,13 @@
+{
+  "db_id": "toxicology",
+  "collections": {
+    "molecular_components": {
+      "document_count": 18267,
+      "native_shape": "toxicology_component_union"
+    },
+    "molecule_graphs": {
+      "document_count": 343,
+      "native_shape": "toxicology_molecule_graph"
+    }
+  }
+}

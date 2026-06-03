@@ -1,0 +1,30 @@
+$ .venv/bin/python -m tend validate --dataset-dir runs/native-variant-11db-110distinct-final3/dataset
+
+EXIT_CODE=1
+
+STDOUT:
+
+================================================================
+TEND validate · validation INVALID · mode=full
+  dataset : /Users/jwlu18/Developer/TEND/runs/native-variant-11db-110distinct-final3/dataset
+  records : 1210
+  coverage: dbs=11 L4=100% L0=0% flex=100% ssf=100%
+  diversity: mql=1210 skeletons=207 canonical_nl=1210 pairs=1210 max_skeleton_family=13
+  status  : invalid
+  issues  : 1616
+    - [native r8346] unresolved provenance refs: ['budget.spent']
+    - [native r31131] dynamic key feature counterparty_flow_profiles.bank_symbol_flow_matrix does not access feature path flows_by_symbol
+    - [native r43953] dynamic key feature race_weekends_v2.results_by_status requires $objectToArray over sessions.race.results_by_status
+    - [native r43953] dynamic key feature race_weekends_v2.results_by_status does not access feature path sessions.race.results_by_status
+    - [native r43953] unresolved provenance refs: ['results', 'status', 'drivers', 'constructors']
+    - [C5 r85245] gold MQL fails its own AST_check: ['forbidden root op present $group', 'forbidden root op present $unwind']
+    - [native r163297] dynamic key feature district_market_contexts.account_market_segments does not access feature path accounts_by_frequency
+    - [native r167305] dynamic key feature ability_catalog.power_to_hero_index does not access feature path heroes_by_alignment
+    - [native r173800] dynamic key feature fuel_product_payment_timeline.product_day_station_buckets does not access feature path payment_timeline.by_date
+    - [native r229501] dynamic key feature ability_catalog.power_to_hero_index does not access feature path heroes_by_alignment
+    - [native r244785] dynamic key feature diagnosis_risk_panels.risk_group_patient_matrix does not access feature path patients_by_risk_group
+    - [native r291860] dynamic key feature hero_dossiers.attribute_matrix does not access feature path ability_matrix.attributes_by_name
+    - ... 1604 more
+================================================================
+
+STDERR:

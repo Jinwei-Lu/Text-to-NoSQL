@@ -44,6 +44,17 @@ TEND 关注那些很难通过机械 SQL 翻译得到的 MongoDB 查询。构造�
 
 更细的模块级说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+## Final benchmark artifact
+
+The final 11-database, 1,210-record TEND benchmark artifact is tracked under
+`runs/native-variant-11db-110distinct-final3/`. GitHub keeps the release JSON,
+schemas, provenance, paper statistics, and surgical audit evidence. The large
+MongoDB witness data is distributed through Google Drive rather than Git/LFS:
+
+- Artifact index: [docs/TEND_FINAL_ARTIFACTS.md](docs/TEND_FINAL_ARTIFACTS.md)
+- MongoDB data recovery notes: [runs/native-variant-11db-110distinct-final3/dataset/MONGODB_DATA.md](runs/native-variant-11db-110distinct-final3/dataset/MONGODB_DATA.md)
+- Drive folder: https://drive.google.com/drive/folders/1s7LgW-zub1gIx9A1OpuWdx7lyNVwXhi5
+
 ## 构造流水线
 
 构造 workflow 分为两个阶段。

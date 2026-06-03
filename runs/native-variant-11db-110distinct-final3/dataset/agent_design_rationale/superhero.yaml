@@ -1,0 +1,5 @@
+construction_mode: direct_materializer
+design_goal: database-specific semantic MongoDB materialization
+recipe_version: direct
+native_feature_count: 5
+validation_errors: []

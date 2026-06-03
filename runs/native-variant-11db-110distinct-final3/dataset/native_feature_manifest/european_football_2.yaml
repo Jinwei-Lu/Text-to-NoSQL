@@ -1,0 +1,187 @@
+db_id: european_football_2
+features:
+- id: team_profiles.matches_by_season
+  type: dynamic_key_object
+  collection: team_profiles
+  field: matches_by_season
+  supported_query_patterns:
+  - football_team_season_fixture_matrix
+  required_native_constructs:
+  - $objectToArray
+  - $unwind
+  - $group
+  - $sum
+  provenance_refs:
+  - Team.team_api_id
+  - Match.season
+  - Match.home_team_goal
+  - Match.away_team_goal
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: football_team_season_fixture_matrix
+    intent: summarize team profiles through season-keyed fixture buckets
+    pipeline:
+    - $project:
+        team: $team.long_name
+        feature_path: $matches_by_season
+        seasons:
+          $objectToArray: $matches_by_season
+    - $unwind: $seasons
+    - $unwind: $seasons.v.fixtures
+    - $group:
+        _id:
+          team: $team
+          season: $seasons.k
+        fixture_count:
+          $sum: 1
+        goals_for:
+          $sum: $seasons.v.fixtures.score.for
+    - $sort:
+        fixture_count: -1
+        _id.team: 1
+    - $limit: 50
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind
+    - $group
+    - $sum
+- id: match_documents.lineup_rating_context
+  type: nested_event_stream
+  collection: match_documents
+  field: lineups.home.players
+  supported_query_patterns:
+  - football_lineup_rating_context
+  required_native_constructs:
+  - $filter
+  - $objectToArray
+  - $size
+  provenance_refs:
+  - Match.home_player_1
+  - Player.player_api_id
+  - Player_Attributes.overall_rating
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: football_lineup_rating_context
+    intent: filter match lineups to players with rating-by-season context
+    pipeline:
+    - $project:
+        match_api_id: $identity.match_api_id
+        feature_path: $lineups.home.players
+        home_players: $lineups.home.players
+        away_players: $lineups.away.players
+    - $addFields:
+        native_filtered_events:
+          $filter:
+            input:
+              $ifNull:
+              - $home_players
+              - []
+            as: player
+            cond:
+              $gt:
+              - $size:
+                  $objectToArray:
+                    $ifNull:
+                    - $$player.rating_by_season
+                    - {}
+              - 0
+    - $match:
+        $expr:
+          $gt:
+          - $size: $native_filtered_events
+          - 0
+    - $project:
+        _id: 0
+        match_api_id: 1
+        native_filtered_events.player: 1
+        native_filtered_events.rating_by_season: 1
+    - $limit: 50
+    mongo_native_constructs:
+    - $filter
+    - $objectToArray
+    - $size
+    - $ifNull
+- id: player_profiles.attribute_timeline
+  type: dynamic_key_object
+  collection: player_profiles
+  field: attribute_timeline.by_year
+  supported_query_patterns:
+  - football_player_attribute_timeline
+  required_native_constructs:
+  - $objectToArray
+  - $unwind
+  - $avg
+  provenance_refs:
+  - Player.player_api_id
+  - Player_Attributes.date
+  - Player_Attributes.overall_rating
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: football_player_attribute_timeline
+    intent: summarize player attribute snapshots from year-keyed timelines
+    pipeline:
+    - $project:
+        player: $player.name
+        feature_path: $attribute_timeline.by_year
+        years:
+          $objectToArray: $attribute_timeline.by_year
+    - $unwind: $years
+    - $unwind: $years.v.snapshots
+    - $group:
+        _id: $years.k
+        avg_overall:
+          $avg: $years.v.snapshots.overall_rating
+        snapshot_count:
+          $sum: 1
+    - $sort:
+        _id: 1
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind
+    - $group
+    - $avg
+- id: league_season_buckets.team_table
+  type: dynamic_key_object
+  collection: league_season_buckets
+  field: teams_by_result_bucket
+  supported_query_patterns:
+  - football_league_result_bucket_table
+  required_native_constructs:
+  - $objectToArray
+  - $unwind
+  - $group
+  - $size
+  provenance_refs:
+  - League.id
+  - Match.season
+  - Match.home_team_goal
+  - Match.away_team_goal
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: football_league_result_bucket_table
+    intent: traverse league-season result buckets and count teams in each outcome
+    pipeline:
+    - $project:
+        league: $league.name
+        season: 1
+        feature_path: $teams_by_result_bucket
+        buckets:
+          $objectToArray: $teams_by_result_bucket
+    - $unwind: $buckets
+    - $project:
+        league: 1
+        season: 1
+        result_bucket: $buckets.k
+        team_count:
+          $size: $buckets.v.teams
+    - $match:
+        team_count:
+          $gt: 0
+    - $sort:
+        team_count: -1
+        league: 1
+    - $limit: 50
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind
+    - $size

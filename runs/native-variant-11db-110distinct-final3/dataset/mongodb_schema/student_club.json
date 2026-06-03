@@ -1,0 +1,239 @@
+{
+  "db_id": "student_club",
+  "source_tables": [
+    "event",
+    "major",
+    "zip_code",
+    "attendance",
+    "budget",
+    "expense",
+    "income",
+    "member"
+  ],
+  "collections": {
+    "club_event_plans_v2": {
+      "document_count": 42,
+      "root_entity": "student club event",
+      "source_tables": [
+        "event",
+        "budget",
+        "attendance",
+        "expense",
+        "member"
+      ]
+    },
+    "club_member_accounts_v2": {
+      "document_count": 33,
+      "root_entity": "student club member account",
+      "source_tables": [
+        "member",
+        "major",
+        "zip_code",
+        "attendance",
+        "income",
+        "expense"
+      ]
+    }
+  },
+  "structure_audit": {
+    "db_id": "student_club",
+    "collection_counts": {
+      "club_event_plans_v2": 42,
+      "club_member_accounts_v2": 33
+    },
+    "max_depth": 8,
+    "dynamic_key_paths": [
+      {
+        "path": "attendance.attendees[].finance_by_category",
+        "sample_keys": [
+          "Advertisement",
+          "Club T-Shirts",
+          "Food",
+          "Parking",
+          "Speaker Gifts"
+        ],
+        "document_count": 15,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "attendance.participation_by_role",
+        "sample_keys": [
+          "Inactive",
+          "Member",
+          "President",
+          "Secretary",
+          "Treasurer",
+          "Vice President"
+        ],
+        "document_count": 17,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "budget_by_category",
+        "sample_keys": [
+          "Advertisement",
+          "Club T-Shirts",
+          "Food",
+          "Parking",
+          "Speaker Gifts"
+        ],
+        "document_count": 23,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "budget_by_category.*.status_by_state",
+        "sample_keys": [
+          "Closed",
+          "Open",
+          "Planning"
+        ],
+        "document_count": 52,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "finance.expense_by_category",
+        "sample_keys": [
+          "Advertisement",
+          "Club T-Shirts",
+          "Food",
+          "Parking",
+          "Speaker Gifts"
+        ],
+        "document_count": 3,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "finance.income_by_source",
+        "sample_keys": [
+          "Dues"
+        ],
+        "document_count": 31,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "participation.events[].budget_by_category",
+        "sample_keys": [
+          "Advertisement",
+          "Club T-Shirts",
+          "Food",
+          "Parking",
+          "Speaker Gifts"
+        ],
+        "document_count": 222,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "participation.events[].budget_by_category.*.status_by_state",
+        "sample_keys": [
+          "Closed",
+          "Open",
+          "Planning"
+        ],
+        "document_count": 576,
+        "value_kinds": [
+          "object"
+        ]
+      }
+    ],
+    "nested_array_paths": [
+      "_provenance.source_tables[]",
+      "attendance.attendees[]",
+      "attendance.attendees[].finance_by_category.*.expenses[]",
+      "attendance.participation_by_role.*.members[]",
+      "budget_by_category.*.budgets[]",
+      "budget_by_category.*.budgets[].expense_events[]",
+      "finance.expense_by_category.*.expenses[]",
+      "finance.income_by_source.*.payments[]",
+      "participation.events[]"
+    ],
+    "array_lengths": {
+      "_provenance.source_tables[]": {
+        "count": 75,
+        "min": 7,
+        "max": 8,
+        "avg": 7.44
+      },
+      "attendance.attendees[]": {
+        "count": 42,
+        "min": 0,
+        "max": 30,
+        "avg": 7.7619
+      },
+      "attendance.attendees[].finance_by_category.*.expenses[]": {
+        "count": 24,
+        "min": 1,
+        "max": 2,
+        "avg": 1.2083
+      },
+      "attendance.participation_by_role.*.members[]": {
+        "count": 86,
+        "min": 1,
+        "max": 23,
+        "avg": 3.7907
+      },
+      "budget_by_category.*.budgets[]": {
+        "count": 52,
+        "min": 1,
+        "max": 1,
+        "avg": 1.0
+      },
+      "budget_by_category.*.budgets[].expense_events[]": {
+        "count": 52,
+        "min": 0,
+        "max": 3,
+        "avg": 0.6154
+      },
+      "finance.expense_by_category.*.expenses[]": {
+        "count": 8,
+        "min": 1,
+        "max": 8,
+        "avg": 4.0
+      },
+      "finance.income_by_source.*.payments[]": {
+        "count": 31,
+        "min": 1,
+        "max": 2,
+        "avg": 1.0645
+      },
+      "participation.events[]": {
+        "count": 33,
+        "min": 0,
+        "max": 16,
+        "avg": 9.8788
+      }
+    },
+    "dynamic_array_object_paths": [
+      "attendance.attendees[].finance_by_category.*.expenses[]",
+      "attendance.participation_by_role.*.members[]",
+      "budget_by_category.*.budgets[]",
+      "budget_by_category.*.budgets[].expense_events[]",
+      "finance.expense_by_category.*.expenses[]",
+      "finance.income_by_source.*.payments[]"
+    ],
+    "array_object_dynamic_paths": [
+      "attendance.attendees[].finance_by_category.*",
+      "participation.events[].budget_by_category.*",
+      "participation.events[].budget_by_category.*.status_by_state.*"
+    ],
+    "presence_state_counts": {
+      "empty": 160,
+      "missing": 75,
+      "null": 100,
+      "present": 4148
+    }
+  }
+}

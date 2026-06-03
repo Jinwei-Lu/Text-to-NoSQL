@@ -1,0 +1,12 @@
+db_id,records,stage_count_min,stage_count_median,stage_count_p90,stage_count_max,stage_count_mean,unique_stage_count_median,distinct_stage_sequences,max_stage_sequence_family,top_stage_sequence_share,dominant_structural_bucket,dominant_structural_bucket_count,unwind_records,group_records,unwind_group_records,project_occurrences,match_occurrences,unwind_occurrences,group_occurrences,addfields_occurrences
+california_schools,110,6,7,8,9,7.209091,6,10,26,0.236364,unwind_grouped,47,84,57,57,197,120,104,57,95
+card_games,110,6,7,8,8,7.1,6,11,21,0.190909,unwind_grouped,53,79,62,60,189,112,86,62,112
+codebase_community,110,6,7,9,12,7.354545,6,9,26,0.236364,unwind_grouped,42,88,62,62,195,115,115,62,102
+debit_card_specializing,110,6,7,8,9,7.036364,6,10,23,0.209091,unwind_grouped,58,88,65,65,193,110,95,65,91
+european_football_2,110,6,7,8,9,6.863636,6,10,25,0.227273,unwind_grouped,38,69,51,51,171,110,82,51,121
+financial,110,6,7,8,8,6.945455,6,10,21,0.190909,unwind_grouped,55,84,60,60,190,105,89,60,100
+formula_1,110,3,6,8,8,6.081818,5,16,19,0.172727,unwind_grouped,41,63,45,41,157,92,63,45,94
+student_club,110,4,7,8,9,6.927273,6,11,24,0.218182,unwind_grouped,41,86,46,46,187,115,96,46,99
+superhero,110,6,7,9,9,7.427273,6,19,15,0.136364,unwind_filter_project,40,94,56,54,183,118,139,56,101
+thrombosis_prediction,110,6,6,8,8,6.718182,6,10,30,0.272727,unwind_grouped,32,66,45,45,165,110,79,45,120
+toxicology,110,6,7,9,9,7.418182,6,16,14,0.127273,unwind_filter_project,48,92,46,44,194,115,137,46,104

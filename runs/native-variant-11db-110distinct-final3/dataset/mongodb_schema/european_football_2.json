@@ -1,0 +1,53 @@
+{
+  "db_id": "european_football_2",
+  "source_tables": [
+    "Player_Attributes",
+    "Player",
+    "League",
+    "Country",
+    "Team",
+    "Team_Attributes",
+    "Match"
+  ],
+  "collections": {
+    "match_documents": {
+      "document_count": 25979,
+      "root_entity": "match",
+      "source_tables": [
+        "Match",
+        "Team",
+        "Player",
+        "League",
+        "Country"
+      ]
+    },
+    "team_profiles": {
+      "document_count": 299,
+      "root_entity": "team",
+      "source_tables": [
+        "Team",
+        "Match",
+        "Team_Attributes",
+        "Player"
+      ]
+    },
+    "player_profiles": {
+      "document_count": 11060,
+      "root_entity": "player",
+      "source_tables": [
+        "Player",
+        "Player_Attributes"
+      ]
+    },
+    "league_season_buckets": {
+      "document_count": 88,
+      "root_entity": "league season",
+      "source_tables": [
+        "League",
+        "Country",
+        "Match",
+        "Team"
+      ]
+    }
+  }
+}

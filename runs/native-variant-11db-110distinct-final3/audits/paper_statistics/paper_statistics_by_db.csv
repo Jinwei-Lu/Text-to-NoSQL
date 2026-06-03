@@ -1,0 +1,12 @@
+db_id,records,distinct_mql,distinct_nl_texts,queried_collection_count,schema_collection_count,document_count,source_table_count,global_skeleton_signatures_in_db,max_db_scoped_skeleton_family,stage_sequence_families,max_stage_sequence_family,native_query_patterns,native_feature_ids,schema_features,stage_median,stage_p90,unique_operator_median,operator_occurrence_median,mql_chars_median,canonical_nl_words_median,dynamic_key_operator_records,array_operator_records,grouping_operator_records,nested_dotted_path_records,expr_match_records,max_depth,dynamic_key_path_count,nested_array_path_count
+california_schools,110,110,220,3,3,19172,3,14,13,10,26,7,3,3,7,8,12,14,749,33,110,110,57,110,18,7,9,123
+card_games,110,110,220,2,2,57373,6,16,11,11,21,8,5,5,7,8,12,14,644,33,106,106,62,110,10,,0,0
+codebase_community,110,110,220,3,3,84269,8,13,11,9,26,6,3,3,7,9,11,14,655.5,32,110,110,62,110,17,9,11,14
+debit_card_specializing,110,110,220,3,3,38768,5,13,11,10,23,7,4,4,7,8,11,13,737,32.5,103,110,65,110,12,9,17,18
+european_football_2,110,110,220,4,4,37426,7,18,8,10,25,7,4,4,7,8,12,14,660.5,32,85,110,51,109,33,,0,0
+financial,110,110,220,4,4,9092,8,18,10,10,21,9,5,5,7,8,12,14,733.5,33,110,110,65,109,11,11,15,24
+formula_1,110,110,220,2,2,2074,13,23,7,16,19,12,5,5,6,8,9,12,652.5,32,72,87,51,81,11,9,11,8
+student_club,110,110,220,2,2,75,8,16,11,11,24,9,3,3,7,8,11,13,683,32,107,110,51,110,23,8,8,9
+superhero,110,110,220,3,4,952,10,24,7,19,15,7,4,4,7,9,11,14,669,32,106,106,56,110,11,9,13,17
+thrombosis_prediction,110,110,220,3,3,1366,3,26,7,10,30,7,4,4,6,8,12,14,679.5,31,80,110,45,108,37,9,8,14
+toxicology,110,110,220,1,2,18610,0,26,7,16,14,9,3,3,7,9,12,14,645,32,106,106,51,110,24,,0,0

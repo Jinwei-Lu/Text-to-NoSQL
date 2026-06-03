@@ -1,0 +1,130 @@
+db_id: california_schools
+features:
+- id: school_profiles.frpm_by_academic_year
+  type: dynamic_key_object
+  collection: school_profiles
+  field: equity_panels.frpm_by_academic_year
+  supported_query_patterns:
+  - school_frpm_year_trend
+  required_native_constructs:
+  - $objectToArray
+  - $unwind
+  - $project
+  provenance_refs:
+  - frpm.Academic Year
+  - frpm.Enrollment (K-12)
+  - frpm.FRPM Count (K-12)
+  - schools.CDSCode
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: school_frpm_year_trend
+    intent: traverse academic-year FRPM buckets for school-level meal-program trend
+      queries
+    pipeline:
+    - $project:
+        school: $school_profile.identity.name.value
+        district: $school_profile.district_context.district
+        years:
+          $objectToArray: $equity_panels.frpm_by_academic_year
+    - $unwind: $years
+    - $unwind: $years.v.grade_spans
+    - $project:
+        _id: 0
+        school: 1
+        district: 1
+        academic_year: $years.k
+        grade_span: $years.v.grade_spans.grade_span
+        frpm_pct: $years.v.grade_spans.meal_programs.frpm_pct
+    - $sort:
+        district: 1
+        school: 1
+        academic_year: 1
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind
+- id: district_rollups.schools_by_grade_span
+  type: dynamic_key_object
+  collection: district_rollups
+  field: schools_by_grade_span
+  supported_query_patterns:
+  - district_grade_span_equity_comparison
+  required_native_constructs:
+  - $objectToArray
+  - $unwind
+  - $group
+  provenance_refs:
+  - schools.GSserved
+  - schools.GSoffered
+  - frpm.Low Grade
+  - frpm.High Grade
+  - frpm.Percent (%) Eligible FRPM (K-12)
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: district_grade_span_equity_comparison
+    intent: compare FRPM exposure across district grade-span buckets
+    pipeline:
+    - $project:
+        district: $district_identity.district
+        county: $district_identity.county
+        grade_spans:
+          $objectToArray: $schools_by_grade_span
+    - $unwind: $grade_spans
+    - $unwind: $grade_spans.v
+    - $group:
+        _id:
+          county: $county
+          district: $district
+          grade_span: $grade_spans.k
+        school_count:
+          $sum: 1
+        avg_frpm_pct:
+          $avg: $grade_spans.v.frpm.frpm_pct_k12
+    - $sort:
+        avg_frpm_pct: -1
+        _id.county: 1
+        _id.district: 1
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind
+    - $group
+- id: county_panels.sat_frpm_readiness_by_record_type
+  type: dynamic_key_object
+  collection: county_equity_assessment_panels
+  field: sat_frpm_readiness_by_record_type
+  supported_query_patterns:
+  - county_sat_frpm_readiness_panel
+  required_native_constructs:
+  - $objectToArray
+  - $unwind
+  - $group
+  provenance_refs:
+  - satscores.rtype
+  - satscores.NumTstTakr
+  - satscores.NumGE1500
+  - frpm.FRPM Count (K-12)
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: county_sat_frpm_readiness_panel
+    intent: rank county/district readiness using SAT record-type buckets and FRPM
+      context
+    pipeline:
+    - $project:
+        county: 1
+        record_types:
+          $objectToArray: $sat_frpm_readiness_by_record_type
+    - $unwind: $record_types
+    - $unwind: $record_types.v
+    - $project:
+        _id: 0
+        county: 1
+        record_type: $record_types.k
+        district: $record_types.v.district
+        tested: $record_types.v.tested
+        ge_1500: $record_types.v.ge_1500
+    - $sort:
+        ge_1500: -1
+        tested: -1
+        county: 1
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind

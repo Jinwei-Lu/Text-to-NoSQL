@@ -1,0 +1,1095 @@
+{
+  "created_at": "2026-06-03T13:39:42.165961+00:00",
+  "dataset": "/Users/jwlu18/Developer/TEND/runs/native-variant-11db-110distinct-final3/dataset/TEND.json",
+  "records": 1210,
+  "parse_errors": [],
+  "metric_definitions": {
+    "stage_occurrence": "Top-level aggregation stage occurrences; a record can contribute multiple occurrences of the same stage.",
+    "stage_presence": "Per-record stage presence; each stage counted at most once per record.",
+    "position_1_based": "Absolute 1-based index in the aggregation pipeline.",
+    "position_bucket": "first, early, middle, late, or last position normalized by pipeline length.",
+    "transition": "Adjacent top-level stage pair inside a pipeline.",
+    "structural_bucket": "Coarse stage-structure family derived from presence of $unwind, $group, repeated unwind, $addFields, and repeated projection."
+  },
+  "overall": {
+    "stage_count": {
+      "n": 1210,
+      "min": 3,
+      "p10": 6,
+      "p25": 6,
+      "median": 7,
+      "p75": 8,
+      "p90": 8,
+      "p95": 9,
+      "max": 12,
+      "mean": 7.0074,
+      "stdev": 1.0496
+    },
+    "unique_stage_count": {
+      "n": 1210,
+      "min": 3,
+      "p10": 5,
+      "p25": 5,
+      "median": 6,
+      "p75": 7,
+      "p90": 7,
+      "p95": 7,
+      "max": 7,
+      "mean": 5.9926,
+      "stdev": 0.8034
+    },
+    "total_stage_occurrences": 8479,
+    "distinct_stage_types": 7,
+    "stage_count_histogram": {
+      "3": 1,
+      "4": 6,
+      "5": 29,
+      "6": 390,
+      "7": 408,
+      "8": 291,
+      "9": 79,
+      "12": 6
+    },
+    "distinct_stage_sequences": 54,
+    "stage_sequence_entropy": {
+      "entropy_bits": 4.238,
+      "normalized_entropy": 0.7364,
+      "effective_families": 18.8691
+    },
+    "stage_sequence_top_coverage": {
+      "top_1": 0.168595,
+      "top_3": 0.445455,
+      "top_5": 0.601653,
+      "top_10": 0.771074,
+      "top_20": 0.871074
+    },
+    "max_stage_sequence_family": 204,
+    "internal_transition_count": 7269,
+    "distinct_internal_transitions": 26,
+    "structural_buckets": {
+      "multi_unwind_grouped": 134,
+      "unwind_filter_project": 308,
+      "unwind_grouped": 451,
+      "enrich_filter_project": 216,
+      "linear_filter_project": 91,
+      "group_without_unwind": 10
+    },
+    "depth_buckets": {
+      "long_8_to_9": 370,
+      "medium_6_to_7": 798,
+      "short_3_to_5": 36,
+      "very_long_10_plus": 6
+    },
+    "repeated_stage_combinations": {
+      "$match+$project+$unwind": 31,
+      "$project": 642,
+      "$match": 85,
+      "$project+$unwind": 123,
+      "none": 229,
+      "$addFields": 66,
+      "$unwind": 15,
+      "$addFields+$project": 6,
+      "$addFields+$match+$project+$unwind": 6,
+      "$match+$unwind": 5,
+      "$addFields+$match": 2
+    }
+  },
+  "stage_summary": [
+    {
+      "stage": "$addFields",
+      "role": "enrichment",
+      "occurrence_count": 1139,
+      "occurrence_share": 0.134332,
+      "record_presence_count": 1053,
+      "record_presence_share": 0.870248,
+      "mean_occurrences_per_record": 0.941322,
+      "mean_occurrences_when_present": 1.081671,
+      "records_with_repeated_stage": 80,
+      "max_repetitions_in_one_pipeline": 3,
+      "first_stage_count": 910,
+      "last_stage_count": 0,
+      "second_stage_count": 160,
+      "penultimate_stage_count": 0
+    },
+    {
+      "stage": "$group",
+      "role": "aggregation",
+      "occurrence_count": 595,
+      "occurrence_share": 0.070173,
+      "record_presence_count": 595,
+      "record_presence_share": 0.491736,
+      "mean_occurrences_per_record": 0.491736,
+      "mean_occurrences_when_present": 1.0,
+      "records_with_repeated_stage": 0,
+      "max_repetitions_in_one_pipeline": 1,
+      "first_stage_count": 0,
+      "last_stage_count": 0,
+      "second_stage_count": 4,
+      "penultimate_stage_count": 0
+    },
+    {
+      "stage": "$limit",
+      "role": "result_bound",
+      "occurrence_count": 1209,
+      "occurrence_share": 0.142588,
+      "record_presence_count": 1209,
+      "record_presence_share": 0.999174,
+      "mean_occurrences_per_record": 0.999174,
+      "mean_occurrences_when_present": 1.0,
+      "records_with_repeated_stage": 0,
+      "max_repetitions_in_one_pipeline": 1,
+      "first_stage_count": 0,
+      "last_stage_count": 1209,
+      "second_stage_count": 0,
+      "penultimate_stage_count": 0
+    },
+    {
+      "stage": "$match",
+      "role": "filter",
+      "occurrence_count": 1222,
+      "occurrence_share": 0.144121,
+      "record_presence_count": 1093,
+      "record_presence_share": 0.903306,
+      "mean_occurrences_per_record": 1.009917,
+      "mean_occurrences_when_present": 1.118024,
+      "records_with_repeated_stage": 129,
+      "max_repetitions_in_one_pipeline": 2,
+      "first_stage_count": 6,
+      "last_stage_count": 0,
+      "second_stage_count": 28,
+      "penultimate_stage_count": 2
+    },
+    {
+      "stage": "$project",
+      "role": "projection",
+      "occurrence_count": 2021,
+      "occurrence_share": 0.238354,
+      "record_presence_count": 1200,
+      "record_presence_share": 0.991736,
+      "mean_occurrences_per_record": 1.670248,
+      "mean_occurrences_when_present": 1.684167,
+      "records_with_repeated_stage": 808,
+      "max_repetitions_in_one_pipeline": 3,
+      "first_stage_count": 152,
+      "last_stage_count": 0,
+      "second_stage_count": 881,
+      "penultimate_stage_count": 1
+    },
+    {
+      "stage": "$sort",
+      "role": "ordering",
+      "occurrence_count": 1208,
+      "occurrence_share": 0.14247,
+      "record_presence_count": 1208,
+      "record_presence_share": 0.998347,
+      "mean_occurrences_per_record": 0.998347,
+      "mean_occurrences_when_present": 1.0,
+      "records_with_repeated_stage": 0,
+      "max_repetitions_in_one_pipeline": 1,
+      "first_stage_count": 0,
+      "last_stage_count": 1,
+      "second_stage_count": 0,
+      "penultimate_stage_count": 1207
+    },
+    {
+      "stage": "$unwind",
+      "role": "array_traversal",
+      "occurrence_count": 1085,
+      "occurrence_share": 0.127963,
+      "record_presence_count": 893,
+      "record_presence_share": 0.738017,
+      "mean_occurrences_per_record": 0.896694,
+      "mean_occurrences_when_present": 1.215006,
+      "records_with_repeated_stage": 180,
+      "max_repetitions_in_one_pipeline": 3,
+      "first_stage_count": 142,
+      "last_stage_count": 0,
+      "second_stage_count": 137,
+      "penultimate_stage_count": 0
+    }
+  ],
+  "top_stage_sequences": [
+    {
+      "stage_sequence": "$addFields>$project>$unwind>$match>$project>$sort>$limit",
+      "count": 204,
+      "share": 0.168595,
+      "stage_count": 7,
+      "unique_stage_count": 6,
+      "structural_bucket": "unwind_filter_project",
+      "has_unwind": true,
+      "has_group": false,
+      "has_unwind_and_group": false
+    },
+    {
+      "stage_sequence": "$addFields>$project>$match>$project>$sort>$limit",
+      "count": 204,
+      "share": 0.168595,
+      "stage_count": 6,
+      "unique_stage_count": 5,
+      "structural_bucket": "enrich_filter_project",
+      "has_unwind": false,
+      "has_group": false,
+      "has_unwind_and_group": false
+    },
+    {
+      "stage_sequence": "$addFields>$project>$unwind>$match>$group>$project>$sort>$limit",
+      "count": 131,
+      "share": 0.108264,
+      "stage_count": 8,
+      "unique_stage_count": 7,
+      "structural_bucket": "unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$addFields>$project>$unwind>$match>$group>$sort>$limit",
+      "count": 104,
+      "share": 0.08595,
+      "stage_count": 7,
+      "unique_stage_count": 7,
+      "structural_bucket": "unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$addFields>$project>$unwind>$match>$group>$match>$sort>$limit",
+      "count": 85,
+      "share": 0.070248,
+      "stage_count": 8,
+      "unique_stage_count": 7,
+      "structural_bucket": "unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$addFields>$project>$unwind>$group>$sort>$limit",
+      "count": 84,
+      "share": 0.069421,
+      "stage_count": 6,
+      "unique_stage_count": 6,
+      "structural_bucket": "unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$addFields>$addFields>$match>$project>$sort>$limit",
+      "count": 60,
+      "share": 0.049587,
+      "stage_count": 6,
+      "unique_stage_count": 5,
+      "structural_bucket": "linear_filter_project",
+      "has_unwind": false,
+      "has_group": false,
+      "has_unwind_and_group": false
+    },
+    {
+      "stage_sequence": "$unwind>$addFields>$project>$match>$project>$sort>$limit",
+      "count": 24,
+      "share": 0.019835,
+      "stage_count": 7,
+      "unique_stage_count": 6,
+      "structural_bucket": "unwind_filter_project",
+      "has_unwind": true,
+      "has_group": false,
+      "has_unwind_and_group": false
+    },
+    {
+      "stage_sequence": "$addFields>$match>$project>$sort>$limit",
+      "count": 21,
+      "share": 0.017355,
+      "stage_count": 5,
+      "unique_stage_count": 5,
+      "structural_bucket": "linear_filter_project",
+      "has_unwind": false,
+      "has_group": false,
+      "has_unwind_and_group": false
+    },
+    {
+      "stage_sequence": "$unwind>$addFields>$project>$unwind>$match>$group>$project>$sort>$limit",
+      "count": 16,
+      "share": 0.013223,
+      "stage_count": 9,
+      "unique_stage_count": 7,
+      "structural_bucket": "multi_unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$project>$unwind>$addFields>$match>$project>$sort>$limit",
+      "count": 15,
+      "share": 0.012397,
+      "stage_count": 7,
+      "unique_stage_count": 6,
+      "structural_bucket": "unwind_filter_project",
+      "has_unwind": true,
+      "has_group": false,
+      "has_unwind_and_group": false
+    },
+    {
+      "stage_sequence": "$unwind>$project>$unwind>$match>$group>$project>$sort>$limit",
+      "count": 14,
+      "share": 0.01157,
+      "stage_count": 8,
+      "unique_stage_count": 6,
+      "structural_bucket": "multi_unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$unwind>$addFields>$project>$unwind>$match>$project>$sort>$limit",
+      "count": 14,
+      "share": 0.01157,
+      "stage_count": 8,
+      "unique_stage_count": 6,
+      "structural_bucket": "unwind_filter_project",
+      "has_unwind": true,
+      "has_group": false,
+      "has_unwind_and_group": false
+    },
+    {
+      "stage_sequence": "$project>$unwind>$match>$group>$project>$sort>$limit",
+      "count": 13,
+      "share": 0.010744,
+      "stage_count": 7,
+      "unique_stage_count": 6,
+      "structural_bucket": "unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$project>$unwind>$unwind>$group>$match>$project>$sort>$limit",
+      "count": 13,
+      "share": 0.010744,
+      "stage_count": 8,
+      "unique_stage_count": 6,
+      "structural_bucket": "multi_unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$project>$unwind>$group>$project>$sort>$limit",
+      "count": 12,
+      "share": 0.009917,
+      "stage_count": 6,
+      "unique_stage_count": 5,
+      "structural_bucket": "unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$project>$unwind>$unwind>$match>$group>$project>$sort>$limit",
+      "count": 12,
+      "share": 0.009917,
+      "stage_count": 8,
+      "unique_stage_count": 6,
+      "structural_bucket": "multi_unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$project>$unwind>$unwind>$group>$addFields>$match>$project>$sort>$limit",
+      "count": 11,
+      "share": 0.009091,
+      "stage_count": 9,
+      "unique_stage_count": 7,
+      "structural_bucket": "multi_unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$unwind>$addFields>$project>$unwind>$match>$group>$sort>$limit",
+      "count": 10,
+      "share": 0.008264,
+      "stage_count": 8,
+      "unique_stage_count": 7,
+      "structural_bucket": "multi_unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$unwind>$project>$group>$project>$sort>$limit",
+      "count": 7,
+      "share": 0.005785,
+      "stage_count": 6,
+      "unique_stage_count": 5,
+      "structural_bucket": "unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$project>$unwind>$unwind>$addFields>$match>$group>$project>$sort>$limit",
+      "count": 7,
+      "share": 0.005785,
+      "stage_count": 9,
+      "unique_stage_count": 7,
+      "structural_bucket": "multi_unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$project>$unwind>$unwind>$project>$match>$sort>$limit",
+      "count": 7,
+      "share": 0.005785,
+      "stage_count": 7,
+      "unique_stage_count": 5,
+      "structural_bucket": "unwind_filter_project",
+      "has_unwind": true,
+      "has_group": false,
+      "has_unwind_and_group": false
+    },
+    {
+      "stage_sequence": "$unwind>$project>$match>$group>$project>$sort>$limit",
+      "count": 7,
+      "share": 0.005785,
+      "stage_count": 7,
+      "unique_stage_count": 6,
+      "structural_bucket": "unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$project>$unwind>$unwind>$project>$match>$group>$project>$sort>$limit",
+      "count": 7,
+      "share": 0.005785,
+      "stage_count": 9,
+      "unique_stage_count": 6,
+      "structural_bucket": "multi_unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$unwind>$project>$unwind>$unwind>$match>$group>$project>$sort>$limit",
+      "count": 7,
+      "share": 0.005785,
+      "stage_count": 9,
+      "unique_stage_count": 6,
+      "structural_bucket": "multi_unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$project>$unwind>$group>$match>$project>$sort>$limit",
+      "count": 7,
+      "share": 0.005785,
+      "stage_count": 7,
+      "unique_stage_count": 6,
+      "structural_bucket": "unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$project>$unwind>$match>$project>$sort>$limit",
+      "count": 7,
+      "share": 0.005785,
+      "stage_count": 6,
+      "unique_stage_count": 5,
+      "structural_bucket": "unwind_filter_project",
+      "has_unwind": true,
+      "has_group": false,
+      "has_unwind_and_group": false
+    },
+    {
+      "stage_sequence": "$match>$project>$unwind>$unwind>$group>$match>$project>$sort>$limit",
+      "count": 6,
+      "share": 0.004959,
+      "stage_count": 9,
+      "unique_stage_count": 6,
+      "structural_bucket": "multi_unwind_grouped",
+      "has_unwind": true,
+      "has_group": true,
+      "has_unwind_and_group": true
+    },
+    {
+      "stage_sequence": "$unwind>$addFields>$match>$project>$sort>$limit",
+      "count": 6,
+      "share": 0.004959,
+      "stage_count": 6,
+      "unique_stage_count": 6,
+      "structural_bucket": "unwind_filter_project",
+      "has_unwind": true,
+      "has_group": false,
+      "has_unwind_and_group": false
+    },
+    {
+      "stage_sequence": "$project>$addFields>$addFields>$addFields>$match>$project>$sort>$limit",
+      "count": 6,
+      "share": 0.004959,
+      "stage_count": 8,
+      "unique_stage_count": 5,
+      "structural_bucket": "enrich_filter_project",
+      "has_unwind": false,
+      "has_group": false,
+      "has_unwind_and_group": false
+    }
+  ],
+  "top_transitions": [
+    {
+      "from_stage": "$sort",
+      "to_stage": "$limit",
+      "count": 1207,
+      "share_of_all_internal_transitions": 0.166048
+    },
+    {
+      "from_stage": "$addFields",
+      "to_stage": "$project",
+      "count": 892,
+      "share_of_all_internal_transitions": 0.122713
+    },
+    {
+      "from_stage": "$project",
+      "to_stage": "$sort",
+      "count": 888,
+      "share_of_all_internal_transitions": 0.122163
+    },
+    {
+      "from_stage": "$project",
+      "to_stage": "$unwind",
+      "count": 843,
+      "share_of_all_internal_transitions": 0.115972
+    },
+    {
+      "from_stage": "$unwind",
+      "to_stage": "$match",
+      "count": 662,
+      "share_of_all_internal_transitions": 0.091072
+    },
+    {
+      "from_stage": "$match",
+      "to_stage": "$project",
+      "count": 657,
+      "share_of_all_internal_transitions": 0.090384
+    },
+    {
+      "from_stage": "$match",
+      "to_stage": "$group",
+      "count": 441,
+      "share_of_all_internal_transitions": 0.060669
+    },
+    {
+      "from_stage": "$project",
+      "to_stage": "$match",
+      "count": 263,
+      "share_of_all_internal_transitions": 0.036181
+    },
+    {
+      "from_stage": "$group",
+      "to_stage": "$project",
+      "count": 238,
+      "share_of_all_internal_transitions": 0.032742
+    },
+    {
+      "from_stage": "$group",
+      "to_stage": "$sort",
+      "count": 214,
+      "share_of_all_internal_transitions": 0.02944
+    },
+    {
+      "from_stage": "$addFields",
+      "to_stage": "$match",
+      "count": 163,
+      "share_of_all_internal_transitions": 0.022424
+    },
+    {
+      "from_stage": "$unwind",
+      "to_stage": "$group",
+      "count": 143,
+      "share_of_all_internal_transitions": 0.019673
+    },
+    {
+      "from_stage": "$group",
+      "to_stage": "$match",
+      "count": 126,
+      "share_of_all_internal_transitions": 0.017334
+    },
+    {
+      "from_stage": "$unwind",
+      "to_stage": "$addFields",
+      "count": 113,
+      "share_of_all_internal_transitions": 0.015545
+    },
+    {
+      "from_stage": "$match",
+      "to_stage": "$sort",
+      "count": 106,
+      "share_of_all_internal_transitions": 0.014582
+    },
+    {
+      "from_stage": "$unwind",
+      "to_stage": "$unwind",
+      "count": 85,
+      "share_of_all_internal_transitions": 0.011693
+    },
+    {
+      "from_stage": "$unwind",
+      "to_stage": "$project",
+      "count": 82,
+      "share_of_all_internal_transitions": 0.011281
+    },
+    {
+      "from_stage": "$addFields",
+      "to_stage": "$addFields",
+      "count": 80,
+      "share_of_all_internal_transitions": 0.011006
+    },
+    {
+      "from_stage": "$project",
+      "to_stage": "$addFields",
+      "count": 19,
+      "share_of_all_internal_transitions": 0.002614
+    },
+    {
+      "from_stage": "$group",
+      "to_stage": "$addFields",
+      "count": 17,
+      "share_of_all_internal_transitions": 0.002339
+    },
+    {
+      "from_stage": "$match",
+      "to_stage": "$unwind",
+      "count": 15,
+      "share_of_all_internal_transitions": 0.002064
+    },
+    {
+      "from_stage": "$project",
+      "to_stage": "$group",
+      "count": 7,
+      "share_of_all_internal_transitions": 0.000963
+    },
+    {
+      "from_stage": "$addFields",
+      "to_stage": "$group",
+      "count": 4,
+      "share_of_all_internal_transitions": 0.00055
+    },
+    {
+      "from_stage": "$match",
+      "to_stage": "$match",
+      "count": 2,
+      "share_of_all_internal_transitions": 0.000275
+    },
+    {
+      "from_stage": "$match",
+      "to_stage": "$limit",
+      "count": 1,
+      "share_of_all_internal_transitions": 0.000138
+    },
+    {
+      "from_stage": "$project",
+      "to_stage": "$limit",
+      "count": 1,
+      "share_of_all_internal_transitions": 0.000138
+    }
+  ],
+  "first_stage_distribution": [
+    {
+      "key": "$addFields",
+      "count": 910,
+      "share": 0.752066
+    },
+    {
+      "key": "$project",
+      "count": 152,
+      "share": 0.12562
+    },
+    {
+      "key": "$unwind",
+      "count": 142,
+      "share": 0.117355
+    },
+    {
+      "key": "$match",
+      "count": 6,
+      "share": 0.004959
+    }
+  ],
+  "last_stage_distribution": [
+    {
+      "key": "$limit",
+      "count": 1209,
+      "share": 0.999174
+    },
+    {
+      "key": "$sort",
+      "count": 1,
+      "share": 0.000826
+    }
+  ],
+  "structural_bucket_distribution": [
+    {
+      "structural_bucket": "unwind_grouped",
+      "records": 451,
+      "share": 0.372727
+    },
+    {
+      "structural_bucket": "unwind_filter_project",
+      "records": 308,
+      "share": 0.254545
+    },
+    {
+      "structural_bucket": "enrich_filter_project",
+      "records": 216,
+      "share": 0.178512
+    },
+    {
+      "structural_bucket": "multi_unwind_grouped",
+      "records": 134,
+      "share": 0.110744
+    },
+    {
+      "structural_bucket": "linear_filter_project",
+      "records": 91,
+      "share": 0.075207
+    },
+    {
+      "structural_bucket": "group_without_unwind",
+      "records": 10,
+      "share": 0.008264
+    }
+  ],
+  "depth_bucket_distribution": [
+    {
+      "stage_depth_bucket": "medium_6_to_7",
+      "records": 798,
+      "share": 0.659504
+    },
+    {
+      "stage_depth_bucket": "long_8_to_9",
+      "records": 370,
+      "share": 0.305785
+    },
+    {
+      "stage_depth_bucket": "short_3_to_5",
+      "records": 36,
+      "share": 0.029752
+    },
+    {
+      "stage_depth_bucket": "very_long_10_plus",
+      "records": 6,
+      "share": 0.004959
+    }
+  ],
+  "role_distribution": [
+    {
+      "role": "aggregation",
+      "stage_occurrences": 595,
+      "occurrence_share": 0.070173,
+      "record_presence_count": 595,
+      "record_presence_share": 0.491736
+    },
+    {
+      "role": "array_traversal",
+      "stage_occurrences": 1085,
+      "occurrence_share": 0.127963,
+      "record_presence_count": 893,
+      "record_presence_share": 0.738017
+    },
+    {
+      "role": "enrichment",
+      "stage_occurrences": 1139,
+      "occurrence_share": 0.134332,
+      "record_presence_count": 1053,
+      "record_presence_share": 0.870248
+    },
+    {
+      "role": "filter",
+      "stage_occurrences": 1222,
+      "occurrence_share": 0.144121,
+      "record_presence_count": 1093,
+      "record_presence_share": 0.903306
+    },
+    {
+      "role": "ordering",
+      "stage_occurrences": 1208,
+      "occurrence_share": 0.14247,
+      "record_presence_count": 1208,
+      "record_presence_share": 0.998347
+    },
+    {
+      "role": "projection",
+      "stage_occurrences": 2021,
+      "occurrence_share": 0.238354,
+      "record_presence_count": 1200,
+      "record_presence_share": 0.991736
+    },
+    {
+      "role": "result_bound",
+      "stage_occurrences": 1209,
+      "occurrence_share": 0.142588,
+      "record_presence_count": 1209,
+      "record_presence_share": 0.999174
+    }
+  ],
+  "by_db": [
+    {
+      "db_id": "california_schools",
+      "records": 110,
+      "stage_count_min": 6,
+      "stage_count_median": 7,
+      "stage_count_p90": 8,
+      "stage_count_max": 9,
+      "stage_count_mean": 7.209091,
+      "unique_stage_count_median": 6,
+      "distinct_stage_sequences": 10,
+      "max_stage_sequence_family": 26,
+      "top_stage_sequence_share": 0.236364,
+      "dominant_structural_bucket": "unwind_grouped",
+      "dominant_structural_bucket_count": 47,
+      "unwind_records": 84,
+      "group_records": 57,
+      "unwind_group_records": 57,
+      "project_occurrences": 197,
+      "match_occurrences": 120,
+      "unwind_occurrences": 104,
+      "group_occurrences": 57,
+      "addfields_occurrences": 95
+    },
+    {
+      "db_id": "card_games",
+      "records": 110,
+      "stage_count_min": 6,
+      "stage_count_median": 7,
+      "stage_count_p90": 8,
+      "stage_count_max": 8,
+      "stage_count_mean": 7.1,
+      "unique_stage_count_median": 6,
+      "distinct_stage_sequences": 11,
+      "max_stage_sequence_family": 21,
+      "top_stage_sequence_share": 0.190909,
+      "dominant_structural_bucket": "unwind_grouped",
+      "dominant_structural_bucket_count": 53,
+      "unwind_records": 79,
+      "group_records": 62,
+      "unwind_group_records": 60,
+      "project_occurrences": 189,
+      "match_occurrences": 112,
+      "unwind_occurrences": 86,
+      "group_occurrences": 62,
+      "addfields_occurrences": 112
+    },
+    {
+      "db_id": "codebase_community",
+      "records": 110,
+      "stage_count_min": 6,
+      "stage_count_median": 7,
+      "stage_count_p90": 9,
+      "stage_count_max": 12,
+      "stage_count_mean": 7.354545,
+      "unique_stage_count_median": 6,
+      "distinct_stage_sequences": 9,
+      "max_stage_sequence_family": 26,
+      "top_stage_sequence_share": 0.236364,
+      "dominant_structural_bucket": "unwind_grouped",
+      "dominant_structural_bucket_count": 42,
+      "unwind_records": 88,
+      "group_records": 62,
+      "unwind_group_records": 62,
+      "project_occurrences": 195,
+      "match_occurrences": 115,
+      "unwind_occurrences": 115,
+      "group_occurrences": 62,
+      "addfields_occurrences": 102
+    },
+    {
+      "db_id": "debit_card_specializing",
+      "records": 110,
+      "stage_count_min": 6,
+      "stage_count_median": 7,
+      "stage_count_p90": 8,
+      "stage_count_max": 9,
+      "stage_count_mean": 7.036364,
+      "unique_stage_count_median": 6,
+      "distinct_stage_sequences": 10,
+      "max_stage_sequence_family": 23,
+      "top_stage_sequence_share": 0.209091,
+      "dominant_structural_bucket": "unwind_grouped",
+      "dominant_structural_bucket_count": 58,
+      "unwind_records": 88,
+      "group_records": 65,
+      "unwind_group_records": 65,
+      "project_occurrences": 193,
+      "match_occurrences": 110,
+      "unwind_occurrences": 95,
+      "group_occurrences": 65,
+      "addfields_occurrences": 91
+    },
+    {
+      "db_id": "european_football_2",
+      "records": 110,
+      "stage_count_min": 6,
+      "stage_count_median": 7,
+      "stage_count_p90": 8,
+      "stage_count_max": 9,
+      "stage_count_mean": 6.863636,
+      "unique_stage_count_median": 6,
+      "distinct_stage_sequences": 10,
+      "max_stage_sequence_family": 25,
+      "top_stage_sequence_share": 0.227273,
+      "dominant_structural_bucket": "unwind_grouped",
+      "dominant_structural_bucket_count": 38,
+      "unwind_records": 69,
+      "group_records": 51,
+      "unwind_group_records": 51,
+      "project_occurrences": 171,
+      "match_occurrences": 110,
+      "unwind_occurrences": 82,
+      "group_occurrences": 51,
+      "addfields_occurrences": 121
+    },
+    {
+      "db_id": "financial",
+      "records": 110,
+      "stage_count_min": 6,
+      "stage_count_median": 7,
+      "stage_count_p90": 8,
+      "stage_count_max": 8,
+      "stage_count_mean": 6.945455,
+      "unique_stage_count_median": 6,
+      "distinct_stage_sequences": 10,
+      "max_stage_sequence_family": 21,
+      "top_stage_sequence_share": 0.190909,
+      "dominant_structural_bucket": "unwind_grouped",
+      "dominant_structural_bucket_count": 55,
+      "unwind_records": 84,
+      "group_records": 60,
+      "unwind_group_records": 60,
+      "project_occurrences": 190,
+      "match_occurrences": 105,
+      "unwind_occurrences": 89,
+      "group_occurrences": 60,
+      "addfields_occurrences": 100
+    },
+    {
+      "db_id": "formula_1",
+      "records": 110,
+      "stage_count_min": 3,
+      "stage_count_median": 6,
+      "stage_count_p90": 8,
+      "stage_count_max": 8,
+      "stage_count_mean": 6.081818,
+      "unique_stage_count_median": 5,
+      "distinct_stage_sequences": 16,
+      "max_stage_sequence_family": 19,
+      "top_stage_sequence_share": 0.172727,
+      "dominant_structural_bucket": "unwind_grouped",
+      "dominant_structural_bucket_count": 41,
+      "unwind_records": 63,
+      "group_records": 45,
+      "unwind_group_records": 41,
+      "project_occurrences": 157,
+      "match_occurrences": 92,
+      "unwind_occurrences": 63,
+      "group_occurrences": 45,
+      "addfields_occurrences": 94
+    },
+    {
+      "db_id": "student_club",
+      "records": 110,
+      "stage_count_min": 4,
+      "stage_count_median": 7,
+      "stage_count_p90": 8,
+      "stage_count_max": 9,
+      "stage_count_mean": 6.927273,
+      "unique_stage_count_median": 6,
+      "distinct_stage_sequences": 11,
+      "max_stage_sequence_family": 24,
+      "top_stage_sequence_share": 0.218182,
+      "dominant_structural_bucket": "unwind_grouped",
+      "dominant_structural_bucket_count": 41,
+      "unwind_records": 86,
+      "group_records": 46,
+      "unwind_group_records": 46,
+      "project_occurrences": 187,
+      "match_occurrences": 115,
+      "unwind_occurrences": 96,
+      "group_occurrences": 46,
+      "addfields_occurrences": 99
+    },
+    {
+      "db_id": "superhero",
+      "records": 110,
+      "stage_count_min": 6,
+      "stage_count_median": 7,
+      "stage_count_p90": 9,
+      "stage_count_max": 9,
+      "stage_count_mean": 7.427273,
+      "unique_stage_count_median": 6,
+      "distinct_stage_sequences": 19,
+      "max_stage_sequence_family": 15,
+      "top_stage_sequence_share": 0.136364,
+      "dominant_structural_bucket": "unwind_filter_project",
+      "dominant_structural_bucket_count": 40,
+      "unwind_records": 94,
+      "group_records": 56,
+      "unwind_group_records": 54,
+      "project_occurrences": 183,
+      "match_occurrences": 118,
+      "unwind_occurrences": 139,
+      "group_occurrences": 56,
+      "addfields_occurrences": 101
+    },
+    {
+      "db_id": "thrombosis_prediction",
+      "records": 110,
+      "stage_count_min": 6,
+      "stage_count_median": 6,
+      "stage_count_p90": 8,
+      "stage_count_max": 8,
+      "stage_count_mean": 6.718182,
+      "unique_stage_count_median": 6,
+      "distinct_stage_sequences": 10,
+      "max_stage_sequence_family": 30,
+      "top_stage_sequence_share": 0.272727,
+      "dominant_structural_bucket": "unwind_grouped",
+      "dominant_structural_bucket_count": 32,
+      "unwind_records": 66,
+      "group_records": 45,
+      "unwind_group_records": 45,
+      "project_occurrences": 165,
+      "match_occurrences": 110,
+      "unwind_occurrences": 79,
+      "group_occurrences": 45,
+      "addfields_occurrences": 120
+    },
+    {
+      "db_id": "toxicology",
+      "records": 110,
+      "stage_count_min": 6,
+      "stage_count_median": 7,
+      "stage_count_p90": 9,
+      "stage_count_max": 9,
+      "stage_count_mean": 7.418182,
+      "unique_stage_count_median": 6,
+      "distinct_stage_sequences": 16,
+      "max_stage_sequence_family": 14,
+      "top_stage_sequence_share": 0.127273,
+      "dominant_structural_bucket": "unwind_filter_project",
+      "dominant_structural_bucket_count": 48,
+      "unwind_records": 92,
+      "group_records": 46,
+      "unwind_group_records": 44,
+      "project_occurrences": 194,
+      "match_occurrences": 115,
+      "unwind_occurrences": 137,
+      "group_occurrences": 46,
+      "addfields_occurrences": 104
+    }
+  ]
+}

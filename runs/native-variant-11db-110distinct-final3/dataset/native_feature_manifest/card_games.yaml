@@ -1,0 +1,164 @@
+db_id: card_games
+features:
+- id: card_print_dossiers.legality_by_format
+  type: dynamic_key_object
+  collection: card_print_dossiers
+  field: legality.by_format
+  supported_query_patterns:
+  - format legality status matrix
+  required_native_constructs:
+  - $objectToArray
+  - $unwind
+  - $group
+  provenance_refs:
+  - legalities.format
+  - legalities.status
+  - cards.uuid
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: format legality status matrix
+    intent: summarize format-keyed legality states across card print dossiers
+    pipeline:
+    - $project:
+        formats:
+          $objectToArray: $legality.by_format
+    - $unwind: $formats
+    - $group:
+        _id:
+          format: $formats.k
+          status: $formats.v.latest_status
+        card_count:
+          $sum: 1
+    - $sort:
+        card_count: -1
+        _id.format: 1
+        _id.status: 1
+    - $limit: 50
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind
+    - $group
+- id: card_print_dossiers.rulings_by_year
+  type: dynamic_key_object
+  collection: card_print_dossiers
+  field: rulings.by_year
+  supported_query_patterns:
+  - ruling timeline by year
+  required_native_constructs:
+  - $objectToArray
+  - $unwind
+  - $size
+  provenance_refs:
+  - rulings.date
+  - rulings.text
+  - cards.uuid
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: ruling timeline by year
+    intent: find card printings with year-keyed ruling timelines
+    pipeline:
+    - $project:
+        name: $print_identity.name
+        years:
+          $objectToArray: $rulings.by_year
+    - $unwind: $years
+    - $project:
+        name: 1
+        year: $years.k
+        ruling_count:
+          $size: $years.v.events
+    - $match:
+        ruling_count:
+          $gt: 0
+    - $sort:
+        ruling_count: -1
+        name: 1
+    - $limit: 50
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind
+    - $size
+- id: card_print_dossiers.localization_by_language
+  type: dynamic_key_object
+  collection: card_print_dossiers
+  field: localization.translations_by_language
+  supported_query_patterns:
+  - language localization coverage
+  required_native_constructs:
+  - $objectToArray
+  - $unwind
+  - $size
+  provenance_refs:
+  - foreign_data.language
+  - foreign_data.name
+  - cards.uuid
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: language localization coverage
+    intent: count translated printings by language dynamic key
+    pipeline:
+    - $project:
+        translations:
+          $objectToArray: $localization.translations_by_language
+    - $unwind: $translations
+    - $group:
+        _id: $translations.k
+        translated_printings:
+          $sum: 1
+    - $sort:
+        translated_printings: -1
+        _id: 1
+    - $limit: 50
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind
+    - $group
+- id: set_release_ecosystems.cards_by_rarity
+  type: dynamic_key_object
+  collection: set_release_ecosystems
+  field: cards_by_rarity
+  supported_query_patterns:
+  - set rarity print mix
+  required_native_constructs:
+  - $objectToArray
+  - $unwind
+  - $size
+  provenance_refs:
+  - sets.code
+  - cards.rarity
+  - cards.uuid
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: set rarity print mix
+    intent: summarize set releases by rarity-keyed card buckets
+    pipeline:
+    - $project:
+        set_code: 1
+        rarities:
+          $objectToArray: $cards_by_rarity
+    - $unwind: $rarities
+    - $project:
+        set_code: 1
+        rarity: $rarities.k
+        card_count:
+          $size: $rarities.v.cards
+    - $sort:
+        card_count: -1
+        set_code: 1
+        rarity: 1
+    - $limit: 50
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind
+    - $size
+- id: card_print_dossiers.digital_faces_presence
+  type: missing_vs_present
+  collection: card_print_dossiers
+  field: schema_state.digital_faces
+  supported_query_patterns:
+  - missing_vs_present
+  required_native_constructs:
+  - $ifNull
+  provenance_refs:
+  - cards.uuid
+  coverage: {}

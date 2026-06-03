@@ -1,0 +1,210 @@
+db_id: superhero
+features:
+- id: hero_dossiers.attribute_matrix
+  type: dynamic_key_object
+  collection: hero_dossiers
+  field: ability_matrix.attributes_by_name
+  supported_query_patterns:
+  - hero_attribute_score_matrix
+  required_native_constructs:
+  - $objectToArray
+  - $unwind
+  - $group
+  - $avg
+  - $max
+  provenance_refs:
+  - hero_attribute.attribute_value
+  - attribute.attribute_name
+  - superhero.id
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: hero_attribute_score_matrix
+    intent: compare hero attribute observations across dynamic attribute-name keys
+    pipeline:
+    - $project:
+        hero_id: $identity.hero_id
+        hero_name: $profile.hero_name.value
+        attributes:
+          $objectToArray: $ability_matrix.attributes_by_name
+    - $unwind: $attributes
+    - $unwind: $attributes.v.observations
+    - $group:
+        _id: $attributes.k
+        avg_score:
+          $avg: $attributes.v.observations.value
+        max_score:
+          $max: $attributes.v.observations.value
+        hero_count:
+          $sum: 1
+    - $sort:
+        max_score: -1
+        _id: 1
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind
+    - $group
+    - $avg
+    - $max
+- id: hero_dossiers.power_family_views
+  type: array_object_dynamic_key
+  collection: hero_dossiers
+  field: query_views.power_families_by_bucket
+  supported_query_patterns:
+  - hero_power_family_distribution
+  required_native_constructs:
+  - $unwind
+  - $objectToArray
+  - $group
+  - $sum
+  provenance_refs:
+  - hero_power.power_id
+  - superpower.power_name
+  - superhero.id
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: hero_power_family_distribution
+    intent: traverse per-hero query views and dynamic power-family buckets
+    pipeline:
+    - $unwind: $query_views
+    - $project:
+        hero_id: $identity.hero_id
+        families:
+          $objectToArray: $query_views.power_families_by_bucket
+    - $unwind: $families
+    - $group:
+        _id: $families.k
+        hero_count:
+          $sum: 1
+        power_mentions:
+          $sum: $families.v.power_count
+    - $sort:
+        hero_count: -1
+        _id: 1
+    mongo_native_constructs:
+    - $unwind
+    - $objectToArray
+    - $group
+    - $sum
+- id: publisher_universes.alignment_power_matrix
+  type: dynamic_key_object
+  collection: publisher_universes
+  field: query_views.alignment_power_matrix_by_alignment
+  supported_query_patterns:
+  - publisher_alignment_power_matrix
+  required_native_constructs:
+  - $unwind
+  - $objectToArray
+  - $group
+  - $size
+  provenance_refs:
+  - publisher.publisher_name
+  - alignment.alignment
+  - hero_power.power_id
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: publisher_alignment_power_matrix
+    intent: summarize publisher universes by alignment keys and nested power-family
+      buckets
+    pipeline:
+    - $unwind: $query_views
+    - $project:
+        publisher: $publisher.name.value
+        alignments:
+          $objectToArray: $query_views.alignment_power_matrix_by_alignment
+    - $unwind: $alignments
+    - $project:
+        publisher: 1
+        alignment: $alignments.k
+        hero_count: $alignments.v.hero_count
+        families:
+          $objectToArray: $alignments.v.power_families_by_bucket
+    - $unwind: $families
+    - $group:
+        _id:
+          publisher: $publisher
+          alignment: $alignment
+          family: $families.k
+        member_count:
+          $sum:
+            $size: $families.v.members
+        hero_count:
+          $max: $hero_count
+    - $sort:
+        member_count: -1
+        _id.publisher: 1
+    - $limit: 60
+    mongo_native_constructs:
+    - $unwind
+    - $objectToArray
+    - $group
+    - $size
+    - $max
+- id: ability_catalog.power_to_hero_index
+  type: dynamic_key_object
+  collection: ability_catalog
+  field: heroes_by_alignment
+  supported_query_patterns:
+  - power_alignment_hero_index
+  required_native_constructs:
+  - $match
+  - $objectToArray
+  - $unwind
+  - $group
+  - $sum
+  provenance_refs:
+  - superpower.power_name
+  - hero_power.hero_id
+  - alignment.alignment
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: power_alignment_hero_index
+    intent: read power catalog entries through alignment-keyed hero membership bags
+    pipeline:
+    - $match:
+        catalog_type: power
+    - $project:
+        power_name: $power.name.value
+        family: $power.family
+        alignments:
+          $objectToArray: $heroes_by_alignment
+    - $unwind: $alignments
+    - $unwind: $alignments.v.heroes
+    - $group:
+        _id:
+          family: $family
+          alignment: $alignments.k
+        power_count:
+          $addToSet: $power_name
+        hero_mentions:
+          $sum: 1
+    - $project:
+        _id: 0
+        family: $_id.family
+        alignment: $_id.alignment
+        distinct_powers:
+          $size: $power_count
+        hero_mentions: 1
+    - $sort:
+        hero_mentions: -1
+        family: 1
+    mongo_native_constructs:
+    - $match
+    - $objectToArray
+    - $unwind
+    - $group
+    - $sum
+    - $size
+- id: hero_dossiers.profile_presence_states
+  type: missing_vs_present
+  collection: hero_dossiers
+  field: schema_state.attributes
+  supported_query_patterns:
+  - missing_vs_present
+  required_native_constructs:
+  - $ifNull
+  - $cond
+  provenance_refs:
+  - superhero.full_name
+  - superhero.height_cm
+  - hero_power.power_id
+  coverage: {}

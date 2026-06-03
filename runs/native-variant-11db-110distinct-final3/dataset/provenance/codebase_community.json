@@ -1,0 +1,63 @@
+{
+  "db_id": "codebase_community",
+  "conversion_code_ref": "tend.construct.native_designs.codebase_community",
+  "entries": {
+    "community_threads.tag_thread_matrix": {
+      "source_tables": [
+        "posts",
+        "tags"
+      ],
+      "provenance_refs": [
+        "posts.Id",
+        "posts.Tags",
+        "posts.AcceptedAnswerId",
+        "tags.TagName",
+        "tags.Count"
+      ],
+      "field": "taxonomy.tags_by_name"
+    },
+    "community_threads.answer_vote_buckets": {
+      "source_tables": [
+        "posts",
+        "votes"
+      ],
+      "provenance_refs": [
+        "posts.Id",
+        "posts.ParentId",
+        "votes.PostId",
+        "votes.VoteTypeId",
+        "votes.BountyAmount"
+      ],
+      "field": "answers.items.votes_by_type"
+    },
+    "user_reputation_profiles.reputation_activity_lattice": {
+      "source_tables": [
+        "comments",
+        "posts",
+        "users"
+      ],
+      "provenance_refs": [
+        "users.Id",
+        "users.Reputation",
+        "posts.OwnerUserId",
+        "posts.CreaionDate",
+        "comments.UserId"
+      ],
+      "field": "activity.by_year"
+    },
+    "tag_topic_ecosystems.topic_status_year_buckets": {
+      "source_tables": [
+        "posts",
+        "tags"
+      ],
+      "provenance_refs": [
+        "tags.TagName",
+        "tags.Count",
+        "posts.Tags",
+        "posts.ClosedDate",
+        "posts.AcceptedAnswerId"
+      ],
+      "field": "threads_by_status_by_year"
+    }
+  }
+}

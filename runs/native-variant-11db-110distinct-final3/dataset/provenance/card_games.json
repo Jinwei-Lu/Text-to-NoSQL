@@ -1,0 +1,49 @@
+{
+  "db_id": "card_games",
+  "entries": {
+    "card_print_dossiers.legality_by_format": {
+      "module": "tend.construct.native_designs.card_games",
+      "source_tables": [
+        "legalities.format",
+        "legalities.status",
+        "cards.uuid"
+      ],
+      "field": "legality.by_format"
+    },
+    "card_print_dossiers.rulings_by_year": {
+      "module": "tend.construct.native_designs.card_games",
+      "source_tables": [
+        "rulings.date",
+        "rulings.text",
+        "cards.uuid"
+      ],
+      "field": "rulings.by_year"
+    },
+    "card_print_dossiers.localization_by_language": {
+      "module": "tend.construct.native_designs.card_games",
+      "source_tables": [
+        "foreign_data.language",
+        "foreign_data.name",
+        "cards.uuid"
+      ],
+      "field": "localization.translations_by_language"
+    },
+    "set_release_ecosystems.cards_by_rarity": {
+      "module": "tend.construct.native_designs.card_games",
+      "source_tables": [
+        "sets.code",
+        "cards.rarity",
+        "cards.uuid"
+      ],
+      "field": "cards_by_rarity"
+    },
+    "card_print_dossiers.digital_faces_presence": {
+      "module": "tend.construct.native_designs.card_games",
+      "source_tables": [
+        "cards.uuid"
+      ],
+      "field": "schema_state.digital_faces"
+    }
+  },
+  "conversion_code_ref": "tend.construct.native_designs.card_games"
+}

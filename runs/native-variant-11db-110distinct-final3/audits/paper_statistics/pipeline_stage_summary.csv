@@ -1,0 +1,8 @@
+stage,role,occurrence_count,occurrence_share,record_presence_count,record_presence_share,mean_occurrences_per_record,mean_occurrences_when_present,records_with_repeated_stage,max_repetitions_in_one_pipeline,first_stage_count,last_stage_count,second_stage_count,penultimate_stage_count
+$addFields,enrichment,1139,0.134332,1053,0.870248,0.941322,1.081671,80,3,910,0,160,0
+$group,aggregation,595,0.070173,595,0.491736,0.491736,1.0,0,1,0,0,4,0
+$limit,result_bound,1209,0.142588,1209,0.999174,0.999174,1.0,0,1,0,1209,0,0
+$match,filter,1222,0.144121,1093,0.903306,1.009917,1.118024,129,2,6,0,28,2
+$project,projection,2021,0.238354,1200,0.991736,1.670248,1.684167,808,3,152,0,881,1
+$sort,ordering,1208,0.14247,1208,0.998347,0.998347,1.0,0,1,0,1,0,1207
+$unwind,array_traversal,1085,0.127963,893,0.738017,0.896694,1.215006,180,3,142,0,137,0

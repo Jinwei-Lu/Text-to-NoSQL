@@ -1,0 +1,440 @@
+db_id: formula_1
+features:
+- id: race_weekends_v2.results_by_status
+  type: dynamic_key_object
+  collection: race_weekends_v2
+  field: sessions.race.results_by_status
+  supported_query_patterns:
+  - status bucket aggregation
+  - classification outcome filtering
+  required_native_constructs:
+  - $objectToArray
+  - $unwind
+  - $group
+  provenance_refs:
+  - results
+  - status
+  - drivers
+  - constructors
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: status bucket aggregation
+    intent: summarize finish-status buckets inside each race weekend document
+    pipeline:
+    - $project:
+        race_id: 1
+        race: $calendar.race_name
+        status_buckets:
+          $objectToArray: $sessions.race.results_by_status
+    - $unwind: $status_buckets
+    - $project:
+        _id: 0
+        race_id: 1
+        race: 1
+        status: $status_buckets.k
+        driver_count: $status_buckets.v.count
+        points_total: $status_buckets.v.points_total
+    - $match:
+        driver_count:
+          $gt: 0
+    - $sort:
+        points_total: -1
+        race_id: 1
+        status: 1
+    - $limit: 25
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind
+  - query_pattern: classification outcome filtering
+    intent: pull classified finishers from dynamic status buckets without flattening
+      the original schema
+    pipeline:
+    - $addFields:
+        status_buckets:
+          $objectToArray: $sessions.race.results_by_status
+    - $addFields:
+        native_matching_dynamic_keys:
+          $filter:
+            input: $status_buckets
+            as: bucket
+            cond:
+              $eq:
+              - $$bucket.k
+              - Finished
+    - $match:
+        $expr:
+          $gt:
+          - $size: $native_matching_dynamic_keys
+          - 0
+    - $project:
+        _id: 0
+        race_id: 1
+        race: $calendar.race_name
+        finished:
+          $arrayElemAt:
+          - $native_matching_dynamic_keys.v
+          - 0
+    - $limit: 25
+    mongo_native_constructs:
+    - $objectToArray
+    - $filter
+    - $size
+- id: race_weekends_v2.laps_by_number
+  type: dynamic_key_object
+  collection: race_weekends_v2
+  field: sessions.race.laps_by_number
+  supported_query_patterns:
+  - lap running order dynamic object
+  - lap telemetry dynamic object
+  required_native_constructs:
+  - $objectToArray
+  - $unwind
+  - $sort
+  provenance_refs:
+  - lapTimes
+  - results
+  - drivers
+  - constructors
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: lap running order dynamic object
+    intent: count lap-leading drivers by traversing the dynamic lap-number object
+    pipeline:
+    - $project:
+        race_id: 1
+        race: $calendar.race_name
+        laps:
+          $objectToArray: $sessions.race.laps_by_number
+    - $unwind: $laps
+    - $unwind: $laps.v.running_order
+    - $match:
+        laps.v.running_order.position: 1
+    - $group:
+        _id:
+          race_id: $race_id
+          driver: $laps.v.running_order.driver.ref
+        race:
+          $first: $race
+        led_laps:
+          $sum: 1
+    - $sort:
+        led_laps: -1
+        _id.race_id: 1
+        _id.driver: 1
+    - $limit: 25
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind
+    - $group
+  - query_pattern: lap telemetry dynamic object
+    intent: extract first-place lap telemetry from dynamic lap-number buckets
+    pipeline:
+    - $project:
+        race_id: 1
+        race: $calendar.race_name
+        laps:
+          $objectToArray: $sessions.race.laps_by_number
+    - $unwind: $laps
+    - $project:
+        _id: 0
+        race_id: 1
+        race: 1
+        lap: $laps.k
+        leaders:
+          $filter:
+            input: $laps.v.running_order
+            as: entry
+            cond:
+              $eq:
+              - $$entry.position
+              - 1
+    - $match:
+        $expr:
+          $gt:
+          - $size: $leaders
+          - 0
+    - $sort:
+        race_id: 1
+        lap: 1
+    - $limit: 50
+    mongo_native_constructs:
+    - $objectToArray
+    - $filter
+    - $size
+- id: race_weekends_v2.driver_pace_profiles
+  type: nested_event_stream
+  collection: race_weekends_v2
+  field: sessions.race.entries.pace_profile.laps_by_number
+  supported_query_patterns:
+  - lap telemetry dynamic object
+  - per-driver pace profile
+  required_native_constructs:
+  - $map
+  - $objectToArray
+  - $filter
+  provenance_refs:
+  - lapTimes
+  - results
+  - pitStops
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: lap telemetry dynamic object
+    intent: keep race entries whose per-driver pace profile contains lap telemetry
+    pipeline:
+    - $project:
+        race_id: 1
+        race: $calendar.race_name
+        feature_path: $sessions.race.entries.pace_profile.laps_by_number
+        entries: $sessions.race.entries
+    - $addFields:
+        native_filtered_events:
+          $filter:
+            input:
+              $ifNull:
+              - $entries
+              - []
+            as: entry
+            cond:
+              $gt:
+              - $size:
+                  $objectToArray:
+                    $ifNull:
+                    - $$entry.pace_profile.laps_by_number
+                    - {}
+              - 0
+    - $match:
+        $expr:
+          $gt:
+          - $size: $native_filtered_events
+          - 0
+    - $project:
+        _id: 0
+        race_id: 1
+        race: 1
+        native_filtered_events.driver: 1
+        native_filtered_events.pace_profile.laps_by_number: 1
+    - $limit: 25
+    mongo_native_constructs:
+    - $filter
+    - $objectToArray
+    - $size
+    - $ifNull
+  - query_pattern: per-driver pace profile
+    intent: map race entries into driver pace summaries with lap-count evidence
+    pipeline:
+    - $project:
+        race_id: 1
+        race: $calendar.race_name
+        feature_path: $sessions.race.entries.pace_profile.laps_by_number
+        native_filtered_events:
+          $filter:
+            input:
+              $ifNull:
+              - $sessions.race.entries
+              - []
+            as: entry
+            cond:
+              $gt:
+              - $size:
+                  $objectToArray:
+                    $ifNull:
+                    - $$entry.pace_profile.laps_by_number
+                    - {}
+              - 10
+    - $match:
+        $expr:
+          $gt:
+          - $size: $native_filtered_events
+          - 0
+    - $sort:
+        race_id: 1
+    - $limit: 25
+    mongo_native_constructs:
+    - $filter
+    - $objectToArray
+    - $size
+    - $ifNull
+- id: race_weekends_v2.qualifying_windows
+  type: nested_event_stream
+  collection: race_weekends_v2
+  field: sessions.qualifying.elimination_windows
+  supported_query_patterns:
+  - qualifying elimination window
+  - driver reference lookup
+  required_native_constructs:
+  - $unwind
+  - $sort
+  - $limit
+  provenance_refs:
+  - qualifying
+  - drivers
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: qualifying elimination window
+    intent: filter Q1 elimination-window entries embedded in each race weekend
+    pipeline:
+    - $project:
+        race_id: 1
+        race: $calendar.race_name
+        feature_path: $sessions.qualifying.elimination_windows
+        q1_entries:
+          $ifNull:
+          - $sessions.qualifying.elimination_windows.q1_slowest_five.entries
+          - []
+    - $addFields:
+        native_filtered_events:
+          $filter:
+            input: $q1_entries
+            as: entry
+            cond:
+              $ne:
+              - $$entry.driver.ref
+              - null
+    - $match:
+        $expr:
+          $gt:
+          - $size: $native_filtered_events
+          - 0
+    - $sort:
+        race_id: 1
+    - $limit: 25
+    mongo_native_constructs:
+    - $filter
+    - $ifNull
+    - $size
+  - query_pattern: driver reference lookup
+    intent: return qualifying elimination driver references from the nested window
+      object
+    pipeline:
+    - $project:
+        _id: 0
+        race_id: 1
+        race: $calendar.race_name
+        feature_path: $sessions.qualifying.elimination_windows
+        native_filtered_events:
+          $filter:
+            input:
+              $ifNull:
+              - $sessions.qualifying.elimination_windows.q1_slowest_five.entries
+              - []
+            as: entry
+            cond:
+              $ne:
+              - $$entry.driver.ref
+              - null
+    - $match:
+        $expr:
+          $gt:
+          - $size: $native_filtered_events
+          - 0
+    - $limit: 25
+    mongo_native_constructs:
+    - $filter
+    - $ifNull
+    - $size
+- id: f1_actor_profiles.polymorphic_profiles
+  type: polymorphic_collection
+  collection: f1_actor_profiles
+  field: entity_type
+  supported_query_patterns:
+  - driver constructor circuit profile union
+  - actor career history by year
+  required_native_constructs:
+  - $match
+  - $project
+  provenance_refs:
+  - drivers
+  - constructors
+  - circuits
+  - results
+  - races
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: driver constructor circuit profile union
+    intent: dispatch actor profile documents by driver constructor circuit subtype
+    pipeline:
+    - $addFields:
+        native_subtype_bucket:
+          $switch:
+            branches:
+            - case:
+                $eq:
+                - $entity_type
+                - driver
+              then: driver
+            - case:
+                $eq:
+                - $entity_type
+                - constructor
+              then: constructor
+            - case:
+                $eq:
+                - $entity_type
+                - circuit
+              then: circuit
+            default: other
+    - $match:
+        native_subtype_bucket:
+          $ne: other
+    - $project:
+        _id: 1
+        entity_type: 1
+        native_subtype_bucket: 1
+        driver: 1
+        constructor: 1
+        circuit: 1
+    - $sort:
+        native_subtype_bucket: 1
+        _id: 1
+    - $limit: 50
+    mongo_native_constructs:
+    - $switch
+  - query_pattern: actor career history by year
+    intent: dispatch actor profiles and expose year-keyed driver career history
+    pipeline:
+    - $addFields:
+        native_subtype_bucket:
+          $switch:
+            branches:
+            - case:
+                $eq:
+                - $entity_type
+                - driver
+              then: driver
+            - case:
+                $eq:
+                - $entity_type
+                - constructor
+              then: constructor
+            - case:
+                $eq:
+                - $entity_type
+                - circuit
+              then: circuit
+            default: other
+    - $match:
+        native_subtype_bucket: driver
+    - $project:
+        _id: 1
+        entity_type: 1
+        driver: 1
+        career_years:
+          $objectToArray: $career_by_year
+        native_subtype_bucket: 1
+    - $unwind: $career_years
+    - $project:
+        _id: 1
+        driver.ref: 1
+        year: $career_years.k
+        race_count: $career_years.v.race_count
+        points: $career_years.v.points
+        native_subtype_bucket: 1
+    - $sort:
+        points: -1
+        _id: 1
+        year: 1
+    - $limit: 50
+    mongo_native_constructs:
+    - $switch
+    - $objectToArray
+    - $unwind

@@ -1,0 +1,5 @@
+db_id: formula_1
+recipe_version: direct
+direct_conversion: true
+design_goal: database-specific semantic MongoDB materialization
+native_feature_count: 5

@@ -1,0 +1,131 @@
+db_id: toxicology
+features:
+- id: molecule_graphs.elements_by_symbol
+  type: dynamic_key_object
+  collection: molecule_graphs
+  field: chemistry.elements_by_symbol
+  supported_query_patterns:
+  - dynamic_key_comparison
+  - nested_array_filter
+  required_native_constructs:
+  - $objectToArray
+  - $filter
+  provenance_refs:
+  - atom.element
+  - atom.atom_id
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: nested_array_filter
+    intent: group atoms by element after traversing element-keyed atom arrays
+    pipeline:
+    - $project:
+        label: $identity.label
+        elements:
+          $objectToArray: $chemistry.elements_by_symbol
+    - $unwind: $elements
+    - $unwind: $elements.v.atoms
+    - $group:
+        _id: $elements.k
+        atom_count:
+          $sum: 1
+        molecules:
+          $addToSet: $_id
+    - $project:
+        atom_count: 1
+        molecule_count:
+          $size: $molecules
+    - $sort:
+        atom_count: -1
+        _id: 1
+    - $limit: 25
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind
+    - $group
+    - $size
+- id: molecule_graphs.assay_bonds_by_type
+  type: dynamic_key_object
+  collection: molecule_graphs
+  field: assay.views.bonds_by_type
+  supported_query_patterns:
+  - array_object_dynamic_key_comparison
+  required_native_constructs:
+  - $objectToArray
+  - $map
+  provenance_refs:
+  - bond.bond_type
+  - bond.bond_id
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: array_object_dynamic_key_comparison
+    intent: compare bond-type buckets inside assay views across toxicology labels
+    pipeline:
+    - $unwind: $assay.views
+    - $project:
+        label: $identity.label
+        bonds:
+          $objectToArray: $assay.views.bonds_by_type
+    - $unwind: $bonds
+    - $unwind: $bonds.v
+    - $group:
+        _id:
+          label: $label
+          bond_type: $bonds.k
+        bond_count:
+          $sum: 1
+        molecules:
+          $addToSet: $_id
+    - $project:
+        bond_count: 1
+        molecule_count:
+          $size: $molecules
+    - $sort:
+        bond_count: -1
+        _id.label: 1
+        _id.bond_type: 1
+    - $limit: 25
+    mongo_native_constructs:
+    - $objectToArray
+    - $unwind
+    - $group
+    - $size
+- id: molecule_graphs.supplemental_assay_presence_state
+  type: missing_vs_present
+  collection: molecule_graphs
+  field: assay.supplemental_panel.presence_state
+  supported_query_patterns:
+  - missing_vs_present
+  - presence_state_bucket_counts
+  required_native_constructs:
+  - $ifNull
+  provenance_refs:
+  - molecule.label
+  coverage: {}
+  pipeline_blueprints:
+  - query_pattern: presence_state_bucket_counts
+    intent: count explicit assay supplemental-panel presence states
+    pipeline:
+    - $addFields:
+        native_presence_state:
+          $ifNull:
+          - $assay.supplemental_panel.presence_state
+          - missing
+    - $group:
+        _id: $native_presence_state
+        molecule_count:
+          $sum: 1
+        examples:
+          $addToSet: $_id
+    - $project:
+        _id: 0
+        native_presence_state: $_id
+        molecule_count: 1
+        example_count:
+          $size: $examples
+    - $sort:
+        molecule_count: -1
+        native_presence_state: 1
+    mongo_native_constructs:
+    - $ifNull
+    - $group
+    - $size
