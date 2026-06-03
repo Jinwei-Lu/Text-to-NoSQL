@@ -30,7 +30,7 @@ _EN_PRESERVE = (
     "keep every",
 )
 _ZH_PRESERVE = ("附加", "增补", "标注", "就地计算", "保持原结构", "保留每个", "不改变文档数")
-_REDUCE = ("sum", "count", "average", "avg", "top", "group by", "total", "聚合", "总数", "平均")
+_REDUCE = ("sum", "count", "average", "avg", "group by", "total", "聚合", "总数", "平均")
 _RESHAPE = ("flatten", "list all", "unwind", "展开", "透视", "重塑")
 _REQUIRED_FROZEN_PANELS = ("small", "medium", "large", "frontier")
 _CONSTRUCTION_ROLE_LABELS = frozenset({"qps", "ms", "mut", "pv", "nlp", "rtv", "nnc", "ra"})
@@ -216,7 +216,7 @@ def disabled_hits_in_node(node: Any) -> list[str]:
 
 
 def render_mql(collection: str, stages: list[dict[str, Any]]) -> str:
-    payload = json.dumps(stages, ensure_ascii=False)
+    payload = json.dumps(stages, ensure_ascii=False, default=str)
     return f"db.{collection}.aggregate({payload})"
 
 
@@ -227,13 +227,10 @@ def _norm_model(model: str) -> str:
 def _model_id_set(raw: Any) -> set[str]:
     if not isinstance(raw, list):
         return set()
+    # model ids are strings; no dict wrappers in the allow_list schema
     ids: set[str] = set()
     for item in raw:
-        if isinstance(item, dict):
-            value = item.get("model_id") or item.get("id")
-        else:
-            value = item
-        normalized = _norm_model(str(value or ""))
+        normalized = _norm_model(str(item or ""))
         if normalized:
             ids.add(normalized)
     return ids
@@ -251,20 +248,24 @@ def _dedupe_model_ids(models: list[str]) -> list[str]:
     return out
 
 
-def _redact_forbidden_fields(value: Any, *, forbidden: set[str], path: str = "") -> tuple[Any, list[str]]:
+def _redact_forbidden_fields(
+    value: Any, *, forbidden: set[str], path: str = "", depth: int = 0
+) -> tuple[Any, list[str]]:
     if isinstance(value, dict):
         clean: dict[str, Any] = {}
         removed: list[str] = []
         for key, child in value.items():
             key_text = str(key)
             child_path = f"{path}.{key_text}" if path else key_text
-            if key_text in forbidden or key_text.endswith("_ref"):
+            # Only check top-level keys against forbidden; _ref stripping applies at all depths
+            if (depth == 0 and key_text in forbidden) or key_text.endswith("_ref"):
                 removed.append(child_path)
                 continue
             clean_child, child_removed = _redact_forbidden_fields(
                 child,
                 forbidden=forbidden,
                 path=child_path,
+                depth=depth + 1,
             )
             clean[key] = clean_child
             removed.extend(child_removed)
@@ -277,6 +278,7 @@ def _redact_forbidden_fields(value: Any, *, forbidden: set[str], path: str = "")
                 child,
                 forbidden=forbidden,
                 path=f"{path}[{index}]",
+                depth=depth + 1,
             )
             clean_items.append(clean_child)
             removed.extend(child_removed)

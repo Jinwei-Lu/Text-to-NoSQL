@@ -9,6 +9,11 @@ from tend.solver.per_stage import (
     PrefixExecutionRequest,
     PrefixExecutionResult,
     VariantExecution,
+    _collapsed_to_zero,
+    _emit_failure,
+    _walk_disabled,
+    CheckpointFeedback,
+    DisabledOperatorHit,
     run_per_stage_check,
 )
 
@@ -82,7 +87,12 @@ def test_doc_count_collapse_feedback_identifies_stage_and_variant() -> None:
         }
     )
 
-    result = run_per_stage_check(db_id="financial", mql=mql, executor=executor)
+    result = run_per_stage_check(
+        db_id="financial",
+        mql=mql,
+        executor=executor,
+        checkpoint=CheckpointSpec(collapse_to_zero=True),
+    )
 
     assert result.ok is False
     assert result.feedback is not None
@@ -243,3 +253,105 @@ def test_executor_exception_becomes_exec_error_feedback_with_cause() -> None:
     assert result.cause is boom
     assert result.prefixes_executed == 1
     json.dumps(result.feedback.to_log_context())
+
+
+# ─── F3: _collapsed_to_zero regression ────────────────────────────────────────
+
+
+def test_collapsed_to_zero_no_false_positive_when_input_count_is_none() -> None:
+    # output_count==0 but input_count==None must NOT trigger DOC_COUNT_COLLAPSE
+    variant = VariantExecution("v", (), input_count=None)
+    spec = CheckpointSpec(collapse_to_zero=True)
+    assert _collapsed_to_zero(variant, spec) is False
+
+
+def test_collapsed_to_zero_true_when_input_positive_and_output_zero() -> None:
+    # input_count>0 and output_count==0 with collapse_to_zero enabled => True
+    variant = VariantExecution("v", (), input_count=5)
+    spec = CheckpointSpec(collapse_to_zero=True)
+    assert _collapsed_to_zero(variant, spec) is True
+
+
+def test_collapsed_to_zero_false_when_spec_disabled() -> None:
+    # Even if input>0 and output==0, collapse_to_zero=False means no collapse flag
+    variant = VariantExecution("v", (), input_count=3)
+    spec = CheckpointSpec(collapse_to_zero=False)
+    assert _collapsed_to_zero(variant, spec) is False
+
+
+# ─── F5: _walk_disabled string-value detection ────────────────────────────────
+
+
+def test_walk_disabled_detects_operator_as_string_value() -> None:
+    # $sample appearing as a string value (not as a dict key) must be flagged
+    hits: list[DisabledOperatorHit] = []
+    _walk_disabled({"$set": {"method": "$sample"}}, "$[0]", hits)
+    tokens = [h.token for h in hits]
+    assert "$sample" in tokens
+
+
+def test_walk_disabled_detects_system_var_as_string_value() -> None:
+    # $$NOW appearing as a string value must be flagged (it's in DISABLED_SYSTEM_VARS)
+    hits: list[DisabledOperatorHit] = []
+    _walk_disabled({"$project": {"x": "$$NOW"}}, "$[0]", hits)
+    tokens = [h.token for h in hits]
+    assert "$$NOW" in tokens
+
+
+def test_walk_disabled_still_detects_operator_as_key() -> None:
+    # Original key-based detection must remain intact
+    hits: list[DisabledOperatorHit] = []
+    _walk_disabled({"$sample": {"size": 1}}, "$[1]", hits)
+    tokens = [h.token for h in hits]
+    assert "$sample" in tokens
+
+
+# ─── F4: _emit_failure / EXEC_ERROR anomaly escalation ────────────────────────
+
+
+def test_emit_failure_logs_warning_for_exec_error_without_anomaly_by_default() -> None:
+    class CapturingLogger:
+        def __init__(self) -> None:
+            self.warnings: list[str] = []
+            self.anomalies: list[object] = []
+
+        def warning(self, event: str, **_fields) -> None:
+            self.warnings.append(event)
+
+        def anomaly(self, *args, **_kwargs) -> None:
+            self.anomalies.extend(args)
+
+    feedback = CheckpointFeedback(
+        error_code=CheckpointCode.EXEC_ERROR,
+        stage_index=1,
+        message="boom",
+    )
+    logger = CapturingLogger()
+    _emit_failure(logger, feedback, cause=RuntimeError("boom"), emit_anomaly=False)
+
+    assert logger.warnings == ["solver_per_stage_checkpoint_failed"]
+    assert logger.anomalies == []
+
+
+def test_emit_failure_escalates_anomaly_for_exec_error_when_requested() -> None:
+    class CapturingLogger:
+        def __init__(self) -> None:
+            self.warnings: list[str] = []
+            self.anomalies: list[object] = []
+
+        def warning(self, event: str, **_fields) -> None:
+            self.warnings.append(event)
+
+        def anomaly(self, *args, **_kwargs) -> None:
+            self.anomalies.extend(args)
+
+    feedback = CheckpointFeedback(
+        error_code=CheckpointCode.EXEC_ERROR,
+        stage_index=2,
+        message="exec boom",
+    )
+    logger = CapturingLogger()
+    _emit_failure(logger, feedback, cause=RuntimeError("exec boom"), emit_anomaly=True)
+
+    assert logger.warnings == ["solver_per_stage_checkpoint_failed"]
+    assert len(logger.anomalies) == 1

@@ -2,17 +2,17 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import traceback
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..errors import Anomaly, PromptAnomalyError, SourceError, TendError, wrap_unexpected
-from ..execution.ast_check import parse_pipeline, scan_disabled
+from ..errors import Anomaly, SourceError, TendError, wrap_unexpected
+from ..execution.ast_check import static_mql_feedback
 from ..solver.guards import SolverBoundary, check_disjointness, load_solver_allow_list
 from ..solver.workflow import (
     NlqTrack,
+    _canonical_nlq,
     build_nlq_db_solver_input,
     build_witness_digest,
     load_solver_release_inputs,
@@ -21,11 +21,8 @@ from ..workflow import Workflow
 from .strategies import (
     BaselinePromptContext,
     BaselineSpec,
-    baseline_ids,
     resolve_baselines,
 )
-
-BASELINE_IDS = baseline_ids()
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +44,8 @@ class BaselinePrediction:
     MQL: str
     disclosure: dict[str, Any]
     steps: list[BaselineStepTrace]
+    witness_k: int = 0
+    r_max: int = 0
     static_feedback: list[dict[str, Any]] = field(default_factory=list)
     result_type: str = "baseline_prediction"
     status: str = "ok"
@@ -66,6 +65,8 @@ class BaselineFailure:
     error_code: str
     message: str
     disclosure: dict[str, Any]
+    witness_k: int = 0
+    r_max: int = 0
     steps: list[BaselineStepTrace] = field(default_factory=list)
     static_feedback: list[dict[str, Any]] = field(default_factory=list)
     result_type: str = "baseline_failure"
@@ -167,12 +168,16 @@ async def run_baseline_suite(
     ]
     try:
         completed = await asyncio.gather(*tasks)
-    except Exception:
+    except Exception as first_exc:
         for task in tasks:
             if not task.done():
                 task.cancel()
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for exc in results:
+            # The originating exception already propagated (and run_baseline_record logs
+            # per-record); skip it here so we do not double-log the same failure.
+            if exc is first_exc:
+                continue
             if isinstance(exc, Exception) and not isinstance(exc, asyncio.CancelledError):
                 log.anomaly(wrap_unexpected(exc, stage="baseline_suite_gather"))
         raise
@@ -198,9 +203,12 @@ async def run_baseline_record(
     safe = boundary.sanitize_test_record(record)
     db_id = str(safe["db_id"])
     record_id = safe.get("record_id")
-    disclosure = _baseline_disclosure(wf, spec)
+    disclosure = _baseline_disclosure(wf, spec, witness_k=witness_k)
     try:
-        nlq = _canonical_nlq(safe)
+        # NOTE: records with a blank canonical NLQ now follow the shared solver resolution
+        # policy (falling back to colloquial/NLQ/query fields) instead of raising; baselines
+        # disclose only the canonical track, so use_colloquial=False keeps that boundary.
+        nlq = _canonical_nlq(safe, use_colloquial=False)
     except TendError as err:
         err.with_context(baseline_id=spec.id, db_id=db_id, record_id=record_id)
         base_log.anomaly(err)
@@ -212,6 +220,8 @@ async def run_baseline_record(
             error_code=err.anomaly.value if err.anomaly else "prompt_error",
             message=err.message,
             disclosure=disclosure,
+            witness_k=witness_k,
+            r_max=0,
         )
     schema_summary = summarize_schema(schema)
     witness_digest = build_witness_digest(local_data, witness_k)
@@ -260,10 +270,11 @@ async def run_baseline_record(
     state: dict[str, Any] = {}
     traces: list[BaselineStepTrace] = []
     static_feedback: list[dict[str, Any]] = []
+    final_feedback: list[dict[str, Any]] = []
     try:
         for step in spec.steps:
             if spec.id == "static_self_debug" and step.id == "repair":
-                static_feedback = _static_feedback(state.get("MQL"))
+                static_feedback = static_mql_feedback(_extract_mql(state))
                 state["static_feedback"] = static_feedback
             output, trace = await _run_step(
                 ctx, spec, step, prompt_ctx, state, group, batch_index=batch_index
@@ -272,7 +283,7 @@ async def run_baseline_record(
             state.update(output)
 
         mql = _extract_mql(state)
-        final_feedback = _static_feedback(mql)
+        final_feedback = static_mql_feedback(mql)
         static_feedback = static_feedback or final_feedback
         if any(item["severity"] == "error" for item in final_feedback):
             log.anomaly(
@@ -289,6 +300,8 @@ async def run_baseline_record(
                 error_code="STATIC_INVALID_MQL",
                 message="baseline produced statically invalid MQL",
                 disclosure=disclosure,
+                witness_k=witness_k,
+                r_max=0,
                 steps=traces,
                 static_feedback=final_feedback,
             )
@@ -306,6 +319,8 @@ async def run_baseline_record(
             db_id=db_id,
             MQL=mql,
             disclosure=disclosure,
+            witness_k=witness_k,
+            r_max=0,
             steps=traces,
             static_feedback=final_feedback,
         )
@@ -321,8 +336,10 @@ async def run_baseline_record(
             error_code=err.anomaly.value if err.anomaly else "tend_error",
             message=err.message,
             disclosure=disclosure,
+            witness_k=witness_k,
+            r_max=0,
             steps=traces,
-            static_feedback=static_feedback,
+            static_feedback=final_feedback or static_feedback,
         )
     except Exception as exc:  # noqa: BLE001 - baseline runs should continue across records
         err = wrap_unexpected(
@@ -341,8 +358,10 @@ async def run_baseline_record(
             error_code="internal",
             message=err.message,
             disclosure=disclosure,
+            witness_k=witness_k,
+            r_max=0,
             steps=traces,
-            static_feedback=static_feedback,
+            static_feedback=final_feedback or static_feedback,
         )
 
 
@@ -406,7 +425,10 @@ def summarize_schema(schema: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(collections, dict):
         collections = {
             key: value for key, value in schema.items()
-            if isinstance(value, dict) and key not in {"db_id", "metadata"}
+            if (
+                isinstance(value, dict)
+                and key not in {"db_id", "metadata", "structure_audit", "structure_gate"}
+            )
         }
     summary: dict[str, Any] = {"collections": {}}
     for name, coll in sorted(collections.items()):
@@ -424,7 +446,9 @@ def summarize_schema(schema: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
-def _baseline_disclosure(wf: Workflow, spec: BaselineSpec) -> dict[str, Any]:
+def _baseline_disclosure(
+    wf: Workflow, spec: BaselineSpec, *, witness_k: int
+) -> dict[str, Any]:
     model_ids = [wf.ctx.settings.llm.model, *wf.ctx.settings.llm.agent_models.values()]
     allow_list = load_solver_allow_list(wf.ctx.settings.paths.schemas)
     disjointness = check_disjointness(
@@ -444,50 +468,11 @@ def _baseline_disclosure(wf: Workflow, spec: BaselineSpec) -> dict[str, Any]:
         "disjointness_ok": disjointness["ok"],
         "disjointness_detail": disjointness,
         "limitations": list(spec.limitations),
+        "r_max": 0,  # baselines have no retry loop
+        "witness_k": witness_k,
     }
-
-
-def _static_feedback(mql: Any) -> list[dict[str, Any]]:
-    text = str(mql or "")
-    if not text.strip():
-        return [{"severity": "error", "code": "EMPTY_MQL", "message": "MQL is empty"}]
-    feedback: list[dict[str, Any]] = []
-    try:
-        collection, pipeline = parse_pipeline(text)
-        feedback.append({
-            "severity": "info",
-            "code": "PARSE_OK",
-            "collection": collection,
-            "stages": len(pipeline),
-        })
-    except Exception as exc:  # noqa: BLE001 - parser details belong in feedback
-        feedback.append({
-            "severity": "error",
-            "code": "PARSE_ERROR",
-            "message": str(exc),
-        })
-        return feedback
-    disabled = scan_disabled(text)
-    if disabled:
-        feedback.append({
-            "severity": "error",
-            "code": "DISABLED_OPERATOR",
-            "operators": disabled,
-        })
-    return feedback
 
 
 def _extract_mql(state: dict[str, Any]) -> str:
     value = state.get("MQL") or state.get("mql")
     return str(value or "")
-
-
-def _canonical_nlq(record: dict[str, Any]) -> str:
-    nl_queries = record.get("nl_queries")
-    canonical = nl_queries.get("canonical") if isinstance(nl_queries, dict) else None
-    if isinstance(canonical, str) and canonical.strip():
-        return canonical
-    raise PromptAnomalyError(
-        "baseline record missing canonical NLQ",
-        context={"record_id": record.get("record_id"), "db_id": record.get("db_id")},
-    )

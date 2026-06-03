@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
 
 from ..solver.workflow import SmartSolveOptions
 
@@ -14,10 +13,6 @@ class AblationSpec:
     description: str
     options: SmartSolveOptions
     limitations: tuple[str, ...]
-
-
-def all_ablations() -> Mapping[str, AblationSpec]:
-    return _ABLATIONS
 
 
 def ablation_ids() -> tuple[str, ...]:
@@ -58,15 +53,14 @@ _ABLATIONS: dict[str, AblationSpec] = {
     ),
     "no_shape_model": AblationSpec(
         id="no_shape_model",
+        # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix CF3/F2)
         title="No shape model",
-        description="Bypass shape comprehension and use a flat, variant-free schema view.",
+        description="Bypass shape comprehension while leaving schema variants and witness strata intact.",
         options=_options(
             "no_shape_model",
             use_shape_comprehension=False,
-            use_schema_variants=False,
-            allow_local_witness_strata=False,
         ),
-        limitations=("no shape probes", "schema variants removed", "no witness-inferred strata"),
+        limitations=("no shape probes",),
     ),
     "no_schema_variants": AblationSpec(
         id="no_schema_variants",
@@ -74,6 +68,14 @@ _ABLATIONS: dict[str, AblationSpec] = {
         description="Keep shape probes but remove public __variants/schema_flex hints from schema.",
         options=_options("no_schema_variants", use_schema_variants=False),
         limitations=("public variant hints removed",),
+    ),
+    "no_witness_strata": AblationSpec(
+        id="no_witness_strata",
+        # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix CF3/F2)
+        title="No witness strata",
+        description="Disable witness-inferred local strata while keeping shape probes and schema variants.",
+        options=_options("no_witness_strata", allow_local_witness_strata=False),
+        limitations=("no witness-inferred strata",),
     ),
     "canonical_only": AblationSpec(
         id="canonical_only",

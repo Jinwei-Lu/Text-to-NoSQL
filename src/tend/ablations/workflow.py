@@ -9,17 +9,18 @@ from pathlib import Path
 from typing import Any
 
 from ..errors import Anomaly, SourceError, TendError, wrap_unexpected
-from ..execution.ast_check import parse_pipeline, scan_disabled
+from ..execution.ast_check import static_mql_feedback
 from ..solver.workflow import (
     NlqTrack,
     SmartSolveOptions,
+    SolverFailure,
     build_nlq_db_solver_input,
     build_witness_digest,
     load_solver_release_inputs,
     smart_solve_record,
 )
 from ..workflow import Workflow
-from .strategies import ABLATION_IDS, AblationSpec, resolve_ablations
+from .strategies import AblationSpec, resolve_ablations
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,7 +294,7 @@ async def run_ablation_record(
             options=options,
             witness_preloaded=witness_preloaded,
         )
-        if result.__class__.__name__ == "SolverFailure":
+        if isinstance(result, SolverFailure):
             payload = result.to_json()
             refs = _llm_refs_for(wf, spec.id, db_id, record_id)
             failure = _failure_from_solver_payload(
@@ -467,7 +468,7 @@ def _prediction_from_solver_payload(
         logical_spec=logical,
         physical_plan=physical,
         feedback=feedback,
-        static_feedback=_static_feedback(mql),
+        static_feedback=static_mql_feedback(mql),
         transcript_refs=transcript_refs,
         diagnostics_refs=diagnostics_refs,
         events_path="events.jsonl",
@@ -488,6 +489,7 @@ def _failure_from_solver_payload(
     feedback = list(payload.get("feedback") or [])
     physical = dict(payload.get("physical_plan") or {})
     logical = dict(payload.get("logical_spec") or {})
+    static_feedback = static_mql_feedback(str(payload.get("MQL") or ""))
     return AblationFailure(
         run_id=wf.ctx.settings.run_id,
         ablation_id=spec.id,
@@ -515,7 +517,7 @@ def _failure_from_solver_payload(
         logical_spec=logical,
         physical_plan=physical,
         feedback=feedback,
-        static_feedback=[],
+        static_feedback=static_feedback,
         transcript_refs=transcript_refs,
         diagnostics_refs=diagnostics_refs,
     )
@@ -543,6 +545,8 @@ def _failure_from_error(
         db_id=db_id,
         error_code=err.anomaly.value if err.anomaly else "tend_error",
         message=err.message,
+        # attempts=0 is a sentinel: the error fired pre-loop / before any solve attempt, so
+        # the true attempt count is unknown (distinct from a genuine single-attempt run).
         attempts=0,
         r_max=int(options.r_max or 0),
         witness_k=int(options.witness_k or 0),
@@ -572,19 +576,25 @@ def _disclosure(
         "solver_variant": options.solver_variant,
         "options": options.to_json(),
         "limitations": list(spec.limitations),
+        # Hoist the comparable fields to the top level so ablation disclosures line up
+        # with the baseline _baseline_disclosure shape; the full object stays nested below.
+        "backbone": solver_disclosure.get("backbone"),
+        "disjointness_ok": solver_disclosure.get("disjointness_ok"),
+        "s_solver": solver_disclosure.get("s_solver"),
+        "r_max": solver_disclosure.get("r_max"),
+        "witness_k": solver_disclosure.get("witness_k"),
+        "no_training": solver_disclosure.get("no_training"),
         "solver_disclosure": solver_disclosure,
     }
 
 
 def _attempt_count(feedback: list[dict[str, Any]]) -> int:
+    # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix H6)
+    # feedback_log holds only failed attempts; the winning (final) attempt is not appended,
+    # so the total attempt count is the number of failed attempts plus the successful one.
     if not feedback:
         return 1
-    attempts = [
-        int(item["attempt"])
-        for item in feedback
-        if isinstance(item, dict) and isinstance(item.get("attempt"), int)
-    ]
-    return max(attempts) + 1 if attempts else len(feedback) + 1
+    return len(feedback) + 1
 
 
 def _witness_counts(
@@ -598,30 +608,6 @@ def _witness_counts(
         for collection, info in digest.items()
         if isinstance(info, dict)
     }
-
-
-def _static_feedback(mql: str) -> list[dict[str, Any]]:
-    if not mql.strip():
-        return [{"severity": "error", "code": "EMPTY_MQL", "message": "MQL is empty"}]
-    feedback: list[dict[str, Any]] = []
-    try:
-        collection, pipeline = parse_pipeline(mql)
-        feedback.append({
-            "severity": "info",
-            "code": "PARSE_OK",
-            "collection": collection,
-            "stages": len(pipeline),
-        })
-    except Exception as exc:  # noqa: BLE001 - parser details belong in diagnostics
-        return [{"severity": "error", "code": "PARSE_ERROR", "message": str(exc)}]
-    disabled = scan_disabled(mql)
-    if disabled:
-        feedback.append({
-            "severity": "error",
-            "code": "DISABLED_OPERATOR",
-            "operators": disabled,
-        })
-    return feedback
 
 
 def _llm_refs_for(
@@ -654,7 +640,6 @@ def _llm_refs_for(
 
 
 __all__ = [
-    "ABLATION_IDS",
     "AblationFailure",
     "AblationPrediction",
     "run_ablation_record",

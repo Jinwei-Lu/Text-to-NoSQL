@@ -6,8 +6,39 @@ from typing import Any
 
 import tend.solver.workflow as solver_workflow
 from tend.agents import AgentContext
-from tend.solver.agents import SmartNosqlPlanner, SmartShapeProbe, SmartShapeReduce
+from tend.solver.agents import (
+    SmartNosqlPlanner,
+    SmartShapeProbe,
+    SmartShapeReduce,
+    _collection_shape,
+)
 from tend.solver.introspection import introspect_solver_database
+
+
+def _flat_collection_docs() -> dict[str, list[dict[str, Any]]]:
+    """A FLAT collection: nested objects + arrays allowed, but no dynamic-key maps
+    and no present/missing/empty/null presence sentinels."""
+    return {
+        "orders": [
+            {
+                "_id": "order:1",
+                "customer_name": "Alice",
+                "total": 120,
+                "address": {"city": "Brno", "zip": "60200"},
+                "line_items": [
+                    {"sku": "A1", "qty": 2, "price": 30},
+                    {"sku": "A2", "qty": 1, "price": 60},
+                ],
+            },
+            {
+                "_id": "order:2",
+                "customer_name": "Bob",
+                "total": 80,
+                "address": {"city": "Praha", "zip": "11000"},
+                "line_items": [{"sku": "B2", "qty": 1, "price": 80}],
+            },
+        ]
+    }
 
 
 def _manual_native_docs() -> dict[str, list[dict[str, Any]]]:
@@ -455,4 +486,96 @@ def test_planner_preserve_contract_allows_id_as_retained_identity_field() -> Non
         violation.startswith("preserve target_fields missing")
         and "_id" in violation
         for violation in violations
+    )
+
+
+def test_flat_nlq_db_collection_does_not_synthesize_none_shape_flex_signature() -> None:
+    """[HEADLINE] A FLAT collection (no dynamic keys, no presence sentinels; arrays
+    allowed) reached through the NLQ+DB introspection path must summarize to
+    schema_flex='none', and that must NOT leak into a shape_flex_signature
+    containing 'none' once probed/reduced into the shape model."""
+    mongo = _SnapshotMongo(_flat_collection_docs())
+
+    snapshot = introspect_solver_database(mongo, "flat_shop", sample_size=5)
+    collection_schema = snapshot.schema["collections"]["orders"]
+
+    # The fix: a flat collection is schema_flex='none', with no dynamic-key /
+    # presence-state evidence that would otherwise force a flex signature.
+    assert collection_schema["schema_flex"] == "none"
+    assert collection_schema["dynamic_key_paths"] == []
+    assert collection_schema["presence_state_counts"] == {}
+
+    fragment = _collection_shape("orders", collection_schema)
+    assert fragment["shape_flex_signature"] == []
+    assert "none" not in fragment["shape_flex_signature"]
+
+    # And once probed + reduced (the real NLQ+DB shape stage), still no 'none'.
+    ctx = AgentContext(
+        settings=SimpleNamespace(),
+        llm=SimpleNamespace(),
+        log=_NullLog(),
+        db_id="flat_shop",
+        record_id=1,
+    )
+    probed = asyncio.run(
+        SmartShapeProbe().run(
+            ctx,
+            {"collection": "orders", "schema": collection_schema},
+        )
+    )
+    reduced = asyncio.run(SmartShapeReduce().run(ctx, {"fragments": [probed]}))
+    assert reduced["shape_flex_signature"] == []
+    assert "none" not in reduced["shape_flex_signature"]
+
+
+def test_planner_contract_does_not_require_variant_handling_for_flat_collection() -> None:
+    """[HEADLINE] With an empty shape_flex_signature (the flat-collection case), a plan
+    that omits variant_handling must NOT trip
+    'shape-flex plans must declare variant_handling'."""
+    mongo = _SnapshotMongo(_flat_collection_docs())
+    snapshot = introspect_solver_database(mongo, "flat_shop", sample_size=5)
+    collection_schema = snapshot.schema["collections"]["orders"]
+    reduced = asyncio.run(
+        SmartShapeReduce().run(
+            _shape_reduce_ctx(),
+            {"fragments": [_collection_shape("orders", collection_schema)]},
+        )
+    )
+
+    planner = SmartNosqlPlanner()
+    inputs = {
+        "logical_spec": {
+            "shape_policy": "reshape",
+            "target_fields": ["customer_name", "total"],
+        },
+        "shape_model": reduced,
+        "witness_digest": {},
+    }
+    plan_without_variant_handling = {
+        "collection": "orders",
+        "stages": [
+            {
+                "op": "$project",
+                "note": "Select requested flat fields without any variant handling.",
+                "stage": {
+                    "$project": {"_id": 0, "customer_name": 1, "total": 1}
+                },
+            }
+        ],
+        "variant_handling": [],
+    }
+
+    violations = planner.check_contract(None, inputs, plan_without_variant_handling)
+
+    assert reduced["shape_flex_signature"] == []
+    assert "shape-flex plans must declare variant_handling" not in violations
+
+
+def _shape_reduce_ctx() -> AgentContext:
+    return AgentContext(
+        settings=SimpleNamespace(),
+        llm=SimpleNamespace(),
+        log=_NullLog(),
+        db_id="flat_shop",
+        record_id=1,
     )

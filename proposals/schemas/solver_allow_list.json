@@ -14,7 +14,7 @@
   "disabled_system_vars": [
     "$$NOW"
   ],
-  "disabled_operator_note": "Six disabled operators per 01 §01-2-2; AST filter must reject all six plus $$NOW before submission.",
+  "disabled_operator_note": "Five disabled operators ($sample, $rand, $out, $merge, $function) plus one disabled system variable ($$NOW); AST filter must reject all six tokens.",
   "tier1_forbidden_glob": [
     "audit/**",
     "test.json:MQL",
@@ -232,14 +232,17 @@
       "preserve structure",
       "in place",
       "decorate",
-      "annotate"
+      "annotate",
+      "keep every"
     ],
     "nlq_keywords_zh": [
       "附加",
       "增补",
       "标注",
       "就地计算",
-      "保持原结构"
+      "保持原结构",
+      "保留每个",
+      "不改变文档数"
     ],
     "required_idiom": ["$addFields", "$set", "$map", "$reduce", "$filter"],
     "anti_patterns": ["$unwind + $group to rebuild arrays"]

@@ -188,6 +188,7 @@ class SolverDisclosure:
     backbone: str
     r_max: int
     witness_k: int
+    # Static assertions only; runtime enforcement lives in SolverBoundary.sanitize_test_record + allow_list
     no_training: bool = True
     uses_train_json: bool = False
     disjointness_ok: bool = True

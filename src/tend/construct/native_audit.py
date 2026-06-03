@@ -30,6 +30,8 @@ class NativeStructureAudit:
     dynamic_array_object_paths: list[str]
     array_object_dynamic_paths: list[str]
     presence_state_counts: dict[str, int]
+    # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix H4 re-architecture)
+    per_collection_paths: dict[str, dict[str, list[str]]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -42,6 +44,10 @@ class NativeStructureAudit:
             "dynamic_array_object_paths": list(self.dynamic_array_object_paths),
             "array_object_dynamic_paths": list(self.array_object_dynamic_paths),
             "presence_state_counts": dict(self.presence_state_counts),
+            "per_collection_paths": {
+                collection: {key: list(values) for key, values in paths.items()}
+                for collection, paths in self.per_collection_paths.items()
+            },
         }
 
 
@@ -86,6 +92,23 @@ def audit_database_structure(
         path: _length_stats(lengths)
         for path, lengths in sorted(state.array_lengths.items())
     }
+    # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix H4 re-architecture)
+    per_collection_paths: dict[str, dict[str, list[str]]] = {}
+    for collection, docs in sorted(data.items()):
+        coll_state = _AuditState()
+        for doc in docs:
+            if isinstance(doc, dict):
+                _walk(doc, path=(), tokens=("object",), state=coll_state, depth=1)
+        per_collection_paths[collection] = {
+            "dynamic_key_paths": sorted(coll_state.dynamic_key_samples),
+            "nested_array_paths": sorted(coll_state.array_lengths),
+            "dynamic_array_object_paths": sorted(coll_state.dynamic_array_object_paths),
+            "array_object_dynamic_paths": sorted(coll_state.array_object_dynamic_paths),
+            "presence_state_counts": [
+                f"{state_name}:{count}"
+                for state_name, count in sorted(coll_state.presence_state_counts.items())
+            ],
+        }
     return NativeStructureAudit(
         db_id=db_id,
         collection_counts=collection_counts,
@@ -96,6 +119,7 @@ def audit_database_structure(
         dynamic_array_object_paths=sorted(state.dynamic_array_object_paths),
         array_object_dynamic_paths=sorted(state.array_object_dynamic_paths),
         presence_state_counts=dict(sorted(state.presence_state_counts.items())),
+        per_collection_paths=per_collection_paths,
     )
 
 

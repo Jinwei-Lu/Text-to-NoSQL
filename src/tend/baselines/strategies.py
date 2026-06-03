@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping
+from typing import Any, Callable
 
 from ..llm import Message
 
@@ -84,10 +84,6 @@ class BaselineSpec:
     description: str
     steps: tuple[BaselineStep, ...]
     limitations: tuple[str, ...]
-
-
-def all_baselines() -> Mapping[str, BaselineSpec]:
-    return _BASELINES
 
 
 def baseline_ids() -> tuple[str, ...]:
@@ -201,6 +197,8 @@ def _sql_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
     body += (
         "\n\nFirst express the intent as ordinary SQL over the relational-style public "
         "schema. This SQL is an intermediate sketch only."
+        "\n\nReturn JSON with fields `SQL` (the SQL sketch) and `notes` "
+        "(assumptions/caveats)."
     )
     return [
         {"role": "system", "content": _system(
@@ -229,7 +227,11 @@ def _sql_to_mql_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Mes
 
 def _plan_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
     body = _base_user(ctx, include_full_schema=True, include_witness=False)
-    body += "\n\nReturn a compact query plan, not MQL."
+    body += (
+        "\n\nReturn a compact query plan, not MQL."
+        "\n\nReturn JSON with fields `target_collection` (string), `steps` (array of "
+        "strings), and `risks` (array of strings)."
+    )
     return [
         {"role": "system", "content": _system(
             "Plan-then-query baseline step 1",
@@ -258,8 +260,9 @@ def _plan_to_mql_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Me
 def _react_reason_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
     body = _base_user(ctx, include_full_schema=True, include_witness=False)
     body += (
-        "\n\nSimulate one ReAct thought step. You may request public schema/sample "
-        "observations, but no execution or gold-query observations."
+        "\n\nSimulate one ReAct thought step. The next step will provide the full public "
+        "schema and witness digest as the single observation packet; no execution or "
+        "gold-query observations are available."
     )
     return [
         {"role": "system", "content": _system(
@@ -287,7 +290,7 @@ def _react_mql_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Mess
             ctx,
             merged,
             include_full_schema=True,
-            include_witness=True,
+            include_witness=False,
             extra="Produce the final MQL after one ReAct-style thought and observation.",
         ),
     ]
@@ -425,3 +428,6 @@ _BASELINES: dict[str, BaselineSpec] = {
         limitations=("one repair", "static feedback only", "no execution feedback"),
     ),
 }
+
+
+BASELINE_IDS = baseline_ids()

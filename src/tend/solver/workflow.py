@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
-from ..errors import Anomaly, PromptAnomalyError, TendError
+from ..errors import Anomaly, DisabledOperatorError, PromptAnomalyError, TendError
 from ..workflow import Workflow
 from . import agents as _agents  # noqa: F401 - import registers SMART agents
 from .contracts import LogicalSpec, PhysicalPlan, SolverDisclosure, SolverPrediction
@@ -434,19 +434,44 @@ def _merge_structure_audit(
         if collection in collection_counts:
             out["document_count"] = collection_counts[collection]
 
-    dynamic_paths: list[str] = []
-    dynamic_samples: dict[str, list[str]] = {}
+    # Global dynamic-key sample map (path -> sample keys); used by both branches below.
+    global_samples: dict[str, list[str]] = {}
     for item in audit.get("dynamic_key_paths") or []:
         if isinstance(item, dict):
             path = str(item.get("path") or "")
-            if not path:
-                continue
-            dynamic_paths.append(path)
             samples = item.get("sample_keys")
-            if isinstance(samples, list):
-                dynamic_samples[path] = [str(sample) for sample in samples]
-        else:
-            dynamic_paths.append(str(item))
+            if path and isinstance(samples, list):
+                global_samples[path] = [str(sample) for sample in samples]
+
+    per_collection = audit.get("per_collection_paths")
+    if isinstance(per_collection, dict) and per_collection:
+        # New artifacts: merge ONLY this collection's paths, so one collection is never
+        # polluted with another collection's structure (review fix H4 re-architecture).
+        per = per_collection.get(collection, {})
+        dynamic_paths = [str(path) for path in per.get("dynamic_key_paths") or []]
+        array_paths_src = per.get("nested_array_paths")
+        dynamic_array_object_src = per.get("dynamic_array_object_paths")
+        array_object_dynamic_src = per.get("array_object_dynamic_paths")
+        presence = _presence_state_counts_from_per(per.get("presence_state_counts"))
+    else:
+        # Backward-compat: pre-per_collection artifacts fall back to the global projection.
+        # Single-collection native designs are exact; legacy multi-collection ones stay
+        # imperfect until release artifacts are rebuilt with per_collection_paths.
+        # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix H4 re-architecture)
+        dynamic_paths = [
+            str(item.get("path") or "")
+            for item in audit.get("dynamic_key_paths") or []
+            if isinstance(item, dict) and item.get("path")
+        ]
+        array_paths_src = audit.get("nested_array_paths")
+        dynamic_array_object_src = audit.get("dynamic_array_object_paths")
+        array_object_dynamic_src = audit.get("array_object_dynamic_paths")
+        raw_presence = audit.get("presence_state_counts")
+        presence = dict(raw_presence) if isinstance(raw_presence, dict) else {}
+
+    dynamic_samples = {
+        path: global_samples[path] for path in dynamic_paths if path in global_samples
+    }
 
     out["dynamic_key_paths"] = _merge_str_lists(out.get("dynamic_key_paths"), dynamic_paths)
     out["dynamic_key_samples"] = {
@@ -456,17 +481,17 @@ def _merge_structure_audit(
         },
         **dynamic_samples,
     }
-    out["array_paths"] = _merge_str_lists(out.get("array_paths"), audit.get("nested_array_paths"))
+    out["array_paths"] = _merge_str_lists(out.get("array_paths"), array_paths_src)
     out["dynamic_array_object_paths"] = _merge_str_lists(
         out.get("dynamic_array_object_paths"),
-        audit.get("dynamic_array_object_paths"),
+        dynamic_array_object_src,
     )
     out["array_object_dynamic_paths"] = _merge_str_lists(
         out.get("array_object_dynamic_paths"),
-        audit.get("array_object_dynamic_paths"),
+        array_object_dynamic_src,
     )
-    if not out.get("presence_state_counts") and isinstance(audit.get("presence_state_counts"), dict):
-        out["presence_state_counts"] = dict(audit["presence_state_counts"])
+    if not out.get("presence_state_counts") and presence:
+        out["presence_state_counts"] = presence
     return out
 
 
@@ -479,6 +504,21 @@ def _merge_str_lists(left: Any, right: Any) -> list[str]:
             merged.append(text)
             seen.add(text)
     return merged
+
+
+def _presence_state_counts_from_per(raw: Any) -> dict[str, int]:
+    """Parse per-collection presence-state ``state:count`` entries into a count map."""
+    counts: dict[str, int] = {}
+    for entry in raw or []:
+        text = str(entry)
+        name, _sep, count = text.rpartition(":")
+        if not name:
+            continue
+        try:
+            counts[name] = int(count)
+        except ValueError:
+            continue
+    return counts
 
 
 def realize_plan_per_stage(
@@ -553,7 +593,10 @@ def realize_plan_per_stage(
     )
     if result.ok:
         mql = result.final_mql or mql
-        boundary.assert_no_disabled(mql)
+        try:
+            boundary.assert_no_disabled(mql)
+        except TendError as err:
+            return _realization_boundary_failure(err, attempt=attempt)
         return {"ok": True, "mql": mql, "feedback": None}
     feedback = result.feedback.to_log_context() if result.feedback else None
     return {"ok": False, "mql": None, "feedback": feedback}
@@ -605,7 +648,14 @@ def realize_plan_whole_query(
         }
     try:
         docs = ctx.mongo.norm_exec(db_id, mql)
+    except DisabledOperatorError as err:
+        # Disabled-operator / boundary violations remain terminal, matching the other modes.
+        return _realization_boundary_failure(err, attempt=attempt)
     except Exception as exc:  # noqa: BLE001 - executor feedback is an ablation signal
+        # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix H1)
+        # A transient Mongo execution error (e.g. ExecutionError from norm_exec) is retryable
+        # feedback (boundary_failure=False) so the main loop retries up to r_max, symmetric with
+        # the per_stage realization mode.
         return {
             "ok": False,
             "mql": None,
@@ -615,7 +665,7 @@ def realize_plan_whole_query(
                 "failing_variant": None,
                 "suspect_field": None,
                 "message": str(exc)[:500],
-                "boundary_failure": True,
+                "boundary_failure": False,
                 "attempt": attempt,
             },
         }
@@ -810,7 +860,8 @@ def _string_values_in_sample(docs: list[dict[str, Any]]) -> dict[str, list[str]]
                 for subkey, subvalue in value.items():
                     if isinstance(subvalue, str):
                         values.setdefault(f"{key}.{subkey}", set()).add(subvalue)
-    return {key: sorted(vals)[:8] for key, vals in sorted(values.items())}
+    # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix F9)
+    return {key: sorted(vals)[:24] for key, vals in sorted(values.items())}
 
 
 def collapsed_shape_model(schema: dict[str, Any]) -> dict[str, Any]:
@@ -888,6 +939,8 @@ def _solver_native_task_context(record: dict[str, Any]) -> dict[str, Any]:
     """Extract solver-visible native schema-flex hints without gold or template leakage."""
 
     out: dict[str, Any] = {}
+    # NOTE: anti_sql_transfer_level / anti_sql_transfer_evidence are intentionally omitted:
+    # they are operator-hint leakage not on the solver allow_list (review fix F6).
     for key in (
         "schema_flex",
         "schema_feature",
@@ -895,8 +948,6 @@ def _solver_native_task_context(record: dict[str, Any]) -> dict[str, Any]:
         "native_feature_type",
         "native_query_pattern",
         "mongo_native_constructs",
-        "anti_sql_transfer_level",
-        "anti_sql_transfer_evidence",
     ):
         value = record.get(key)
         if value not in (None, "", [], {}):
@@ -1075,28 +1126,26 @@ def _prune_shape_collection_for_native_context(
     if not hints:
         return collection_shape
     out = dict(collection_shape)
+    # Hints are non-empty here; for keys that ARE present, reassign the filtered list
+    # (so a no-match prunes to empty rather than leaking the full unpruned list) — but do
+    # NOT introduce keys the collection did not already carry (review fix F2/ADDED).
     for key in ("dynamic_key_paths", "array_paths", "dynamic_array_object_paths", "array_object_dynamic_paths"):
-        values = [str(path) for path in out.get(key) or [] if _path_matches_any_hint(str(path), hints)]
-        if values:
-            out[key] = values
+        if key in out:
+            out[key] = [str(path) for path in out.get(key) or [] if _path_matches_any_hint(str(path), hints)]
     samples = out.get("dynamic_key_samples")
     if isinstance(samples, Mapping):
-        pruned_samples = {
-            str(path): samples
-            for path, samples in samples.items()
+        out["dynamic_key_samples"] = {
+            str(path): sample
+            for path, sample in samples.items()
             if _path_matches_any_hint(str(path), hints)
         }
-        if pruned_samples:
-            out["dynamic_key_samples"] = pruned_samples
     loci = out.get("field_locus")
     if isinstance(loci, Mapping):
-        pruned_loci = {
+        out["field_locus"] = {
             str(path): entries
             for path, entries in loci.items()
             if _path_matches_any_hint(str(path), hints)
         }
-        if pruned_loci:
-            out["field_locus"] = pruned_loci
     return out
 
 
@@ -1292,16 +1341,23 @@ class _MongoPrefixExecutor:
             return local_count
         try:
             if stratum is None:
-                return int(self._mongo.count(request.db_id, request.collection))
+                # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix DOC_COUNT_COLLAPSE)
+                # The executed prefix is $limit(_PER_STAGE_PREFIX_INPUT_LIMIT)-bounded, so the
+                # comparable input size is capped; returning the full-collection count caused
+                # false DOC_COUNT_COLLAPSE feedback.
+                count = int(self._mongo.count(request.db_id, request.collection))
+                return min(count, _PER_STAGE_PREFIX_INPUT_LIMIT)
             connect = getattr(self._mongo, "_connect", None)
             db_name = getattr(self._mongo, "_db_name", None)
             if callable(connect) and callable(db_name):
                 client = connect()
-                return int(
+                # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix DOC_COUNT_COLLAPSE)
+                count = int(
                     client[db_name(request.db_id)][request.collection].count_documents(
                         stratum.selector
                     )
                 )
+                return min(count, _PER_STAGE_PREFIX_INPUT_LIMIT)
         except Exception:  # noqa: BLE001 - counts are diagnostic, not execution truth
             return None
         return None
@@ -1534,6 +1590,10 @@ class _NoopPrefixExecutor:
         from .per_stage import PrefixExecutionResult
 
         fields = self._required_fields_by_stage.get(request.stage_index, ())
-        doc = {"_id": 1}
-        doc.update({field: 1 for field in fields})
+        doc: dict[str, Any] = {"_id": 1}
+        for field in fields:
+            if "." in field:
+                _set_path(doc, field, 1)
+            else:
+                doc[field] = 1
         return PrefixExecutionResult.single_variant([doc], variant="stub", input_count=1)

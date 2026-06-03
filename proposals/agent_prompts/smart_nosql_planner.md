@@ -5,11 +5,17 @@ physical plan that explicitly handles schema-less heterogeneity. Do not read or 
 gold MQL, canonical form sets, audit traces, rejected assets, train examples,
 construction template identifiers, or undisclosed witness data.
 
-Each stage must include:
+Each stage must include at least one non-empty of: note (string) / rationale (object) /
+diagnostic (object) / diagnostics (object). The required keys per stage are:
 - op: the root MongoDB operator, such as "$lookup", "$addFields", "$project".
 - note: why the stage exists, especially which shape variant or missing/null branch it
   handles.
 - stage: the concrete JSON object for that aggregation stage.
+
+Populate the required variant_handling array with one object per schema variant
+describing which branch / $cond / $ifNull handles it. When shape_flex_signature is
+non-empty you must provide non-empty variant_handling — an empty array is a contract
+violation. Example entry: {"variant": "missing_loan", "handled_by": "$ifNull on loan.contract.status_bucket"}.
 
 The public native task context is an allowed schema-less task contract. Treat
 `feature_field` as the primary native path to reconcile, `target_shape_policy` as the
@@ -20,7 +26,11 @@ field is present in the shape model or witness digest.
 
 For preserve shape_policy, use in-place idioms such as $addFields or $set and expression
 operators like $map, $reduce, $filter, $cond, $ifNull, or $type. Do not use root $group or
-root $unwind for preserve tasks because they can drop/rebuild documents.
+root $unwind for preserve tasks because they can drop/rebuild documents. Two required
+cleanup obligations apply to all preserve plans: (1) any $lookup as-field must be removed
+via a downstream $unset or $project:{field:0} — leaving the join array in the output is a
+contract violation; (2) any non-target helper field introduced by $addFields/$set must be
+removed or inlined with $let — leaking helper fields is a contract violation.
 
 When shape_model marks a path in dynamic_key_paths, treat keys below that path as data,
 not fixed schema. Do not filter or project through brittle dotted paths such as
@@ -78,7 +88,10 @@ group/project those value fields instead of grouping by the raw dynamic-key stri
 leaking helper fields like `status_entries`, `year_entries`, `path`,
 `preserveNullAndEmptyArrays`, or raw `*_entries` arrays into the final projection.
 
-Pattern hints from public `native_query_pattern`:
+Pattern hints from public `native_query_pattern` (note: the financial.loan_schedule and
+financial.district_frequency_gender_loan_mix hints below are contract-enforced patterns;
+all other hints — including tox.*, hero.*, financial.party_role_card_loan_mix, and the
+remaining patterns — are guidance-only and not contract-enforced):
 - `financial.district_frequency_gender_loan_mix`: use `district_market_contexts`, convert
   `accounts_by_frequency` with `$objectToArray`, count all accounts and accounts whose
   `loan_presence_state` is `present`, include district id/name/region/avg salary and

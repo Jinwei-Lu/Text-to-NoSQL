@@ -135,7 +135,7 @@ class CheckpointSpec:
 
     target_fields: tuple[str, ...] = ()
     required_fields_by_stage: Mapping[int, tuple[str, ...]] = field(default_factory=dict)
-    collapse_to_zero: bool = True
+    collapse_to_zero: bool = False
 
     def fields_for_stage(self, stage_index: int) -> tuple[str, ...]:
         return self.required_fields_by_stage.get(stage_index, self.target_fields)
@@ -256,7 +256,7 @@ def run_per_stage_check(
             prefix_result = normalize_prefix_result(raw_result)
         except Exception as exc:  # noqa: BLE001 - executor boundaries normalize all backends
             feedback = _exec_error_feedback(request, exc)
-            _emit_failure(logger, feedback, exc)
+            _emit_failure(logger, feedback, exc, emit_anomaly=True)
             return PerStageResult(
                 ok=False,
                 collection=collection,
@@ -417,7 +417,8 @@ def _walk_disabled(node: Any, path: str, hits: list[DisabledOperatorHit]) -> Non
     elif isinstance(node, list):
         for index, value in enumerate(node):
             _walk_disabled(value, f"{path}[{index}]", hits)
-    elif isinstance(node, str) and node in DISABLED_SYSTEM_VARS:
+    elif isinstance(node, str) and node in (DISABLED_OPERATORS | DISABLED_SYSTEM_VARS):
+        # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix F5)
         hits.append(DisabledOperatorHit(node, path))
 
 
@@ -446,9 +447,10 @@ def _exec_error_feedback(request: PrefixExecutionRequest, exc: BaseException) ->
 
 
 def _collapsed_to_zero(variant: VariantExecution, spec: CheckpointSpec) -> bool:
+    # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix F3)
     if not spec.collapse_to_zero or variant.output_count != 0:
         return False
-    return variant.input_count is None or variant.input_count > 0
+    return variant.input_count is not None and variant.input_count > 0
 
 
 def _has_path(doc: Mapping[str, Any], field_path: str) -> bool:

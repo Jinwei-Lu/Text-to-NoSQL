@@ -130,3 +130,55 @@ def test_structure_audit_reports_dynamic_key_samples_and_array_lengths() -> None
     assert by_category.sample_keys == ["Advertisement", "Food"]
     assert audit.array_lengths["budget.by_category.*.lines[]"]["max"] == 2
     assert audit.array_lengths["attendance.roster[]"]["max"] == 1
+
+
+def test_structure_audit_isolates_dynamic_key_paths_per_collection() -> None:
+    """[H4] audit_database_structure must expose per_collection_paths keyed by collection,
+    where each collection carries only its OWN paths. Two collections must not share each
+    other's dynamic_key_paths."""
+    data = {
+        "club_budgets": [
+            {
+                "_id": "b1",
+                "budget": {
+                    "by_category": {
+                        "Food": {"amount": 10},
+                        "Advertisement": {"amount": 5},
+                    }
+                },
+            }
+        ],
+        "club_rosters": [
+            {
+                "_id": "r1",
+                "roster": {
+                    "by_gender": {
+                        "F": {"count": 3},
+                        "M": {"count": 4},
+                    }
+                },
+            }
+        ],
+    }
+
+    audit = audit_database_structure("student_club", data)
+    per = audit.per_collection_paths
+
+    assert set(per) == {"club_budgets", "club_rosters"}
+
+    budgets_dynamic = per["club_budgets"]["dynamic_key_paths"]
+    rosters_dynamic = per["club_rosters"]["dynamic_key_paths"]
+
+    # Each collection carries only its own dynamic-key paths.
+    assert budgets_dynamic == ["budget.by_category"]
+    assert rosters_dynamic == ["roster.by_gender"]
+
+    # The two collections must not leak each other's dynamic-key paths.
+    assert "roster.by_gender" not in budgets_dynamic
+    assert "budget.by_category" not in rosters_dynamic
+    assert set(budgets_dynamic).isdisjoint(rosters_dynamic)
+
+    # to_dict round-trips the additive field per-collection too.
+    serialized = audit.to_dict()["per_collection_paths"]
+    assert serialized["club_budgets"]["dynamic_key_paths"] == ["budget.by_category"]
+    assert serialized["club_rosters"]["dynamic_key_paths"] == ["roster.by_gender"]

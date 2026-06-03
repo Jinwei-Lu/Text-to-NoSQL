@@ -8,7 +8,9 @@ from jsonschema import Draft202012Validator
 
 from tend.solver.agents import SmartIntentFormalizer
 from tend.solver.agents import SmartNosqlPlanner
+from tend.solver.agents import _match_filters_nonempty_array
 from tend.solver.agents import _observed_literal_violations
+from tend.solver.guards import _redact_forbidden_fields
 from tend.solver.guards import build_disclosure, check_disjointness
 
 
@@ -1787,3 +1789,310 @@ def test_smart_prompts_name_allowed_inputs_without_only_shape_contradictions() -
     assert "financial.party_role_card_loan_mix" in planner
     assert "disposition_role_card_network" in planner
     assert "loan_status_repayment_schedule" in planner
+
+
+# --- Phase-1 contract-layer regression tests (H3/H5/F4/F6/F7/F10/guards-F2) ---
+
+
+def _native_event_inputs() -> dict:
+    return {
+        "logical_spec": {
+            "shape_policy": "preserve",
+            "target_fields": [
+                "native_context_bucket",
+                "native_filtered_events",
+                "native_event_count",
+            ],
+        },
+        "shape_model": {},
+        "witness_digest": {},
+        "native_task_context": {
+            "feature_type": "nested_event_stream",
+            "query_pattern": "thrombosis_event_evidence_filter",
+        },
+    }
+
+
+def test_h3_preserve_target_added_then_excluded_by_project_is_missing() -> None:
+    # H3: $addFields adds the target, then {$project: {target: 0}} drops it again.
+    # A pure-exclusion projection no longer counts the target as a defined output, so
+    # the preserve guard must report it as a missing target_field.
+    planner = SmartNosqlPlanner()
+    inputs = {
+        "logical_spec": {
+            "shape_policy": "preserve",
+            "target_fields": ["native_context_bucket"],
+        },
+        "shape_model": {},
+        "witness_digest": {},
+    }
+    plan = {
+        "collection": "patient_clinical_profiles",
+        "stages": [
+            {
+                "op": "$addFields",
+                "note": "Add the native context bucket target.",
+                "stage": {
+                    "$addFields": {
+                        "native_context_bucket": {"$ifNull": ["$timeline.context", "missing"]}
+                    }
+                },
+            },
+            {
+                "op": "$project",
+                "note": "Then drop the very target field via an exclusion projection.",
+                "stage": {"$project": {"native_context_bucket": 0}},
+            },
+        ],
+        "variant_handling": [],
+    }
+
+    violations = planner.check_contract(None, inputs, plan)
+
+    assert any(
+        "preserve target_fields missing from plan output" in item
+        and "native_context_bucket" in item
+        for item in violations
+    )
+
+
+def test_h3_preserve_target_added_then_retained_is_not_missing() -> None:
+    # Companion to H3: keeping the target (no exclusion) is accepted, proving the guard
+    # only fires on the exclusion case, not on every $addFields-then-$project plan.
+    planner = SmartNosqlPlanner()
+    inputs = {
+        "logical_spec": {
+            "shape_policy": "preserve",
+            "target_fields": ["native_context_bucket"],
+        },
+        "shape_model": {},
+        "witness_digest": {},
+    }
+    plan = {
+        "collection": "patient_clinical_profiles",
+        "stages": [
+            {
+                "op": "$addFields",
+                "note": "Add the native context bucket target.",
+                "stage": {
+                    "$addFields": {
+                        "native_context_bucket": {"$ifNull": ["$timeline.context", "missing"]}
+                    }
+                },
+            },
+            {
+                "op": "$project",
+                "note": "Retain the target as an explicit inclusion.",
+                "stage": {"$project": {"_id": 1, "native_context_bucket": 1}},
+            },
+        ],
+        "variant_handling": [],
+    }
+
+    assert not any(
+        "preserve target_fields missing from plan output" in item
+        for item in planner.check_contract(None, inputs, plan)
+    )
+
+
+def test_h5_field_to_field_eq_does_not_produce_literal_violation() -> None:
+    # H5: {$eq: ["$status", "$target_status"]} compares two field references, so neither
+    # operand is a string literal; the observed-literal guard must stay silent even when
+    # the collection has observed values for those fields.
+    violations = _observed_literal_violations(
+        "ledger",
+        [
+            {
+                "stage": {
+                    "$match": {
+                        "$expr": {"$eq": ["$status", "$target_status"]}
+                    }
+                }
+            }
+        ],
+        {
+            "ledger": {
+                "string_values_in_sample": {
+                    "status": ["active", "frozen"],
+                    "target_status": ["active", "frozen"],
+                }
+            }
+        },
+    )
+
+    assert violations == []
+
+
+def test_f4_in_with_unobserved_string_is_flagged_but_observed_is_not() -> None:
+    # F4: {field: {$in: [...]}} is checked against observed witness values.
+    witness = {
+        "ledger": {
+            "string_values_in_sample": {"status": ["active", "frozen"]}
+        }
+    }
+
+    unobserved = _observed_literal_violations(
+        "ledger",
+        [{"stage": {"$match": {"status": {"$in": ["UNOBSERVED"]}}}}],
+        witness,
+    )
+    observed = _observed_literal_violations(
+        "ledger",
+        [{"stage": {"$match": {"status": {"$in": ["active"]}}}}],
+        witness,
+    )
+
+    assert any("'UNOBSERVED'" in item and "ledger.status" in item for item in unobserved)
+    assert observed == []
+
+
+def test_f6_correct_event_time_plus_banned_event_date_alias_still_flagged() -> None:
+    # F6: a plan can correctly reference event_time AND still smuggle a banned event_date
+    # alias; presence of the good reference must not excuse the bad one.
+    planner = SmartNosqlPlanner()
+    inputs = _native_event_inputs()
+    plan = {
+        "collection": "patient_clinical_profiles",
+        "stages": [
+            {
+                "op": "$addFields",
+                "note": "Filter events on the correct event_time but also leak an event_date alias.",
+                "stage": {
+                    "$addFields": {
+                        "native_context_bucket": {"$ifNull": ["$timeline.context", "missing"]},
+                        "native_filtered_events": {
+                            "$filter": {
+                                "input": {
+                                    "$cond": [
+                                        {"$isArray": "$timeline.events"},
+                                        "$timeline.events",
+                                        [],
+                                    ]
+                                },
+                                "as": "event",
+                                "cond": {
+                                    "$and": [
+                                        {"$ne": ["$$event.event_time", None]},
+                                        {"$gte": ["$$event.event_date", "1995-11-16"]},
+                                    ]
+                                },
+                            }
+                        },
+                        "native_event_count": {"$size": "$native_filtered_events"},
+                    }
+                },
+            },
+            {
+                "op": "$match",
+                "note": "Keep documents with at least one filtered event.",
+                "stage": {"$match": {"native_event_count": {"$gt": 0}}},
+            },
+        ],
+        "variant_handling": [],
+    }
+
+    violations = planner.check_contract(None, inputs, plan)
+
+    # The native field definitions and the nonempty filter are satisfied, isolating the
+    # banned-alias rule as the sole reason for failure.
+    assert any("observed event_time field" in item for item in violations)
+    assert not any("must define" in item for item in violations)
+    assert not any("native_filtered_events has size > 0" in item for item in violations)
+
+
+def test_f7_unrelated_native_filtered_events_value_does_not_satisfy_nonempty() -> None:
+    # F7: a $match that mentions native_filtered_events only as an unrelated value while
+    # $size is applied to a *different* field must NOT count as the required nonempty filter.
+    stages = [
+        {
+            "stage": {
+                "$match": {
+                    "label": "native_filtered_events",
+                    "$expr": {"$gt": [{"$size": "$some_other_array"}, 0]},
+                }
+            }
+        }
+    ]
+
+    assert _match_filters_nonempty_array(stages, "native_filtered_events") is False
+
+    # Control: $size applied to the real field is recognized.
+    good_stages = [
+        {"stage": {"$match": {"$expr": {"$gt": [{"$size": "$native_filtered_events"}, 0]}}}}
+    ]
+    assert _match_filters_nonempty_array(good_stages, "native_filtered_events") is True
+
+
+def test_f10_financial_pattern_intent_not_failed_then_overridden() -> None:
+    # F10: for a financial pattern governed by _NATIVE_PATTERN_SHAPE_POLICY, postprocess
+    # forces shape_policy, so check_contract must not raise a preserve-cue violation that
+    # would be silently overridden. The contract is pattern-aware.
+    agent = SmartIntentFormalizer()
+    # NLQ carries an English preserve cue ("attach") that would otherwise force preserve.
+    inputs = {
+        "nlq": "attach the per-district loan share summary",
+        "native_task_context": {
+            "query_pattern": "financial.district_frequency_gender_loan_mix",
+        },
+    }
+    output = {
+        "entity": "district_market_contexts",
+        "per": "district-frequency",
+        "compute": [],
+        "output": {"target_fields": ["district_id"]},
+        # LLM chose reshape, not preserve; postprocess will set it from the policy map anyway.
+        "shape_policy": "reshape",
+        "target_fields": ["district_id"],
+        "clause_coverage": ["district frequency groups"],
+    }
+
+    violations = agent.check_contract(None, inputs, output)
+
+    assert not any("preserve" in item for item in violations)
+
+    # Sanity: an identical preserve-cue NLQ with NO native pattern still fires the cue,
+    # proving the suppression is pattern-driven rather than always-off.
+    non_native_inputs = {"nlq": "attach the per-district loan share summary"}
+    non_native_violations = agent.check_contract(None, non_native_inputs, dict(output))
+    assert any(
+        "NLQ preserve cues require shape_policy=preserve" in item
+        for item in non_native_violations
+    )
+
+
+def test_guards_f2_redaction_strips_top_level_only_and_ref_at_any_depth() -> None:
+    # guards F2: a forbidden field name (e.g. "shape_policy") is stripped only at the TOP
+    # level, never as a nested sub-key inside an allowed dict; any *_ref key is stripped at
+    # every depth.
+    record = {
+        "shape_policy": "preserve",  # top-level forbidden -> stripped
+        "gold_ref": "should/go/away.json",  # top-level *_ref -> stripped
+        "payload": {
+            "shape_policy": "keep-me",  # nested same-named key -> retained
+            "nested_ref": "deep/audit.json",  # nested *_ref -> stripped
+            "value": 1,
+        },
+        "items": [
+            {"shape_policy": "also-keep", "trace_ref": "x"},
+        ],
+    }
+
+    safe, removed = _redact_forbidden_fields(record, forbidden={"shape_policy"})
+
+    assert "shape_policy" not in safe
+    assert "gold_ref" not in safe
+    # nested same-named key survives because forbidden only applies at depth 0
+    assert safe["payload"]["shape_policy"] == "keep-me"
+    assert safe["payload"]["value"] == 1
+    assert "nested_ref" not in safe["payload"]
+    # nested *_ref inside a list element is stripped at any depth; sibling key retained
+    assert safe["items"][0]["shape_policy"] == "also-keep"
+    assert "trace_ref" not in safe["items"][0]
+
+    assert "shape_policy" in removed
+    assert "gold_ref" in removed
+    assert "payload.nested_ref" in removed
+    assert "items[0].trace_ref" in removed
+    # the retained nested keys must not appear in the removed manifest
+    assert "payload.shape_policy" not in removed
+    assert "items[0].shape_policy" not in removed

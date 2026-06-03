@@ -76,7 +76,8 @@ def _summarize_collection(docs: list[dict[str, Any]]) -> dict[str, Any]:
             array_object_dynamic_paths=array_object_dynamic_paths,
             presence_counts=presence_counts,
         )
-    schema_flex = "native_deep" if dynamic_key_paths or array_paths or presence_counts else "none"
+    # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix introspection-schema_flex)
+    schema_flex = "native_deep" if dynamic_key_paths or presence_counts else "none"
     return {
         "doc_count": len(docs),
         "schema_flex": schema_flex,
@@ -215,7 +216,7 @@ def _scalar_kind(value: Any) -> str:
         return "null"
     if isinstance(value, bool):
         return "bool"
-    if isinstance(value, int) and not isinstance(value, bool):
+    if isinstance(value, int):
         return "int"
     if isinstance(value, float):
         return "float"

@@ -16,9 +16,8 @@ from ..config import Settings
 from ..errors import ExecutionError
 from ..observability import RunLogger
 from .ast_check import parse_pipeline
-from .signature import _canon
+from .signature import _canon, _FLOAT_NDIGITS
 
-_FLOAT_NDIGITS = 12
 # Server-side time bound for every aggregate. Indexed gold/round-trip queries finish in
 # well under a second; LLM-generated PV mutations can be pathological (e.g. an unindexed
 # $lookup that COLLSCANs financial.trans's ~1M rows per parent), which without a cap hangs
@@ -204,7 +203,7 @@ def _doc_key(doc: Any) -> str:
 def equiv_rec(left: list[dict[str, Any]], right: list[dict[str, Any]], *,
               order_sensitive: bool) -> bool:
     """≡_rec: record-set equivalence. Order-insensitive compares as a multiset."""
-    if left is None or right is None:
+    if left is None or right is None:  # defensive: callers should guard upstream, but keep safe
         return False
     if len(left) != len(right):
         return False

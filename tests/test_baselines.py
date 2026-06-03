@@ -10,11 +10,26 @@ import pytest
 import tend.baselines.workflow as baseline_workflow
 from tend.agents import AgentContext
 from tend.baselines import BASELINE_IDS, run_baseline_record, run_baseline_suite
-from tend.baselines.strategies import resolve_baselines
+from tend.baselines.strategies import (
+    BaselinePromptContext,
+    resolve_baselines,
+    _plan_messages,
+    _sql_messages,
+    _react_mql_messages,
+    _draft_messages,
+    _repair_messages,
+)
+from tend.baselines.workflow import (
+    BaselinePrediction,
+    BaselineStepTrace,
+    _baseline_disclosure,
+    _extract_mql,
+)
 from tend.config import Settings
+from tend.errors import PromptAnomalyError
 from tend.llm import LLMClient
 from tend.observability import setup_logging
-from tend.solver.workflow import load_solver_release_inputs
+from tend.solver.workflow import _canonical_nlq, load_solver_release_inputs
 from tend.stubs import stub_fn
 from tend.workflow import Workflow
 
@@ -251,3 +266,191 @@ def test_baseline_record_requires_canonical_nlq(tmp_path: Path) -> None:
     ]
     assert anomalies[0]["anomaly"] == "prompt_malformed"
     assert anomalies[0]["baseline_id"] == "direct"
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for Phase-1 production fixes
+# ---------------------------------------------------------------------------
+
+def _make_prompt_ctx(
+    nlq: str = "Show all accounts.",
+    witness_digest: dict | None = None,
+) -> BaselinePromptContext:
+    """Minimal BaselinePromptContext for message-builder unit tests."""
+    schema = {
+        "collections": {
+            "account": {
+                "fields": {"_id": "objectid", "balance": "double"},
+                "embeds": [],
+                "foreign_keys": [],
+            }
+        }
+    }
+    schema_summary = {
+        "collections": {
+            "account": {
+                "fields": ["_id", "balance"],
+                "embeds": [],
+                "foreign_keys": [],
+            }
+        }
+    }
+    record = {"db_id": "financial", "record_id": 1001}
+    return BaselinePromptContext(
+        record=record,
+        schema=schema,
+        witness_digest=witness_digest or {},
+        schema_summary=schema_summary,
+        nlq=nlq,
+    )
+
+
+# [H8] sql_pivot step-1 messages contain 'SQL' and 'notes'.
+# plan_then_mql step-1 messages contain 'target_collection', 'steps', 'risks'.
+def test_sql_pivot_step1_messages_contain_sql_and_notes_fields() -> None:
+    ctx = _make_prompt_ctx()
+    messages = _sql_messages(ctx, {})
+    all_text = "\n".join(str(m.get("content", "")) for m in messages)
+    assert "SQL" in all_text, "step-1 sql_pivot prompt must mention the 'SQL' field"
+    assert "notes" in all_text, "step-1 sql_pivot prompt must mention the 'notes' field"
+
+
+def test_plan_then_mql_step1_messages_contain_plan_schema_fields() -> None:
+    ctx = _make_prompt_ctx()
+    messages = _plan_messages(ctx, {})
+    all_text = "\n".join(str(m.get("content", "")) for m in messages)
+    assert "target_collection" in all_text
+    assert "steps" in all_text
+    assert "risks" in all_text
+
+
+# [H9] A record whose nl_queries has blank canonical but populated colloquial:
+# _canonical_nlq(use_colloquial=False) raises PromptAnomalyError (canonical-only baseline
+# behavior).
+def test_canonical_nlq_blank_canonical_populated_colloquial_raises() -> None:
+    record = {
+        "db_id": "financial",
+        "record_id": 1001,
+        "nl_queries": {
+            "canonical": "",  # blank
+            "colloquial": "Show me the accounts.",
+        },
+    }
+    with pytest.raises(PromptAnomalyError):
+        _canonical_nlq(record, use_colloquial=False)
+
+
+def test_canonical_nlq_blank_canonical_colloquial_allowed_when_use_colloquial_true() -> None:
+    record = {
+        "db_id": "financial",
+        "record_id": 1001,
+        "nl_queries": {
+            "canonical": "",
+            "colloquial": "Show me the accounts.",
+        },
+    }
+    result = _canonical_nlq(record, use_colloquial=True)
+    assert result == "Show me the accounts."
+
+
+# [CF2] _baseline_disclosure and BaselinePrediction.to_json include 'witness_k' and 'r_max'.
+def test_baseline_disclosure_contains_witness_k_and_r_max(tmp_path: Path) -> None:
+    settings = _settings()
+    wf, log = _workflow(settings, tmp_path / "run")
+    spec = resolve_baselines("direct")[0]
+    try:
+        disclosure = _baseline_disclosure(wf, spec, witness_k=5)
+    finally:
+        log.close()
+    assert "witness_k" in disclosure, "_baseline_disclosure must include 'witness_k'"
+    assert "r_max" in disclosure, "_baseline_disclosure must include 'r_max'"
+    assert disclosure["witness_k"] == 5
+    assert disclosure["r_max"] == 0
+
+
+def test_baseline_prediction_to_json_contains_witness_k_and_r_max(tmp_path: Path) -> None:
+    settings = _settings()
+    wf, log = _workflow(settings, tmp_path / "run")
+    spec = resolve_baselines("direct")[0]
+    try:
+        disclosure = _baseline_disclosure(wf, spec, witness_k=3)
+    finally:
+        log.close()
+    dummy_trace = BaselineStepTrace(
+        step_id="mql",
+        agent="baseline_direct_mql",
+        title="direct MQL",
+        transcript_ref="run/t.md",
+        diagnostics_ref="run/t.diagnostics.json",
+        output={"MQL": "db.account.aggregate([])", "rationale": "stub"},
+    )
+    prediction = BaselinePrediction(
+        baseline_id="direct",
+        baseline_title="Direct NL-to-MQL",
+        record_id=1001,
+        db_id="financial",
+        MQL='db.account.aggregate([{"$match": {}}])',
+        disclosure=disclosure,
+        witness_k=3,
+        r_max=0,
+        steps=[dummy_trace],
+    )
+    payload = prediction.to_json()
+    assert "witness_k" in payload, "BaselinePrediction.to_json must include 'witness_k'"
+    assert "r_max" in payload, "BaselinePrediction.to_json must include 'r_max'"
+    assert payload["witness_k"] == 3
+    assert payload["r_max"] == 0
+
+
+# [CF7] static_self_debug: when the draft step returns lowercase {'mql':...}, the repair step
+# static_feedback is NOT a false EMPTY_MQL (because _extract_mql handles the lowercase key).
+def test_extract_mql_handles_lowercase_key() -> None:
+    state_lowercase = {"mql": 'db.account.aggregate([{"$match": {}}])'}
+    result = _extract_mql(state_lowercase)
+    assert result == 'db.account.aggregate([{"$match": {}}])'
+
+
+def test_extract_mql_prefers_uppercase_over_lowercase() -> None:
+    state_both = {
+        "MQL": 'db.account.aggregate([{"$match": {}}])',
+        "mql": "db.other.aggregate([])",
+    }
+    result = _extract_mql(state_both)
+    assert result == 'db.account.aggregate([{"$match": {}}])'
+
+
+def test_static_self_debug_repair_no_false_empty_mql_with_lowercase_draft(
+    tmp_path: Path,
+) -> None:
+    """When draft step returns lowercase {'mql':...}, _extract_mql picks it up and the repair
+    step does NOT see EMPTY_MQL static_feedback (regression for CF7)."""
+    from tend.execution.ast_check import static_mql_feedback
+
+    lowercase_mql = 'db.account.aggregate([{"$match": {"balance": {"$gt": 0}}}])'
+    state = {"mql": lowercase_mql}  # lowercase, as a buggy draft might produce
+    extracted = _extract_mql(state)
+    assert extracted == lowercase_mql, "_extract_mql must resolve lowercase 'mql' key"
+    feedback = static_mql_feedback(extracted)
+    codes = [item["code"] for item in feedback]
+    assert "EMPTY_MQL" not in codes, (
+        "static_feedback must not contain EMPTY_MQL when draft returns lowercase mql"
+    )
+
+
+# [F4] react_lite step-2 prompt does not contain the witness digest twice.
+def test_react_lite_step2_witness_digest_appears_exactly_once() -> None:
+    sentinel_value = "UNIQUE_SENTINEL_WITNESS_TOKEN_XYZ"
+    witness_digest = {"sentinel_key": sentinel_value}
+    ctx = _make_prompt_ctx(witness_digest=witness_digest)
+    # Simulate a non-empty step-1 state (thoughts from the think step)
+    state = {
+        "thoughts": ["Consider the schema structure."],
+        "needed_observations": ["sample documents"],
+    }
+    messages = _react_mql_messages(ctx, state)
+    all_text = "\n".join(str(m.get("content", "")) for m in messages)
+    count = all_text.count(sentinel_value)
+    assert count == 1, (
+        f"Witness digest payload must appear exactly once in react_lite step-2 messages, "
+        f"but found {count} occurrence(s)"
+    )

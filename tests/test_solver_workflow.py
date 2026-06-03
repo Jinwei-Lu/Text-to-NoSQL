@@ -8,16 +8,24 @@ import pytest
 
 from tend.agents import AgentContext
 from tend.config import Settings
+from tend.errors import ExecutionError
 from tend.execution.ast_check import parse_pipeline, scan_disabled
 from tend.execution.mongo import MongoExecutor
 from tend.llm import LLMClient
 from tend.observability import setup_logging
 from tend.solver.contracts import PhysicalPlan
-from tend.solver.per_stage import CheckpointCode, CheckpointSpec, run_per_stage_check
+from tend.solver.per_stage import (
+    CheckpointCode,
+    CheckpointSpec,
+    PrefixExecutionRequest,
+    _has_path,
+    run_per_stage_check,
+)
 from tend.solver.guards import SolverBoundary
 import tend.solver.workflow as solver_workflow
 from tend.solver.workflow import (
     _MongoPrefixExecutor,
+    _NoopPrefixExecutor,
     SolverFailure,
     load_solver_release_inputs,
     smart_solve_record,
@@ -783,3 +791,205 @@ def test_mongo_prefix_executor_bounds_prefix_input_before_generated_pipeline() -
     )
 
     assert result.ok is True
+
+
+def test_whole_query_transient_exec_error_is_retryable_feedback(
+    tmp_path: Path,
+) -> None:
+    """[H1] A whole_query realization that hits a transient Mongo exec exception returns
+    retryable feedback (boundary_failure falsy) so smart_solve_record retries it,
+    instead of crashing with an unhandled exception."""
+    settings = Settings.from_env(
+        overrides={"TEND_LLM_STUB": "0"},
+        run_id="solver-h1-transient",
+        require_bird=False,
+    )
+    assert settings.stub is False
+    log = setup_logging(tmp_path / "run", console=False)
+
+    class FlakyMongo:
+        def available(self) -> bool:
+            return True
+
+        def norm_exec(self, db_id: str, mql: str):
+            raise ExecutionError("transient executor timeout", context={"db_id": db_id})
+
+    ctx = type(
+        "Ctx",
+        (),
+        {"settings": settings, "mongo": FlakyMongo(), "log": log},
+    )()
+    boundary = SolverBoundary.from_settings(settings, logger=log)
+    plan = PhysicalPlan.from_json(
+        {
+            "collection": "orders",
+            "stages": [
+                {"op": "$match", "note": "filter", "stage": {"$match": {"status": "active"}}},
+            ],
+        }
+    )
+
+    try:
+        result = solver_workflow.realize_plan_whole_query(
+            ctx, boundary, db_id="shop", plan=plan, attempt=2
+        )
+    finally:
+        log.close()
+
+    assert result["ok"] is False
+    assert result["mql"] is None
+    feedback = result["feedback"]
+    assert feedback["error_code"] == "EXEC_ERROR"
+    # The fix: transient exec errors are retryable, not terminal boundary failures.
+    assert not feedback["boundary_failure"]
+    assert feedback["attempt"] == 2
+    assert "transient executor timeout" in feedback["message"]
+
+
+def test_whole_query_disabled_operator_stays_terminal_boundary_failure(
+    tmp_path: Path,
+) -> None:
+    """[H1] A disabled operator in whole_query mode stays a terminal boundary failure
+    (boundary_failure truthy), unlike a transient exec error."""
+    settings = Settings.from_env(
+        overrides={"TEND_LLM_STUB": "0"},
+        run_id="solver-h1-disabled",
+        require_bird=False,
+    )
+    log = setup_logging(tmp_path / "run", console=False)
+
+    class NeverCalledMongo:
+        def available(self) -> bool:  # pragma: no cover - guard never reaches exec
+            return True
+
+        def norm_exec(self, db_id: str, mql: str):  # pragma: no cover
+            raise AssertionError("disabled operator must short-circuit before exec")
+
+    ctx = type(
+        "Ctx",
+        (),
+        {"settings": settings, "mongo": NeverCalledMongo(), "log": log},
+    )()
+    boundary = SolverBoundary.from_settings(settings, logger=log)
+    plan = PhysicalPlan.from_json(
+        {
+            "collection": "orders",
+            "stages": [
+                {"op": "$merge", "note": "banned", "stage": {"$merge": {"into": "sink"}}},
+            ],
+        }
+    )
+
+    try:
+        result = solver_workflow.realize_plan_whole_query(
+            ctx, boundary, db_id="shop", plan=plan, attempt=0
+        )
+    finally:
+        log.close()
+
+    assert result["ok"] is False
+    assert result["feedback"]["boundary_failure"] is True
+
+
+def test_realize_plan_per_stage_disabled_operator_returns_structured_boundary_failure(
+    stub_settings: Settings,
+    tmp_path: Path,
+) -> None:
+    """[H2] realize_plan_per_stage with an MQL that trips assert_no_disabled returns a
+    structured boundary-failure dict (no unhandled exception bubbling out)."""
+    log = setup_logging(tmp_path / "run", console=False)
+    ctx = type(
+        "Ctx",
+        (),
+        {"settings": stub_settings, "mongo": None, "log": log},
+    )()
+    boundary = SolverBoundary.from_settings(stub_settings, logger=log)
+    plan = PhysicalPlan.from_json(
+        {
+            "collection": "orders",
+            "stages": [
+                {"op": "$merge", "note": "banned sink", "stage": {"$merge": {"into": "sink"}}},
+            ],
+        }
+    )
+
+    try:
+        result = solver_workflow.realize_plan_per_stage(
+            ctx,
+            boundary,
+            db_id="shop",
+            plan=plan,
+            target_fields=[],
+            shape_policy="reshape",
+        )
+    finally:
+        log.close()
+
+    assert isinstance(result, dict)
+    assert result["ok"] is False
+    assert result["mql"] is None
+    feedback = result["feedback"]
+    assert feedback is not None
+    assert feedback["error_code"] == CheckpointCode.DISABLED_OPERATOR.value
+    assert feedback["suspect_field"] == "$merge"
+
+
+def test_noop_prefix_executor_materializes_dotted_target_field_for_has_path() -> None:
+    """[H7] In stub mode the _NoopPrefixExecutor must synthesize a doc where a dotted
+    target field (e.g. 'timeline.events') is nested so per_stage._has_path finds it
+    (not reported missing)."""
+    executor = _NoopPrefixExecutor({1: ("timeline.events", "name")})
+    request = PrefixExecutionRequest(
+        db_id="shop",
+        collection="dossiers",
+        stage_index=1,
+        stage={"$project": {"_id": 0}},
+        pipeline=(),
+        mql="db.dossiers.aggregate([])",
+    )
+
+    result = executor.execute_prefix(request)
+    doc = result.variants[0].documents[0]
+
+    # The dotted field must be set as a nested object, not a literal "timeline.events" key.
+    assert doc.get("timeline") == {"events": 1}
+    assert _has_path(doc, "timeline.events") is True
+    assert _has_path(doc, "name") is True
+    # Sanity: a genuinely absent path is still reported missing.
+    assert _has_path(doc, "timeline.missing") is False
+
+
+def test_prune_native_shape_collection_with_no_matching_hint_yields_empty_lists() -> None:
+    """[F2] _prune_shape_collection_for_native_context with non-empty hints that match
+    nothing must prune to EMPTY lists, not leak the full unfiltered collection shape."""
+    collection_shape = {
+        "dynamic_key_paths": ["flows_by_symbol", "accounts_by_frequency"],
+        "array_paths": ["flows_by_symbol.*[]", "accounts_by_frequency.*[]"],
+        "dynamic_array_object_paths": ["flows_by_symbol.*[]"],
+        "array_object_dynamic_paths": ["accounts_by_frequency.*[].entries"],
+        "dynamic_key_samples": {
+            "flows_by_symbol": ["UVER"],
+            "accounts_by_frequency": ["POPLATEK_MESICNE"],
+        },
+        "field_locus": {
+            "flows_by_symbol": [],
+            "accounts_by_frequency": [],
+        },
+    }
+    native_context = {"feature_field": "unrelated.path.with.no.match"}
+
+    # Precondition: the hint is non-empty (so the prune branch is exercised).
+    assert solver_workflow._native_query_path_hints(native_context) == (
+        "unrelated.path.with.no.match",
+    )
+
+    pruned = solver_workflow._prune_shape_collection_for_native_context(
+        collection_shape, native_context
+    )
+
+    assert pruned["dynamic_key_paths"] == []
+    assert pruned["array_paths"] == []
+    assert pruned["dynamic_array_object_paths"] == []
+    assert pruned["array_object_dynamic_paths"] == []
+    assert pruned["dynamic_key_samples"] == {}
+    assert pruned["field_locus"] == {}

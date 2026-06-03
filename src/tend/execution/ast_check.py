@@ -159,6 +159,31 @@ def ast_check(mql: str, cfs: dict[str, Any]) -> tuple[bool, list[str]]:
     return (not reasons), reasons
 
 
+def static_mql_feedback(mql: str | None) -> list[dict[str, Any]]:
+    """Static (non-execution) feedback on an MQL string.
+
+    Returns a list of diagnostic dicts with at least ``severity`` and ``code`` keys.
+    Covers three layers: blank/missing MQL, parse errors, and disabled-operator hits.
+    """
+    text = str(mql or "")
+    if not text.strip():
+        return [{"severity": "error", "code": "EMPTY_MQL", "message": "MQL is empty"}]
+    try:
+        collection, stages = parse_pipeline(text)
+    except Exception as exc:  # noqa: BLE001 - parse errors are user-visible diagnostics
+        return [{"severity": "error", "code": "PARSE_ERROR", "message": str(exc)}]
+    feedback: list[dict[str, Any]] = [
+        {"severity": "info", "code": "PARSE_OK", "collection": collection,
+         "stages": len(stages)}
+    ]
+    disabled = scan_disabled(text)
+    if disabled:
+        feedback.append(
+            {"severity": "error", "code": "DISABLED_OPERATOR", "operators": disabled}
+        )
+    return feedback
+
+
 def derive_canonical_form_set(gold_mql: str, shape_policy: str) -> dict[str, list[str]]:
     """RAR thin cfs from a locked gold pipeline: idiom-invariants + output-space guard only.
 

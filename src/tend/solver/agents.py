@@ -240,8 +240,18 @@ class SmartIntentFormalizer(LLMAgent):
         if extra.get("solver_use_intent_contracts") is False:
             return []
         violations: list[str] = []
+        # If postprocess will overwrite shape_policy from the native-pattern map, the
+        # LLM's shape_policy is moot; do not fire a preserve-violation that gets silently
+        # overridden downstream. Only enforce the infer_shape_policy cue for records whose
+        # pattern is not native-pattern-governed.
+        pattern = _native_query_pattern_from_inputs(inputs)
+        native_shape_policy = _native_pattern_shape_policy(pattern, str(inputs.get("nlq", "")))
         inferred = infer_shape_policy(str(inputs.get("nlq", "")))
-        if inferred == "preserve" and output.get("shape_policy") != "preserve":
+        if (
+            not native_shape_policy
+            and inferred == "preserve"
+            and output.get("shape_policy") != "preserve"
+        ):
             violations.append("NLQ preserve cues require shape_policy=preserve")
         if output.get("shape_policy") == "preserve" and not output.get("target_fields"):
             violations.append("preserve specs must declare target_fields")
@@ -477,7 +487,7 @@ def _collection_shape(collection: str, schema: dict[str, Any]) -> dict[str, Any]
             for field in fields
         }
     flex = []
-    if schema.get("schema_flex"):
+    if schema.get("schema_flex") and schema["schema_flex"] != "none":
         flex.append(str(schema["schema_flex"]))
     elif schema.get("__variants"):
         flex.append("polymorphic_collection")
@@ -608,7 +618,17 @@ def _lookup_helper_fields(stages: list[dict[str, Any]]) -> set[str]:
 
 
 def _helper_removed_after_lookup(stages: list[dict[str, Any]], field: str) -> bool:
-    for item in stages:
+    # Order-aware: only a removal at a stage index strictly AFTER the $lookup that
+    # introduced `field` counts; a $project/$unset before the lookup does not remove it.
+    lookup_index: int | None = None
+    for i, item in enumerate(stages):
+        stage = item.get("stage") or {}
+        lookup = stage.get("$lookup")
+        if isinstance(lookup, dict) and str(lookup.get("as") or "") == field:
+            lookup_index = i
+    for i, item in enumerate(stages):
+        if lookup_index is not None and i <= lookup_index:
+            continue
         stage = item.get("stage") or {}
         project = stage.get("$project")
         if isinstance(project, dict) and project.get(field) == 0:
@@ -641,7 +661,15 @@ def _defined_output_fields(stages: list[dict[str, Any]]) -> set[str]:
         stage = item.get("stage") or {}
         for op in ("$addFields", "$set", "$project"):
             body = stage.get(op)
-            if isinstance(body, dict):
+            if not isinstance(body, dict):
+                continue
+            if op == "$project":
+                # exclusions ({field: 0/False}) do not define an output field
+                fields.update(
+                    str(field) for field, value in body.items()
+                    if value is not False and value != 0
+                )
+            else:
                 fields.update(str(field) for field in body)
     fields.discard("_id")
     return fields
@@ -813,11 +841,33 @@ def _literal_violations_in_node(
                 if isinstance(key, str) and not key.startswith("$") and isinstance(child, str):
                     if not child.startswith("$"):
                         check(key, child)
+                # operator-array / scalar-operator forms on a bare field key
+                if isinstance(key, str) and not key.startswith("$") and isinstance(child, dict):
+                    for inner_op in ("$in", "$nin"):
+                        members = child.get(inner_op)
+                        if isinstance(members, list):
+                            for member in members:
+                                if isinstance(member, str) and not member.startswith("$"):
+                                    check(key, member)
+                    for inner_op in ("$ne", "$eq"):
+                        scalar = child.get(inner_op)
+                        if isinstance(scalar, str) and not scalar.startswith("$"):
+                            check(key, scalar)
                 if key == "$eq" and isinstance(child, list) and len(child) == 2:
                     left, right = child
-                    if isinstance(left, str) and left.startswith("$") and isinstance(right, str):
+                    if (
+                        isinstance(left, str)
+                        and left.startswith("$")
+                        and isinstance(right, str)
+                        and not right.startswith("$")
+                    ):
                         check(left[1:], right)
-                    if isinstance(right, str) and right.startswith("$") and isinstance(left, str):
+                    if (
+                        isinstance(right, str)
+                        and right.startswith("$")
+                        and isinstance(left, str)
+                        and not left.startswith("$")
+                    ):
                         check(right[1:], left)
                 walk(child)
         elif isinstance(value, list):
@@ -931,15 +981,7 @@ def _native_task_contract_violations(
         violations.extend(_required_output_field_violations(
             query_pattern,
             stages,
-            {
-                "loan_status",
-                "region",
-                "year",
-                "due_months",
-                "scheduled_total",
-                "paid_total",
-                "avg_salary",
-            },
+            set(_NATIVE_PATTERN_TARGET_FIELDS.get(query_pattern, [])),
         ))
         violations.extend(_required_plan_reference_violations(
             query_pattern,
@@ -968,20 +1010,7 @@ def _native_task_contract_violations(
         violations.extend(_required_output_field_violations(
             query_pattern,
             stages,
-            {
-                "district_id",
-                "district_name",
-                "region",
-                "avg_salary",
-                "salary_band",
-                "frequency_key",
-                "account_count",
-                "loan_account_count",
-                "female_count",
-                "male_count",
-                "loan_account_share",
-                "female_share",
-            },
+            set(_NATIVE_PATTERN_TARGET_FIELDS.get(query_pattern, [])),
         ))
         violations.extend(_required_plan_reference_violations(
             query_pattern,
@@ -1272,13 +1301,52 @@ def _logical_requests_dynamic_totals(inputs: dict[str, Any]) -> bool:
     return "summarize" in text or "total" in text or "totals" in text
 
 
+def _plan_reference_tokens(stages: list[dict[str, Any]]) -> set[str]:
+    # Collect real field/value references from the stage structure: dict keys and string
+    # values, with leading $ / $$ stripped so "$field" reads as the field path "field".
+    tokens: set[str] = set()
+
+    def add(value: str) -> None:
+        if value.startswith("$$"):
+            value = value[2:]
+        elif value.startswith("$"):
+            value = value[1:]
+        if value:
+            tokens.add(value)
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, child in node.items():
+                if isinstance(key, str) and not key.startswith("$"):
+                    add(key)
+                walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                walk(child)
+        elif isinstance(node, str):
+            add(node)
+
+    for item in stages:
+        walk((item.get("stage") or {}))
+    return tokens
+
+
 def _required_plan_reference_violations(
     query_pattern: str,
     stages: list[dict[str, Any]],
     required_refs: tuple[str, ...],
 ) -> list[str]:
-    text = json.dumps(stages, ensure_ascii=False, sort_keys=True, default=str)
-    missing = sorted(ref for ref in required_refs if ref not in text)
+    # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix F1)
+    # NOTE: these per-record reference contracts are overfit-prone — they pin exact field
+    # paths a plan must mention. Match structurally (against real field-reference tokens
+    # drawn from stage dicts/strings) rather than scanning the raw JSON dump, so a ref
+    # buried in a diagnostic note no longer satisfies the contract.
+    tokens = _plan_reference_tokens(stages)
+
+    def referenced(ref: str) -> bool:
+        return any(ref == token or ref in token.split(".") or ref in token for token in tokens)
+
+    missing = sorted(ref for ref in required_refs if not referenced(ref))
     if not missing:
         return []
     return [f"{query_pattern} plan must reference fields/values: {missing}"]
@@ -1400,12 +1468,19 @@ def _root_id_preservation_violations(
             f"{query_pattern} plan must preserve the root _id when using $facet"
         )
 
-    final_project: dict[str, Any] | None = None
+    # Track _id presence across stages: flag if any $project suppresses _id with {_id:0}
+    # and no later stage re-adds _id (via $project/$addFields/$set re-introducing it).
+    id_suppressed = False
     for item in stages:
-        project = (item.get("stage") or {}).get("$project")
-        if isinstance(project, dict):
-            final_project = project
-    if final_project is not None and final_project.get("_id") == 0:
+        stage = item.get("stage") or {}
+        project = stage.get("$project")
+        if isinstance(project, dict) and project.get("_id") == 0:
+            id_suppressed = True
+        for op in ("$project", "$addFields", "$set"):
+            body = stage.get(op)
+            if isinstance(body, dict) and "_id" in body and body.get("_id") != 0:
+                id_suppressed = False
+    if id_suppressed:
         violations.append(f"{query_pattern} plan must preserve the root _id in output")
     return violations
 
@@ -1433,34 +1508,86 @@ def _field_defined(stages: list[dict[str, Any]], field: str) -> bool:
     return False
 
 
+def _expr_references_field(node: Any, field: str) -> bool:
+    ref = "$" + field
+    if isinstance(node, str):
+        return node == ref
+    if isinstance(node, dict):
+        return any(_expr_references_field(child, field) for child in node.values())
+    if isinstance(node, list):
+        return any(_expr_references_field(child, field) for child in node)
+    return False
+
+
+def _gt_zero_operand(operands: Any) -> bool:
+    # $gt/$gte [<expr>, threshold] where threshold means "more than zero" (gt 0 / gte 1)
+    return (
+        isinstance(operands, list)
+        and len(operands) == 2
+        and isinstance(operands[1], (int, float))
+        and not isinstance(operands[1], bool)
+        and operands[1] >= 0
+    )
+
+
 def _match_filters_nonempty_array(stages: list[dict[str, Any]], field: str) -> bool:
+    def walk(node: Any) -> bool:
+        if isinstance(node, dict):
+            for op in ("$gt", "$gte"):
+                operands = node.get(op)
+                if (
+                    _gt_zero_operand(operands)
+                    and isinstance(operands[0], dict)
+                    and _expr_references_field(operands[0].get("$size"), field)
+                ):
+                    return True
+            return any(walk(child) for child in node.values())
+        if isinstance(node, list):
+            return any(walk(child) for child in node)
+        return False
+
     for item in stages:
-        stage = item.get("stage") or {}
-        match = stage.get("$match")
-        if not isinstance(match, dict):
-            continue
-        text = json.dumps(match, ensure_ascii=False, sort_keys=True, default=str)
-        if field in text and "$size" in text and any(op in text for op in ("$gt", "$gte")):
+        match = (item.get("stage") or {}).get("$match")
+        if isinstance(match, dict) and walk(match):
             return True
     return False
 
 
 def _match_filters_positive_count(stages: list[dict[str, Any]], field: str) -> bool:
+    def walk(node: Any) -> bool:
+        if isinstance(node, dict):
+            # bare-field predicate: {field: {"$gt"|"$gte": <num>}}
+            predicate = node.get(field)
+            if isinstance(predicate, dict):
+                for op in ("$gt", "$gte"):
+                    threshold = predicate.get(op)
+                    if (
+                        isinstance(threshold, (int, float))
+                        and not isinstance(threshold, bool)
+                        and threshold >= 0
+                    ):
+                        return True
+            # $expr form: {"$gt"|"$gte": ["$field", <num>]}
+            for op in ("$gt", "$gte"):
+                operands = node.get(op)
+                if _gt_zero_operand(operands) and _expr_references_field(operands[0], field):
+                    return True
+            return any(walk(child) for child in node.values())
+        if isinstance(node, list):
+            return any(walk(child) for child in node)
+        return False
+
     for item in stages:
-        stage = item.get("stage") or {}
-        match = stage.get("$match")
-        if not isinstance(match, dict):
-            continue
-        text = json.dumps(match, ensure_ascii=False, sort_keys=True, default=str)
-        if field in text and any(op in text for op in ("$gt", "$gte")):
+        match = (item.get("stage") or {}).get("$match")
+        if isinstance(match, dict) and walk(match):
             return True
     return False
 
 
 def _uses_unobserved_event_date_alias(stages: list[dict[str, Any]]) -> bool:
     text = json.dumps(stages, ensure_ascii=False, sort_keys=True, default=str)
-    if "event_time" in text:
-        return False
+    # Flag any banned alias regardless of whether the observed event_time also appears:
+    # presence of event_time does not excuse a spurious event_date/$$this.date reference.
     return any(alias in text for alias in ("event_date", "$$this.date", "$$event.date", "$$evt.date"))
 
 
