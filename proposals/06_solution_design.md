@@ -411,7 +411,7 @@ schema-less 下"理解结构"不是读一张固定 schema,而是**并发扫清�
 | 资产目录、record 字段契约、Tier-1/Audit 边界 | [02](./02_dataset_design.md) |
 | BIRD mini-dev 锚定 DataWorld、SRA/DM、`__variants` | [03](./03_dataworld_construction.md) |
 | QPS/MS/MUT/PV/NLP/RTV/NNC/RA、canonical_form_set 派生 | [04](./04_agent_framework.md) |
-| 7 指标、4-panel 报告、构造–panel disjointness | [05](./05_evaluation_methodology.md) |
+| 6 指标、4-panel 报告、构造–panel disjointness | [05](./05_evaluation_methodology.md) |
 
 **本文档声明所有权的内容**:SMART schema-less agentic 单 backbone / 四阶段参考求解器(感知模式 + 认知模式,无训练、不依赖 train.json)、Per-Stage Execution-Guided Decoding(逐 stage 前缀执行 + 变体分层 checkpoint + stage_index 精确分流)、三个中间表示(Ŝ / 逻辑规约 / 物理 plan)、求解侧 audit 屏蔽清单、6 件禁用 operator 的 AST 过滤、构造–panel disjointness 求解侧对偶、shape-preserving target_fields 协议、canonical `financial/1001` SMART 轨迹、机器可读 allow-list `solver_allow_list.json`。
 
@@ -615,4 +615,4 @@ def run_record(record: dict) -> str:
 5. ④ 仅用本地 MongoDB 副本,且 executor 在**按变体分层样本**上跑;不得连接评测 gold 库。
 6. ① 严守 schema-only;披露 `R_max`;④ 逐 stage 执行仅在本地副本、variant-stratified 样本上进行。
 
-> **本卷职责结束于:** 规定求解侧 SMART schema-less agentic 参考架构、硬边界、allow-list 与 pilot 映射。评测期 7 指标、4-panel 报告与 disjointness gate 由 [05](./05_evaluation_methodology.md) 负责。
+> **本卷职责结束于:** 规定求解侧 SMART schema-less agentic 参考架构、硬边界、allow-list 与 pilot 映射。评测期 6 指标、4-panel 报告与 disjointness gate 由 [05](./05_evaluation_methodology.md) 负责。

@@ -12,6 +12,7 @@ from tend.execution.ast_check import parse_pipeline, scan_disabled
 from tend.execution.mongo import MongoExecutor
 from tend.llm import LLMClient
 from tend.observability import setup_logging
+from tend.solver.contracts import PhysicalPlan
 from tend.solver.per_stage import CheckpointCode, CheckpointSpec, run_per_stage_check
 from tend.solver.guards import SolverBoundary
 import tend.solver.workflow as solver_workflow
@@ -58,6 +59,40 @@ def test_solver_boundary_removes_gold_fields(stub_settings: Settings, logger) ->
         "db_id": "financial",
         "nl_queries": {"canonical": "attach score"},
     }
+
+
+def test_load_solver_release_inputs_selects_nlq_tracks(stub_settings: Settings) -> None:
+    dataset_dir = stub_settings.paths.repo_root / "tests" / "fixtures" / "smoke_release"
+    raw_record = json.loads((dataset_dir / "test.json").read_text(encoding="utf-8"))[0]
+    canonical = raw_record["nl_queries"]["canonical"]
+    colloquial = raw_record["nl_queries"]["colloquial"]
+
+    default_record, _, _ = load_solver_release_inputs(
+        dataset_dir,
+        db_id="financial",
+        record_id=1001,
+        limit=1,
+    )[0]
+    canonical_record, _, _ = load_solver_release_inputs(
+        dataset_dir,
+        db_id="financial",
+        record_id=1001,
+        limit=1,
+        nlq_track="canonical",
+    )[0]
+    colloquial_record, _, _ = load_solver_release_inputs(
+        dataset_dir,
+        db_id="financial",
+        record_id=1001,
+        limit=1,
+        nlq_track="colloquial",
+    )[0]
+
+    assert default_record["nl_queries"] == raw_record["nl_queries"]
+    assert canonical_record["nl_queries"] == {"canonical": canonical}
+    assert colloquial_record["nl_queries"] == {"canonical": colloquial}
+    assert canonical_record["nlq_track"] == "canonical"
+    assert colloquial_record["nlq_track"] == "colloquial"
 
 
 def test_smart_solver_stub_end_to_end(stub_settings: Settings, tmp_path: Path) -> None:
@@ -195,6 +230,486 @@ def test_smart_solver_exhaustion_returns_typed_failure_without_dummy_mql(
     assert [entry["anomaly"] for entry in anomalies] == ["solver_exhausted"]
 
 
+def test_required_fields_by_stage_treats_star_as_preserve_all_not_literal_field() -> None:
+    stages = [
+        {"$match": {"status": "active"}},
+        {"$limit": 25},
+    ]
+
+    assert solver_workflow._required_fields_by_stage(stages, ["*"]) == {}
+
+
+def test_required_fields_by_stage_tracks_each_target_field_materialization_independently() -> None:
+    stages = [
+        {"$addFields": {"segment": "$identity.segment"}},
+        {"$project": {"segment": 1, "month_entries": {"$objectToArray": "$metrics"}}},
+        {"$addFields": {"month": "$month_entries.k"}},
+        {"$group": {"_id": {"segment": "$segment", "month": "$month"}}},
+        {"$project": {"segment": "$_id.segment", "month": "$_id.month", "high_count": 1}},
+    ]
+
+    assert solver_workflow._required_fields_by_stage(
+        stages,
+        ["segment", "month", "high_count"],
+    ) == {
+        1: ("segment",),
+        2: ("segment",),
+        3: ("segment", "month"),
+        4: ("segment", "month"),
+        5: ("segment", "month", "high_count"),
+    }
+
+
+def test_required_fields_by_stage_for_reduce_checks_targets_only_at_final_output() -> None:
+    stages = [
+        {"$addFields": {"segment": "$identity.segment"}},
+        {"$project": {"segment": 1, "month": "$month_entry.k"}},
+        {"$group": {"_id": {"segment": "$segment", "month": "$month"}, "count": {"$sum": 1}}},
+        {"$project": {"segment": "$_id.segment", "month": "$_id.month", "count": 1}},
+    ]
+
+    assert solver_workflow._required_fields_by_stage(
+        stages,
+        ["segment", "month", "count"],
+        shape_policy="reduce",
+    ) == {1: (), 2: (), 3: (), 4: ("segment", "month", "count")}
+
+
+def test_realize_plan_per_stage_allows_reduce_queries_to_select_schema_variants(
+    stub_settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log = setup_logging(tmp_path / "run", console=False)
+    ctx = type(
+        "Ctx",
+        (),
+        {
+            "settings": stub_settings,
+            "mongo": None,
+            "log": log,
+        },
+    )()
+    boundary = SolverBoundary.from_settings(stub_settings, logger=log)
+    captured: dict[str, bool] = {}
+
+    def fake_run_per_stage_check(**kwargs):
+        captured["collapse_to_zero"] = kwargs["checkpoint"].collapse_to_zero
+        return type(
+            "Result",
+            (),
+            {
+                "ok": True,
+                "final_mql": kwargs["mql"],
+                "feedback": None,
+            },
+        )()
+
+    monkeypatch.setattr("tend.solver.per_stage.run_per_stage_check", fake_run_per_stage_check)
+    try:
+        result = solver_workflow.realize_plan_per_stage(
+            ctx,
+            boundary,
+            db_id="superhero",
+            plan=PhysicalPlan.from_json(
+                {
+                    "collection": "hero_dossiers",
+                    "stages": [
+                        {
+                            "op": "$match",
+                            "stage": {"$match": {"heroes_by_alignment": {"$exists": True}}},
+                        }
+                    ],
+                }
+            ),
+            target_fields=[],
+            shape_policy="reduce",
+        )
+    finally:
+        log.close()
+
+    assert result["ok"] is True
+    assert captured == {"collapse_to_zero": False}
+
+
+def test_solver_native_task_context_keeps_public_hints_without_gold_or_template_leakage() -> None:
+    context = solver_workflow._solver_native_task_context(
+        {
+            "schema_flex": "dynamic_key",
+            "schema_feature": "orders.by_month",
+            "native_query_pattern": "orders.monthly_rollup",
+            "MQL": "db.orders.aggregate([])",
+            "canonical_form_set": {},
+            "shape_policy": "reduce",
+            "native_metadata": {
+                "feature_id": "orders.by_month",
+                "feature_type": "dynamic_key_object",
+                "feature_field": "metrics.by_month",
+                "query_pattern": "orders.monthly_rollup",
+                "target_shape_policy": "reduce",
+                "required_native_constructs": ["$objectToArray", "$group"],
+                "mongo_native_constructs": ["$objectToArray", "$group", "$limit"],
+                "anti_sql_transfer": {"level": "strong"},
+                "compiler": "surgical_dataset_patch",
+                "surgical_template_id": "orders.monthly_rollup",
+                "surgical_patch_index": 4,
+            },
+        }
+    )
+
+    assert context["schema_flex"] == "dynamic_key"
+    assert context["feature_field"] == "metrics.by_month"
+    assert context["target_shape_policy"] == "reduce"
+    assert context["required_native_constructs"] == ["$objectToArray", "$group"]
+    serialized = json.dumps(context, ensure_ascii=False)
+    assert "db.orders.aggregate" not in serialized
+    assert "canonical_form_set" not in serialized
+    assert "surgical_dataset_patch" not in serialized
+    assert "surgical_template_id" not in serialized
+    assert "surgical_patch_index" not in serialized
+
+
+def test_native_context_focuses_solver_prompt_inputs_to_feature_collection() -> None:
+    shape_model = {
+        "collections": {
+            "orders": {"variants": [{"id": "dynamic"}]},
+            "customers": {"variants": [{"id": "root"}]},
+        },
+        "coverage_gaps": ["kept"],
+    }
+    witness_digest = {
+        "orders": {"sample_count": 1},
+        "customers": {"sample_count": 1},
+    }
+    native_context = {
+        "feature_id": "orders.by_month",
+        "feature_field": "metrics.by_month",
+    }
+
+    focused_shape = solver_workflow._focus_native_collection_shape_model(
+        shape_model,
+        native_context,
+    )
+    focused_witness = solver_workflow._focus_native_collection_witness_digest(
+        witness_digest,
+        native_context,
+    )
+
+    assert focused_shape["collections"] == {"orders": {"variants": [{"id": "dynamic"}]}}
+    assert focused_shape["coverage_gaps"] == ["kept"]
+    assert focused_witness == {"orders": {"sample_count": 1}}
+
+
+def test_native_query_pattern_overrides_feature_id_when_focusing_solver_inputs() -> None:
+    shape_model = {
+        "collections": {
+            "counterparty_flow_profiles": {
+                "dynamic_key_paths": ["flows_by_symbol"],
+                "dynamic_key_samples": {"flows_by_symbol": ["UVER"]},
+                "field_locus": {"flows_by_symbol": []},
+            },
+            "district_market_contexts": {
+                "dynamic_key_paths": [
+                    "accounts_by_frequency",
+                    "clients_by_gender",
+                    "flows_by_symbol",
+                ],
+                "dynamic_key_samples": {
+                    "accounts_by_frequency": ["POPLATEK_MESICNE"],
+                    "clients_by_gender": ["F", "M"],
+                    "flows_by_symbol": ["UVER"],
+                },
+                "array_paths": [
+                    "accounts_by_frequency.*[]",
+                    "clients_by_gender.*[]",
+                    "flows_by_symbol.*[]",
+                ],
+                "field_locus": {
+                    "accounts_by_frequency": [],
+                    "clients_by_gender": [],
+                    "flows_by_symbol": [],
+                },
+            },
+        },
+        "coverage_gaps": [],
+    }
+    witness_digest = {
+        "counterparty_flow_profiles": {"sample_count": 1},
+        "district_market_contexts": {"sample_count": 1},
+    }
+    native_context = {
+        "feature_id": "counterparty_flow_profiles.bank_symbol_flow_matrix",
+        "feature_field": "flows_by_symbol",
+        "query_pattern": "financial.district_frequency_gender_loan_mix",
+    }
+
+    focused_shape = solver_workflow._focus_native_collection_shape_model(
+        shape_model,
+        native_context,
+    )
+    focused_witness = solver_workflow._focus_native_collection_witness_digest(
+        witness_digest,
+        native_context,
+    )
+
+    assert list(focused_shape["collections"]) == ["district_market_contexts"]
+    collection = focused_shape["collections"]["district_market_contexts"]
+    assert collection["dynamic_key_paths"] == ["accounts_by_frequency", "clients_by_gender"]
+    assert "flows_by_symbol" not in collection["field_locus"]
+    assert focused_witness == {"district_market_contexts": {"sample_count": 1}}
+
+
+def test_native_query_pattern_normalizes_misleading_feature_field_for_agents() -> None:
+    native_context = {
+        "feature_id": "district_market_contexts.account_market_segments",
+        "feature_field": "accounts_by_frequency",
+        "query_pattern": "financial.loan_schedule",
+        "target_shape_policy": "reduce",
+    }
+
+    agent_context = solver_workflow._solver_agent_native_task_context(native_context)
+
+    assert agent_context["root_collection"] == "account_ledgers"
+    assert agent_context["feature_field"] == "loan.repayment_schedule.by_due_month"
+    assert agent_context["source_feature_field"] == "accounts_by_frequency"
+    assert agent_context["relevant_paths"] == [
+        "loan.repayment_schedule.by_due_month",
+        "loan.contract",
+        "district_context",
+        "identity.service_plan",
+    ]
+
+
+def test_native_query_pattern_prunes_witness_digest_to_relevant_paths() -> None:
+    witness_digest = {
+        "account_ledgers": {
+            "sample_count": 1,
+            "sample_documents": [
+                {
+                    "_id": "acct-1",
+                    "accounts_by_frequency": {"POPLATEK_MESICNE": [{"noise": True}]},
+                    "cashflow": {"activity_by_month": {"1994-01": {"huge": "ignored"}}},
+                    "identity": {
+                        "account_id": 1,
+                        "service_plan": {"frequency_key": "POPLATEK_MESICNE"},
+                    },
+                    "district_context": {
+                        "region": "south Bohemia",
+                        "avg_salary": 8968,
+                    },
+                    "loan": {
+                        "contract": {"status_bucket": "completed_good"},
+                        "repayment_schedule": {
+                            "by_due_month": {
+                                "1996-01": {
+                                    "scheduled_amount": 100,
+                                    "observed_payment_total": 90,
+                                }
+                            }
+                        },
+                        "observed_loan_flows": {"transactions_by_month": {"noise": []}},
+                    },
+                }
+            ],
+            "string_values_in_sample": {
+                "district_context.region": ["south Bohemia"],
+                "loan.contract.status_bucket": ["completed_good"],
+            },
+        },
+        "district_market_contexts": {"sample_count": 1, "sample_documents": [{"noise": True}]},
+    }
+    native_context = {
+        "feature_field": "accounts_by_frequency",
+        "query_pattern": "financial.loan_schedule",
+    }
+
+    focused = solver_workflow._focus_native_collection_witness_digest(
+        witness_digest,
+        native_context,
+    )
+
+    assert list(focused) == ["account_ledgers"]
+    sample = focused["account_ledgers"]["sample_documents"][0]
+    assert sample == {
+        "_id": "acct-1",
+        "loan": {
+            "repayment_schedule": {
+                "by_due_month": {
+                    "1996-01": {
+                        "scheduled_amount": 100,
+                        "observed_payment_total": 90,
+                    }
+                }
+            },
+            "contract": {"status_bucket": "completed_good"},
+        },
+        "district_context": {"region": "south Bohemia", "avg_salary": 8968},
+        "identity": {"service_plan": {"frequency_key": "POPLATEK_MESICNE"}},
+    }
+    assert "accounts_by_frequency" not in sample
+    assert "cashflow" not in sample
+
+
+def test_shape_model_projects_db_structure_audit_into_sparse_native_collections() -> None:
+    from tend.solver.agents import _collection_shape
+
+    schema = {
+        "collections": {
+            "district_market_contexts": {
+                "document_count": 77,
+                "root_entity": "district banking market context",
+                "source_tables": ["district", "account", "client", "loan"],
+            }
+        },
+        "structure_audit": {
+            "collection_counts": {"district_market_contexts": 77},
+            "dynamic_key_paths": [
+                {
+                    "path": "accounts_by_frequency",
+                    "sample_keys": ["POPLATEK_MESICNE", "POPLATEK_TYDNE"],
+                    "document_count": 77,
+                    "value_kinds": ["array"],
+                },
+                {
+                    "path": "clients_by_gender",
+                    "sample_keys": ["F", "M"],
+                    "document_count": 77,
+                    "value_kinds": ["array"],
+                },
+            ],
+            "nested_array_paths": ["accounts_by_frequency.*[]", "clients_by_gender.*[]"],
+            "dynamic_array_object_paths": ["accounts_by_frequency.*[]"],
+            "array_object_dynamic_paths": [],
+            "presence_state_counts": {"missing": 4, "present": 73},
+        },
+    }
+
+    collections = solver_workflow._schema_collections(schema)
+    fragment = _collection_shape(
+        "district_market_contexts",
+        collections["district_market_contexts"],
+    )
+    shape = fragment["collections"]["district_market_contexts"]
+
+    assert "accounts_by_frequency" in shape["dynamic_key_paths"]
+    assert "clients_by_gender" in shape["dynamic_key_paths"]
+    assert shape["dynamic_key_samples"]["clients_by_gender"] == ["F", "M"]
+    assert "accounts_by_frequency.*[]" in shape["array_paths"]
+    assert "accounts_by_frequency.*[]" in shape["dynamic_array_object_paths"]
+    assert shape["presence_state_counts"] == {"missing": 4, "present": 73}
+    assert shape["doc_count"] == 77
+    assert "document_count" not in shape["field_locus"]
+    assert "accounts_by_frequency" in shape["field_locus"]
+
+
+def test_smart_solver_passes_public_native_task_context_to_intent_and_planner(
+    stub_settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_dir = tmp_path / "run"
+    log = setup_logging(run_dir, console=False)
+    client = LLMClient(stub_settings, log)
+    ctx = AgentContext(settings=stub_settings, llm=client, log=log)
+    wf = Workflow(ctx)
+    captured: dict[str, dict] = {}
+
+    async def fake_comprehend_shapes(_wf, _ctx, _nlq, _schema):
+        return {
+            "collections": {
+                "orders": {"variants": [], "field_locus": {}},
+                "customers": {"variants": [], "field_locus": {}},
+            }
+        }
+
+    async def fake_agent(agent_id, inputs, *, ctx=None):
+        captured[agent_id] = dict(inputs)
+        if agent_id == "smart_intent":
+            return {
+                "entity": "orders",
+                "per": "month",
+                "shape_policy": "reduce",
+                "target_fields": ["month", "total"],
+                "clause_coverage": ["monthly rollup"],
+            }
+        if agent_id == "smart_plan":
+            return {
+                "collection": "orders",
+                "stages": [
+                    {
+                        "op": "$project",
+                        "note": "emit test projection",
+                        "stage": {"$project": {"_id": 0}},
+                    }
+                ],
+                "variant_handling": [{"variant": "*", "strategy": "bounded"}],
+            }
+        raise AssertionError(agent_id)
+
+    def fake_realize(_ctx, _boundary, **_kwargs):
+        return {"ok": True, "mql": "db.orders.aggregate([])", "feedback": None}
+
+    monkeypatch.setattr(solver_workflow, "comprehend_shapes", fake_comprehend_shapes)
+    monkeypatch.setattr(solver_workflow, "realize_plan_per_stage", fake_realize)
+    wf.agent = fake_agent  # type: ignore[method-assign]
+
+    try:
+        result = asyncio.run(
+            smart_solve_record(
+                wf,
+                {
+                    "record_id": 42,
+                    "db_id": "shop",
+                    "nl_queries": {"canonical": "Summarize monthly orders."},
+                    "native_metadata": {
+                        "feature_id": "orders.by_month",
+                        "feature_type": "dynamic_key_object",
+                        "feature_field": "metrics.by_month",
+                        "query_pattern": "orders.monthly_rollup",
+                        "target_shape_policy": "reduce",
+                        "compiler": "surgical_dataset_patch",
+                    },
+                },
+                {"collections": {"orders": {"fields": ["metrics"]}}},
+                local_data={"orders": [{"_id": 1}], "customers": [{"_id": "c1"}]},
+                r_max=0,
+            )
+        )
+    finally:
+        log.close()
+
+    assert not isinstance(result, SolverFailure)
+    assert captured["smart_intent"]["native_task_context"]["feature_field"] == "metrics.by_month"
+    assert captured["smart_plan"]["native_task_context"]["feature_field"] == "metrics.by_month"
+    assert captured["smart_intent"]["shape_model"]["collections"].keys() == {"orders"}
+    assert captured["smart_plan"]["shape_model"]["collections"].keys() == {"orders"}
+    assert captured["smart_plan"]["witness_digest"].keys() == {"orders"}
+    assert "compiler" not in captured["smart_plan"]["native_task_context"]
+
+
+def test_build_witness_digest_compacts_large_nested_documents() -> None:
+    digest = solver_workflow.build_witness_digest(
+        {
+            "large_docs": [
+                {
+                    "_id": "doc:1",
+                    "payload": {
+                        "long_text": "x" * 500,
+                        "items": [{"name": f"item-{i}", "value": i} for i in range(20)],
+                    },
+                }
+            ]
+        },
+        witness_k=1,
+    )
+
+    preview = digest["large_docs"]["sample_documents"][0]
+    assert preview["payload"]["long_text"].endswith("...")
+    assert len(preview["payload"]["long_text"]) < 200
+    assert len(preview["payload"]["items"]) < 20
+    assert preview["payload"]["items"][-1]["__truncated_items__"] == 12
+
+
 def test_mongo_prefix_executor_stratifies_shape_variants_for_feedback() -> None:
     class FakeMongo:
         def __init__(self) -> None:
@@ -241,3 +756,30 @@ def test_mongo_prefix_executor_stratifies_shape_variants_for_feedback() -> None:
     assert len(fake_mongo.calls) == 2
     variants = result.feedback.context["variants"]
     assert [variant["variant"] for variant in variants] == ["loan-present", "loan-missing"]
+
+
+def test_mongo_prefix_executor_bounds_prefix_input_before_generated_pipeline() -> None:
+    class FakeMongo:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def norm_exec(self, _db_id: str, mql: str) -> list[dict]:
+            self.calls.append(mql)
+            _collection, pipeline = parse_pipeline(mql)
+            assert "$limit" in pipeline[0]
+            assert pipeline[1] == {"$facet": {"all_docs": [{"$project": {"_id": 1}}]}}
+            assert "$limit" in pipeline[2]
+            return [{"all_docs": [{"_id": 1}]}]
+
+        def count(self, _db_id: str, _collection: str) -> int:
+            return 100_000
+
+    executor = _MongoPrefixExecutor(FakeMongo(), local_data={"account": [{"_id": 1}]})
+
+    result = run_per_stage_check(
+        db_id="financial",
+        mql='db.account.aggregate([{"$facet":{"all_docs":[{"$project":{"_id":1}}]}}])',
+        executor=executor,
+    )
+
+    assert result.ok is True

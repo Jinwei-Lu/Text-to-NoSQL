@@ -121,6 +121,21 @@ def test_thin_cfs_derivation():
     assert cfs["must_not_contain_at_root"] == ["$group", "$unwind"]
 
 
+def test_preserve_cfs_does_not_forbid_root_ops_used_by_gold():
+    gold = (
+        'db.party_relationship_graphs.aggregate(['
+        '{"$project":{"native_dynamic_entries":{"$objectToArray":"$roles"}}},'
+        '{"$unwind":"$native_dynamic_entries"},'
+        '{"$project":{"native_key":"$native_dynamic_entries.k"}}'
+        '])'
+    )
+
+    cfs = derive_canonical_form_set(gold, "preserve")
+
+    assert "$unwind" not in cfs["must_not_contain_at_root"]
+    assert "$group" in cfs["must_not_contain_at_root"]
+
+
 def test_mql_schema_ref_gate_allows_nested_and_transient_fields():
     from tend.agents.phase_b import (
         _computed_field_quality_reasons,

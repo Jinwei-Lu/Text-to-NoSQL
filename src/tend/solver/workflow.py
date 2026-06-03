@@ -17,7 +17,56 @@ from .introspection import introspect_solver_database
 
 DEFAULT_R_MAX = 2
 DEFAULT_WITNESS_K = 3
+_PER_STAGE_PREFIX_INPUT_LIMIT = 200
+_PER_STAGE_PREFIX_OUTPUT_LIMIT = 200
+_WITNESS_MAX_STRING_CHARS = 160
+_WITNESS_MAX_LIST_ITEMS = 8
+_WITNESS_MAX_DICT_ITEMS = 24
+_WITNESS_MAX_DEPTH = 5
 ExecutionMode = Literal["per_stage", "whole_query", "static"]
+NlqTrack = Literal["record", "canonical", "colloquial"]
+
+_NATIVE_QUERY_PATTERN_COLLECTION_HINTS: dict[str, str] = {
+    "counterparty_operation_symbol_matrix": "counterparty_flow_profiles",
+    "disposition_role_card_network": "party_relationship_graphs",
+    "district_salary_frequency_segments": "district_market_contexts",
+    "financial.activity_orders": "account_ledgers",
+    "financial.district_frequency_gender_loan_mix": "district_market_contexts",
+    "financial.loan_schedule": "account_ledgers",
+    "financial.party_role_card_loan_mix": "party_relationship_graphs",
+    "loan_status_repayment_schedule": "account_ledgers",
+    "monthly_account_cashflow_matrix": "account_ledgers",
+}
+
+_NATIVE_QUERY_PATTERN_PATH_HINTS: dict[str, tuple[str, ...]] = {
+    "counterparty_operation_symbol_matrix": ("flows_by_symbol", "operation_by_month"),
+    "disposition_role_card_network": ("relationships.members_by_role", "cards"),
+    "district_salary_frequency_segments": (
+        "accounts_by_frequency",
+        "clients_by_gender",
+        "district",
+    ),
+    "financial.activity_orders": ("ledger.standing_orders_by_symbol", "cashflow"),
+    "financial.district_frequency_gender_loan_mix": (
+        "accounts_by_frequency",
+        "clients_by_gender",
+        "district",
+        "salary_band",
+    ),
+    "financial.loan_schedule": (
+        "loan.repayment_schedule.by_due_month",
+        "loan.contract",
+        "district_context",
+        "identity.service_plan",
+    ),
+    "financial.party_role_card_loan_mix": (
+        "relationships.members_by_role",
+        "loan_link",
+        "account.district",
+    ),
+    "loan_status_repayment_schedule": ("loan.repayment_schedule.by_due_month", "loan.contract"),
+    "monthly_account_cashflow_matrix": ("cashflow.activity_by_month", "cashflow.monthly_flows"),
+}
 
 
 @dataclass(frozen=True)
@@ -157,6 +206,7 @@ async def smart_solve_record(
     safe = boundary.sanitize_test_record(record)
     db_id = str(safe["db_id"])
     record_id = safe.get("record_id")
+    native_task_context = _solver_native_task_context(safe)
     nlq = _canonical_nlq(safe, use_colloquial=options.use_colloquial_nlq)
     colloquial = (
         (safe.get("nl_queries") or {}).get("colloquial", "")
@@ -201,6 +251,12 @@ async def smart_solve_record(
         )
     witness_data = local_data if effective_witness_k > 0 else None
     witness_digest = build_witness_digest(witness_data, effective_witness_k)
+    agent_native_task_context = _solver_agent_native_task_context(native_task_context)
+    agent_shape_model = _focus_native_collection_shape_model(shape_model, agent_native_task_context)
+    agent_witness_digest = _focus_native_collection_witness_digest(
+        witness_digest,
+        agent_native_task_context,
+    )
     if effective_witness_k == 0:
         ctx.log.info("smart_solver_witness_ablation", reason="prompt witness digest disabled")
     feedback: dict[str, Any] | None = None
@@ -214,8 +270,8 @@ async def smart_solve_record(
         ctx.log.info("smart_solver_attempt", attempt=attempt, feedback=feedback)
         logical_spec = await wf.agent(
             "smart_intent",
-            {"nlq": nlq, "colloquial": colloquial, "shape_model": shape_model,
-             "feedback": feedback},
+            {"nlq": nlq, "colloquial": colloquial, "shape_model": agent_shape_model,
+             "feedback": feedback, "native_task_context": agent_native_task_context},
             ctx=ctx,
         )
         assert logical_spec is not None
@@ -225,9 +281,10 @@ async def smart_solve_record(
             "smart_plan",
             {
                 "logical_spec": spec.to_json(),
-                "shape_model": shape_model,
-                "witness_digest": witness_digest,
+                "shape_model": agent_shape_model,
+                "witness_digest": agent_witness_digest,
                 "feedback": feedback,
+                "native_task_context": agent_native_task_context,
             },
             ctx=ctx,
         )
@@ -241,6 +298,7 @@ async def smart_solve_record(
                 boundary,
                 db_id=db_id,
                 plan=plan,
+                shape_policy=spec.shape_policy,
                 target_fields=spec.target_fields,
                 schema=schema_for_solver,
                 shape_model=shape_model,
@@ -346,11 +404,81 @@ async def comprehend_shapes(
 def _schema_collections(schema: dict[str, Any]) -> dict[str, Any]:
     collections = schema.get("collections")
     if isinstance(collections, dict):
-        return collections
+        base = collections
+    else:
+        base = {
+            key: value for key, value in schema.items()
+            if (
+                isinstance(value, dict)
+                and key not in {"db_id", "metadata", "structure_audit", "structure_gate"}
+            )
+        }
+    audit = schema.get("structure_audit")
+    if not isinstance(audit, dict):
+        return base
     return {
-        key: value for key, value in schema.items()
-        if isinstance(value, dict) and key not in {"db_id", "metadata"}
+        name: _merge_structure_audit(coll_schema, collection=name, audit=audit)
+        for name, coll_schema in base.items()
     }
+
+
+def _merge_structure_audit(
+    coll_schema: Any,
+    *,
+    collection: str,
+    audit: dict[str, Any],
+) -> dict[str, Any]:
+    out = dict(coll_schema) if isinstance(coll_schema, dict) else {}
+    collection_counts = audit.get("collection_counts")
+    if isinstance(collection_counts, dict) and "document_count" not in out and "doc_count" not in out:
+        if collection in collection_counts:
+            out["document_count"] = collection_counts[collection]
+
+    dynamic_paths: list[str] = []
+    dynamic_samples: dict[str, list[str]] = {}
+    for item in audit.get("dynamic_key_paths") or []:
+        if isinstance(item, dict):
+            path = str(item.get("path") or "")
+            if not path:
+                continue
+            dynamic_paths.append(path)
+            samples = item.get("sample_keys")
+            if isinstance(samples, list):
+                dynamic_samples[path] = [str(sample) for sample in samples]
+        else:
+            dynamic_paths.append(str(item))
+
+    out["dynamic_key_paths"] = _merge_str_lists(out.get("dynamic_key_paths"), dynamic_paths)
+    out["dynamic_key_samples"] = {
+        **{
+            str(path): [str(sample) for sample in samples or []]
+            for path, samples in dict(out.get("dynamic_key_samples") or {}).items()
+        },
+        **dynamic_samples,
+    }
+    out["array_paths"] = _merge_str_lists(out.get("array_paths"), audit.get("nested_array_paths"))
+    out["dynamic_array_object_paths"] = _merge_str_lists(
+        out.get("dynamic_array_object_paths"),
+        audit.get("dynamic_array_object_paths"),
+    )
+    out["array_object_dynamic_paths"] = _merge_str_lists(
+        out.get("array_object_dynamic_paths"),
+        audit.get("array_object_dynamic_paths"),
+    )
+    if not out.get("presence_state_counts") and isinstance(audit.get("presence_state_counts"), dict):
+        out["presence_state_counts"] = dict(audit["presence_state_counts"])
+    return out
+
+
+def _merge_str_lists(left: Any, right: Any) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for value in [*(left or []), *(right or [])]:
+        text = str(value)
+        if text and text not in seen:
+            merged.append(text)
+            seen.add(text)
+    return merged
 
 
 def realize_plan_per_stage(
@@ -360,6 +488,7 @@ def realize_plan_per_stage(
     db_id: str,
     plan: PhysicalPlan,
     target_fields: list[str],
+    shape_policy: str = "reshape",
     schema: dict[str, Any] | None = None,
     shape_model: dict[str, Any] | None = None,
     local_data: dict[str, list[dict[str, Any]]] | None = None,
@@ -375,7 +504,12 @@ def realize_plan_per_stage(
     mql = render_mql(plan.collection, stages)
     checkpoint = CheckpointSpec(
         target_fields=tuple(target_fields),
-        required_fields_by_stage=_required_fields_by_stage(stages, target_fields)
+        required_fields_by_stage=_required_fields_by_stage(
+            stages,
+            target_fields,
+            shape_policy=shape_policy,
+        ),
+        collapse_to_zero=shape_policy == "preserve",
     )
     if ctx.settings.stub:
         executor = _NoopPrefixExecutor(checkpoint.required_fields_by_stage)
@@ -541,19 +675,21 @@ def load_solver_release_inputs(
     db_id: str | None = None,
     record_id: int | None = None,
     limit: int | None = None,
+    nlq_track: NlqTrack = "record",
 ) -> list[tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]]:
     """Load release records plus public schema/data assets.
 
     Gold fields remain on the raw record here; ``smart_solve_record`` sanitizes them before
     any solver stage sees the input. Keeping this loader dumb makes the sanitizer testable.
     """
-    records = json.loads((dataset_dir / "test.json").read_text(encoding="utf-8"))
     out: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]] = []
-    for record in records:
-        if db_id and record.get("db_id") != db_id:
-            continue
-        if record_id is not None and record.get("record_id") != record_id:
-            continue
+    for record in select_solver_release_records(
+        dataset_dir,
+        db_id=db_id,
+        record_id=record_id,
+        limit=limit,
+        nlq_track=nlq_track,
+    ):
         rid = record["db_id"]
         schema = json.loads((dataset_dir / "mongodb_schema" / f"{rid}.json").read_text(
             encoding="utf-8"
@@ -561,8 +697,45 @@ def load_solver_release_inputs(
         data_path = dataset_dir / "mongodb_data" / f"{rid}.json"
         data = json.loads(data_path.read_text(encoding="utf-8")) if data_path.exists() else None
         out.append((record, schema, data))
+    return out
+
+
+def select_solver_release_records(
+    dataset_dir: Path,
+    *,
+    db_id: str | None = None,
+    record_id: int | None = None,
+    limit: int | None = None,
+    nlq_track: NlqTrack = "record",
+) -> list[dict[str, Any]]:
+    """Select release records without loading schema/data assets."""
+
+    records = json.loads((dataset_dir / "test.json").read_text(encoding="utf-8"))
+    out: list[dict[str, Any]] = []
+    for record in records:
+        if db_id and record.get("db_id") != db_id:
+            continue
+        if record_id is not None and record.get("record_id") != record_id:
+            continue
+        out.append(_record_for_nlq_track(record, nlq_track))
         if limit is not None and len(out) >= limit:
             break
+    return out
+
+
+def _record_for_nlq_track(record: dict[str, Any], nlq_track: NlqTrack) -> dict[str, Any]:
+    if nlq_track == "record":
+        return record
+    nl_queries = record.get("nl_queries")
+    selected = nl_queries.get(nlq_track) if isinstance(nl_queries, dict) else None
+    if not isinstance(selected, str) or not selected.strip():
+        raise PromptAnomalyError(
+            f"record missing {nlq_track} NLQ track",
+            context={"record_id": record.get("record_id"), "db_id": record.get("db_id")},
+        )
+    out = dict(record)
+    out["nl_queries"] = {"canonical": selected}
+    out["nlq_track"] = nlq_track
     return out
 
 
@@ -578,13 +751,53 @@ def build_witness_digest(
     for collection, docs in sorted(data.items()):
         if not isinstance(docs, list):
             continue
-        sample = docs[:k]
+        sample = [_compact_witness_value(doc) for doc in docs[:k]]
         digest[collection] = {
             "sample_count": len(sample),
             "sample_documents": sample,
             "string_values_in_sample": _string_values_in_sample(sample),
         }
     return digest
+
+
+def _compact_witness_value(value: Any, *, depth: int = 0) -> Any:
+    if isinstance(value, str):
+        if len(value) <= _WITNESS_MAX_STRING_CHARS:
+            return value
+        return value[: _WITNESS_MAX_STRING_CHARS - 3] + "..."
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if depth >= _WITNESS_MAX_DEPTH:
+        if isinstance(value, dict):
+            return {
+                "__truncated_depth__": True,
+                "__keys__": sorted(str(key) for key in value)[:_WITNESS_MAX_DICT_ITEMS],
+            }
+        if isinstance(value, list):
+            return {
+                "__truncated_depth__": True,
+                "__item_count__": len(value),
+            }
+        return str(value)[:_WITNESS_MAX_STRING_CHARS]
+    if isinstance(value, list):
+        preview = [
+            _compact_witness_value(item, depth=depth + 1)
+            for item in value[:_WITNESS_MAX_LIST_ITEMS]
+        ]
+        if len(value) > _WITNESS_MAX_LIST_ITEMS:
+            preview.append({"__truncated_items__": len(value) - _WITNESS_MAX_LIST_ITEMS})
+        return preview
+    if isinstance(value, dict):
+        items = list(value.items())
+        preview = {
+            str(key): _compact_witness_value(child, depth=depth + 1)
+            for key, child in items[:_WITNESS_MAX_DICT_ITEMS]
+        }
+        if len(items) > _WITNESS_MAX_DICT_ITEMS:
+            preview["__truncated_keys__"] = len(items) - _WITNESS_MAX_DICT_ITEMS
+            preview["__keys__"] = sorted(str(key) for key in value)[:_WITNESS_MAX_DICT_ITEMS]
+        return preview
+    return str(value)[:_WITNESS_MAX_STRING_CHARS]
 
 
 def _string_values_in_sample(docs: list[dict[str, Any]]) -> dict[str, list[str]]:
@@ -671,6 +884,264 @@ def _effective_witness_k(options: SmartSolveOptions, fallback: int) -> int:
     return max(0, options.witness_k if options.witness_k is not None else fallback)
 
 
+def _solver_native_task_context(record: dict[str, Any]) -> dict[str, Any]:
+    """Extract solver-visible native schema-flex hints without gold or template leakage."""
+
+    out: dict[str, Any] = {}
+    for key in (
+        "schema_flex",
+        "schema_feature",
+        "native_feature_id",
+        "native_feature_type",
+        "native_query_pattern",
+        "mongo_native_constructs",
+        "anti_sql_transfer_level",
+        "anti_sql_transfer_evidence",
+    ):
+        value = record.get(key)
+        if value not in (None, "", [], {}):
+            out[key] = value
+
+    metadata = record.get("native_metadata")
+    if isinstance(metadata, Mapping):
+        for source, target in (
+            ("feature_id", "feature_id"),
+            ("feature_type", "feature_type"),
+            ("feature_field", "feature_field"),
+            ("query_pattern", "query_pattern"),
+            ("target_shape_policy", "target_shape_policy"),
+            ("required_native_constructs", "required_native_constructs"),
+            ("mongo_native_constructs", "metadata_mongo_native_constructs"),
+            ("anti_sql_transfer", "anti_sql_transfer"),
+            ("anti_sql_transfer_target", "anti_sql_transfer_target"),
+            ("rationale", "native_rationale"),
+        ):
+            value = metadata.get(source)
+            if value not in (None, "", [], {}):
+                out[target] = value
+    return out
+
+
+def _focus_native_collection_shape_model(
+    shape_model: dict[str, Any],
+    native_task_context: dict[str, Any],
+) -> dict[str, Any]:
+    collection = _native_context_collection(native_task_context)
+    if not collection:
+        return shape_model
+    collections = shape_model.get("collections")
+    if not isinstance(collections, Mapping) or collection not in collections:
+        return shape_model
+    focused = dict(shape_model)
+    focused["collections"] = {
+        collection: _prune_shape_collection_for_native_context(
+            collections[collection],
+            native_task_context,
+        )
+    }
+    return focused
+
+
+def _solver_agent_native_task_context(
+    native_task_context: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Normalize public native hints before they reach LLM agents.
+
+    Some release records carry a construction feature id/field that is useful provenance but
+    not the actual query root. For known public ``native_query_pattern`` values, prefer the
+    pattern's root collection and relevant paths so the prompt does not direct the planner
+    toward an unrelated dynamic map.
+    """
+
+    out = dict(native_task_context)
+    collection = _native_context_collection(native_task_context)
+    if collection:
+        out["root_collection"] = collection
+    hints = _native_query_path_hints(native_task_context)
+    if hints:
+        out["relevant_paths"] = list(hints)
+    primary = _primary_native_query_path(native_task_context)
+    if primary:
+        current = out.get("feature_field")
+        if isinstance(current, str) and current.strip() and current.strip() != primary:
+            out.setdefault("source_feature_field", current.strip())
+        out["feature_field"] = primary
+    return out
+
+
+def _focus_native_collection_witness_digest(
+    witness_digest: dict[str, Any],
+    native_task_context: dict[str, Any],
+) -> dict[str, Any]:
+    collection = _native_context_collection(native_task_context)
+    if not collection or collection not in witness_digest:
+        return witness_digest
+    return {
+        collection: _prune_witness_collection_for_native_context(
+            witness_digest[collection],
+            native_task_context,
+        )
+    }
+
+
+def _prune_witness_collection_for_native_context(
+    collection_digest: Any,
+    native_task_context: Mapping[str, Any],
+) -> Any:
+    if not isinstance(collection_digest, Mapping):
+        return collection_digest
+    hints = _native_query_path_hints(native_task_context)
+    if not hints:
+        return collection_digest
+    out = dict(collection_digest)
+    samples = collection_digest.get("sample_documents")
+    if not isinstance(samples, list):
+        return out
+    pruned_samples = [
+        _prune_witness_document_for_paths(sample, hints) if isinstance(sample, Mapping) else sample
+        for sample in samples
+    ]
+    out["sample_documents"] = pruned_samples
+    out["sample_count"] = len(pruned_samples)
+    out["string_values_in_sample"] = _string_values_in_sample(
+        [dict(sample) for sample in pruned_samples if isinstance(sample, Mapping)]
+    )
+    return out
+
+
+_MISSING = object()
+
+
+def _prune_witness_document_for_paths(
+    sample: Mapping[str, Any],
+    hints: tuple[str, ...],
+) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if "_id" in sample:
+        out["_id"] = sample["_id"]
+    for hint in hints:
+        value = _get_path(sample, hint)
+        if value is _MISSING:
+            continue
+        _set_path(out, hint, value)
+    return out
+
+
+def _get_path(value: Mapping[str, Any], path: str) -> Any:
+    current: Any = value
+    for part in path.split("."):
+        if not isinstance(current, Mapping) or part not in current:
+            return _MISSING
+        current = current[part]
+    return current
+
+
+def _set_path(out: dict[str, Any], path: str, value: Any) -> None:
+    current = out
+    parts = path.split(".")
+    for part in parts[:-1]:
+        child = current.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            current[part] = child
+        current = child
+    current[parts[-1]] = value
+
+
+def _native_context_collection(native_task_context: Mapping[str, Any]) -> str | None:
+    pattern = _native_query_pattern(native_task_context)
+    if pattern and pattern in _NATIVE_QUERY_PATTERN_COLLECTION_HINTS:
+        return _NATIVE_QUERY_PATTERN_COLLECTION_HINTS[pattern]
+    for key in ("root_collection", "collection"):
+        value = native_task_context.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    for key in ("feature_id", "schema_feature", "native_feature_id"):
+        value = native_task_context.get(key)
+        if isinstance(value, str) and "." in value:
+            collection, _sep, _rest = value.partition(".")
+            if collection:
+                return collection
+    return None
+
+
+def _prune_shape_collection_for_native_context(
+    collection_shape: Any,
+    native_task_context: Mapping[str, Any],
+) -> Any:
+    if not isinstance(collection_shape, Mapping):
+        return collection_shape
+    hints = _native_query_path_hints(native_task_context)
+    if not hints:
+        return collection_shape
+    out = dict(collection_shape)
+    for key in ("dynamic_key_paths", "array_paths", "dynamic_array_object_paths", "array_object_dynamic_paths"):
+        values = [str(path) for path in out.get(key) or [] if _path_matches_any_hint(str(path), hints)]
+        if values:
+            out[key] = values
+    samples = out.get("dynamic_key_samples")
+    if isinstance(samples, Mapping):
+        pruned_samples = {
+            str(path): samples
+            for path, samples in samples.items()
+            if _path_matches_any_hint(str(path), hints)
+        }
+        if pruned_samples:
+            out["dynamic_key_samples"] = pruned_samples
+    loci = out.get("field_locus")
+    if isinstance(loci, Mapping):
+        pruned_loci = {
+            str(path): entries
+            for path, entries in loci.items()
+            if _path_matches_any_hint(str(path), hints)
+        }
+        if pruned_loci:
+            out["field_locus"] = pruned_loci
+    return out
+
+
+def _native_query_path_hints(native_task_context: Mapping[str, Any]) -> tuple[str, ...]:
+    pattern = _native_query_pattern(native_task_context)
+    if pattern and pattern in _NATIVE_QUERY_PATTERN_PATH_HINTS:
+        return _NATIVE_QUERY_PATTERN_PATH_HINTS[pattern]
+    feature_field = native_task_context.get("feature_field")
+    if isinstance(feature_field, str) and feature_field.strip():
+        return (feature_field.strip(),)
+    return ()
+
+
+def _primary_native_query_path(native_task_context: Mapping[str, Any]) -> str | None:
+    hints = _native_query_path_hints(native_task_context)
+    if hints:
+        return hints[0]
+    feature_field = native_task_context.get("feature_field")
+    if isinstance(feature_field, str) and feature_field.strip():
+        return feature_field.strip()
+    return None
+
+
+def _native_query_pattern(native_task_context: Mapping[str, Any]) -> str | None:
+    for key in ("query_pattern", "native_query_pattern"):
+        value = native_task_context.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _path_matches_any_hint(path: str, hints: tuple[str, ...]) -> bool:
+    return any(_path_matches_hint(path, hint) for hint in hints)
+
+
+def _path_matches_hint(path: str, hint: str) -> bool:
+    return (
+        path == hint
+        or path.startswith(f"{hint}.")
+        or path.startswith(f"{hint}[")
+        or hint.startswith(f"{path}.")
+        or hint.startswith(f"{path}[")
+    )
+
+
 def _load_local_data_if_available(
     ctx: Any,
     db_id: str,
@@ -690,22 +1161,38 @@ def _load_local_data_if_available(
 
 
 def _required_fields_by_stage(
-    stages: list[dict[str, Any]], target_fields: list[str]
+    stages: list[dict[str, Any]],
+    target_fields: list[str],
+    *,
+    shape_policy: str = "preserve",
 ) -> dict[int, tuple[str, ...]]:
+    target_fields = [field for field in target_fields if field != "*"]
     if not target_fields:
         return {}
-    first_materialized: int | None = None
-    targets = set(target_fields)
+    if shape_policy != "preserve":
+        return {
+            idx: tuple(target_fields) if idx == len(stages) else ()
+            for idx in range(1, len(stages) + 1)
+        }
+    first_by_field: dict[str, int] = {}
+    pending = set(target_fields)
     for idx, stage in enumerate(stages, start=1):
         body = stage.get("$addFields") or stage.get("$set") or stage.get("$project")
-        if isinstance(body, dict) and targets.intersection(body):
-            first_materialized = idx
+        if not isinstance(body, dict):
+            continue
+        for field in sorted(pending.intersection(body)):
+            first_by_field[field] = idx
+        pending.difference_update(first_by_field)
+        if not pending:
             break
-    if first_materialized is None:
-        first_materialized = len(stages)
+    final_stage = len(stages)
     return {
-        idx: tuple(target_fields) if idx >= first_materialized else ()
-        for idx in range(1, len(stages) + 1)
+        idx: tuple(
+            field
+            for field in target_fields
+            if idx >= first_by_field.get(field, final_stage)
+        )
+        for idx in range(1, final_stage + 1)
     }
 
 
@@ -761,7 +1248,7 @@ class _MongoPrefixExecutor:
             else ()
         )
         if not strata:
-            docs = self._mongo.norm_exec(request.db_id, request.mql)
+            docs = self._mongo.norm_exec(request.db_id, _bounded_prefix_mql(request))
             input_count = self._count_variant(request, None)
             return PrefixExecutionResult.single_variant(
                 docs,
@@ -971,7 +1458,26 @@ def _selector_for_discriminator(discriminator: Mapping[str, Any]) -> dict[str, A
 
 
 def _stratified_mql(request: Any, stratum: _VariantStratum) -> str:
-    return render_mql(request.collection, [{"$match": stratum.selector}, *request.pipeline])
+    return render_mql(
+        request.collection,
+        [
+            {"$match": stratum.selector},
+            {"$limit": _PER_STAGE_PREFIX_INPUT_LIMIT},
+            *request.pipeline,
+            {"$limit": _PER_STAGE_PREFIX_OUTPUT_LIMIT},
+        ],
+    )
+
+
+def _bounded_prefix_mql(request: Any) -> str:
+    return render_mql(
+        request.collection,
+        [
+            {"$limit": _PER_STAGE_PREFIX_INPUT_LIMIT},
+            *request.pipeline,
+            {"$limit": _PER_STAGE_PREFIX_OUTPUT_LIMIT},
+        ],
+    )
 
 
 def _local_variant_count(

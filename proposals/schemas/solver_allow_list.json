@@ -52,7 +52,7 @@
     "scope": "heterogeneity_planning_and_query_realization",
     "max_per_collection": "solver_disclosed_K",
     "forbidden_in_stage": "shape_comprehension",
-    "note": "≤ K docs/collection may enter any prompt; the query_realization executor runs PER-STAGE prefix execution on the solver's full LOCAL replica (variant-stratified, for cross-variant debug) — the K limit caps prompt-injected samples, not local execution data volume."
+    "note": "≤ K docs/collection may enter any prompt; the query_realization executor runs PER-STAGE prefix execution on the solver's LOCAL replica with a bounded prefix input cap (variant-stratified, for cross-variant debug) — the K limit caps prompt-injected samples, while the execution cap prevents pathological intermediate materialization."
   },
   "four_party_disjointness": {
     "construction_authority": "05 §05-3",
@@ -129,12 +129,18 @@
     },
     "intent_formalization": {
       "owner_agent": "LLM Agent · cognition mode",
-      "inputs": ["NLQ", "S_hat", "bounded_checkpoint_feedback"],
+      "inputs": ["NLQ", "S_hat", "public_native_task_context", "bounded_checkpoint_feedback"],
       "outputs": ["logical_spec (paradigm-neutral; includes self-inferred shape_policy + target_fields)"],
       "readable": [
         "test.json:nl_queries",
         "test.json:db_id",
-        "test.json:difficulty"
+        "test.json:difficulty",
+        "test.json:schema_flex",
+        "test.json:schema_feature",
+        "test.json:native_feature_id",
+        "test.json:native_feature_type",
+        "test.json:native_query_pattern",
+        "test.json:native_metadata public fields (feature_id, feature_type, feature_field, query_pattern, target_shape_policy, required_native_constructs, mongo_native_constructs, anti_sql_transfer, anti_sql_transfer_target, rationale)"
       ],
       "forbidden": [
         "audit/**",
@@ -148,14 +154,20 @@
     },
     "heterogeneity_planning": {
       "owner_agent": "LLM Agent · cognition mode (crux ★)",
-      "inputs": ["logical_spec", "S_hat", "bounded_checkpoint_feedback", "disclosed_witness_digest"],
+      "inputs": ["logical_spec", "S_hat", "public_native_task_context", "bounded_checkpoint_feedback", "disclosed_witness_digest"],
       "outputs": ["physical_plan (Mongo pipeline skeleton + variant_handling)"],
       "readable": [
         "mongodb_schema/<db_id>.json",
         "mongodb_data/<db_id>.json (≤ K docs per collection into prompt)",
         "agent_design_rationale/<db_id>.yaml (public summary fields only)",
         "test.json:nl_queries",
-        "test.json:db_id"
+        "test.json:db_id",
+        "test.json:schema_flex",
+        "test.json:schema_feature",
+        "test.json:native_feature_id",
+        "test.json:native_feature_type",
+        "test.json:native_query_pattern",
+        "test.json:native_metadata public fields (feature_id, feature_type, feature_field, query_pattern, target_shape_policy, required_native_constructs, mongo_native_constructs, anti_sql_transfer, anti_sql_transfer_target, rationale)"
       ],
       "forbidden": [
         "audit/**",
@@ -205,7 +217,7 @@
         "per_variant_failure"
       ],
       "on_checkpoint_hit": "locate by stage_index, then route via query_realization.feedback_routing to {heterogeneity_planning|intent_formalization|shape_comprehension}",
-      "execution_scope": "LOCAL replica only (never evaluator gold); variant-stratified; NOT subject to the witness K limit (K caps prompt-injected samples, not local execution data volume, §06-4-4.2)",
+      "execution_scope": "LOCAL replica only (never evaluator gold); variant-stratified; bounded prefix input cap prevents pathological intermediate materialization; NOT subject to the witness K prompt limit (K caps prompt-injected samples, not local execution data volume, §06-4-4.2)",
       "no_model": true,
       "no_retrieval": true,
       "postprocess_on_rewrite": ["ast_reject_disabled_operators"]

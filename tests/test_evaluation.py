@@ -5,6 +5,7 @@ from pathlib import Path
 
 import tend.cli as cli
 import tend.config as config_module
+import tend.evaluation.metrics as metrics_module
 from tend.evaluation import EVALUATION_METRICS, evaluate_predictions
 from tend.execution.ast_check import parse_pipeline, root_ops
 from tend.observability import ProgressReporter, setup_logging
@@ -84,20 +85,194 @@ def test_evaluate_predictions_writes_proposal_05_artifacts(tmp_path: Path) -> No
     assert output.paths.report_json.exists()
     assert output.paths.report_md.exists()
     assert output.report["metrics_order"] == list(EVALUATION_METRICS)
+    assert output.report["headline_metric"] == "EX"
+    assert output.report["metrics_order"] == ["EM", "QSM", "QFC", "EX", "EFM", "EVM"]
+    assert output.report["diagnostic_metrics_order"] == ["EM", "QSM", "QFC", "EFM", "EVM"]
     assert output.report["scores"]["EX"] == 0.5
+    assert "QIM" not in output.report["scores"]
     assert output.report["systems"]["exact_gold"]["scores"]["EX"] == 1.0
-    assert output.report["systems"]["empty_pipeline"]["scores"]["QIM"] == 0.0
+    assert "QIM" not in output.report["systems"]["empty_pipeline"]["scores"]
     assert output.report["slice_aggregates"]["domain"]["financial"]["record_count"] == 2
+    report_md = output.paths.report_md.read_text(encoding="utf-8")
+    assert "## Diagnostic Metrics" in report_md
+    assert "| QIM |" not in report_md
+    assert "| EX |" not in report_md.split("## Diagnostic Metrics", maxsplit=1)[1].split("## Systems", maxsplit=1)[0]
 
     rows = [
         json.loads(line)
         for line in output.paths.per_record_jsonl.read_text(encoding="utf-8").splitlines()
     ]
     exact = next(row for row in rows if row["system_id"] == "exact_gold")
-    assert exact["fingerprint"] == [1, 1, 1, 1, 1, 1, 1]
+    assert exact["fingerprint"] == [1, 1, 1, 1, 1, 1]
+    assert exact["fingerprint_order"] == ["EM", "QSM", "QFC", "EX", "EFM", "EVM"]
+    assert "QIM" not in exact["metrics"]
+    assert exact["diagnostics"]["parse_ok"] is True
+    assert exact["diagnostics"]["ast_ok"] is True
     empty = next(row for row in rows if row["system_id"] == "empty_pipeline")
     assert empty["metrics"]["EX"] == 0
+    assert empty["diagnostics"]["parse_ok"] is True
+    assert empty["diagnostics"]["ast_ok"] is False
     assert empty["diagnostics"]["ast_reasons"]
+
+    csv_header = output.paths.per_record_csv.read_text(encoding="utf-8").splitlines()[0].split(",")
+    assert "QIM" not in csv_header
+
+
+class _SelectiveGoldExecutor:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.loaded: set[str] = set()
+
+    def available(self) -> bool:
+        return True
+
+    def load_witness(self, db_id: str, collections: dict) -> None:
+        assert collections
+        self.loaded.add(db_id)
+
+    def norm_exec(self, db_id: str, mql: str) -> list[dict]:
+        self.calls.append(mql)
+        return [{"_id": 1}]
+
+
+def test_evaluate_predictions_prepares_only_predicted_gold_records(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "release"
+    (dataset_dir / "mongodb_data").mkdir(parents=True)
+    record_one = {
+        "record_id": 1,
+        "db_id": "financial",
+        "MQL": "db.gold_one.aggregate([])",
+        "canonical_form_set": {},
+    }
+    record_two = {
+        "record_id": 2,
+        "db_id": "financial",
+        "MQL": "db.gold_two.aggregate([])",
+        "canonical_form_set": {},
+    }
+    (dataset_dir / "test.json").write_text(
+        json.dumps([record_one, record_two]),
+        encoding="utf-8",
+    )
+    (dataset_dir / "mongodb_data" / "financial.json").write_text(
+        json.dumps({"gold_one": [{"_id": 1}], "gold_two": [{"_id": 2}]}),
+        encoding="utf-8",
+    )
+    predictions = tmp_path / "predictions.jsonl"
+    predictions.write_text(
+        json.dumps({
+            "solver_variant": "only_one",
+            "record_id": 1,
+            "db_id": "financial",
+            "MQL": record_one["MQL"],
+        }) + "\n",
+        encoding="utf-8",
+    )
+    executor = _SelectiveGoldExecutor()
+    log = setup_logging(tmp_path / "run", console=False)
+    try:
+        output = evaluate_predictions(
+            dataset_dir=dataset_dir,
+            predictions_path=predictions,
+            out_dir=tmp_path / "eval",
+            experiment_kind="solver",
+            run_id="eval-selective-gold",
+            logger=log,
+            progress=None,
+            executor=executor,
+            max_workers=1,
+        )
+    finally:
+        log.close()
+
+    assert output.status == "partial"
+    assert output.report["release_record_count"] == 2
+    assert output.report["record_count"] == 2
+    assert output.report["scores"]["EX"] == 0.5
+    assert output.report["systems"]["only_one"]["record_count"] == 2
+    assert output.report["systems"]["only_one"]["scores"]["EX"] == 0.5
+    assert output.report["diagnostics"]["missing_prediction"] == 1
+    assert len(executor.calls) == 2
+    assert all("gold_one" in call for call in executor.calls)
+    assert all("gold_two" not in call for call in executor.calls)
+    rows = [
+        json.loads(line)
+        for line in output.paths.per_record_jsonl.read_text(encoding="utf-8").splitlines()
+    ]
+    missing = next(row for row in rows if row["record_id"] == 2)
+    assert missing["status"] == "failed"
+    assert missing["diagnostics"]["error_code"] == "missing_prediction"
+    assert missing["metrics"] == dict.fromkeys(EVALUATION_METRICS, 0)
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "run" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    missing_event = next(event for event in events if event["event"] == "evaluation_missing_predictions")
+    assert missing_event["missing_records_sample"] == [
+        {"system_id": "only_one", "db_id": "financial", "record_id": 2}
+    ]
+    assert missing_event["per_record_jsonl"] == str(output.paths.per_record_jsonl)
+    assert missing_event["report_json"] == str(output.paths.report_json)
+
+
+def test_evaluate_predictions_normalizes_stale_preserve_cfs_for_gold_unwind(
+    tmp_path: Path,
+) -> None:
+    dataset_dir = tmp_path / "release"
+    (dataset_dir / "mongodb_data").mkdir(parents=True)
+    gold_mql = (
+        'db.party_relationship_graphs.aggregate(['
+        '{"$project":{"native_dynamic_entries":{"$objectToArray":"$roles"}}},'
+        '{"$unwind":"$native_dynamic_entries"},'
+        '{"$project":{"native_key":"$native_dynamic_entries.k"}}'
+        '])'
+    )
+    record = {
+        "record_id": 590389,
+        "db_id": "financial",
+        "MQL": gold_mql,
+        "canonical_form_set": {
+            "must_contain": [],
+            "must_not_contain": ["$sample", "$rand", "$out", "$merge", "$function", "$$NOW"],
+            "must_contain_at_root": [],
+            "must_not_contain_at_root": ["$group", "$unwind"],
+        },
+    }
+    (dataset_dir / "test.json").write_text(json.dumps([record]), encoding="utf-8")
+    (dataset_dir / "mongodb_data" / "financial.json").write_text(
+        json.dumps({"party_relationship_graphs": [{"_id": 1}]}),
+        encoding="utf-8",
+    )
+    predictions = tmp_path / "predictions.jsonl"
+    predictions.write_text(
+        json.dumps({
+            "solver_variant": "exact_gold",
+            "record_id": record["record_id"],
+            "db_id": record["db_id"],
+            "MQL": gold_mql,
+        }) + "\n",
+        encoding="utf-8",
+    )
+    log = setup_logging(tmp_path / "run", console=False)
+    try:
+        output = evaluate_predictions(
+            dataset_dir=dataset_dir,
+            predictions_path=predictions,
+            out_dir=tmp_path / "eval",
+            experiment_kind="solver",
+            run_id="eval-stale-cfs",
+            logger=log,
+            progress=None,
+            executor=_SelectiveGoldExecutor(),
+            max_workers=1,
+        )
+    finally:
+        log.close()
+
+    row = json.loads(output.paths.per_record_jsonl.read_text(encoding="utf-8"))
+
+    assert row["diagnostics"]["ast_ok"] is True
+    assert row["metrics"]["EX"] == 1
 
 
 class _OrderCaseExecutor:
@@ -220,6 +395,17 @@ def test_evm_one_for_permutation_under_order_insensitive_query(tmp_path: Path) -
     assert metrics["EX"] == 1
     assert metrics["EFM"] == 1
     assert metrics["EVM"] == 1
+
+
+def test_result_hash_accepts_bson_object_id_from_existing_mongo() -> None:
+    from bson.objectid import ObjectId
+
+    digest = metrics_module._hash_result(
+        [{"_id": ObjectId("656565656565656565656565"), "value": 1}]
+    )
+
+    assert digest.startswith("sha256:")
+    assert len(digest) == len("sha256:") + 64
 
 
 def test_manual_evaluate_cli_does_not_require_bird_or_llm(

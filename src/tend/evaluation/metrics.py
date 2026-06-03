@@ -31,7 +31,11 @@ from ..execution.mongo import equiv_rec
 from ..execution.signature import canonical_json
 from ..observability import RunLogger
 
-EVALUATION_METRICS: tuple[str, ...] = ("EM", "QSM", "QFC", "EX", "EFM", "EVM", "QIM")
+HEADLINE_METRIC = "EX"
+EVALUATION_METRICS: tuple[str, ...] = ("EM", "QSM", "QFC", HEADLINE_METRIC, "EFM", "EVM")
+DIAGNOSTIC_METRICS: tuple[str, ...] = tuple(
+    metric for metric in EVALUATION_METRICS if metric != HEADLINE_METRIC
+)
 SLICE_AXES: tuple[str, ...] = (
     "domain",
     "join_depth",
@@ -214,9 +218,17 @@ def evaluate_predictions(
         )
 
     record_index = {_record_key(record): record for record in records}
+    scorable_records = _records_for_predictions(records, predictions)
+    log.info(
+        "evaluation_scope_selected",
+        predictions=len(predictions),
+        release_records=len(records),
+        scorable_records=len(scorable_records),
+        db_ids=sorted({str(record.get("db_id") or "") for record in scorable_records}),
+    )
     try:
-        _load_witnesses(dataset_dir, records, executor, log)
-        gold = _prepare_gold_records(records, executor, log)
+        _load_witnesses(dataset_dir, scorable_records, executor, log)
+        gold = _prepare_gold_records(scorable_records, executor, log)
     except TendError as err:
         if not err.logged:
             log.anomaly(err)
@@ -263,6 +275,29 @@ def evaluate_predictions(
         progress=progress,
         max_workers=max_workers,
     )
+    missing_rows = _missing_prediction_rows(
+        records,
+        predictions,
+        run_id=run_id,
+        experiment_kind=experiment_kind,
+    )
+    if missing_rows:
+        log.warning(
+            "evaluation_missing_predictions",
+            missing=len(missing_rows),
+            systems=sorted({str(row.get("system_id")) for row in missing_rows}),
+            missing_records_sample=[
+                {
+                    "system_id": row.get("system_id"),
+                    "db_id": row.get("db_id"),
+                    "record_id": row.get("record_id"),
+                }
+                for row in missing_rows[:20]
+            ],
+            per_record_jsonl=str(paths.per_record_jsonl),
+            report_json=str(paths.report_json),
+        )
+        rows.extend(missing_rows)
     rows.sort(
         key=lambda row: (
             str(row.get("system_id")),
@@ -355,6 +390,24 @@ def _executor_available(executor: EvaluationExecutor) -> tuple[bool, str | None]
     return True, None
 
 
+def _records_for_predictions(
+    records: list[dict[str, Any]],
+    predictions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    record_index = {_record_key(record): record for record in records}
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, Any]] = set()
+    for prediction in predictions:
+        key = (str(prediction.get("db_id") or ""), prediction.get("record_id"))
+        if key in seen:
+            continue
+        seen.add(key)
+        record = record_index.get(key)
+        if record is not None:
+            out.append(record)
+    return out
+
+
 def _load_witnesses(
     dataset_dir: Path,
     records: list[dict[str, Any]],
@@ -423,7 +476,7 @@ def _prepare_gold_records(
         gold[_record_key(record)] = _GoldRecord(
             record=record,
             gold_mql=mql,
-            canonical_form_set=cfs,
+            canonical_form_set=_normalize_cfs_against_gold(cfs, parsed),
             parsed=parsed,
             canonical_text=_canonical_text(parsed),
             structural_signature=_structural_signature(parsed),
@@ -432,6 +485,23 @@ def _prepare_gold_records(
             gold_result=result,
         )
     return gold
+
+
+def _normalize_cfs_against_gold(
+    cfs: dict[str, Any],
+    parsed: tuple[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    """Drop stale root-op prohibitions that contradict the released gold pipeline."""
+
+    out = dict(cfs)
+    gold_root_ops = root_ops(parsed[1])
+    must_not_root = out.get("must_not_contain_at_root")
+    if isinstance(must_not_root, list):
+        out["must_not_contain_at_root"] = [
+            str(op) for op in must_not_root
+            if str(op) not in gold_root_ops
+        ]
+    return out
 
 
 def _score_predictions_concurrently(
@@ -467,6 +537,77 @@ def _score_predictions_concurrently(
         for future in as_completed(futures):
             rows.append(future.result())
     return rows
+
+
+def _missing_prediction_rows(
+    records: list[dict[str, Any]],
+    predictions: list[dict[str, Any]],
+    *,
+    run_id: str,
+    experiment_kind: str,
+) -> list[dict[str, Any]]:
+    """Return zero-score rows for release records not predicted by each system."""
+
+    system_ids = sorted({_system_id(prediction, experiment_kind) for prediction in predictions})
+    if not system_ids:
+        return []
+    record_index = {_record_key(record): record for record in records}
+    predicted_by_system: dict[str, set[tuple[str, Any]]] = defaultdict(set)
+    for prediction in predictions:
+        system_id = _system_id(prediction, experiment_kind)
+        key = (str(prediction.get("db_id") or ""), prediction.get("record_id"))
+        if key in record_index:
+            predicted_by_system[system_id].add(key)
+
+    rows: list[dict[str, Any]] = []
+    for system_id in system_ids:
+        predicted_keys = predicted_by_system.get(system_id, set())
+        for record in records:
+            key = _record_key(record)
+            if key in predicted_keys:
+                continue
+            rows.append(_missing_prediction_row(
+                record,
+                run_id=run_id,
+                experiment_kind=experiment_kind,
+                system_id=system_id,
+            ))
+    return rows
+
+
+def _missing_prediction_row(
+    record: dict[str, Any],
+    *,
+    run_id: str,
+    experiment_kind: str,
+    system_id: str,
+) -> dict[str, Any]:
+    metrics = dict.fromkeys(EVALUATION_METRICS, 0)
+    return {
+        "result_type": "evaluation_record",
+        "status": "failed",
+        "run_id": run_id,
+        "experiment_kind": experiment_kind,
+        "system_id": system_id,
+        "prediction_index": None,
+        "prediction_line": None,
+        "record_id": record.get("record_id"),
+        "db_id": record.get("db_id"),
+        "metrics": metrics,
+        "fingerprint": [0 for _ in EVALUATION_METRICS],
+        "fingerprint_order": list(EVALUATION_METRICS),
+        "diagnostics": {
+            "error_code": "missing_prediction",
+            "message": "system did not produce a prediction for this release record",
+        },
+        "slice_keys": _slice_keys(record, None),
+        "prediction_ref": {
+            "line": None,
+            "work_item_id": None,
+            "batch_index": None,
+            "result_type": "missing_prediction",
+        },
+    }
 
 
 def _score_one_prediction(
@@ -520,7 +661,11 @@ def _score_one_prediction(
             progress.finish_task(
                 task_id,
                 ok=True,
-                detail=f"EX={metrics.get('EX', 0)} QIM={metrics.get('QIM', 0)}",
+                detail=(
+                    f"EX={metrics.get('EX', 0)} "
+                    f"EFM={metrics.get('EFM', 0)} "
+                    f"EVM={metrics.get('EVM', 0)}"
+                ),
             )
         log.info(
             "evaluation_record_done",
@@ -602,7 +747,8 @@ def _score_one_prediction_inner(
     if ast_reasons:
         diagnostics["ast_reasons"] = ast_reasons
 
-    metrics["QIM"] = int(parsed is not None and ast_ok)
+    diagnostics["parse_ok"] = parsed is not None
+    diagnostics["ast_ok"] = ast_ok
     if parsed is not None:
         canonical_text = _canonical_text(parsed)
         metrics["EM"] = int(canonical_text == gold_record.canonical_text)
@@ -995,8 +1141,9 @@ def _build_report(
         "status": status,
         "run_id": run_id,
         "experiment_kind": experiment_kind,
-        "headline_metric": "EX",
+        "headline_metric": HEADLINE_METRIC,
         "metrics_order": list(EVALUATION_METRICS),
+        "diagnostic_metrics_order": list(DIAGNOSTIC_METRICS),
         "record_count": len(rows),
         "release_record_count": len(records),
         "scores": scores,
@@ -1062,6 +1209,9 @@ def _diagnostic_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
         diagnostics = row.get("diagnostics") if isinstance(row.get("diagnostics"), dict) else {}
         if row.get("status") == "failed":
             counts["record_failed"] += 1
+        error_code = diagnostics.get("error_code")
+        if isinstance(error_code, str) and error_code:
+            counts[error_code] += 1
         for key in ("parse_error", "forbidden_op_hit", "exec_error", "ast_reasons"):
             if diagnostics.get(key):
                 counts[key] += 1
@@ -1090,8 +1240,9 @@ def _write_failed_report(
         "status": "failed",
         "run_id": run_id,
         "experiment_kind": experiment_kind,
-        "headline_metric": "EX",
+        "headline_metric": HEADLINE_METRIC,
         "metrics_order": list(EVALUATION_METRICS),
+        "diagnostic_metrics_order": list(DIAGNOSTIC_METRICS),
         "record_count": 0,
         "scores": {name: 0.0 for name in EVALUATION_METRICS},
         "systems": {},
@@ -1123,28 +1274,37 @@ def _render_markdown_report(report: dict[str, Any]) -> str:
         "",
         f"- run_id: `{report.get('run_id')}`",
         f"- status: `{report.get('status')}`",
-        f"- headline: `EX = {report.get('scores', {}).get('EX', 0.0)}`",
+        f"- headline: `{HEADLINE_METRIC} = {report.get('scores', {}).get(HEADLINE_METRIC, 0.0)}`",
         f"- records: `{report.get('record_count', 0)}`",
         "",
-        "## Scores",
+        "## Headline",
+        "",
+        "| Metric | Mean |",
+        "|--------|------|",
+        f"| {HEADLINE_METRIC} | {report.get('scores', {}).get(HEADLINE_METRIC, 0.0)} |",
+        "",
+        "## Diagnostic Metrics",
         "",
         "| Metric | Mean |",
         "|--------|------|",
     ]
-    for metric in EVALUATION_METRICS:
+    diagnostic_metrics = report.get("diagnostic_metrics_order")
+    if not isinstance(diagnostic_metrics, list):
+        diagnostic_metrics = list(DIAGNOSTIC_METRICS)
+    for metric in diagnostic_metrics:
         lines.append(f"| {metric} | {report.get('scores', {}).get(metric, 0.0)} |")
-    lines += ["", "## Systems", "", "| System | Records | EX | QIM | EFM | EVM |", "|--------|---------|----|-----|-----|-----|"]
+    lines += ["", "## Systems", "", "| System | Records | EX | EFM | EVM |", "|--------|---------|----|-----|-----|"]
     systems = report.get("systems") if isinstance(report.get("systems"), dict) else {}
     if systems:
         for system_id, payload in systems.items():
             scores = payload.get("scores", {})
             lines.append(
                 f"| {system_id} | {payload.get('record_count', 0)} | "
-                f"{scores.get('EX', 0.0)} | {scores.get('QIM', 0.0)} | "
-                f"{scores.get('EFM', 0.0)} | {scores.get('EVM', 0.0)} |"
+                f"{scores.get('EX', 0.0)} | {scores.get('EFM', 0.0)} | "
+                f"{scores.get('EVM', 0.0)} |"
             )
     else:
-        lines.append("| (none) | 0 | 0 | 0 | 0 | 0 |")
+        lines.append("| (none) | 0 | 0 | 0 | 0 |")
     diagnostics = report.get("diagnostics") if isinstance(report.get("diagnostics"), dict) else {}
     lines += ["", "## Diagnostics", ""]
     if diagnostics:

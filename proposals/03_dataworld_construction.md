@@ -296,7 +296,7 @@ Coverage Controller（[04](./04_agent_framework.md)）读取该报告，在 Phas
 |---|---|
 | record 字段、test-only 基准组织 | [02](./02_dataset_design.md) |
 | MQL、canonical_form_set、mutations | [04](./04_agent_framework.md) |
-| EX、七指标 | [05](./05_evaluation_methodology.md) |
+| EX、六指标 | [05](./05_evaluation_methodology.md) |
 | SMART solver | [06](./06_solution_design.md) |
 
 ---

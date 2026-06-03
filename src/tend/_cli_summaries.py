@@ -152,5 +152,5 @@ def _print_evaluation_block(
         return
     scores = evaluation.report.get("scores", {})
     print(f"  evaluation : {evaluation.status} EX={scores.get('EX', 0.0)} "
-          f"QIM={scores.get('QIM', 0.0)}")
+          f"EFM={scores.get('EFM', 0.0)} EVM={scores.get('EVM', 0.0)}")
     print(f"  eval report: {evaluation.paths.report_md}")

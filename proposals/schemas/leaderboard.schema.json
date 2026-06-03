@@ -291,15 +291,14 @@
     "metricVector": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["EM", "QSM", "QFC", "EX", "EFM", "EVM", "QIM"],
+      "required": ["EM", "QSM", "QFC", "EX", "EFM", "EVM"],
       "properties": {
         "EM": { "$ref": "#/$defs/metricScore" },
         "QSM": { "$ref": "#/$defs/metricScore" },
         "QFC": { "$ref": "#/$defs/metricScore" },
         "EX": { "$ref": "#/$defs/metricScore" },
         "EFM": { "$ref": "#/$defs/metricScore" },
-        "EVM": { "$ref": "#/$defs/metricScore" },
-        "QIM": { "$ref": "#/$defs/metricScore" }
+        "EVM": { "$ref": "#/$defs/metricScore" }
       }
     },
     "sliceAxis": {

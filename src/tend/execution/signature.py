@@ -11,6 +11,7 @@ import json
 from typing import Any
 
 _FLOAT_NDIGITS = 12
+_JSON_SCALAR_TYPES = (str, int, bool)
 
 
 def _canon(obj: Any) -> Any:
@@ -19,10 +20,23 @@ def _canon(obj: Any) -> Any:
         r = round(obj, _FLOAT_NDIGITS)
         return 0.0 if r == 0 else r
     if isinstance(obj, dict):
-        return {k: _canon(obj[k]) for k in sorted(obj)}
+        return {str(k): _canon(obj[k]) for k in sorted(obj, key=lambda key: str(key))}
     if isinstance(obj, (list, tuple)):
         return [_canon(v) for v in obj]
-    return obj
+    if obj is None or isinstance(obj, _JSON_SCALAR_TYPES):
+        return obj
+    return _json_safe_scalar(obj)
+
+
+def _json_safe_scalar(obj: Any) -> Any:
+    """Convert BSON/native scalars into deterministic Extended JSON values."""
+
+    try:
+        from bson import json_util
+
+        return json.loads(json_util.dumps(obj, default=str))
+    except Exception:  # noqa: BLE001 - canonicalization must stay total for diagnostics
+        return str(obj)
 
 
 def canonical_json(obj: Any) -> str:

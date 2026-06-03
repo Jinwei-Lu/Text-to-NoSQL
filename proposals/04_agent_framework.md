@@ -22,7 +22,7 @@ TEND 在 BIRD mini-dev 锚定数据世界上，用 **QPS → MS → MUT → PV �
 
 **RTV (Round-Trip Verifier)** 使用与 QPS/MS/NLP **模型池 disjoint** 的独立 NL→MQL agent，对 canonical NLQ 再合成 `mql_round_trip_canonical`，**必须 NormExec ≡_rec gold**（结果级，验意图唯一；不要求命中 cfs 指纹）；colloquial 走软检查。混合披露使 S 携结构提示，故 L4 异构记录的自然 NLQ 仍可往返。
 
-**NNC (NoSQL Nativeness Critic)** 负责 L0–L4 难度**确认**（派生自 mechanism×archetype）、`sql_infeasibility_class` 赋值、canonical_form_set 校验、意图级歧义攻击，以及 **graduated dual-bridge gate**：两桥**始终计算**，仅当 `sql_infeasibility_class ≠ feasible` 时作发布门（**RAR 纯结果**：两桥均不得 NormExec ≡_rec gold，去 QIM 拐杖）；`feasible` 类仅写诊断字段。
+**NNC (NoSQL Nativeness Critic)** 负责 L0–L4 难度**确认**（派生自 mechanism×archetype）、`sql_infeasibility_class` 赋值、canonical_form_set 校验、意图级歧义攻击，以及 **graduated dual-bridge gate**：两桥**始终计算**，仅当 `sql_infeasibility_class ≠ feasible` 时作发布门（**RAR 纯结果**：两桥均不得 NormExec ≡_rec gold，不使用结构代理拐杖）；`feasible` 类仅写诊断字段。
 
 **RA (Realism Auditor)** 审计 witness 与 gold 的生产 realism：字段覆盖率、null/missing 共现、嵌套深度与 SRA pattern 一致、结果基数非平凡（P4）。必要时 targeted augment 并重算 `world_signature`，回流 MS 重跑 NormExec。
 
@@ -118,7 +118,7 @@ QPS 受 Coverage Controller 调度，按 **`seed_mechanism × archetype × domai
 <a id="04-1-2-5"></a>
 ##### 04-1-2-5 SQL-shortcut graduated gate
 
-NNC 对每条 record **始终**计算 SQL-bridge（canonical NLQ → NL2SQL → sql_to_mongo）与 Template-bridge（关键词 → 外部模板库填槽）的 `NormExec ≡_rec gold` **结果**（RAR 去 QIM 拐杖），写入可选 `_diagnostic_bridge_ref`。
+NNC 对每条 record **始终**计算 SQL-bridge（canonical NLQ → NL2SQL → sql_to_mongo）与 Template-bridge（关键词 → 外部模板库填槽）的 `NormExec ≡_rec gold` **结果**（RAR 不使用结构代理拐杖），写入可选 `_diagnostic_bridge_ref`。
 
 **发布门决策**（与 `sql_infeasibility_class` 联动）：
 
@@ -352,7 +352,7 @@ RTV 改判**结果等价**而非 gold-class 指纹闭包：它验的是「NLQ �
 | **SQL-bridge** | canonical NLQ → NL2SQL LLM → sql_to_mongo → mql_sql_bridge | 在 D 上 **NormExec ≢_rec gold**（够不到答案） |
 | **Template-bridge** | canonical NLQ → 关键词 → 外部 MQL 模板库 → mql_template_bridge | 同上 |
 
-**通过判据（non-feasible，RAR 纯结果）**：两桥均不得 `NormExec ≡_rec gold`——即 SQL/模板路线**都够不到正确结果**。RAR 下 cfs 已坍缩、QIM 退化（[01 §01-3-1](./01_task_definition.md#01-3-1)），故**去 QIM 拐杖**，判据回归「难度 = 答案不可被 SQL/模板路线触及」这一本质。`feasible` 类记录跳过发布门，桥接结果写入 `_diagnostic_bridge_ref` 供报表。
+**通过判据（non-feasible，RAR 纯结果）**：两桥均不得 `NormExec ≡_rec gold`——即 SQL/模板路线**都够不到正确结果**。RAR 下 cfs 已坍缩，结构代理退化，故判据回归「难度 = 答案不可被 SQL/模板路线触及」这一本质。`feasible` 类记录跳过发布门，桥接结果写入 `_diagnostic_bridge_ref` 供报表。
 
 financial/1001（`structural_schema_flex`）预期：
 - SQL-bridge：relational `INNER JOIN loan` 静默丢无 loan 账户 → 文档数与 present/missing 分支错 → NormExec ≢_rec gold
@@ -473,7 +473,7 @@ record 发布前须通过：
 1. **gold accept**：EX_verdict(MQL, record, D) = true 且 NormExec(MQL,D) ≡_rec R(D)（P1 参照锚定）
 2. **mutations 全 reject**：∀m ∈ mutations, EX_verdict(m.MQL, record, D) = false
 3. **RTV canonical 闭包**：mql_round_trip_canonical 的 NormExec ≡_rec gold（结果级，非 cfs 指纹）
-4. **graduated gate**（若 sql_infeasibility_class ≠ feasible）：两桥均 NormExec ≢_rec gold（纯结果，去 QIM）
+4. **graduated gate**（若 sql_infeasibility_class ≠ feasible）：两桥均 NormExec ≢_rec gold（纯结果，不使用结构代理）
 5. **P4 非平凡**：RA 签发的 ra_audit.pass = true
 
 <a id="04-7-5"></a>
@@ -484,7 +484,7 @@ record 发布前须通过：
 | 任务签名、EX、≡_rec、AST_check | [01](./01_task_definition.md) |
 | record 字段、split、L4 ≥ 30%、L0 ≤ 5% | [02](./02_dataset_design.md) |
 | WP/SRA/SC/DM、scenario_summary、flex supply | [03](./03_dataworld_construction.md) |
-| 7 指标、4-panel 观测、SQL-route 诊断切片 | [05](./05_evaluation_methodology.md) |
+| 6 指标、4-panel 观测、SQL-route 诊断切片 | [05](./05_evaluation_methodology.md) |
 | SMART solver、disjointness 池 | [06](./06_solution_design.md) |
 
 Agent prompt 模板：`agent_prompts/qps_query_plan_sampler.md`（legacy filename; active prompt emits `intent`）、`ms_mql_synthesizer.md`、`mut_mutation_generator.md`、`pv_property_verifier.md`、`nlp_nl_paraphraser.md`、`rtv_round_trip_verifier.md`、`nnc_nosql_nativeness_critic.md`、`ra_realism_auditor.md`。

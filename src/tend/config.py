@@ -108,6 +108,7 @@ class Settings:
     paths: Paths
     mongo_uri: str
     mongo_db_prefix: str = "tend_"   # working dbs are <prefix><db_id>
+    use_existing_mongo_dbs: bool = False
     stub: bool = False               # offline: deterministic fake LLM, no live calls
     quiet: bool = False              # suppress the live progress UI (CI / logs only)
     migration_ref_sample_cap: int | None = 40_000
@@ -179,6 +180,7 @@ class Settings:
             llm=llm,
             paths=paths,
             mongo_uri=_env(envmap, "TEND_MONGO_URI", "mongodb://localhost:27017") or "",
+            use_existing_mongo_dbs=_env(envmap, "TEND_USE_EXISTING_MONGO_DBS", "0") == "1",
             stub=stub,
             quiet=_env(envmap, "TEND_QUIET", "0") == "1",
             migration_ref_sample_cap=_optional_positive_int(

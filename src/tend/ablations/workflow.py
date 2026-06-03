@@ -11,6 +11,7 @@ from typing import Any
 from ..errors import Anomaly, SourceError, TendError, wrap_unexpected
 from ..execution.ast_check import parse_pipeline, scan_disabled
 from ..solver.workflow import (
+    NlqTrack,
     SmartSolveOptions,
     build_nlq_db_solver_input,
     build_witness_digest,
@@ -107,6 +108,7 @@ async def run_ablation_suite(
     ablation_selection: str | list[str] | tuple[str, ...] | None = "all",
     db_id: str | None = None,
     nlq: str | None = None,
+    nlq_track: NlqTrack = "record",
     record_id: int | None = None,
     limit: int = 1,
     r_max: int = 2,
@@ -130,6 +132,7 @@ async def run_ablation_suite(
             db_id=db_id,
             record_id=record_id,
             limit=limit,
+            nlq_track=nlq_track,
         )
     log = wf.ctx.log.bind(component="ablation_suite")
     log.info(

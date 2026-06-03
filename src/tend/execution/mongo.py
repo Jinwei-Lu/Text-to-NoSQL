@@ -1,7 +1,8 @@
 """MongoDB execution: NormExec (run an MQL aggregate) and ``equiv_rec`` (result equality).
 
 A :class:`MongoExecutor` loads per-db witness data into an ephemeral working database
-(``<prefix><db_id>``), runs MQL aggregate strings, and normalizes results for the
+(``<prefix><run_id>_<db_id>`` by default, or an existing ``<db_id>`` database when
+configured), runs MQL aggregate strings, and normalizes results for the
 ≡_rec comparison used by MS gold-lock, PV, RTV and the NNC bridges. Connection is lazy so
 stub/offline runs that never execute don't require a reachable server.
 """
@@ -58,6 +59,8 @@ class MongoExecutor:
             return False
 
     def _db_name(self, db_id: str) -> str:
+        if self._s.use_existing_mongo_dbs:
+            return db_id
         # run-scoped so concurrent runs / tests never collide on the working database
         return f"{self._s.mongo_db_prefix}{self._s.run_id}_{db_id}"
 
@@ -95,6 +98,14 @@ class MongoExecutor:
 
         Docs may use MongoDB Extended JSON ($oid/$date/...); they are coerced via bson.
         """
+        if self._s.use_existing_mongo_dbs:
+            self._log.info(
+                "witness_reuse_existing_db",
+                db_id=db_id,
+                db_name=self._db_name(db_id),
+                collections={c: len(d) for c, d in collections.items()},
+            )
+            return
         from bson import json_util
 
         client = self._connect()
@@ -162,13 +173,17 @@ def _normalize_doc(doc: Any) -> Any:
 
     ``_id`` is **kept** — it carries meaning as a semantic ``$group`` key (per-subtype agg,
     polymorphic dispatch) and as the preserved root key; dropping it would mis-compare those
-    records. Witness ``_id``s are deterministic PKs, not volatile ObjectIds.
+    records. BSON scalars from existing MongoDB databases are converted into deterministic
+    Extended JSON values so evaluation hashing/reporting remains JSON-safe.
     """
     if isinstance(doc, dict):
-        return {k: _normalize_doc(v) for k, v in doc.items()}
+        return {str(k): _normalize_doc(v) for k, v in doc.items()}
     if isinstance(doc, list):
         return [_normalize_doc(v) for v in doc]
-    return _unify_number(doc)
+    unified = _unify_number(doc)
+    if unified is None or isinstance(unified, (str, int, bool)):
+        return unified
+    return _canon(unified)
 
 
 def _unify_number(v: Any) -> Any:

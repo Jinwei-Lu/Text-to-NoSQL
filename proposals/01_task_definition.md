@@ -14,7 +14,7 @@ TEND 以 BIRD mini-dev (11 库) 为数据源与场景源，由十一智能体流
 
 正确性不以 MQL 字面相等为锚，而以 gold-as-class 等价类判定。每条 record 携带 canonical_form_set 四元组 (must_contain / must_not_contain / must_contain_at_root / must_not_contain_at_root) 与 canonical representative (MQL 字段)。预测 q_p 属于 gold-class 当且仅当 EX 双条件合取成立：AST_check 静态通过，且 NormExec(q_p, D) ≡_rec NormExec(q_g, D)。NormExec = Norm ∘ Exec ∘ Parse，所有执行层比较一律基于归一化结果，不直接比较原生 BSON。
 
-输出空间须满足 read-only、deterministic、mongosh-executable 三条核心性质，并禁六件 operator ($sample, $rand, $$NOW, $out, $merge, $function)。Norm 四层契约 (标量 / 复合 / null-vs-missing / _id + shape-preserving) 将 Exec 结果投射到 R*；≡_rec 在 R* 上递归定义标量、字典、列表、顶层四层相等。评测主指标 EX 是唯一语义锚；EM / QSM / QFC / EFM / EVM / QIM 均为诊断 proxy，详见 [05 §2](./05_evaluation_methodology.md#05-2)。
+输出空间须满足 read-only、deterministic、mongosh-executable 三条核心性质，并禁六件 operator ($sample, $rand, $$NOW, $out, $merge, $function)。Norm 四层契约 (标量 / 复合 / null-vs-missing / _id + shape-preserving) 将 Exec 结果投射到 R*；≡_rec 在 R* 上递归定义标量、字典、列表、顶层四层相等。评测主指标 EX 是唯一语义锚；EM / QSM / QFC / EFM / EVM 均为诊断 proxy，详见 [05 §2](./05_evaluation_methodology.md#05-2)。
 
 Canonical 锚 (pending DAR Phase A 执行验证) financial/1001 贯穿全文：L4 难度、$lookup + $addFields + $cond/$type 结构约束、preserve shape_policy、稀疏 loan + 多态 trans 异构，以及 world_signature 冻结 witness 快照。record 字段契约、覆盖轴见 [02 §2](./02_dataset_design.md#02-2)；BIRD mini-dev 锚定数据世界见 [03 §3](./03_dataworld_construction.md#03-3)；Agent 框架见 [04 §2](./04_agent_framework.md#04-2)。
 
@@ -48,7 +48,7 @@ $$
 | 发布物目录、record 字段 schema、world_signature | [02 §2](./02_dataset_design.md#02-2) |
 | BIRD mini-dev 锚定 schema / 数据迁移 / SRA 设计 | [03 §3](./03_dataworld_construction.md#03-3) |
 | Phase B Agent 框架、canonical_form_set 派生、mutations | [04 §4](./04_agent_framework.md#04-4) |
-| 七指标公式、4-panel 报表 | [05 §2](./05_evaluation_methodology.md#05-2) |
+| 六指标公式、4-panel 报表 | [05 §2](./05_evaluation_methodology.md#05-2) |
 | SMART schema-less agentic 双智能体 / 四阶段解法 | [06 §1](./06_solution_design.md#06-1) |
 
 <a id="01-1"></a>
@@ -130,10 +130,9 @@ $lookup、$graphLookup 等同库引用 operator 不禁。预测 q_p 经 disabled
 |------|------|------|
 | EM / QSM / QFC | 字面 proxy | 字符串 / AST / 字段集 |
 | EFM / EVM | 执行 proxy | 部分结果匹配 |
-| QIM | 结构 proxy | AST 主干对齐 |
 | **EX** | **唯一语义锚** | AST_check pass ∧ NormExec ≡_rec |
 
-Leaderboard 以 EX 为准（[05 §4](./05_evaluation_methodology.md#05-4)）。七指标须同时披露，但仅 EX 具有语义权威性。
+Leaderboard 以 EX 为准（[05 §4](./05_evaluation_methodology.md#05-4)）。六指标须同时披露，但仅 EX 具有语义权威性。
 
 <a id="01-3"></a>
 ## §01-3 正确性锚 (gold-as-class)

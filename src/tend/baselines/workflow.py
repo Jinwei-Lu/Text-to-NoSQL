@@ -12,6 +12,7 @@ from ..errors import Anomaly, PromptAnomalyError, SourceError, TendError, wrap_u
 from ..execution.ast_check import parse_pipeline, scan_disabled
 from ..solver.guards import SolverBoundary, check_disjointness, load_solver_allow_list
 from ..solver.workflow import (
+    NlqTrack,
     build_nlq_db_solver_input,
     build_witness_digest,
     load_solver_release_inputs,
@@ -83,6 +84,7 @@ async def run_baseline_suite(
     baseline_selection: str | list[str] | tuple[str, ...] | None = "all",
     db_id: str | None = None,
     nlq: str | None = None,
+    nlq_track: NlqTrack = "record",
     record_id: int | None = None,
     limit: int = 1,
     witness_k: int = 3,
@@ -105,6 +107,7 @@ async def run_baseline_suite(
             db_id=db_id,
             record_id=record_id,
             limit=limit,
+            nlq_track=nlq_track,
         )
     log = wf.ctx.log.bind(component="baseline_suite")
     log.info(

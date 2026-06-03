@@ -50,6 +50,8 @@ _WATCH_EVENTS = {
     "record_dropped",
     "rtv_reject",
     "sc_reject",
+    "smart_solver_feedback",
+    "solver_per_stage_checkpoint_failed",
 }
 
 

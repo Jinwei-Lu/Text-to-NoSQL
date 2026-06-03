@@ -55,10 +55,6 @@
 **Definition**: Instance-level root principles — P1 execution correctness, P2 semantic uniqueness, P3 discriminability, P4 world non-triviality.  
 **Owner**: [01 §01-6](../01_task_definition.md#01-6)
 
-## QIM (Query Intent Match)
-**Definition**: Structural half of EX; AST-level alignment without requiring execution match. **RAR demoted**: with thin cfs, QIM is near-trivial; the dual-bridge gate is re-based on pure result (neither bridge `NormExec ≡_rec gold`), no longer `(EX ∧ QIM)`.  
-**Owner**: [05 §05-2](../05_evaluation_methodology.md#05-2)
-
 <a id="reference-oracle"></a>
 ## reference oracle (R)
 **Definition**: RAR — per-archetype naive, auditable reference implementation (independent Python, cross-paradigm) that **defines the answer** to an intent on D. MS's gold-lock criterion is `NormExec(gold,D) ≡_rec R(D)` ∧ dual-path convergence, replacing pure-reverse "gold self-certifies" and catching systematic gold bugs. R ≠ gold (R defines the answer; gold is the native idiom). Only intents with a simple auditable R enter the archetype catalog.  

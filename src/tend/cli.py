@@ -58,6 +58,7 @@ from .solver.workflow import (
     DEFAULT_WITNESS_K,
     SmartSolveOptions,
     load_solver_release_inputs,
+    select_solver_release_records,
     smart_solve_nlq_db,
     smart_solve_record,
 )
@@ -1906,6 +1907,124 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
             fp.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
 
 
+def _write_jsonl_even_empty(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fp:
+        for row in rows:
+            fp.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+
+
+def _materialize_evaluation_dataset_subset(
+    dataset_dir: Path,
+    records: list[dict[str, Any]],
+    out_dir: Path,
+) -> Path:
+    """Build a run-local release-like dataset for the records this run attempted."""
+
+    unique_records: list[dict[str, Any]] = []
+    seen: set[tuple[str, Any]] = set()
+    for record in records:
+        key = (str(record.get("db_id") or ""), record.get("record_id"))
+        if not key[0] or key in seen:
+            continue
+        unique_records.append(record)
+        seen.add(key)
+
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+    (out_dir / "mongodb_data").mkdir(parents=True, exist_ok=True)
+    (out_dir / "mongodb_schema").mkdir(parents=True, exist_ok=True)
+    (out_dir / "agent_design_rationale").mkdir(parents=True, exist_ok=True)
+
+    (out_dir / "test.json").write_text(
+        json.dumps(unique_records, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    tend_records = _filter_record_file(dataset_dir / "TEND.json", seen) or unique_records
+    (out_dir / "TEND.json").write_text(
+        json.dumps(tend_records, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+
+    catalog = dataset_dir / "bird_db_catalog.json"
+    if catalog.exists():
+        _link_or_copy_file(catalog, out_dir / "bird_db_catalog.json")
+
+    for db in sorted({str(record.get("db_id") or "") for record in unique_records}):
+        if not db:
+            continue
+        for dirname in ("mongodb_data", "mongodb_schema"):
+            src = dataset_dir / dirname / f"{db}.json"
+            if src.exists():
+                _link_or_copy_file(src, out_dir / dirname / src.name)
+        rationale_dir = dataset_dir / "agent_design_rationale"
+        for suffix in (".yaml", ".yml", ".json"):
+            src = rationale_dir / f"{db}{suffix}"
+            if src.exists():
+                _link_or_copy_file(src, out_dir / "agent_design_rationale" / src.name)
+    return out_dir
+
+
+def _filter_record_file(path: Path, keys: set[tuple[str, Any]]) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(rows, list):
+        return []
+    return [
+        row for row in rows
+        if isinstance(row, dict) and (str(row.get("db_id") or ""), row.get("record_id")) in keys
+    ]
+
+
+def _link_or_copy_file(src: Path, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists() or dst.is_symlink():
+        dst.unlink()
+    try:
+        dst.hardlink_to(src)
+        return
+    except OSError:
+        pass
+    try:
+        dst.symlink_to(src.resolve())
+        return
+    except OSError:
+        pass
+    shutil.copy2(src, dst)
+
+
+def _solver_exception_failure_payload(
+    err: TendError,
+    *,
+    record: dict[str, Any],
+    batch_index: int,
+) -> dict[str, Any]:
+    context = dict(err.context)
+    db_id = str(context.get("db_id") or record.get("db_id") or "")
+    record_id = context.get("record_id", record.get("record_id"))
+    anomaly = err.anomaly.value if err.anomaly else None
+    payload: dict[str, Any] = {
+        "result_type": "solver_failure",
+        "record_id": record_id,
+        "db_id": db_id,
+        "error_code": str(anomaly or type(err).__name__).upper(),
+        "error_type": type(err).__name__,
+        "message": err.message,
+        "anomaly": anomaly,
+        "retryable": err.retryable,
+        "context": context,
+        "batch_index": batch_index,
+        "work_item_id": f"solve:{batch_index}:{db_id}:{record_id}",
+    }
+    for key, value in context.items():
+        payload.setdefault(key, value)
+    return payload
+
+
 async def _run_solve(
     rt: Runtime,
     *,
@@ -1915,6 +2034,7 @@ async def _run_solve(
     limit: int,
     r_max: int,
     witness_k: int,
+    nlq_track: str = "record",
     nlq: str | None = None,
     evaluate: bool = True,
     eval_out_dir: Path | None = None,
@@ -1927,24 +2047,37 @@ async def _run_solve(
     summary: dict = {}
     out_path = rt.settings.run_dir / "solver_predictions.jsonl"
     failures_path = rt.settings.run_dir / "solver_failures.jsonl"
+    eval_input_path = rt.settings.run_dir / "solver_evaluation_inputs.jsonl"
     evaluate_outputs = evaluate and nlq is None
+    evaluation_dataset_dir: Path | None = None
     try:
         with rt.progress:
             rt.workflow.phase("SOLVE")
             if nlq is not None:
                 if not db_id:
                     raise SourceError("NLQ+DB solver mode requires --db-id")
-                result = await smart_solve_nlq_db(
-                    rt.workflow,
-                    db_id=str(db_id),
-                    nlq=nlq,
-                    record_id=record_id,
-                    r_max=r_max,
-                    witness_k=witness_k,
-                )
-                payload = result.to_json()
-                payload["batch_index"] = 0
-                payload["work_item_id"] = f"solve:0:{db_id}:{record_id}"
+                record_stub = {"db_id": str(db_id), "record_id": record_id}
+                try:
+                    result = await smart_solve_nlq_db(
+                        rt.workflow,
+                        db_id=str(db_id),
+                        nlq=nlq,
+                        record_id=record_id,
+                        r_max=r_max,
+                        witness_k=witness_k,
+                    )
+                    payload = result.to_json()
+                    payload["batch_index"] = 0
+                    payload["work_item_id"] = f"solve:0:{db_id}:{record_id}"
+                except Exception as exc:  # noqa: BLE001 - convert one record into a failure row
+                    err = wrap_unexpected(exc, stage="solve_record", **record_stub)
+                    if not err.logged:
+                        rt.log.anomaly(err)
+                    payload = _solver_exception_failure_payload(
+                        err,
+                        record=record_stub,
+                        batch_index=0,
+                    )
                 if payload.get("result_type") == "solver_failure":
                     failures.append(payload)
                 else:
@@ -1955,7 +2088,21 @@ async def _run_solve(
                     db_id=db_id,
                     record_id=record_id,
                     limit=limit,
+                    nlq_track=nlq_track,
                 )
+                if evaluate_outputs and inputs:
+                    evaluation_dataset_dir = _materialize_evaluation_dataset_subset(
+                        dataset_dir,
+                        [record for record, _schema, _data in inputs],
+                        rt.settings.run_dir / "evaluation_dataset",
+                    )
+                    rt.log.info(
+                        "evaluation_dataset_subset_materialized",
+                        source_dataset_dir=str(dataset_dir),
+                        dataset_dir=str(evaluation_dataset_dir),
+                        records=len(inputs),
+                        db_ids=sorted({str(record.get("db_id") or "") for record, _, _ in inputs}),
+                    )
                 if not inputs:
                     rt.log.anomaly(
                         kind=Anomaly.SUPPLY_EXHAUSTED,
@@ -1973,22 +2120,39 @@ async def _run_solve(
                     data: dict | None,
                 ) -> tuple[int, dict]:
                     db = str(record.get("db_id"))
-                    result = await smart_solve_record(
-                        rt.workflow,
-                        record,
-                        schema,
-                        local_data=data,
-                        r_max=r_max,
-                        witness_k=witness_k,
-                        options=SmartSolveOptions(
-                            progress_work_item_id=f"batch_index={batch_index}",
-                        ),
-                        witness_preloaded=db in preloaded_dbs,
-                    )
-                    payload = result.to_json()
-                    payload["batch_index"] = batch_index
-                    payload["work_item_id"] = f"solve:{batch_index}:{db}:{record.get('record_id')}"
-                    return batch_index, payload
+                    try:
+                        result = await smart_solve_record(
+                            rt.workflow,
+                            record,
+                            schema,
+                            local_data=data,
+                            r_max=r_max,
+                            witness_k=witness_k,
+                            options=SmartSolveOptions(
+                                progress_work_item_id=f"batch_index={batch_index}",
+                            ),
+                            witness_preloaded=db in preloaded_dbs,
+                        )
+                        payload = result.to_json()
+                        payload["batch_index"] = batch_index
+                        payload["work_item_id"] = (
+                            f"solve:{batch_index}:{db}:{record.get('record_id')}"
+                        )
+                        return batch_index, payload
+                    except Exception as exc:  # noqa: BLE001 - preserve batch progress.
+                        err = wrap_unexpected(
+                            exc,
+                            stage="solve_record",
+                            db_id=db,
+                            record_id=record.get("record_id"),
+                        )
+                        if not err.logged:
+                            rt.log.anomaly(err)
+                        return batch_index, _solver_exception_failure_payload(
+                            err,
+                            record=record,
+                            batch_index=batch_index,
+                        )
 
                 tasks = [
                     asyncio.create_task(solve_one(index, record, schema, data))
@@ -2012,13 +2176,15 @@ async def _run_solve(
                         predictions.append(payload)
             _write_jsonl(out_path, predictions)
             _write_jsonl(failures_path, failures)
-            if predictions and evaluate_outputs:
+            evaluation_rows = [*predictions, *failures]
+            if evaluation_rows and evaluate_outputs and evaluation_dataset_dir is not None:
+                _write_jsonl_even_empty(eval_input_path, evaluation_rows)
                 rt.progress.phase("EVAL")
                 evaluation = await _maybe_evaluate(
                     rt,
-                    predictions=predictions,
-                    predictions_path=out_path,
-                    dataset_dir=dataset_dir,
+                    predictions=evaluation_rows,
+                    predictions_path=eval_input_path,
+                    dataset_dir=evaluation_dataset_dir,
                     experiment_kind="solver",
                     evaluate=evaluate_outputs,
                     eval_out_dir=eval_out_dir,
@@ -2073,6 +2239,7 @@ async def _run_baseline(
     limit: int,
     witness_k: int,
     nlq: str | None = None,
+    nlq_track: str = "record",
     evaluate: bool = True,
     eval_out_dir: Path | None = None,
     eval_workers: int = 8,
@@ -2085,15 +2252,39 @@ async def _run_baseline(
     summary: dict = {}
     out_path = rt.settings.run_dir / "baseline_predictions.jsonl"
     failures_path = rt.settings.run_dir / "baseline_failures.jsonl"
+    eval_input_path = rt.settings.run_dir / "baseline_evaluation_inputs.jsonl"
     evaluate_outputs = evaluate and nlq is None
+    evaluation_dataset_dir: Path | None = None
     try:
         with rt.progress:
+            if evaluate_outputs:
+                selected_records = select_solver_release_records(
+                    dataset_dir,
+                    db_id=db_id,
+                    record_id=record_id,
+                    limit=limit,
+                    nlq_track=nlq_track,
+                )
+                if selected_records:
+                    evaluation_dataset_dir = _materialize_evaluation_dataset_subset(
+                        dataset_dir,
+                        selected_records,
+                        rt.settings.run_dir / "evaluation_dataset",
+                    )
+                    rt.log.info(
+                        "evaluation_dataset_subset_materialized",
+                        source_dataset_dir=str(dataset_dir),
+                        dataset_dir=str(evaluation_dataset_dir),
+                        records=len(selected_records),
+                        db_ids=sorted({str(record.get("db_id") or "") for record in selected_records}),
+                    )
             outputs = await run_baseline_suite(
                 rt.workflow,
                 dataset_dir=dataset_dir,
                 baseline_selection=baselines,
                 db_id=db_id,
                 nlq=nlq,
+                nlq_track=nlq_track,
                 record_id=record_id,
                 limit=limit,
                 witness_k=witness_k,
@@ -2102,13 +2293,15 @@ async def _run_baseline(
             failures = [item for item in outputs if item.get("status") != "ok"]
             _write_jsonl(out_path, predictions)
             _write_jsonl(failures_path, failures)
-            if predictions and evaluate_outputs:
+            evaluation_rows = [*predictions, *failures]
+            if evaluation_rows and evaluate_outputs and evaluation_dataset_dir is not None:
+                _write_jsonl_even_empty(eval_input_path, evaluation_rows)
                 rt.progress.phase("EVAL")
                 evaluation = await _maybe_evaluate(
                     rt,
-                    predictions=predictions,
-                    predictions_path=out_path,
-                    dataset_dir=dataset_dir,
+                    predictions=evaluation_rows,
+                    predictions_path=eval_input_path,
+                    dataset_dir=evaluation_dataset_dir,
                     experiment_kind="baseline",
                     evaluate=evaluate_outputs,
                     eval_out_dir=eval_out_dir,
@@ -2165,6 +2358,7 @@ async def _run_ablation(
     r_max: int,
     witness_k: int,
     nlq: str | None = None,
+    nlq_track: str = "record",
     evaluate: bool = True,
     eval_out_dir: Path | None = None,
     eval_workers: int = 8,
@@ -2177,16 +2371,40 @@ async def _run_ablation(
     summary: dict = {}
     out_path = rt.settings.run_dir / "ablation_predictions.jsonl"
     failures_path = rt.settings.run_dir / "ablation_failures.jsonl"
+    eval_input_path = rt.settings.run_dir / "ablation_evaluation_inputs.jsonl"
     summary_path = rt.settings.run_dir / "ablation_summary.json"
     evaluate_outputs = evaluate and nlq is None
+    evaluation_dataset_dir: Path | None = None
     try:
         with rt.progress:
+            if evaluate_outputs:
+                selected_records = select_solver_release_records(
+                    dataset_dir,
+                    db_id=db_id,
+                    record_id=record_id,
+                    limit=limit,
+                    nlq_track=nlq_track,
+                )
+                if selected_records:
+                    evaluation_dataset_dir = _materialize_evaluation_dataset_subset(
+                        dataset_dir,
+                        selected_records,
+                        rt.settings.run_dir / "evaluation_dataset",
+                    )
+                    rt.log.info(
+                        "evaluation_dataset_subset_materialized",
+                        source_dataset_dir=str(dataset_dir),
+                        dataset_dir=str(evaluation_dataset_dir),
+                        records=len(selected_records),
+                        db_ids=sorted({str(record.get("db_id") or "") for record in selected_records}),
+                    )
             outputs = await run_ablation_suite(
                 rt.workflow,
                 dataset_dir=dataset_dir,
                 ablation_selection=ablations,
                 db_id=db_id,
                 nlq=nlq,
+                nlq_track=nlq_track,
                 record_id=record_id,
                 limit=limit,
                 r_max=r_max,
@@ -2196,13 +2414,15 @@ async def _run_ablation(
             failures = [item for item in outputs if item.get("status") != "ok"]
             _write_jsonl(out_path, predictions)
             _write_jsonl(failures_path, failures)
-            if predictions and evaluate_outputs:
+            evaluation_rows = [*predictions, *failures]
+            if evaluation_rows and evaluate_outputs and evaluation_dataset_dir is not None:
+                _write_jsonl_even_empty(eval_input_path, evaluation_rows)
                 rt.progress.phase("EVAL")
                 evaluation = await _maybe_evaluate(
                     rt,
-                    predictions=predictions,
-                    predictions_path=out_path,
-                    dataset_dir=dataset_dir,
+                    predictions=evaluation_rows,
+                    predictions_path=eval_input_path,
+                    dataset_dir=evaluation_dataset_dir,
                     experiment_kind="ablation",
                     evaluate=evaluate_outputs,
                     eval_out_dir=eval_out_dir,
@@ -2515,6 +2735,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--dataset-dir", default=None,
                    help="release dataset dir (default: release/TEND-dataset)")
     s.add_argument("--db-id", default=None, help="optional db_id filter")
+    s.add_argument("--nlq-track", choices=["record", "canonical", "colloquial"],
+                   default="record",
+                   help="release-mode NLQ track: record keeps canonical+colloquial; "
+                        "canonical/colloquial run that text as the sole query track")
     s.add_argument("--nlq", default=None,
                    help="solve one natural-language question against --db-id by querying MongoDB")
     s.add_argument("--record-id", type=int, default=None, help="optional record_id filter")
@@ -2533,6 +2757,10 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--baselines", default="all",
                    help=f"comma-separated baseline ids or all; known={','.join(BASELINE_IDS)}")
     b.add_argument("--db-id", default=None, help="optional db_id filter")
+    b.add_argument("--nlq-track", choices=["record", "canonical", "colloquial"],
+                   default="record",
+                   help="release-mode NLQ track: record keeps canonical+colloquial; "
+                        "canonical/colloquial run that text as the sole query track")
     b.add_argument("--nlq", default=None,
                    help="run baselines for one natural-language question against --db-id")
     b.add_argument("--record-id", type=int, default=None, help="optional record_id filter")
@@ -2550,6 +2778,10 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--ablations", default="all",
                    help=f"comma-separated ablation ids or all; known={','.join(ABLATION_IDS)}")
     a.add_argument("--db-id", default=None, help="optional db_id filter")
+    a.add_argument("--nlq-track", choices=["record", "canonical", "colloquial"],
+                   default="record",
+                   help="release-mode NLQ track: record keeps canonical+colloquial; "
+                        "canonical/colloquial run that text as the sole query track")
     a.add_argument("--nlq", default=None,
                    help="run ablations for one natural-language question against --db-id")
     a.add_argument("--record-id", type=int, default=None, help="optional record_id filter")
@@ -2646,6 +2878,7 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             r_max=args.r_max,
             witness_k=args.witness_k,
+            nlq_track=args.nlq_track,
             nlq=args.nlq,
             evaluate=not args.no_eval,
             eval_out_dir=_resolve_repo_path(settings, args.eval_out) if args.eval_out else None,
@@ -2661,6 +2894,7 @@ def main(argv: list[str] | None = None) -> int:
             record_id=args.record_id,
             limit=args.limit,
             witness_k=args.witness_k,
+            nlq_track=args.nlq_track,
             nlq=args.nlq,
             evaluate=not args.no_eval,
             eval_out_dir=_resolve_repo_path(settings, args.eval_out) if args.eval_out else None,
@@ -2677,6 +2911,7 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             r_max=args.r_max,
             witness_k=args.witness_k,
+            nlq_track=args.nlq_track,
             nlq=args.nlq,
             evaluate=not args.no_eval,
             eval_out_dir=_resolve_repo_path(settings, args.eval_out) if args.eval_out else None,

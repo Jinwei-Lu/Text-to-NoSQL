@@ -322,3 +322,137 @@ def test_planner_accepts_object_to_array_dynamic_key_paths() -> None:
     }
 
     assert planner.check_contract(None, inputs, good_plan) == []
+
+
+def test_planner_preserve_contract_treats_star_as_keep_original_document() -> None:
+    planner = SmartNosqlPlanner()
+    ctx = SimpleNamespace(extra={"solver_use_preserve_guard": True})
+    inputs = {
+        "logical_spec": {
+            "shape_policy": "preserve",
+            "target_fields": ["*"],
+        },
+        "shape_model": {},
+        "witness_digest": {},
+    }
+    plan = {
+        "collection": "district_market_contexts",
+        "stages": [
+            {
+                "op": "$match",
+                "note": "Filter by a schema-less dynamic key while leaving source documents intact.",
+                "stage": {
+                    "$match": {
+                        "$expr": {
+                            "$in": [
+                                "POPLATEK_MESICNE",
+                                {
+                                    "$map": {
+                                        "input": {"$objectToArray": "$accounts_by_frequency"},
+                                        "as": "kv",
+                                        "in": "$$kv.k",
+                                    }
+                                },
+                            ]
+                        }
+                    }
+                },
+            },
+            {
+                "op": "$limit",
+                "note": "Limit output without adding or removing fields.",
+                "stage": {"$limit": 25},
+            },
+        ],
+        "variant_handling": [],
+    }
+
+    violations = planner.check_contract(ctx, inputs, plan)
+
+    assert "preserve target_fields missing from plan output: ['*']" not in violations
+
+
+def test_planner_preserve_contract_allows_id_as_retained_identity_field() -> None:
+    planner = SmartNosqlPlanner()
+    ctx = SimpleNamespace(extra={"solver_use_preserve_guard": True})
+    inputs = {
+        "logical_spec": {
+            "shape_policy": "preserve",
+            "target_fields": ["_id", "native_context_bucket", "native_matching_dynamic_entries"],
+        },
+        "shape_model": {},
+        "witness_digest": {},
+    }
+    plan = {
+        "collection": "district_market_contexts",
+        "stages": [
+            {
+                "op": "$addFields",
+                "note": "Derive a context bucket while retaining document identity.",
+                "stage": {"$addFields": {"native_context_bucket": {"$ifNull": ["$salary_band", "missing"]}}},
+            },
+            {
+                "op": "$project",
+                "note": "Return id, context, and matching dynamic key/value entries.",
+                "stage": {
+                    "$project": {
+                        "_id": 1,
+                        "native_context_bucket": 1,
+                        "native_matching_dynamic_entries": {
+                            "$filter": {
+                                "input": {
+                                    "$objectToArray": {"$ifNull": ["$accounts_by_frequency", {}]}
+                                },
+                                "as": "entry",
+                                "cond": {"$in": ["$$entry.k", ["POPLATEK_MESICNE"]]},
+                            }
+                        },
+                    }
+                },
+            },
+            {
+                "op": "$match",
+                "note": "Drop documents without matching dynamic keys.",
+                "stage": {
+                    "$match": {
+                        "$expr": {"$gt": [{"$size": "$native_matching_dynamic_entries"}, 0]}
+                    }
+                },
+            },
+            {
+                "op": "$project",
+                "note": "Keep only the native output shape.",
+                "stage": {
+                    "$project": {
+                        "_id": 1,
+                        "native_context_bucket": 1,
+                        "native_matching_dynamic_entries": 1,
+                    }
+                },
+            },
+            {
+                "op": "$sort",
+                "note": "Stable result order.",
+                "stage": {"$sort": {"_id": 1}},
+            },
+            {
+                "op": "$limit",
+                "note": "Return up to 25 documents.",
+                "stage": {"$limit": 25},
+            },
+        ],
+        "variant_handling": [
+            {
+                "field": "accounts_by_frequency",
+                "handling": "Use objectToArray/filter to handle dynamic keys as data.",
+            }
+        ],
+    }
+
+    violations = planner.check_contract(ctx, inputs, plan)
+
+    assert not any(
+        violation.startswith("preserve target_fields missing")
+        and "_id" in violation
+        for violation in violations
+    )

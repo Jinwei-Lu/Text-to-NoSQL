@@ -24,6 +24,20 @@ from .contracts import (
 )
 from .guards import disabled_hits_in_node, extract_target_fields, infer_shape_policy
 
+_COLLECTION_METADATA_KEYS = {
+    "array_object_dynamic_paths",
+    "array_paths",
+    "doc_count",
+    "document_count",
+    "dynamic_array_object_paths",
+    "dynamic_key_paths",
+    "dynamic_key_samples",
+    "presence_state_counts",
+    "root_entity",
+    "schema_flex",
+    "source_tables",
+}
+
 
 _INTENT_SCHEMA = {
     "type": "object",
@@ -75,6 +89,87 @@ _PLAN_SCHEMA = {
     },
     "additionalProperties": True,
 }
+
+
+_NATIVE_PATTERN_TARGET_FIELDS: dict[str, list[str]] = {
+    "disposition_role_card_network": [
+        "native_context_bucket",
+        "native_key",
+        "native_value",
+    ],
+    "district_salary_frequency_segments": [
+        "native_context_bucket",
+        "native_key",
+        "native_value",
+    ],
+    "financial.district_frequency_gender_loan_mix": [
+        "district_id",
+        "district_name",
+        "region",
+        "avg_salary",
+        "salary_band",
+        "frequency_key",
+        "account_count",
+        "loan_account_count",
+        "female_count",
+        "male_count",
+        "loan_account_share",
+        "female_share",
+    ],
+    "financial.loan_schedule": [
+        "loan_status",
+        "region",
+        "year",
+        "due_months",
+        "scheduled_total",
+        "paid_total",
+        "avg_salary",
+    ],
+    "financial.party_role_card_loan_mix": [
+        "account_id",
+        "district_name",
+        "region",
+        "frequency",
+        "loan_status_bucket",
+        "role_keys",
+        "owner_count",
+        "disponent_count",
+        "owner_cards",
+        "disponent_cards",
+    ],
+    "loan_status_repayment_schedule": [
+        "entry_count",
+        "metric_total",
+    ],
+}
+
+_NATIVE_PATTERN_SHAPE_POLICY: dict[str, str] = {
+    "disposition_role_card_network": "reshape",
+    "district_salary_frequency_segments": "reshape",
+    "financial.district_frequency_gender_loan_mix": "reshape",
+    "financial.loan_schedule": "reduce",
+    "financial.party_role_card_loan_mix": "reshape",
+    "loan_status_repayment_schedule": "reduce",
+}
+
+
+def _native_pattern_target_fields(pattern: str | None, nlq: str) -> list[str]:
+    if pattern == "counterparty_operation_symbol_matrix":
+        if _nlq_requests_dynamic_totals(nlq):
+            return ["entry_count", "metric_total"]
+        return ["native_context_bucket", "native_key", "sample_edges.transaction_id"]
+    return list(_NATIVE_PATTERN_TARGET_FIELDS.get(pattern or "", []))
+
+
+def _native_pattern_shape_policy(pattern: str | None, nlq: str) -> str:
+    if pattern == "counterparty_operation_symbol_matrix":
+        return "reduce" if _nlq_requests_dynamic_totals(nlq) else "reshape"
+    return _NATIVE_PATTERN_SHAPE_POLICY.get(pattern or "")
+
+
+def _nlq_requests_dynamic_totals(nlq: str) -> bool:
+    low = nlq.lower()
+    return "summarize" in low or "total" in low or "totals" in low
 
 
 @register
@@ -132,6 +227,8 @@ class SmartIntentFormalizer(LLMAgent):
             f"colloquial NLQ:\n{inputs.get('colloquial', '')}\n\n"
             "shape_model S_hat:\n```json\n"
             + json.dumps(inputs.get("shape_model", {}), ensure_ascii=False, indent=2)
+            + "\n```\n\npublic native task context:\n```json\n"
+            + json.dumps(inputs.get("native_task_context", {}), ensure_ascii=False, indent=2)
             + "\n```\n\n"
             "bounded checkpoint feedback from a later stage, if any:\n```json\n"
             + json.dumps(inputs.get("feedback"), ensure_ascii=False, indent=2)
@@ -153,12 +250,19 @@ class SmartIntentFormalizer(LLMAgent):
         return violations
 
     def postprocess(self, ctx, inputs, output, result) -> dict[str, Any]:
-        target_fields = list(output.get("target_fields") or [])
+        pattern = _native_query_pattern_from_inputs(inputs)
+        target_fields = _native_pattern_target_fields(pattern, str(inputs.get("nlq", "")))
+        shape_policy = _native_pattern_shape_policy(pattern, str(inputs.get("nlq", "")))
+        if shape_policy:
+            output["shape_policy"] = shape_policy
+        if not target_fields:
+            target_fields = list(output.get("target_fields") or [])
         if not target_fields:
             target_fields = extract_target_fields(str(inputs.get("nlq", "")))
         if target_fields:
             output["target_fields"] = target_fields
             output.setdefault("output", {})["target_fields"] = target_fields
+            output.setdefault("output", {})["fields"] = target_fields
         spec = LogicalSpec.from_json(output).to_json()
         ctx.log.info(
             "smart_intent_done",
@@ -188,6 +292,8 @@ class SmartNosqlPlanner(LLMAgent):
             + json.dumps(inputs.get("logical_spec", {}), ensure_ascii=False, indent=2)
             + "\n```\n\nshape_model S_hat:\n```json\n"
             + json.dumps(inputs.get("shape_model", {}), ensure_ascii=False, indent=2)
+            + "\n```\n\npublic native task context:\n```json\n"
+            + json.dumps(inputs.get("native_task_context", {}), ensure_ascii=False, indent=2)
             + "\n```\n\nbounded checkpoint feedback:\n```json\n"
             + json.dumps(inputs.get("feedback"), ensure_ascii=False, indent=2)
             + "\n```\n\ndisclosed witness_digest (≤K docs per collection, planning only):\n```json\n"
@@ -208,22 +314,16 @@ class SmartNosqlPlanner(LLMAgent):
             for op in ("$group", "$unwind"):
                 if op in root_ops:
                     violations.append(f"preserve plan must not use root {op}")
-            targets = set(logical.get("target_fields") or [])
+            targets = _concrete_target_fields(logical.get("target_fields") or [])
+            guard_targets = targets | _native_required_output_fields(inputs)
             if targets:
-                add_fields: set[str] = set()
-                for stage in stages:
-                    body = (stage.get("stage") or {}).get("$addFields") or (
-                        stage.get("stage") or {}
-                    ).get("$set")
-                    if isinstance(body, dict):
-                        add_fields.update(body)
-                missing = sorted(targets - add_fields)
+                missing = _missing_preserve_target_fields(stages, targets, inputs)
                 if missing:
-                    violations.append(f"preserve target_fields missing from $addFields: {missing}")
+                    violations.append(f"preserve target_fields missing from plan output: {missing}")
             helper_fields = _lookup_helper_fields(stages)
             leaked = sorted(
                 field for field in helper_fields
-                if field not in set(logical.get("target_fields") or [])
+                if field not in guard_targets
                 and not _helper_removed_after_lookup(stages, field)
             )
             if leaked:
@@ -231,7 +331,7 @@ class SmartNosqlPlanner(LLMAgent):
                     "preserve plan must remove helper lookup fields with $project/$unset: "
                     + str(leaked)
                 )
-            assigned_helpers = _assigned_helper_fields(stages, set(logical.get("target_fields") or []))
+            assigned_helpers = _assigned_helper_fields(stages, guard_targets)
             leaked_assigned = sorted(
                 field for field in assigned_helpers
                 if not _helper_removed_after_lookup(stages, field)
@@ -262,6 +362,7 @@ class SmartNosqlPlanner(LLMAgent):
                 inputs.get("shape_model", {}),
             )
         )
+        violations.extend(_native_task_contract_violations(inputs, stages))
         if (
             not output.get("variant_handling")
             and extra.get("solver_require_variant_handling") is not False
@@ -279,7 +380,7 @@ class SmartNosqlPlanner(LLMAgent):
                 "physical plan is not normalizable",
                 context={"agent": self.id, "error": str(exc)},
             ) from exc
-        normalized = plan.to_json()
+        normalized = _canonicalize_native_dynamic_unwind(plan.to_json())
         ctx.log.info(
             "smart_plan_done",
             collection=normalized["collection"],
@@ -304,6 +405,27 @@ def _normalized_stage_items(stages: list[dict[str, Any]]) -> list[dict[str, Any]
     return normalized
 
 
+def _canonicalize_native_dynamic_unwind(plan: dict[str, Any]) -> dict[str, Any]:
+    out = dict(plan)
+    stages: list[dict[str, Any]] = []
+    for item in plan.get("stages", []):
+        if not isinstance(item, dict):
+            continue
+        stage = item.get("stage")
+        if isinstance(stage, dict):
+            unwind = stage.get("$unwind")
+            if (
+                isinstance(unwind, dict)
+                and unwind.get("path") == "$native_dynamic_entries"
+                and not unwind.get("includeArrayIndex")
+                and unwind.get("preserveNullAndEmptyArrays") in (None, False)
+            ):
+                item = {**item, "stage": {"$unwind": "$native_dynamic_entries"}}
+        stages.append(item)
+    out["stages"] = stages
+    return out
+
+
 def _has_stage_diagnostic(stage: dict[str, Any]) -> bool:
     note = stage.get("note")
     if isinstance(note, str) and note.strip():
@@ -315,12 +437,22 @@ def _has_stage_diagnostic(stage: dict[str, Any]) -> bool:
     return False
 
 
+def _concrete_target_fields(raw_fields: list[Any]) -> set[str]:
+    fields = {str(field) for field in raw_fields if str(field).strip()}
+    if "*" in fields:
+        return set()
+    fields.discard("_id")
+    return fields
+
+
 def _collection_shape(collection: str, schema: dict[str, Any]) -> dict[str, Any]:
-    fields = list(schema.get("fields") or [])
+    fields = _field_names(schema)
+    if not fields:
+        fields = _audit_field_candidates(schema)
     if not fields:
         fields = [
             key for key in schema
-            if not key.startswith("__") and key not in {"doc_count", "schema_flex"}
+            if not key.startswith("__") and key not in _COLLECTION_METADATA_KEYS
         ]
     variants = _variants_for_schema(schema)
     loci: dict[str, list[dict[str, Any]]] = {}
@@ -356,7 +488,7 @@ def _collection_shape(collection: str, schema: dict[str, Any]) -> dict[str, Any]
                 field_locus={
                     k: [FieldLocus(**entry) for entry in entries] for k, entries in loci.items()
                 },
-                doc_count=schema.get("doc_count"),
+                doc_count=schema.get("doc_count", schema.get("document_count")),
                 dynamic_key_paths=_str_list(schema.get("dynamic_key_paths")),
                 dynamic_key_samples=_str_list_map(schema.get("dynamic_key_samples")),
                 array_paths=_str_list(schema.get("array_paths")),
@@ -368,6 +500,39 @@ def _collection_shape(collection: str, schema: dict[str, Any]) -> dict[str, Any]
         "coverage_gaps": [],
         "shape_flex_signature": flex,
     }
+
+
+def _field_names(schema: dict[str, Any]) -> list[str]:
+    raw = schema.get("fields")
+    if isinstance(raw, dict):
+        return [str(key) for key in raw]
+    return _str_list(raw)
+
+
+def _audit_field_candidates(schema: dict[str, Any]) -> list[str]:
+    candidates: list[str] = []
+    candidates.extend(_str_list(schema.get("dynamic_key_paths")))
+    for key in ("array_paths", "dynamic_array_object_paths", "array_object_dynamic_paths"):
+        candidates.extend(_root_dynamic_path(path) for path in _str_list(schema.get(key)))
+    return _unique_nonempty(candidates)
+
+
+def _root_dynamic_path(path: str) -> str:
+    for token in (".*[]", "[]", ".*"):
+        if token in path:
+            return path.split(token, maxsplit=1)[0]
+    return path
+
+
+def _unique_nonempty(values: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value)
+        if text and text not in seen:
+            out.append(text)
+            seen.add(text)
+    return out
 
 
 def _variants_for_schema(schema: dict[str, Any]) -> list[ShapeVariant]:
@@ -463,8 +628,138 @@ def _assigned_helper_fields(stages: list[dict[str, Any]], target_fields: set[str
         for op in ("$addFields", "$set"):
             body = stage.get(op)
             if isinstance(body, dict):
-                helpers.update(field for field in body if field not in target_fields)
+                helpers.update(
+                    field for field in body
+                    if field != "_id" and field not in target_fields
+                )
     return helpers
+
+
+def _defined_output_fields(stages: list[dict[str, Any]]) -> set[str]:
+    fields: set[str] = set()
+    for item in stages:
+        stage = item.get("stage") or {}
+        for op in ("$addFields", "$set", "$project"):
+            body = stage.get(op)
+            if isinstance(body, dict):
+                fields.update(str(field) for field in body)
+    fields.discard("_id")
+    return fields
+
+
+def _missing_preserve_target_fields(
+    stages: list[dict[str, Any]],
+    targets: set[str],
+    inputs: dict[str, Any],
+) -> list[str]:
+    return sorted(
+        target for target in targets
+        if not _preserve_target_available(stages, target, inputs)
+    )
+
+
+def _preserve_target_available(
+    stages: list[dict[str, Any]],
+    target: str,
+    inputs: dict[str, Any],
+) -> bool:
+    available = _target_known_original_field(target, inputs)
+    for item in stages:
+        stage = item.get("stage") or {}
+        for op in ("$addFields", "$set"):
+            body = stage.get(op)
+            if isinstance(body, dict) and target in body:
+                available = True
+        project = stage.get("$project")
+        if isinstance(project, dict):
+            if _projection_has_inclusions(project):
+                available = _projection_includes_target(project, target)
+            elif _projection_excludes_target(project, target):
+                available = False
+        unset = stage.get("$unset")
+        if _unset_removes_target(unset, target):
+            available = False
+        if "$replaceRoot" in stage or "$replaceWith" in stage:
+            available = False
+    return available
+
+
+def _target_known_original_field(target: str, inputs: dict[str, Any]) -> bool:
+    native = inputs.get("native_task_context")
+    if isinstance(native, dict):
+        candidates = [
+            native.get("feature_field"),
+            native.get("native_feature_field"),
+        ]
+        candidates.extend(native.get("relevant_paths") or [])
+        if any(str(candidate) == target for candidate in candidates if candidate):
+            return True
+
+    collections = (inputs.get("shape_model") or {}).get("collections", {})
+    if not isinstance(collections, dict):
+        return False
+    for raw in collections.values():
+        if not isinstance(raw, dict):
+            continue
+        field_locus = raw.get("field_locus")
+        if isinstance(field_locus, dict) and target in field_locus:
+            return True
+        for key in (
+            "dynamic_key_paths",
+            "array_paths",
+            "dynamic_array_object_paths",
+            "array_object_dynamic_paths",
+        ):
+            if target in {_root_dynamic_path(str(path)) for path in raw.get(key, []) or []}:
+                return True
+    return False
+
+
+def _projection_has_inclusions(project: dict[str, Any]) -> bool:
+    return any(
+        field != "_id" and not _is_projection_exclusion(value)
+        for field, value in project.items()
+    )
+
+
+def _projection_includes_target(project: dict[str, Any], target: str) -> bool:
+    return any(
+        not _is_projection_exclusion(value)
+        and _path_is_same_or_parent(str(field), target)
+        for field, value in project.items()
+        if field != "_id"
+    )
+
+
+def _projection_excludes_target(project: dict[str, Any], target: str) -> bool:
+    return any(
+        _is_projection_exclusion(value)
+        and _paths_overlap(str(field), target)
+        for field, value in project.items()
+        if field != "_id"
+    )
+
+
+def _unset_removes_target(unset: Any, target: str) -> bool:
+    if isinstance(unset, str):
+        return _paths_overlap(unset, target)
+    if isinstance(unset, dict):
+        return any(_paths_overlap(str(field), target) for field in unset)
+    if isinstance(unset, (list, tuple, set)):
+        return any(_paths_overlap(str(field), target) for field in unset)
+    return False
+
+
+def _is_projection_exclusion(value: Any) -> bool:
+    return value is False or value == 0
+
+
+def _path_is_same_or_parent(path: str, target: str) -> bool:
+    return path == target or target.startswith(path + ".")
+
+
+def _paths_overlap(left: str, right: str) -> bool:
+    return _path_is_same_or_parent(left, right) or _path_is_same_or_parent(right, left)
 
 
 def _observed_literal_violations(
@@ -516,7 +811,8 @@ def _literal_violations_in_node(
         if isinstance(value, dict):
             for key, child in value.items():
                 if isinstance(key, str) and not key.startswith("$") and isinstance(child, str):
-                    check(key, child)
+                    if not child.startswith("$"):
+                        check(key, child)
                 if key == "$eq" and isinstance(child, list) and len(child) == 2:
                     left, right = child
                     if isinstance(left, str) and left.startswith("$") and isinstance(right, str):
@@ -595,6 +891,577 @@ def _direct_dynamic_key_refs(node: Any, dynamic_path: str) -> set[str]:
 
     walk(node)
     return refs
+
+
+def _native_task_contract_violations(
+    inputs: dict[str, Any],
+    stages: list[dict[str, Any]],
+) -> list[str]:
+    native = inputs.get("native_task_context")
+    if not isinstance(native, dict):
+        return []
+    feature_type = str(native.get("feature_type") or native.get("native_feature_type") or "")
+    query_pattern = str(native.get("query_pattern") or native.get("native_query_pattern") or "")
+    violations: list[str] = []
+
+    if feature_type == "nested_event_stream" or query_pattern.endswith("event_evidence_filter"):
+        for field in ("native_context_bucket", "native_filtered_events", "native_event_count"):
+            if not _field_defined(stages, field):
+                violations.append(f"nested_event_stream plan must define {field}")
+        if not (
+            _match_filters_nonempty_array(stages, "native_filtered_events")
+            or _match_filters_positive_count(stages, "native_event_count")
+        ):
+            violations.append(
+                "nested_event_stream plan must filter to documents where "
+                "native_filtered_events has size > 0"
+            )
+        if _uses_unobserved_event_date_alias(stages):
+            violations.append(
+                "nested_event_stream date filters must use the observed event_time field, "
+                "not event_date or bare date aliases"
+            )
+
+    if feature_type == "missing_vs_present" or query_pattern == "missing_vs_present":
+        for field in ("native_presence_state", "native_context_bucket"):
+            if not _field_defined(stages, field):
+                violations.append(f"missing_vs_present plan must define {field}")
+
+    if query_pattern == "financial.loan_schedule":
+        violations.extend(_required_output_field_violations(
+            query_pattern,
+            stages,
+            {
+                "loan_status",
+                "region",
+                "year",
+                "due_months",
+                "scheduled_total",
+                "paid_total",
+                "avg_salary",
+            },
+        ))
+        violations.extend(_required_plan_reference_violations(
+            query_pattern,
+            stages,
+            (
+                "loan.contract.status_bucket",
+                "loan.repayment_schedule.by_due_month",
+                "scheduled_amount",
+                "observed_payment_total",
+                "district_context.avg_salary",
+            ),
+        ))
+        violations.extend(_invented_sentinel_string_violations(
+            query_pattern,
+            stages,
+            ("unknown", "unknown region"),
+        ))
+        violations.extend(_forbidden_stage_reference_violations(
+            query_pattern,
+            stages,
+            ("scheduled_payment",),
+            "use scheduled_amount only",
+        ))
+
+    if query_pattern == "financial.district_frequency_gender_loan_mix":
+        violations.extend(_required_output_field_violations(
+            query_pattern,
+            stages,
+            {
+                "district_id",
+                "district_name",
+                "region",
+                "avg_salary",
+                "salary_band",
+                "frequency_key",
+                "account_count",
+                "loan_account_count",
+                "female_count",
+                "male_count",
+                "loan_account_share",
+                "female_share",
+            },
+        ))
+        violations.extend(_required_plan_reference_violations(
+            query_pattern,
+            stages,
+            (
+                "accounts_by_frequency",
+                "clients_by_gender",
+                "loan_presence_state",
+                "district.name",
+                "district.region",
+                "district.avg_salary",
+            ),
+        ))
+        violations.extend(_required_match_threshold_violations(
+            query_pattern,
+            stages,
+            {
+                "account_count": ("$gte", 20),
+                "loan_account_count": ("$gte", 1),
+                "female_count": ("$gte", 10),
+                "male_count": ("$gte", 10),
+            },
+        ))
+        if not _sort_contains_ordered_keys(
+            stages,
+            (("loan_account_share", -1), ("account_count", -1)),
+        ):
+            violations.append(
+                f"{query_pattern} plan must sort by loan_account_share and account_count"
+            )
+        violations.extend(_root_id_preservation_violations(query_pattern, stages))
+
+    if query_pattern == "financial.party_role_card_loan_mix":
+        violations.extend(_required_output_field_violations(
+            query_pattern,
+            stages,
+            {
+                "account_id",
+                "district_name",
+                "region",
+                "frequency",
+                "loan_status_bucket",
+                "role_keys",
+                "owner_count",
+                "disponent_count",
+                "owner_cards",
+                "disponent_cards",
+            },
+        ))
+        violations.extend(_required_plan_reference_violations(
+            query_pattern,
+            stages,
+            (
+                "relationships.members_by_role",
+                "account.account_id",
+                "account.district.name",
+                "account.district.region",
+                "account.frequency",
+                "loan_link.status_bucket",
+            ),
+        ))
+        if not _sort_contains_ordered_keys(
+            stages,
+            (("disponent_cards", -1), ("owner_cards", -1), ("account_id", 1)),
+        ):
+            violations.append(
+                f"{query_pattern} plan must sort by disponent_cards, owner_cards, and account_id"
+            )
+
+    if query_pattern == "disposition_role_card_network":
+        violations.extend(_dynamic_entry_filter_contract_violations(
+            query_pattern,
+            stages,
+            feature_path="relationships.members_by_role",
+            context_path="loan_link.loan_id",
+            required_key="OWNER",
+            output_fields={"native_context_bucket", "native_key", "native_value"},
+        ))
+
+    if query_pattern == "district_salary_frequency_segments":
+        violations.extend(_dynamic_entry_filter_contract_violations(
+            query_pattern,
+            stages,
+            feature_path="accounts_by_frequency",
+            context_path="district.crime.current.value",
+            required_key="POPLATEK_TYDNE",
+            output_fields={"native_context_bucket", "native_key", "native_value"},
+        ))
+
+    if query_pattern == "counterparty_operation_symbol_matrix":
+        if _logical_requests_dynamic_totals(inputs):
+            violations.extend(_dynamic_totals_contract_violations(
+                query_pattern,
+                stages,
+                feature_path="flows_by_symbol",
+                metric_path="sample_edges.account_id",
+            ))
+        else:
+            violations.extend(_dynamic_entry_filter_contract_violations(
+                query_pattern,
+                stages,
+                feature_path="flows_by_symbol",
+                context_path="monthly_flow_index",
+                required_key="UROK",
+                output_fields={
+                    "native_context_bucket",
+                    "native_key",
+                    "sample_edges.transaction_id",
+                },
+                required_payload_ref="sample_edges.transaction_id",
+                allow_context_match=True,
+            ))
+
+    if query_pattern == "loan_status_repayment_schedule":
+        violations.extend(_dynamic_totals_contract_violations(
+            query_pattern,
+            stages,
+            feature_path="loan.repayment_schedule.by_due_month",
+            metric_path="installment_index",
+        ))
+    return violations
+
+
+def _native_query_pattern_from_inputs(inputs: dict[str, Any]) -> str | None:
+    native = inputs.get("native_task_context")
+    if not isinstance(native, dict):
+        return None
+    for key in ("query_pattern", "native_query_pattern"):
+        value = native.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _required_output_field_violations(
+    query_pattern: str,
+    stages: list[dict[str, Any]],
+    required_fields: set[str],
+) -> list[str]:
+    missing = sorted(required_fields - _defined_output_fields(stages))
+    if not missing:
+        return []
+    return [f"{query_pattern} plan must output fields: {missing}"]
+
+
+def _dynamic_entry_filter_contract_violations(
+    query_pattern: str,
+    stages: list[dict[str, Any]],
+    *,
+    feature_path: str,
+    context_path: str,
+    required_key: str,
+    output_fields: set[str],
+    required_payload_ref: str | None = None,
+    allow_context_match: bool = False,
+) -> list[str]:
+    required_refs = [feature_path, "native_dynamic_entries", required_key]
+    if required_payload_ref:
+        required_refs.append(required_payload_ref)
+    violations: list[str] = []
+    violations.extend(_required_output_field_violations(query_pattern, stages, output_fields))
+    violations.extend(_required_plan_reference_violations(
+        query_pattern,
+        stages,
+        tuple(required_refs),
+    ))
+    violations.extend(_required_stage_operator_violations(
+        query_pattern,
+        stages,
+        "$unwind",
+        "native_dynamic_entries",
+    ))
+    violations.extend(_native_dynamic_unwind_form_violations(query_pattern, stages))
+    violations.extend(_forbidden_stage_reference_violations(
+        query_pattern,
+        stages,
+        ("native_matching_dynamic_entries",),
+        "use native_dynamic_entries with $unwind and native_key/native_value",
+    ))
+    if not allow_context_match:
+        violations.extend(_context_path_match_violations(query_pattern, stages, context_path))
+    return violations
+
+
+def _dynamic_totals_contract_violations(
+    query_pattern: str,
+    stages: list[dict[str, Any]],
+    *,
+    feature_path: str,
+    metric_path: str,
+) -> list[str]:
+    violations: list[str] = []
+    violations.extend(_required_output_field_violations(
+        query_pattern,
+        stages,
+        {"entry_count", "metric_total"},
+    ))
+    violations.extend(_required_plan_reference_violations(
+        query_pattern,
+        stages,
+        (feature_path, "native_dynamic_entries", metric_path, "native_key"),
+    ))
+    violations.extend(_required_stage_operator_violations(
+        query_pattern,
+        stages,
+        "$unwind",
+        "native_dynamic_entries",
+    ))
+    violations.extend(_native_dynamic_unwind_form_violations(query_pattern, stages))
+    violations.extend(_required_stage_operator_violations(
+        query_pattern,
+        stages,
+        "$group",
+        "metric_total",
+    ))
+    violations.extend(_forbidden_stage_reference_violations(
+        query_pattern,
+        stages,
+        ("native_matching_dynamic_entries",),
+        "use native_dynamic_entries with $unwind before grouping",
+    ))
+    return violations
+
+
+def _required_stage_operator_violations(
+    query_pattern: str,
+    stages: list[dict[str, Any]],
+    op: str,
+    required_ref: str,
+) -> list[str]:
+    for item in stages:
+        stage = item.get("stage") or {}
+        body = stage.get(op)
+        if body is None:
+            continue
+        text = json.dumps(body, ensure_ascii=False, sort_keys=True, default=str)
+        if required_ref in text:
+            return []
+    return [f"{query_pattern} plan must use {op} with {required_ref}"]
+
+
+def _native_dynamic_unwind_form_violations(
+    query_pattern: str,
+    stages: list[dict[str, Any]],
+) -> list[str]:
+    for item in stages:
+        unwind = (item.get("stage") or {}).get("$unwind")
+        if unwind is None:
+            continue
+        if unwind == "$native_dynamic_entries":
+            return []
+        if (
+            isinstance(unwind, dict)
+            and unwind.get("path") == "$native_dynamic_entries"
+            and not unwind.get("includeArrayIndex")
+            and unwind.get("preserveNullAndEmptyArrays") in (None, False)
+        ):
+            return []
+        text = json.dumps(unwind, ensure_ascii=False, sort_keys=True, default=str)
+        if "native_dynamic_entries" in text:
+            return [
+                f"{query_pattern} plan must use simple $unwind over "
+                "'$native_dynamic_entries' without includeArrayIndex or preserveNullAndEmptyArrays"
+            ]
+    return []
+
+
+def _context_path_match_violations(
+    query_pattern: str,
+    stages: list[dict[str, Any]],
+    context_path: str,
+) -> list[str]:
+    for item in stages:
+        match = (item.get("stage") or {}).get("$match")
+        if not isinstance(match, dict):
+            continue
+        text = json.dumps(match, ensure_ascii=False, sort_keys=True, default=str)
+        if context_path in text or "native_context_bucket" in text:
+            return [
+                f"{query_pattern} plan must bucket {context_path} into "
+                "native_context_bucket, not filter records by that context path"
+            ]
+    return []
+
+
+def _logical_requests_dynamic_totals(inputs: dict[str, Any]) -> bool:
+    text = json.dumps(inputs.get("logical_spec") or {}, ensure_ascii=False, default=str).lower()
+    return "summarize" in text or "total" in text or "totals" in text
+
+
+def _required_plan_reference_violations(
+    query_pattern: str,
+    stages: list[dict[str, Any]],
+    required_refs: tuple[str, ...],
+) -> list[str]:
+    text = json.dumps(stages, ensure_ascii=False, sort_keys=True, default=str)
+    missing = sorted(ref for ref in required_refs if ref not in text)
+    if not missing:
+        return []
+    return [f"{query_pattern} plan must reference fields/values: {missing}"]
+
+
+def _required_match_threshold_violations(
+    query_pattern: str,
+    stages: list[dict[str, Any]],
+    required: dict[str, tuple[str, int | float]],
+) -> list[str]:
+    missing = [
+        f"{field} {op.replace('$', '')} {value}"
+        for field, (op, value) in required.items()
+        if not _match_has_threshold(stages, field, op, value)
+    ]
+    if not missing:
+        return []
+    readable = [
+        item.replace("gte", ">=").replace("gt", ">").replace("lte", "<=").replace("lt", "<")
+        for item in missing
+    ]
+    return [f"{query_pattern} plan must apply support filters: {readable}"]
+
+
+def _match_has_threshold(
+    stages: list[dict[str, Any]],
+    field: str,
+    op: str,
+    value: int | float,
+) -> bool:
+    def walk(node: Any) -> bool:
+        if isinstance(node, dict):
+            predicate = node.get(field)
+            if isinstance(predicate, dict) and predicate.get(op) == value:
+                return True
+            expr = node.get(op)
+            if (
+                isinstance(expr, list)
+                and len(expr) == 2
+                and f"${field}" in expr
+                and value in expr
+            ):
+                return True
+            return any(walk(child) for child in node.values())
+        if isinstance(node, list):
+            return any(walk(child) for child in node)
+        return False
+
+    for item in stages:
+        match = (item.get("stage") or {}).get("$match")
+        if isinstance(match, dict) and walk(match):
+            return True
+    return False
+
+
+def _sort_contains_ordered_keys(
+    stages: list[dict[str, Any]],
+    required: tuple[tuple[str, int], ...],
+) -> bool:
+    for item in stages:
+        sort = (item.get("stage") or {}).get("$sort")
+        if not isinstance(sort, dict):
+            continue
+        keys = list(sort)
+        position = 0
+        matched = True
+        for field, direction in required:
+            try:
+                index = keys.index(field, position)
+            except ValueError:
+                matched = False
+                break
+            if sort.get(field) != direction:
+                matched = False
+                break
+            position = index + 1
+        if matched:
+            return True
+    return False
+
+
+def _invented_sentinel_string_violations(
+    query_pattern: str,
+    stages: list[dict[str, Any]],
+    sentinels: tuple[str, ...],
+) -> list[str]:
+    text = json.dumps(stages, ensure_ascii=False, sort_keys=True, default=str)
+    hits = sorted(value for value in sentinels if json.dumps(value) in text)
+    if not hits:
+        return []
+    return [
+        f"{query_pattern} plan must not group by invented sentinel strings: {hits}; "
+        "use the observed/raw grouping fields"
+    ]
+
+
+def _forbidden_stage_reference_violations(
+    query_pattern: str,
+    stages: list[dict[str, Any]],
+    forbidden_refs: tuple[str, ...],
+    guidance: str,
+) -> list[str]:
+    stage_bodies = [(item.get("stage") or {}) for item in stages]
+    text = json.dumps(stage_bodies, ensure_ascii=False, sort_keys=True, default=str)
+    hits = sorted(ref for ref in forbidden_refs if ref in text)
+    if not hits:
+        return []
+    return [f"{query_pattern} plan must {guidance}; forbidden refs: {hits}"]
+
+
+def _root_id_preservation_violations(
+    query_pattern: str,
+    stages: list[dict[str, Any]],
+) -> list[str]:
+    text = json.dumps(stages, ensure_ascii=False, sort_keys=True, default=str)
+    violations: list[str] = []
+    if "$facet" in text and '"$_id"' not in text and '"root_id"' not in text:
+        violations.append(
+            f"{query_pattern} plan must preserve the root _id when using $facet"
+        )
+
+    final_project: dict[str, Any] | None = None
+    for item in stages:
+        project = (item.get("stage") or {}).get("$project")
+        if isinstance(project, dict):
+            final_project = project
+    if final_project is not None and final_project.get("_id") == 0:
+        violations.append(f"{query_pattern} plan must preserve the root _id in output")
+    return violations
+
+
+def _native_required_output_fields(inputs: dict[str, Any]) -> set[str]:
+    native = inputs.get("native_task_context")
+    if not isinstance(native, dict):
+        return set()
+    feature_type = str(native.get("feature_type") or native.get("native_feature_type") or "")
+    query_pattern = str(native.get("query_pattern") or native.get("native_query_pattern") or "")
+    if feature_type == "nested_event_stream" or query_pattern.endswith("event_evidence_filter"):
+        return {"native_context_bucket", "native_filtered_events", "native_event_count"}
+    if feature_type == "missing_vs_present" or query_pattern == "missing_vs_present":
+        return {"native_presence_state", "native_context_bucket"}
+    return set()
+
+
+def _field_defined(stages: list[dict[str, Any]], field: str) -> bool:
+    for item in stages:
+        stage = item.get("stage") or {}
+        for op in ("$addFields", "$set", "$project"):
+            body = stage.get(op)
+            if isinstance(body, dict) and field in body:
+                return True
+    return False
+
+
+def _match_filters_nonempty_array(stages: list[dict[str, Any]], field: str) -> bool:
+    for item in stages:
+        stage = item.get("stage") or {}
+        match = stage.get("$match")
+        if not isinstance(match, dict):
+            continue
+        text = json.dumps(match, ensure_ascii=False, sort_keys=True, default=str)
+        if field in text and "$size" in text and any(op in text for op in ("$gt", "$gte")):
+            return True
+    return False
+
+
+def _match_filters_positive_count(stages: list[dict[str, Any]], field: str) -> bool:
+    for item in stages:
+        stage = item.get("stage") or {}
+        match = stage.get("$match")
+        if not isinstance(match, dict):
+            continue
+        text = json.dumps(match, ensure_ascii=False, sort_keys=True, default=str)
+        if field in text and any(op in text for op in ("$gt", "$gte")):
+            return True
+    return False
+
+
+def _uses_unobserved_event_date_alias(stages: list[dict[str, Any]]) -> bool:
+    text = json.dumps(stages, ensure_ascii=False, sort_keys=True, default=str)
+    if "event_time" in text:
+        return False
+    return any(alias in text for alias in ("event_date", "$$this.date", "$$event.date", "$$evt.date"))
 
 
 def _str_list(value: Any) -> list[str]:

@@ -1,6 +1,6 @@
 # TEND §05 · Evaluation Methodology
 
-> 本卷是 TEND **评测层** 的单一真源 (SSoT)。给定 solver 在 test 窄可见面上产出 MQL `q_p`，评测管线将其映射为 7 比特指纹并聚合为可引用的 headline 与诊断分数。任务签名、NormExec、≡_rec、gold-as-class 定义见 [01](./01_task_definition.md)；record 字段与六轴覆盖见 [02](./02_dataset_design.md)；Agent 构造见 [04](./04_agent_framework.md)。
+> 本卷是 TEND **评测层** 的单一真源 (SSoT)。给定 solver 在 test 窄可见面上产出 MQL `q_p`，评测管线将其映射为 6 比特指纹并聚合为可引用的 headline 与诊断分数。任务签名、NormExec、≡_rec、gold-as-class 定义见 [01](./01_task_definition.md)；record 字段与六轴覆盖见 [02](./02_dataset_design.md)；Agent 构造见 [04](./04_agent_framework.md)。
 
 ---
 
@@ -8,32 +8,32 @@
 
 ## TL;DR
 
-TEND 评测层把每条 test record 上的 solver 预测 `q_p` 压缩为固定顺序的 7 比特指纹 `(EM, QSM, QFC, EX, EFM, EVM, QIM)`，再聚合为 per-record / per-slice / per-panel 三级报表。**Headline = EX**（Execution Accuracy）；其余六项均为诊断 proxy，不得替代 EX 排名。
+TEND 评测层把每条 test record 上的 solver 预测 `q_p` 压缩为固定顺序的 6 比特指纹 `(EM, QSM, QFC, EX, EFM, EVM)`，再聚合为 per-record / per-slice / per-panel 三级报表。**Headline = EX**（Execution Accuracy）；其余五项均为诊断 proxy，不得替代 EX 排名。
 
 **EX 双条件**（本架构核心承诺）：EX = 1 当且仅当 (a) `AST_check(q_p, C) = pass`，其中 `C = record.canonical_form_set`；且 (b) `NormExec(q_p, D) ≡_rec NormExec(q_g, D)`，其中 `q_g = record.MQL`、`D = mongodb_data/<db_id>.json` 冻结 witness。仅语义等价或仅结构合法均不足以得分。
 
-**QIM** 是 EX 的**结构半**：`QIM = 1 ⟺ Parse(q_p) ≠ ⊥ ∧ AST_check(q_p, C) = pass`。因此 **EX = 1 ⟹ QIM = 1** 为严格蕴含；`QIM = 0 ∧ EX = 1` 在本架构下不可能。QIM = 1 ∧ EX = 0 表示「结构合法但执行语义错误」，是训练改进的关键信号。
+`Parse` / `AST_check` 结果作为 per-record diagnostics 落盘（`parse_ok` / `ast_ok` / `ast_reasons`），用于区分结构失败与执行失败，但不再作为正式 leaderboard metric。
 
 其余指标：**EM** = canonical_text 相等；**QSM** = 结构树相等（stage 序列 + 算子多重集，字段/字面量屏蔽）；**QFC** = 引用字段路径集合相等；**EFM** = 结果序列等长且逐文档顶层键集合相等；**EVM** = 在 EFM = 1 前提下逐字段多重集相等，否则置 0。
 
 **Solver 窄可见面**（test.json 单条 record）：仅可读 `nl_queries.canonical`、`db_id`、`mongodb_schema/<db_id>.json`、`mongodb_data/<db_id>.json`。显式禁止读取 `MQL`、`canonical_form_set`、`nl_queries.colloquial`（默认主评测）、一切 `_ref` / `_eval_` / `_audit_` 字段及整个 `audit/` 树。基准为 test-only（11 库全 test，无 train）：`MQL` 与 `canonical_form_set` 在任何阶段都不向 solver 暴露；OOD 由「构造期不向 solver 暴露」保证，而非 train/test 域切分。
 
-**六轴切片**（见 [02 §4](./02_dataset_design.md#02-4)）：`domain`（domain_id）、`join_depth`（0/1/2/3+）、`aggregation_depth`（shallow/medium/deep）、`schema_pattern`（SRA 主 pattern）、`schema_flex`（SRA Stage B H1–H4 触发轴）、`difficulty_tier`（L0–L4）。每轴对 7 指标分别求均值，形成 slice × metric 矩阵；主 headline 仍为全 test 等权 EX。
+**六轴切片**（见 [02 §4](./02_dataset_design.md#02-4)）：`domain`（domain_id）、`join_depth`（0/1/2/3+）、`aggregation_depth`（shallow/medium/deep）、`schema_pattern`（SRA 主 pattern）、`schema_flex`（SRA Stage B H1–H4 触发轴）、`difficulty_tier`（L0–L4）。每轴对 6 指标分别求均值，形成 slice × metric 矩阵；主 headline 仍为全 test 等权 EX。
 
 **4-panel 报告（纯观测）**：构造期由 20 个冻结模型（small/medium/large/frontier 各 5）在每条 record 上产出 pr 四元组 `(pr_small, pr_medium, pr_large, pr_frontier)`，随 release 发布为 evaluator-only 元数据。4-panel 仅用于难度形状观测、Solver-vs-Panel 对比视图与 `empirical_difficulty` 标签（由 pr_medium 分桶），不得反向修改 witness 或 record。
 
-**SQL-bridge 诊断切片（纯观测）**：构造期 NNC 对每条 record 写入 `functional_sql_solvable`（SQL-bridge `NormExec ≡_rec gold`）与 `structural_sql_solvable`（SQL-bridge result-equivalent 且 AST_check pass）。评测层对两布尔字段分别切片，形成 `functional_sql_solvable × 7 指标` 与 `structural_sql_solvable × 7 指标` 诊断矩阵，用于观测 SQL 捷径可解性分布；**不得**替代 EX headline 或放宽 gold-class。
+**SQL-bridge 诊断切片（纯观测）**：构造期 NNC 对每条 record 写入 `functional_sql_solvable`（SQL-bridge `NormExec ≡_rec gold`）与 `structural_sql_solvable`（SQL-bridge result-equivalent 且 AST_check pass）。评测层对两布尔字段分别切片，形成 `functional_sql_solvable × 6 指标` 与 `structural_sql_solvable × 6 指标` 诊断矩阵，用于观测 SQL 捷径可解性分布；**不得**替代 EX headline 或放宽 gold-class。
 
-**强制披露**：任何公开引用 TEND 分数的提交须同时披露 7 指标三级聚合、六轴切片矩阵、4-panel pr 分布、构造/评测 disjointness 时间戳、环境 digest、Solver LLM 骨干清单、per-record 指纹 CSV 等 ≥12 项（见 [§05-4](#05-4)）。缺失任一项标记 `[DISCLOSURE_INCOMPLETE]`，不得汇入 official leaderboard。
+**强制披露**：任何公开引用 TEND 分数的提交须同时披露 6 指标三级聚合、六轴切片矩阵、4-panel pr 分布、构造/评测 disjointness 时间戳、环境 digest、Solver LLM 骨干清单、per-record 指纹 CSV 等 ≥12 项（见 [§05-4](#05-4)）。缺失任一项标记 `[DISCLOSURE_INCOMPLETE]`，不得汇入 official leaderboard。
 
 Canonical anchor **financial/1001** 的评测实例见 [§05-5](#05-5)；字节级 JSON 见 Part II。
 
 ---
 
 <a id="05-1"></a>
-### 05-1 七评测指标
+### 05-1 六评测指标
 
-本节给出 7 个指标的严格公式。符号：`q_p` = solver 产出；`q_g` = `record.MQL`；`D` = witness；`C` = `canonical_form_set`；`Parse` / `NormExec` / `≡_rec` 定义见 [01 §4](./01_task_definition.md#01-4) 与 [01 §5](./01_task_definition.md#01-5)。
+本节给出 6 个指标的严格公式。符号：`q_p` = solver 产出；`q_g` = `record.MQL`；`D` = witness；`C` = `canonical_form_set`；`Parse` / `NormExec` / `≡_rec` 定义见 [01 §4](./01_task_definition.md#01-4) 与 [01 §5](./01_task_definition.md#01-5)。
 
 <a id="05-1-1"></a>
 #### 05-1-1 EM (Exact Match)
@@ -95,30 +95,16 @@ $$
 \end{cases}
 $$
 
+严格蕴含：`EM = 1 ⟹ EX = 1`；`EX = 1 ⟹ EFM = EVM = 1`。QSM / QFC 与 EX 信息正交。
+
 <a id="05-1-7"></a>
-#### 05-1-7 QIM (Query Idiomatic Match) — 结构半
+#### 05-1-7 6 比特指纹
 
 $$
-\mathrm{QIM}(q_p, C) = \mathbb{1}\!\left[\ \mathrm{Parse}(q_p) \ne \bot\ \wedge\ \mathrm{AST\_check}(q_p, C) = \text{pass}\ \right]
+\mathrm{fp}(r) = (\mathrm{EM},\ \mathrm{QSM},\ \mathrm{QFC},\ \mathrm{EX},\ \mathrm{EFM},\ \mathrm{EVM}) \in \{0,1\}^6
 $$
 
-| QIM | EX | 解读 |
-|---|---|---|
-| 0 | 0 | 结构失败 |
-| 1 | 0 | 执行失败（结构合法、语义错） |
-| 0 | 1 | **不可能** |
-| 1 | 1 | 完全成功 |
-
-严格蕴含：`EM = 1 ⟹ EX = 1`；`EX = 1 ⟹ QIM = EFM = EVM = 1`。QSM / QFC 与 EX 信息正交。
-
-<a id="05-1-8"></a>
-#### 05-1-8 7 比特指纹
-
-$$
-\mathrm{fp}(r) = (\mathrm{EM},\ \mathrm{QSM},\ \mathrm{QFC},\ \mathrm{EX},\ \mathrm{EFM},\ \mathrm{EVM},\ \mathrm{QIM}) \in \{0,1\}^7
-$$
-
-固定顺序；受蕴含律约束，可达组合远少于 128。指纹 per-record 落盘，切片/面板层对七维分别求均值。
+固定顺序；受蕴含律约束，可达组合远少于 64。指纹 per-record 落盘，切片/面板层对六维分别求均值。
 
 ---
 
@@ -197,7 +183,7 @@ pr 四元组 `(pr_small, pr_medium, pr_large, pr_frontier)`：每个 pr_X 为 pa
 | `functional_sql_solvable` | SQL-bridge 产物 `NormExec ≡_rec gold` | 观测「语义可函数化到 SQL 再桥接」比例 |
 | `structural_sql_solvable` | SQL-bridge result-equivalent 且 AST_check pass | 观测「结构+语义均可 SQL 捷径」比例 |
 
-评测层对两字段分别切片，生成 `functional_sql_solvable × 7 指标` 与 `structural_sql_solvable × 7 指标` 矩阵；可与六轴、`sql_infeasibility_class`、`empirical_difficulty` 交叉。`functional_sql_solvable` 与 `structural_sql_solvable` **仅作诊断**，不参与 EX headline 或 leaderboard 排名。
+评测层对两字段分别切片，生成 `functional_sql_solvable × 6 指标` 与 `structural_sql_solvable × 6 指标` 矩阵；可与六轴、`sql_infeasibility_class`、`empirical_difficulty` 交叉。`functional_sql_solvable` 与 `structural_sql_solvable` **仅作诊断**，不参与 EX headline 或 leaderboard 排名。
 
 ---
 
@@ -225,7 +211,7 @@ pr 四元组 `(pr_small, pr_medium, pr_large, pr_frontier)`：每个 pr_X 为 pa
 
 | # | 披露项 | 格式 |
 |---|---|---|
-| 1 | 7 指标三级聚合（per-record / per-slice / per-panel） | 7 张 CSV |
+| 1 | 6 指标三级聚合（per-record / per-slice / per-panel） | 6 张 CSV |
 | 2 | 六轴 slice × metric 矩阵 | 6 张 CSV 或 JSON |
 | 3 | 4-panel pr 四元组 + empirical_difficulty 分布 | per-record 4 float + enum |
 | 4 | `functional_sql_solvable` / `structural_sql_solvable` 诊断切片 | 2 张 slice × metric 矩阵 |
@@ -237,7 +223,7 @@ pr 四元组 `(pr_small, pr_medium, pr_large, pr_frontier)`：每个 pr_X 为 pa
 | 10 | release `world_signature` 汇总 digest | SHA-256 |
 | 11 | mongosh + MongoDB server image digest | 见 [§05-II-3](#05-ii-3) |
 | 12 | Solver LLM 骨干 ID 清单 | `[{model_id, vendor, version_pin}, …]` |
-| 13 | per-record 7-bit 指纹 | `record_id → fp` CSV |
+| 13 | per-record 6-bit 指纹 | `record_id → fp` CSV |
 
 **若适用附加项**：`disjointness_violation` 旗标；`parse_error` / `timeout_hit` / `oom_hit` / `forbidden_op_hit` 计数；自定义权重须同时报 EX 等权值；solver 使用的外部 MCP/工具清单。
 
@@ -252,9 +238,9 @@ financial/1001 取自 BIRD 真实库 `financial`（test-only 集），pending DA
 
 | 场景 | 指纹 | 要点 |
 |---|---|---|
-| 结构简化失败 | `(0,0,1,0,0,0,0)` | 含 `$unwind`（must_not_contain）或缺根 `$addFields` → AST_check fail → QIM=0 |
-| 逐字成功 | `(1,1,1,1,1,1,1)` | EM=1 ⟹ EX=1 |
-| 等价重写 | `(0,?,1,1,1,1,1)` | EM=0 但 AST_check pass + ≡_rec → EX=1, QIM=1 |
+| 结构简化失败 | `(0,0,1,0,0,0)` | 含 `$unwind`（must_not_contain）或缺根 `$addFields` → AST_check fail |
+| 逐字成功 | `(1,1,1,1,1,1)` | EM=1 ⟹ EX=1 |
+| 等价重写 | `(0,?,1,1,1,1)` | EM=0 但 AST_check pass + ≡_rec → EX=1 |
 
 **不变量**：合法等价重写若 AST_check fail，须在构造期扩宽 `canonical_form_set`，不得在评测期放宽 EX。
 
@@ -270,7 +256,7 @@ financial/1001 取自 BIRD 真实库 `financial`（test-only 集），pending DA
 | Phase B Agent 框架 / NNC / RA / mutations | [04](./04_agent_framework.md) |
 | SMART solver / solver 边界 | [06](./06_solution_design.md) |
 
-**收束**：给定 `(q_p, q_g, D, C)`，本卷压缩为 7 比特指纹并聚合为 EX headline；更深语义在其它卷。
+**收束**：给定 `(q_p, q_g, D, C)`，本卷压缩为 6 比特指纹并聚合为 EX headline；更深语义在其它卷。
 
 ---
 
@@ -339,25 +325,24 @@ write_leaderboard_payload(...)
 ---
 
 <a id="05-ii-2"></a>
-### 05-II-2 七指标实现
+### 05-II-2 六指标实现
 
 # uses: typing, re, json
 
 ```
-METRICS = ("EM", "QSM", "QFC", "EX", "EFM", "EVM", "QIM")
+METRICS = ("EM", "QSM", "QFC", "EX", "EFM", "EVM")
 
 def compute_fingerprint(q_p, q_g, R_p, R_g, C, ast_result) -> tuple[int, ...]:
     if Parse(q_p) is BOT:
-        return (0, 0, 0, 0, 0, 0, 0)
+        return (0, 0, 0, 0, 0, 0)
 
     em  = int(canonical_text(q_p) == canonical_text(q_g))
     qsm = int(tree_equal_struct(Parse(q_p), Parse(q_g)))
     qfc = int(fields(q_p) == fields(q_g))
-    qim = int(ast_result == "pass")
-    ex  = int(qim == 1 and rec_equiv(R_p, R_g))
+    ex  = int(ast_result == "pass" and rec_equiv(R_p, R_g))
     efm = int(execution_field_match(R_p, R_g))
     evm = int(execution_value_match(R_p, R_g)) if efm else 0
-    return (em, qsm, qfc, ex, efm, evm, qim)
+    return (em, qsm, qfc, ex, efm, evm)
 
 def AST_check(q_p: str, C: dict) -> str:
     ast = Parse(q_p)

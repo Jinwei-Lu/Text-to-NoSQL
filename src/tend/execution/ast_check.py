@@ -175,7 +175,10 @@ def derive_canonical_form_set(gold_mql: str, shape_policy: str) -> dict[str, lis
         must_contain_at_root = sorted(set(must_contain_at_root) | {"$group"})
         must_not_contain_at_root: list[str] = []
     elif shape_policy == "preserve":
-        must_not_contain_at_root = ["$group", "$unwind"]
+        must_not_contain_at_root = [
+            op for op in ("$group", "$unwind")
+            if op not in rops
+        ]
     else:  # reshape
         must_not_contain_at_root = []
     return {

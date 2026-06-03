@@ -9,6 +9,7 @@ import pytest
 
 import tend.cli as cli
 import tend.config as config_module
+from tend.errors import ContractViolationError
 
 
 @pytest.fixture(autouse=True)
@@ -361,6 +362,41 @@ def test_publish_refuses_invalid_input(
     assert not out.exists()
 
 
+def test_materialize_evaluation_dataset_subset_keeps_only_selected_records(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    (source / "mongodb_data").mkdir(parents=True)
+    (source / "mongodb_schema").mkdir()
+    (source / "agent_design_rationale").mkdir()
+    records = [
+        {"record_id": 1, "db_id": "financial", "MQL": "db.account.aggregate([])"},
+        {"record_id": 2, "db_id": "superhero", "MQL": "db.hero.aggregate([])"},
+    ]
+    (source / "test.json").write_text(json.dumps(records), encoding="utf-8")
+    (source / "TEND.json").write_text(json.dumps(records), encoding="utf-8")
+    (source / "bird_db_catalog.json").write_text(json.dumps({"dbs": ["financial"]}), encoding="utf-8")
+    (source / "mongodb_data" / "financial.json").write_text(json.dumps({"account": []}), encoding="utf-8")
+    (source / "mongodb_schema" / "financial.json").write_text(json.dumps({"account": {}}), encoding="utf-8")
+    (source / "mongodb_data" / "superhero.json").write_text(json.dumps({"hero": []}), encoding="utf-8")
+    (source / "mongodb_schema" / "superhero.json").write_text(json.dumps({"hero": {}}), encoding="utf-8")
+    (source / "agent_design_rationale" / "financial.yaml").write_text("financial: true\n", encoding="utf-8")
+    (source / "agent_design_rationale" / "superhero.yaml").write_text("superhero: true\n", encoding="utf-8")
+
+    subset = cli._materialize_evaluation_dataset_subset(
+        source,
+        [records[0]],
+        tmp_path / "subset",
+    )
+
+    assert json.loads((subset / "test.json").read_text(encoding="utf-8")) == [records[0]]
+    assert json.loads((subset / "TEND.json").read_text(encoding="utf-8")) == [records[0]]
+    assert (subset / "mongodb_data" / "financial.json").exists()
+    assert (subset / "mongodb_schema" / "financial.json").exists()
+    assert (subset / "agent_design_rationale" / "financial.yaml").exists()
+    assert (subset / "bird_db_catalog.json").exists()
+    assert not (subset / "mongodb_data" / "superhero.json").exists()
+    assert not (subset / "mongodb_schema" / "superhero.json").exists()
+
+
 def test_solve_with_dataset_dir_does_not_require_bird(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -374,6 +410,7 @@ def test_solve_with_dataset_dir_does_not_require_bird(
     async def fake_run_solve(rt, **kwargs):
         captured["source"] = rt.source
         captured["dataset_dir"] = kwargs["dataset_dir"]
+        captured["nlq_track"] = kwargs["nlq_track"]
         rt.mongo.close()
         rt.log.close()
         return 0
@@ -385,6 +422,8 @@ def test_solve_with_dataset_dir_does_not_require_bird(
         "solve",
         "--dataset-dir",
         "tests/fixtures/smoke_release",
+        "--nlq-track",
+        "colloquial",
         "--stub",
         "--quiet",
         "--run-id",
@@ -394,6 +433,7 @@ def test_solve_with_dataset_dir_does_not_require_bird(
     assert captured["dataset_dir"] == (
         config_module._find_repo_root() / "tests" / "fixtures" / "smoke_release"
     )
+    assert captured["nlq_track"] == "colloquial"
 
 
 def test_baseline_with_dataset_dir_does_not_require_bird(
@@ -410,6 +450,7 @@ def test_baseline_with_dataset_dir_does_not_require_bird(
         captured["source"] = rt.source
         captured["dataset_dir"] = kwargs["dataset_dir"]
         captured["baselines"] = kwargs["baselines"]
+        captured["nlq_track"] = kwargs["nlq_track"]
         rt.mongo.close()
         rt.log.close()
         return 0
@@ -423,6 +464,8 @@ def test_baseline_with_dataset_dir_does_not_require_bird(
         "tests/fixtures/smoke_release",
         "--baselines",
         "direct,schema_direct",
+        "--nlq-track",
+        "colloquial",
         "--stub",
         "--quiet",
         "--run-id",
@@ -433,6 +476,7 @@ def test_baseline_with_dataset_dir_does_not_require_bird(
     assert captured["dataset_dir"] == (
         config_module._find_repo_root() / "tests" / "fixtures" / "smoke_release"
     )
+    assert captured["nlq_track"] == "colloquial"
 
 
 def test_ablation_with_dataset_dir_does_not_require_bird(
@@ -449,6 +493,7 @@ def test_ablation_with_dataset_dir_does_not_require_bird(
         captured["source"] = rt.source
         captured["dataset_dir"] = kwargs["dataset_dir"]
         captured["ablations"] = kwargs["ablations"]
+        captured["nlq_track"] = kwargs["nlq_track"]
         rt.mongo.close()
         rt.log.close()
         return 0
@@ -462,6 +507,8 @@ def test_ablation_with_dataset_dir_does_not_require_bird(
         "tests/fixtures/smoke_release",
         "--ablations",
         "full_smart,no_shape_model",
+        "--nlq-track",
+        "colloquial",
         "--stub",
         "--quiet",
         "--run-id",
@@ -472,6 +519,7 @@ def test_ablation_with_dataset_dir_does_not_require_bird(
     assert captured["dataset_dir"] == (
         config_module._find_repo_root() / "tests" / "fixtures" / "smoke_release"
     )
+    assert captured["nlq_track"] == "colloquial"
 
 
 def test_baseline_cli_accepts_nlq_db_only_mode(
@@ -624,6 +672,175 @@ def test_run_solve_writes_failures_separately(
     payload = json.loads(failures.read_text(encoding="utf-8").splitlines()[0])
     assert payload["result_type"] == "solver_failure"
     assert payload["error_code"] == "SOLVER_EXHAUSTED"
+
+
+def test_run_baseline_evaluates_against_selected_dataset_subset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tend.agents import AgentContext
+    from tend.config import Settings
+    from tend.observability import make_reporter, setup_logging
+    from tend.workflow import Workflow
+
+    dataset = tmp_path / "dataset"
+    (dataset / "mongodb_data").mkdir(parents=True)
+    (dataset / "mongodb_schema").mkdir()
+    records = [
+        {
+            "record_id": 1,
+            "db_id": "financial",
+            "MQL": "db.account.aggregate([])",
+            "nl_queries": {"canonical": "List accounts.", "colloquial": "Show accounts."},
+        },
+        {
+            "record_id": 2,
+            "db_id": "superhero",
+            "MQL": "db.hero.aggregate([])",
+            "nl_queries": {"canonical": "List heroes.", "colloquial": "Show heroes."},
+        },
+    ]
+    (dataset / "test.json").write_text(json.dumps(records), encoding="utf-8")
+    (dataset / "TEND.json").write_text(json.dumps(records), encoding="utf-8")
+    (dataset / "mongodb_data" / "financial.json").write_text(json.dumps({"account": []}), encoding="utf-8")
+    (dataset / "mongodb_schema" / "financial.json").write_text(json.dumps({"account": {}}), encoding="utf-8")
+    (dataset / "mongodb_data" / "superhero.json").write_text(json.dumps({"hero": []}), encoding="utf-8")
+    (dataset / "mongodb_schema" / "superhero.json").write_text(json.dumps({"hero": {}}), encoding="utf-8")
+
+    settings = Settings.from_env(
+        run_id="baseline-subset-eval-test",
+        overrides={"TEND_LLM_STUB": "1"},
+        require_bird=False,
+    )
+    settings = replace(settings, paths=replace(settings.paths, runs=tmp_path / "runs"))
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = make_reporter(settings.run_id, log, enabled=False)
+    ctx = AgentContext(settings=settings, llm=None, log=log, progress=progress, mongo=None)
+    rt = cli.Runtime(
+        settings,
+        ctx,
+        Workflow(ctx),
+        progress,
+        log,
+        None,
+        SimpleNamespace(close=lambda: None),
+    )
+
+    async def fake_run_baseline_suite(*_args, **_kwargs):
+        return [{
+            "baseline_id": "direct",
+            "record_id": 1,
+            "db_id": "financial",
+            "MQL": "db.account.aggregate([])",
+            "status": "ok",
+        }]
+
+    captured: dict[str, Path] = {}
+
+    async def fake_maybe_evaluate(_rt, **kwargs):
+        captured["dataset_dir"] = kwargs["dataset_dir"]
+        captured["predictions_path"] = kwargs["predictions_path"]
+        return SimpleNamespace(
+            ok=True,
+            status="ok",
+            report={"scores": {"EX": 1.0, "EFM": 1.0, "EVM": 1.0}},
+            paths=SimpleNamespace(report_md=tmp_path / "report.md"),
+        )
+
+    monkeypatch.setattr(cli, "run_baseline_suite", fake_run_baseline_suite)
+    monkeypatch.setattr(cli, "_maybe_evaluate", fake_maybe_evaluate)
+
+    rc = __import__("asyncio").run(
+        cli._run_baseline(
+            rt,
+            dataset_dir=dataset,
+            baselines="direct",
+            db_id="financial",
+            record_id=None,
+            limit=1,
+            witness_k=0,
+            nlq_track="canonical",
+            evaluate=True,
+        )
+    )
+
+    assert rc == 0
+    selected = json.loads((captured["dataset_dir"] / "test.json").read_text(encoding="utf-8"))
+    assert [row["record_id"] for row in selected] == [1]
+    assert captured["dataset_dir"] != dataset
+    assert captured["predictions_path"].name == "baseline_evaluation_inputs.jsonl"
+
+
+def test_run_solve_writes_failure_artifact_for_solver_exception(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tend.agents import AgentContext
+    from tend.config import Settings
+    from tend.observability import make_reporter, setup_logging
+    from tend.workflow import Workflow
+
+    settings = Settings.from_env(
+        run_id="solver-exception-cli-test",
+        overrides={"TEND_LLM_STUB": "1"},
+        require_bird=False,
+    )
+    settings = replace(settings, paths=replace(settings.paths, runs=tmp_path / "runs"))
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = make_reporter(settings.run_id, log, enabled=False)
+    ctx = AgentContext(settings=settings, llm=None, log=log, progress=progress, mongo=None)
+    rt = cli.Runtime(
+        settings,
+        ctx,
+        Workflow(ctx),
+        progress,
+        log,
+        None,
+        SimpleNamespace(close=lambda: None),
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "load_solver_release_inputs",
+        lambda *_args, **_kwargs: [({"record_id": 1001, "db_id": "financial"}, {}, None)],
+    )
+
+    async def fake_solve_record(*_args, **_kwargs):
+        raise ContractViolationError(
+            "agent output failed semantic contract",
+            context={
+                "agent": "smart_plan",
+                "violations": ["preserve target_fields missing from plan output: ['*']"],
+                "transcript_ref": "llm/smart_plan/abc.md",
+                "diagnostics_ref": "llm/smart_plan/abc.diagnostics.json",
+                "db_id": "financial",
+                "record_id": 1001,
+            },
+        )
+
+    monkeypatch.setattr(cli, "smart_solve_record", fake_solve_record)
+
+    rc = __import__("asyncio").run(
+        cli._run_solve(
+            rt,
+            dataset_dir=tmp_path,
+            db_id=None,
+            record_id=None,
+            limit=1,
+            r_max=0,
+            witness_k=0,
+        )
+    )
+
+    assert rc == 1
+    failures = settings.run_dir / "solver_failures.jsonl"
+    assert failures.exists()
+    payload = json.loads(failures.read_text(encoding="utf-8").splitlines()[0])
+    assert payload["result_type"] == "solver_failure"
+    assert payload["error_code"] == "CONTRACT_VIOLATION"
+    assert payload["agent"] == "smart_plan"
+    assert payload["transcript_ref"] == "llm/smart_plan/abc.md"
+    assert payload["diagnostics_ref"] == "llm/smart_plan/abc.diagnostics.json"
 
 
 def test_run_solve_nlq_db_only_skips_release_loader(
