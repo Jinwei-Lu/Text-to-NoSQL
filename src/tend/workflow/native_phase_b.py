@@ -95,6 +95,7 @@ def plan_native_slots(
 
     slots: list[NativeCoverageSlot] = []
     db_counts: Counter[str] = Counter()
+    feature_usage_counts: Counter[tuple[str, str]] = Counter()
     cursors: dict[str, int] = {feature_type: 0 for feature_type in FEATURE_TYPE_ORDER}
     slot_index = 0
 
@@ -102,24 +103,37 @@ def plan_native_slots(
         made_progress = False
         type_counts = Counter(slot.feature_type for slot in slots)
         active_types = [feature_type for feature_type in FEATURE_TYPE_ORDER if by_type[feature_type]]
-        active_types.sort(key=lambda feature_type: (type_counts[feature_type], FEATURE_TYPE_ORDER.index(feature_type)))
+        active_types.sort(
+            key=lambda feature_type: (
+                _type_has_no_uncovered_refs(
+                    by_type[feature_type],
+                    db_counts,
+                    records_per_db,
+                    feature_usage_counts,
+                ),
+                type_counts[feature_type],
+                FEATURE_TYPE_ORDER.index(feature_type),
+            )
+        )
         for feature_type in active_types:
-            if len(slots) >= n_records:
-                break
             ref = _next_ref_under_db_cap(
                 by_type[feature_type],
                 cursors,
                 feature_type,
                 db_counts,
                 records_per_db,
+                feature_usage_counts,
             )
             if ref is None:
                 continue
             cursors[feature_type] += 1
             slot_index += 1
             db_counts[ref.manifest.db_id] += 1
-            slots.append(_slot_for_feature(ref, slot_index))
+            feature_key = (ref.manifest.db_id, ref.feature.id)
+            feature_usage_counts[feature_key] += 1
+            slots.append(_slot_for_feature(ref, slot_index, feature_usage_counts[feature_key]))
             made_progress = True
+            break
         if not made_progress:
             break
     return slots
@@ -128,115 +142,354 @@ def plan_native_slots(
 def dynamic_key_comparison(
     slot: NativeCoverageSlot,
     manifest: NativeFeatureManifest | Iterable[NativeFeatureManifest],
+    *,
+    snapshot: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     feature, feature_manifest = _resolve_feature(slot, manifest)
     field = _field(feature)
+    profile = _dynamic_profile(feature, snapshot)
+    variant = _slot_serial(slot) % 6
+    safe_object: dict[str, Any] = {"$ifNull": [f"${field}", {}]}
     pipeline = [
-        {"$addFields": {"__native_dynamic_entries": {"$objectToArray": f"${field}"}}},
-        {
-            "$addFields": {
-                "native_matching_dynamic_keys": {
-                    "$filter": {
-                        "input": "$__native_dynamic_entries",
-                        "as": "kv",
-                        "cond": {"$ne": ["$$kv.v", None]},
+        {"$addFields": {"__native_dynamic_entries": {"$objectToArray": safe_object}}},
+    ]
+    target_key = _pick(profile["keys"], slot, default="")
+    metric = _pick(profile["metrics"], slot, default="")
+    threshold = _pick(profile["thresholds"].get(metric, []), slot, default=0)
+    min_key_count = max(1, min(int(profile["max_key_count"] or 1), 2 + (_slot_serial(slot) % 4)))
+
+    if variant == 1 and target_key:
+        pipeline.extend([
+            {
+                "$addFields": {
+                    "native_matching_dynamic_keys": {
+                        "$filter": {
+                            "input": "$__native_dynamic_entries",
+                            "as": "kv",
+                            "cond": {"$eq": ["$$kv.k", target_key]},
+                        }
                     }
                 }
-            }
-        },
-        {
-            "$project": {
-                "_id": 1,
-                field: 1,
-                "native_matching_dynamic_keys": 1,
-                "native_dynamic_key_count": {"$size": "$native_matching_dynamic_keys"},
-            }
-        },
-    ]
+            },
+            {"$match": {"$expr": {"$gt": [{"$size": "$native_matching_dynamic_keys"}, 0]}}},
+        ])
+        intent = f"dynamic key {target_key!r} is present"
+    elif variant == 2 and target_key and metric:
+        pipeline.extend([
+            {
+                "$addFields": {
+                    "native_matching_dynamic_keys": {
+                        "$filter": {
+                            "input": "$__native_dynamic_entries",
+                            "as": "kv",
+                            "cond": {
+                                "$and": [
+                                    {"$eq": ["$$kv.k", target_key]},
+                                    {"$gt": [f"$$kv.v.{metric}", threshold]},
+                                ]
+                            },
+                        }
+                    }
+                }
+            },
+            {"$match": {"$expr": {"$gt": [{"$size": "$native_matching_dynamic_keys"}, 0]}}},
+        ])
+        intent = f"dynamic key {target_key!r} has {metric} above {threshold}"
+    elif variant == 3:
+        pipeline.extend([
+            {
+                "$addFields": {
+                    "native_matching_dynamic_keys": {
+                        "$filter": {
+                            "input": "$__native_dynamic_entries",
+                            "as": "kv",
+                            "cond": {"$ne": ["$$kv.v", None]},
+                        }
+                    }
+                }
+            },
+            {"$match": {"$expr": {"$gte": [{"$size": "$native_matching_dynamic_keys"}, min_key_count]}}},
+        ])
+        intent = f"at least {min_key_count} dynamic keys are populated"
+    elif variant == 4:
+        pipeline.extend([
+            {
+                "$addFields": {
+                    "native_matching_dynamic_keys": {
+                        "$filter": {
+                            "input": "$__native_dynamic_entries",
+                            "as": "kv",
+                            "cond": {"$ne": ["$$kv.v", None]},
+                        }
+                    },
+                    "native_dynamic_key_names": {
+                        "$map": {
+                            "input": "$__native_dynamic_entries",
+                            "as": "kv",
+                            "in": "$$kv.k",
+                        }
+                    },
+                }
+            },
+            {"$match": {"$expr": {"$gt": [{"$size": "$native_matching_dynamic_keys"}, 0]}}},
+        ])
+        intent = "return the populated dynamic key names"
+    elif variant == 5 and metric:
+        pipeline.extend([
+            {
+                "$addFields": {
+                    "native_matching_dynamic_keys": {
+                        "$filter": {
+                            "input": "$__native_dynamic_entries",
+                            "as": "kv",
+                            "cond": {"$gt": [f"$$kv.v.{metric}", threshold]},
+                        }
+                    }
+                }
+            },
+            {"$match": {"$expr": {"$gt": [{"$size": "$native_matching_dynamic_keys"}, 0]}}},
+        ])
+        intent = f"any dynamic bucket has {metric} above {threshold}"
+    else:
+        pipeline.extend([
+            {
+                "$addFields": {
+                    "native_matching_dynamic_keys": {
+                        "$filter": {
+                            "input": "$__native_dynamic_entries",
+                            "as": "kv",
+                            "cond": {"$ne": ["$$kv.v", None]},
+                        }
+                    }
+                }
+            },
+            {"$match": {"$expr": {"$gt": [{"$size": "$native_matching_dynamic_keys"}, 0]}}},
+        ])
+        intent = "dynamic keys contain non-null values"
+
+    project = {
+        "_id": 1,
+        field: 1,
+        "native_matching_dynamic_keys": 1,
+        "native_dynamic_key_count": {"$size": "$native_matching_dynamic_keys"},
+    }
+    if variant == 4:
+        project["native_dynamic_key_names"] = 1
+    pipeline.append({"$project": project})
+    pipeline.extend(_result_order_and_limit(slot))
     return _compiler_output(
         slot,
         feature,
         feature_manifest,
         pipeline,
-        constructs=["$objectToArray", "$filter"],
+        constructs=["$objectToArray", "$filter", "$ifNull"],
         compiler="dynamic_key_comparison",
+        intent=intent,
     )
 
 
 def subtype_field_dispatch(
     slot: NativeCoverageSlot,
     manifest: NativeFeatureManifest | Iterable[NativeFeatureManifest],
+    *,
+    snapshot: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     feature, feature_manifest = _resolve_feature(slot, manifest)
     field = _field(feature)
-    variants = _variants(feature)
+    variants = _variant_values(feature, snapshot) or _variants(feature)
+    target_variant = _pick(variants, slot, default="")
+    variant = _slot_serial(slot) % 5
+    switch_expr = {
+        "$switch": {
+            "branches": [
+                {"case": {"$eq": [f"${field}", value]}, "then": value}
+                for value in variants[:8]
+            ],
+            "default": "other",
+        }
+    }
     pipeline = [
-        {
+        {"$addFields": {"native_subtype_bucket": switch_expr}},
+    ]
+    if variant in {1, 3} and target_variant:
+        pipeline.append({"$match": {"native_subtype_bucket": target_variant}})
+    if variant == 2:
+        pipeline.append({
             "$addFields": {
-                "native_subtype_bucket": {
-                    "$switch": {
-                        "branches": [
-                            {"case": {"$eq": [f"${field}", variant]}, "then": variant}
-                            for variant in variants[:5]
-                        ],
-                        "default": "other",
+                "native_subtype_field_names": {
+                    "$map": {
+                        "input": {
+                            "$filter": {
+                                "input": {"$objectToArray": "$$ROOT"},
+                                "as": "kv",
+                                "cond": {"$not": [{"$in": ["$$kv.k", ["_id", field]]}]},
+                            }
+                        },
+                        "as": "kv",
+                        "in": "$$kv.k",
                     }
                 }
             }
-        },
-        {"$project": {"_id": 1, field: 1, "native_subtype_bucket": 1}},
-    ]
+        })
+    if variant == 4:
+        pipeline.extend([
+            {"$group": {"_id": "$native_subtype_bucket", "native_subtype_count": {"$sum": 1}}},
+            {"$project": {"_id": 0, "native_subtype_bucket": "$_id", "native_subtype_count": 1}},
+        ])
+        intent = "count documents in each discriminator bucket"
+    else:
+        project = {"_id": 1, field: 1, "native_subtype_bucket": 1}
+        if variant == 2:
+            project["native_subtype_field_names"] = 1
+        pipeline.append({"$project": project})
+        intent = (
+            f"dispatch only subtype {target_variant!r}"
+            if variant in {1, 3} and target_variant
+            else "dispatch documents by discriminator"
+        )
+    pipeline.extend(_result_order_and_limit(slot, grouped=variant == 4))
     return _compiler_output(
         slot,
         feature,
         feature_manifest,
         pipeline,
-        constructs=["$switch"],
+        constructs=["$switch"] + (["$objectToArray", "$filter"] if variant == 2 else []),
         compiler="subtype_field_dispatch",
+        intent=intent,
     )
 
 
 def tag_combination(
     slot: NativeCoverageSlot,
     manifest: NativeFeatureManifest | Iterable[NativeFeatureManifest],
+    *,
+    snapshot: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     feature, feature_manifest = _resolve_feature(slot, manifest)
     field = _field(feature)
-    target_tags = _target_tags(feature)
-    pipeline = [
-        {"$addFields": {"native_tag_overlap": {"$setIntersection": [f"${field}", target_tags]}}},
-        {"$match": {"$expr": {"$gt": [{"$size": "$native_tag_overlap"}, 0]}}},
-        {"$project": {"_id": 1, field: 1, "native_tag_overlap": 1}},
-    ]
+    observed_tags = _tag_values(feature, snapshot)
+    target_tags = observed_tags or _target_tags(feature)
+    selected_tags = _tag_subset(target_tags, slot)
+    safe_tags: dict[str, Any] = {"$ifNull": [f"${field}", []]}
+    variant = _slot_serial(slot) % 5
+    pipeline = []
+    constructs = ["$setIntersection", "$size", "$ifNull"]
+    if variant == 1 and selected_tags:
+        pipeline.extend([
+            {"$addFields": {"native_tag_overlap": {"$setIntersection": [safe_tags, selected_tags]}}},
+            {"$match": {"$expr": {"$eq": [{"$size": "$native_tag_overlap"}, len(selected_tags)]}}},
+        ])
+        intent = f"all selected tags {selected_tags} are present"
+    elif variant == 2 and selected_tags:
+        pipeline.extend([
+            {"$addFields": {"native_tag_subset_match": {"$setIsSubset": [selected_tags, safe_tags]}}},
+            {"$match": {"native_tag_subset_match": True}},
+            {"$addFields": {"native_tag_overlap": {"$setIntersection": [safe_tags, selected_tags]}}},
+        ])
+        constructs = ["$setIsSubset", "$setIntersection", "$ifNull"]
+        intent = f"the tag array contains subset {selected_tags}"
+    elif variant == 3:
+        min_overlap = 2 if len(selected_tags) >= 2 else 1
+        pipeline.extend([
+            {"$addFields": {"native_tag_overlap": {"$setIntersection": [safe_tags, selected_tags]}}},
+            {"$match": {"$expr": {"$gte": [{"$size": "$native_tag_overlap"}, min_overlap]}}},
+        ])
+        intent = f"at least {min_overlap} selected tags overlap"
+    elif variant == 4:
+        pipeline.extend([
+            {"$addFields": {"native_tag_overlap": {"$setIntersection": [safe_tags, selected_tags]}}},
+            {
+                "$addFields": {
+                    "native_tag_bucket": {
+                        "$cond": [
+                            {"$gt": [{"$size": "$native_tag_overlap"}, 1]},
+                            "multi_tag",
+                            "single_tag",
+                        ]
+                    }
+                }
+            },
+            {"$match": {"$expr": {"$gt": [{"$size": "$native_tag_overlap"}, 0]}}},
+        ])
+        constructs.append("$cond")
+        intent = "classify matching documents by single-tag versus multi-tag overlap"
+    else:
+        pipeline.extend([
+            {"$addFields": {"native_tag_overlap": {"$setIntersection": [safe_tags, selected_tags]}}},
+            {"$match": {"$expr": {"$gt": [{"$size": "$native_tag_overlap"}, 0]}}},
+        ])
+        intent = f"any selected tag in {selected_tags} overlaps"
+    project = {"_id": 1, field: 1, "native_tag_overlap": 1}
+    if variant == 2:
+        project["native_tag_subset_match"] = 1
+    if variant == 4:
+        project["native_tag_bucket"] = 1
+    pipeline.append({"$project": project})
+    pipeline.extend(_result_order_and_limit(slot))
     return _compiler_output(
         slot,
         feature,
         feature_manifest,
         pipeline,
-        constructs=["$setIntersection", "$size"],
+        constructs=constructs,
         compiler="tag_combination",
+        intent=intent,
     )
 
 
 def nested_event_filter(
     slot: NativeCoverageSlot,
     manifest: NativeFeatureManifest | Iterable[NativeFeatureManifest],
+    *,
+    snapshot: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     feature, feature_manifest = _resolve_feature(slot, manifest)
     field = _field(feature)
+    profile = _event_profile(feature, snapshot)
+    variant = _slot_serial(slot) % 6
+    event_type = _pick(profile["event_types"], slot, default=None)
+    time_cutoff = _pick(profile["event_times"], slot, default=None)
+    metric = _pick(profile["numeric_fields"], slot, default=None)
+    threshold = _pick(profile["thresholds"].get(metric, []), slot, default=0) if metric else 0
+    safe_events: dict[str, Any] = {"$ifNull": [f"${field}", []]}
+    cond: Any
+    intent: str
+    if variant == 1 and event_type is not None:
+        cond = {"$eq": ["$$event.event_type", event_type]}
+        intent = f"nested events whose event_type is {event_type!r}"
+    elif variant == 2 and time_cutoff is not None:
+        cond = {"$gte": ["$$event.event_time", time_cutoff]}
+        intent = f"nested events on or after {time_cutoff!r}"
+    elif variant == 3 and metric is not None:
+        cond = {"$gt": [f"$$event.{metric}", threshold]}
+        intent = f"nested events with {metric} above {threshold}"
+    elif variant == 4 and event_type is not None and time_cutoff is not None:
+        cond = {
+            "$and": [
+                {"$eq": ["$$event.event_type", event_type]},
+                {"$gte": ["$$event.event_time", time_cutoff]},
+            ]
+        }
+        intent = f"nested {event_type!r} events on or after {time_cutoff!r}"
+    elif variant == 5:
+        cond = {"$ne": ["$$event.event_time", None]}
+        intent = "nested events with recorded event time"
+    else:
+        cond = {
+            "$and": [
+                {"$ne": ["$$event.event_type", None]},
+                {"$ne": ["$$event.event_time", None]},
+            ]
+        }
+        intent = "nested events with event type and time present"
     pipeline = [
         {
             "$addFields": {
                 "native_filtered_events": {
                     "$filter": {
-                        "input": f"${field}",
+                        "input": safe_events,
                         "as": "event",
-                        "cond": {
-                            "$and": [
-                                {"$ne": ["$$event.event_type", None]},
-                                {"$ne": ["$$event.event_time", None]},
-                            ]
-                        },
+                        "cond": cond,
                     }
                 }
             }
@@ -244,13 +497,15 @@ def nested_event_filter(
         {"$match": {"$expr": {"$gt": [{"$size": "$native_filtered_events"}, 0]}}},
         {"$project": {"_id": 1, field: 1, "native_filtered_events": 1}},
     ]
+    pipeline.extend(_result_order_and_limit(slot))
     return _compiler_output(
         slot,
         feature,
         feature_manifest,
         pipeline,
-        constructs=["$filter"],
+        constructs=["$filter", "$ifNull"],
         compiler="nested_event_filter",
+        intent=intent,
     )
 
 
@@ -261,16 +516,17 @@ def missing_vs_present(
     feature, feature_manifest = _resolve_feature(slot, manifest)
     field = _field(feature)
     pipeline = [
-        {"$addFields": {"native_missing_state": {"$type": f"${field}"}}},
-        {"$match": {"$expr": {"$eq": ["$native_missing_state", "missing"]}}},
-        {"$project": {"_id": 1, field: 1, "native_missing_state": 1}},
+        {"$addFields": {"native_presence_state": {"$ifNull": [f"${field}", "missing"]}}},
+        {"$match": {"native_presence_state": {"$in": ["missing", "null", "empty"]}}},
+        {"$project": {"_id": 1, field: 1, "native_presence_state": 1}},
     ]
+    pipeline.extend(_result_order_and_limit(slot))
     return _compiler_output(
         slot,
         feature,
         feature_manifest,
         pipeline,
-        constructs=["$type"],
+        constructs=["$ifNull"],
         compiler="missing_vs_present",
     )
 
@@ -289,7 +545,7 @@ def build_native_record(
 ) -> dict[str, Any]:
     """Build one stub-friendly native record from a planned native slot."""
     feature, feature_manifest = _resolve_feature(slot, manifest)
-    compiled = _compile_slot(slot, feature_manifest)
+    compiled = _compile_slot(slot, feature_manifest, snapshot=snapshot)
     native_stub = {
         "db_id": slot.db_id,
         "MQL": compiled["MQL"],
@@ -307,8 +563,8 @@ def build_native_record(
         snapshot=snapshot,
     )
     nl_queries = {
-        "canonical": canonical_nl or _canonical_nl(slot, feature),
-        "colloquial": colloquial_nl or _colloquial_nl(slot, feature),
+        "canonical": canonical_nl or _canonical_nl(slot, feature, compiled),
+        "colloquial": colloquial_nl or _colloquial_nl(slot, feature, compiled),
     }
     rid = int(record_id if record_id is not None else _record_id_from_slot(slot))
     record = {
@@ -377,6 +633,7 @@ async def run_native_phase_b(
         record = build_native_record(
             slot,
             manifest,
+            snapshot=getattr(artifact, "mongodb_data", None),
             world_signature=getattr(artifact, "world_signature", "sha256:" + "0" * 64),
             migration_recipe_ref=f"migration_recipe/{slot.db_id}.yaml",
         )
@@ -422,26 +679,51 @@ def _next_ref_under_db_cap(
     feature_type: str,
     db_counts: Counter[str],
     records_per_db: dict[str, int] | int | None,
+    feature_usage_counts: Counter[tuple[str, str]],
 ) -> _FeatureRef | None:
     if not refs:
         return None
     start = cursors[feature_type]
-    for offset in range(len(refs)):
-        ref = refs[(start + offset) % len(refs)]
-        cap = _db_cap(records_per_db, ref.manifest.db_id)
-        if cap is None or db_counts[ref.manifest.db_id] < cap:
+    for require_uncovered in (True, False):
+        for offset in range(len(refs)):
+            ref = refs[(start + offset) % len(refs)]
+            cap = _db_cap(records_per_db, ref.manifest.db_id)
+            if cap is not None and db_counts[ref.manifest.db_id] >= cap:
+                continue
+            if require_uncovered and feature_usage_counts[(ref.manifest.db_id, ref.feature.id)] > 0:
+                continue
             cursors[feature_type] = start + offset
             return ref
     return None
 
 
-def _slot_for_feature(ref: _FeatureRef, slot_index: int) -> NativeCoverageSlot:
+def _type_has_no_uncovered_refs(
+    refs: list[_FeatureRef],
+    db_counts: Counter[str],
+    records_per_db: dict[str, int] | int | None,
+    feature_usage_counts: Counter[tuple[str, str]],
+) -> bool:
+    for ref in refs:
+        cap = _db_cap(records_per_db, ref.manifest.db_id)
+        if cap is not None and db_counts[ref.manifest.db_id] >= cap:
+            continue
+        if feature_usage_counts[(ref.manifest.db_id, ref.feature.id)] == 0:
+            return False
+    return True
+
+
+def _slot_for_feature(
+    ref: _FeatureRef,
+    slot_index: int,
+    feature_use_index: int,
+) -> NativeCoverageSlot:
     feature = ref.feature
-    query_pattern = (
-        feature.query_patterns[0]
+    query_patterns = (
+        list(feature.query_patterns)
         if feature.query_patterns
-        else DEFAULT_QUERY_PATTERN[feature.type]
+        else [DEFAULT_QUERY_PATTERN[feature.type]]
     )
+    query_pattern = query_patterns[(feature_use_index - 1) % len(query_patterns)]
     constructs = (
         list(feature.required_constructs)
         if feature.required_constructs
@@ -485,18 +767,72 @@ def _resolve_feature(
 def _compile_slot(
     slot: NativeCoverageSlot,
     manifest: NativeFeatureManifest | Iterable[NativeFeatureManifest],
+    *,
+    snapshot: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
+    if _feature_pipeline_blueprint(slot, manifest) is not None:
+        return pipeline_blueprint(slot, manifest, snapshot=snapshot)
     if slot.query_pattern == "dynamic_key_comparison":
-        return dynamic_key_comparison(slot, manifest)
+        return dynamic_key_comparison(slot, manifest, snapshot=snapshot)
     if slot.query_pattern == "subtype_field_dispatch":
-        return subtype_field_dispatch(slot, manifest)
+        return subtype_field_dispatch(slot, manifest, snapshot=snapshot)
     if slot.query_pattern == "tag_combination":
-        return tag_combination(slot, manifest)
+        return tag_combination(slot, manifest, snapshot=snapshot)
     if slot.query_pattern == "nested_event_filter":
-        return nested_event_filter(slot, manifest)
+        return nested_event_filter(slot, manifest, snapshot=snapshot)
     if slot.query_pattern == "missing_vs_present":
         return missing_vs_present(slot, manifest)
     raise ValueError(f"unsupported native query pattern: {slot.query_pattern}")
+
+
+def pipeline_blueprint(
+    slot: NativeCoverageSlot,
+    manifest: NativeFeatureManifest | Iterable[NativeFeatureManifest],
+    *,
+    snapshot: dict[str, list[dict[str, Any]]] | None = None,
+) -> dict[str, Any]:
+    feature, feature_manifest = _resolve_feature(slot, manifest)
+    blueprint = _feature_pipeline_blueprint(slot, feature_manifest)
+    if blueprint is None:
+        raise ValueError(f"no pipeline blueprint for native query pattern: {slot.query_pattern}")
+    pipeline = blueprint.get("pipeline")
+    if not isinstance(pipeline, list) or not all(isinstance(stage, dict) for stage in pipeline):
+        raise ValueError(f"pipeline blueprint for {slot.feature_id} must be a list of stage objects")
+    constructs_raw = blueprint.get("mongo_native_constructs")
+    constructs = (
+        [str(value) for value in constructs_raw]
+        if isinstance(constructs_raw, list) and constructs_raw
+        else list(slot.required_native_constructs)
+    )
+    return _compiler_output(
+        slot,
+        feature,
+        feature_manifest,
+        json.loads(json.dumps(pipeline)),
+        constructs=constructs,
+        compiler="pipeline_blueprint",
+        intent=str(blueprint.get("intent") or slot.query_pattern),
+    )
+
+
+def _feature_pipeline_blueprint(
+    slot: NativeCoverageSlot,
+    manifest: NativeFeatureManifest | Iterable[NativeFeatureManifest],
+) -> dict[str, Any] | None:
+    feature, _feature_manifest = _resolve_feature(slot, manifest)
+    blueprints = feature.extra.get("pipeline_blueprints") if isinstance(feature.extra, dict) else None
+    if not isinstance(blueprints, list):
+        return None
+    fallback_without_pattern: dict[str, Any] | None = None
+    for item in blueprints:
+        if not isinstance(item, dict):
+            continue
+        item_pattern = str(item.get("query_pattern") or "")
+        if not item_pattern and fallback_without_pattern is None:
+            fallback_without_pattern = item
+        if item_pattern == slot.query_pattern:
+            return item
+    return fallback_without_pattern
 
 
 def _compiler_output(
@@ -507,8 +843,8 @@ def _compiler_output(
     *,
     constructs: list[str],
     compiler: str,
+    intent: str = "",
 ) -> dict[str, Any]:
-    pipeline = _variant_pipeline(pipeline, slot)
     mql = _mql(feature.collection, pipeline)
     cfs = derive_canonical_form_set(mql, slot.target_shape_policy)
     cfs["native_must_contain"] = list(constructs)
@@ -527,6 +863,8 @@ def _compiler_output(
     )
     verification_payload = verification.to_dict()
     verification_payload["compiler"] = compiler
+    if intent:
+        verification_payload["intent"] = intent
     return {
         "MQL": mql,
         "canonical_form_set": cfs,
@@ -534,6 +872,7 @@ def _compiler_output(
         "mongo_native_constructs": list(constructs),
         "provenance_refs": list(feature.provenance_refs),
         "native_verification": verification_payload,
+        "intent": intent,
     }
 
 
@@ -559,6 +898,156 @@ def _variants(feature: NativeFeature) -> list[str]:
     return ["account", "card", "loan"]
 
 
+def _snapshot_docs(
+    feature: NativeFeature,
+    snapshot: dict[str, list[dict[str, Any]]] | None,
+) -> list[dict[str, Any]]:
+    if not isinstance(snapshot, dict):
+        return []
+    docs = snapshot.get(feature.collection)
+    if not isinstance(docs, list):
+        return []
+    return [doc for doc in docs if isinstance(doc, dict)]
+
+
+def _dynamic_profile(
+    feature: NativeFeature,
+    snapshot: dict[str, list[dict[str, Any]]] | None,
+) -> dict[str, Any]:
+    field = _field(feature)
+    key_counts: Counter[str] = Counter()
+    key_lengths: list[int] = []
+    metric_values: dict[str, list[int | float]] = {}
+    for doc in _snapshot_docs(feature, snapshot):
+        value = doc.get(field)
+        if not isinstance(value, dict):
+            continue
+        key_lengths.append(len(value))
+        for key, bucket in value.items():
+            key_counts[str(key)] += 1
+            if not isinstance(bucket, dict):
+                continue
+            for metric, metric_value in bucket.items():
+                if isinstance(metric_value, bool) or not isinstance(metric_value, (int, float)):
+                    continue
+                metric_values.setdefault(str(metric), []).append(metric_value)
+    metrics = sorted(
+        metric_values,
+        key=lambda name: (-len(metric_values[name]), name),
+    )
+    thresholds = {
+        metric: _sample_thresholds(values)
+        for metric, values in metric_values.items()
+        if values
+    }
+    return {
+        "keys": [key for key, _ in key_counts.most_common(64)],
+        "metrics": metrics[:16],
+        "thresholds": thresholds,
+        "max_key_count": max(key_lengths) if key_lengths else 1,
+    }
+
+
+def _tag_values(
+    feature: NativeFeature,
+    snapshot: dict[str, list[dict[str, Any]]] | None,
+) -> list[str]:
+    field = _field(feature)
+    counts: Counter[str] = Counter()
+    for doc in _snapshot_docs(feature, snapshot):
+        tags = doc.get(field)
+        if isinstance(tags, list):
+            counts.update(str(tag) for tag in tags if tag is not None)
+    return [tag for tag, _ in counts.most_common(32)]
+
+
+def _tag_subset(tags: list[str], slot: NativeCoverageSlot) -> list[str]:
+    ordered = sorted(dict.fromkeys(str(tag) for tag in tags if tag is not None))
+    if not ordered:
+        return []
+    serial = _slot_serial(slot)
+    width = 1 + (serial % min(3, len(ordered)))
+    start = serial % len(ordered)
+    subset = [ordered[(start + offset) % len(ordered)] for offset in range(width)]
+    return sorted(dict.fromkeys(subset))
+
+
+def _event_profile(
+    feature: NativeFeature,
+    snapshot: dict[str, list[dict[str, Any]]] | None,
+) -> dict[str, Any]:
+    field = _field(feature)
+    event_types: Counter[str] = Counter()
+    event_times: Counter[str] = Counter()
+    numeric_values: dict[str, list[int | float]] = {}
+    for doc in _snapshot_docs(feature, snapshot):
+        events = doc.get(field)
+        if not isinstance(events, list):
+            continue
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            if event.get("event_type") is not None:
+                event_types[str(event["event_type"])] += 1
+            if event.get("event_time") is not None:
+                event_times[str(event["event_time"])] += 1
+            for key, value in event.items():
+                if key in {"event_type", "event_time"}:
+                    continue
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    continue
+                numeric_values.setdefault(str(key), []).append(value)
+    numeric_fields = sorted(numeric_values, key=lambda name: (-len(numeric_values[name]), name))
+    return {
+        "event_types": [value for value, _ in event_types.most_common(64)],
+        "event_times": _spread_values([value for value, _ in event_times.most_common(256)], limit=64),
+        "numeric_fields": numeric_fields[:16],
+        "thresholds": {
+            field_name: _sample_thresholds(values)
+            for field_name, values in numeric_values.items()
+            if values
+        },
+    }
+
+
+def _variant_values(
+    feature: NativeFeature,
+    snapshot: dict[str, list[dict[str, Any]]] | None,
+) -> list[str]:
+    field = _field(feature)
+    counts: Counter[str] = Counter()
+    for doc in _snapshot_docs(feature, snapshot):
+        value = doc.get(field)
+        if value is not None:
+            counts[str(value)] += 1
+    return [value for value, _ in counts.most_common(16)]
+
+
+def _sample_thresholds(values: list[int | float]) -> list[int | float]:
+    ordered = sorted(value for value in values if isinstance(value, (int, float)) and not isinstance(value, bool))
+    if not ordered:
+        return [0]
+    points = [0.25, 0.5, 0.75]
+    out: list[int | float] = []
+    for point in points:
+        index = min(len(ordered) - 1, max(0, int((len(ordered) - 1) * point)))
+        out.append(ordered[index])
+    return sorted(dict.fromkeys(out))
+
+
+def _spread_values(values: list[str], *, limit: int) -> list[str]:
+    if len(values) <= limit:
+        return values
+    step = max(1, len(values) // limit)
+    return values[::step][:limit]
+
+
+def _pick(values: list[Any], slot: NativeCoverageSlot, *, default: Any) -> Any:
+    if not values:
+        return default
+    return values[_slot_serial(slot) % len(values)]
+
+
 def _schema_flex_for_feature_type(feature_type: str) -> str:
     return {
         "dynamic_key_object": "dynamic_key",
@@ -569,27 +1058,34 @@ def _schema_flex_for_feature_type(feature_type: str) -> str:
     }.get(feature_type, "attribute_bag")
 
 
-def _canonical_nl(slot: NativeCoverageSlot, feature: NativeFeature) -> str:
+def _canonical_nl(
+    slot: NativeCoverageSlot,
+    feature: NativeFeature,
+    compiled: dict[str, Any] | None = None,
+) -> str:
     field = _field(feature)
     limit = _limit_value(slot)
+    intent = str((compiled or {}).get("intent") or "")
     if slot.feature_type == "dynamic_key_object":
         return (
             f"For each {feature.collection} document, inspect the dynamic keys under {field} "
-            f"and keep the non-empty native key entries, returning up to {limit} documents."
+            f"and keep entries where {intent or 'the native key condition holds'}, "
+            f"returning up to {limit} documents."
         )
     if slot.feature_type == "polymorphic_collection":
         return (
             f"Dispatch each {feature.collection} document by its {field} discriminator "
-            f"and output the native subtype bucket, returning up to {limit} documents."
+            f"and {intent or 'output the native subtype bucket'}, returning up to {limit} documents."
         )
     if slot.feature_type == "derived_tag_array":
         return (
             f"Find up to {limit} {feature.collection} documents whose {field} tag array "
-            "overlaps the target tag set."
+            f"satisfies this set condition: {intent or 'overlaps the selected tag set'}."
         )
     if slot.feature_type == "nested_event_stream":
         return (
-            f"Filter each {feature.collection} document's nested {field} array in place and keep matching events."
+            f"Filter each {feature.collection} document's nested {field} array in place for "
+            f"{intent or 'matching events'}."
             f" Return up to {limit} documents."
         )
     return (
@@ -597,17 +1093,22 @@ def _canonical_nl(slot: NativeCoverageSlot, feature: NativeFeature) -> str:
     )
 
 
-def _colloquial_nl(slot: NativeCoverageSlot, feature: NativeFeature) -> str:
+def _colloquial_nl(
+    slot: NativeCoverageSlot,
+    feature: NativeFeature,
+    compiled: dict[str, Any] | None = None,
+) -> str:
     field = _field(feature)
     limit = _limit_value(slot)
+    intent = str((compiled or {}).get("intent") or "")
     if slot.feature_type == "dynamic_key_object":
-        return f"Show up to {limit} {feature.collection} rows with useful dynamic {field} entries."
+        return f"Show up to {limit} {feature.collection} rows where {field} has {intent or 'useful dynamic entries'}."
     if slot.feature_type == "polymorphic_collection":
-        return f"Label up to {limit} {feature.collection} items by their {field} subtype."
+        return f"Label up to {limit} {feature.collection} items by {field}; {intent or 'keep the subtype bucket'}."
     if slot.feature_type == "derived_tag_array":
-        return f"Show up to {limit} {feature.collection} items with any target {field} tags."
+        return f"Show up to {limit} {feature.collection} items where {field} tags match: {intent or 'selected tags'}."
     if slot.feature_type == "nested_event_stream":
-        return f"Keep matching nested {field} events for up to {limit} {feature.collection} items."
+        return f"Keep {intent or 'matching'} nested {field} events for up to {limit} {feature.collection} items."
     return f"Show up to {limit} {feature.collection} items that are missing {field}."
 
 
@@ -630,47 +1131,9 @@ def _slot_serial(slot: NativeCoverageSlot) -> int:
 
 
 def _limit_value(slot: NativeCoverageSlot) -> int:
-    return 5 + _slot_serial(slot)
+    return [10, 25, 50, 100][_slot_serial(slot) % 4]
 
 
-def _variant_pipeline(pipeline: list[dict[str, Any]], slot: NativeCoverageSlot) -> list[dict[str, Any]]:
-    serial = _slot_serial(slot)
-    variant = serial % 12
-    limit_stage = {"$limit": _limit_value(slot)}
-    seed_stage = {"$addFields": {"native_slot_serial": serial}}
-    serial_prefix = [
-        {"$addFields": {"native_slot_serial": serial}},
-        *[
-            {"$addFields": {f"native_slot_marker_{idx}": idx}}
-            for idx in range(serial % 9)
-        ],
-    ]
-    match_exists = {"$match": {"_id": {"$exists": True}}}
-    match_expr = {"$match": {"$expr": {"$gte": [serial, 0]}}}
-    sort_id = {"$sort": {"_id": 1}}
-    project_seed = {"$project": {"_id": 1, "native_slot_serial": 1}}
-
-    core = [dict(stage) for stage in pipeline]
-    if variant == 0:
-        return serial_prefix + core + [limit_stage]
-    if variant == 1:
-        return serial_prefix + core + [sort_id, limit_stage]
-    if variant == 2:
-        return serial_prefix + [match_exists] + core + [limit_stage]
-    if variant == 3:
-        return serial_prefix + [seed_stage] + core + [limit_stage]
-    if variant == 4:
-        return serial_prefix + core + [seed_stage, limit_stage]
-    if variant == 5:
-        return serial_prefix + [match_expr] + core + [limit_stage]
-    if variant == 6:
-        return serial_prefix + [match_exists] + core + [sort_id, limit_stage]
-    if variant == 7:
-        return serial_prefix + [seed_stage] + core + [sort_id, limit_stage]
-    if variant == 8:
-        return serial_prefix + core + [limit_stage, seed_stage]
-    if variant == 9:
-        return serial_prefix + [match_expr] + core + [sort_id, limit_stage]
-    if variant == 10:
-        return serial_prefix + [seed_stage] + core + [limit_stage, project_seed]
-    return serial_prefix + [match_exists, seed_stage] + core + [sort_id, limit_stage]
+def _result_order_and_limit(slot: NativeCoverageSlot, *, grouped: bool = False) -> list[dict[str, Any]]:
+    sort_field = "native_subtype_bucket" if grouped else "_id"
+    return [{"$sort": {sort_field: 1}}, {"$limit": _limit_value(slot)}]

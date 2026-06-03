@@ -58,6 +58,7 @@ from .solver.workflow import (
     DEFAULT_WITNESS_K,
     SmartSolveOptions,
     load_solver_release_inputs,
+    smart_solve_nlq_db,
     smart_solve_record,
 )
 from .workflow import Workflow, run_phase_a, run_phase_b
@@ -445,6 +446,7 @@ def _balanced_slot_specs(specs: list[dict[str, Any]], *, seed: int) -> list[dict
                     next_n=next_n,
                     non_l0_available=non_l0_available,
                 ),
+                _slot_practicality_key(remaining[i]),
                 _slot_balance_key(
                     remaining[i],
                     mechanism_counts=mechanism_counts,
@@ -507,6 +509,26 @@ def _slot_composition_key(
         1 if traits["l0"] else 0,
         0 if traits["l4"] else 1,
     )
+
+
+def _slot_practicality_key(spec: dict[str, Any]) -> tuple[int, int]:
+    """Prefer candidates that are both structurally useful and verifier-friendly."""
+    archetype = str(spec.get("archetype", ""))
+    traits = _slot_composition_traits(spec)
+    if traits["l4"] and traits["ssf"]:
+        return (0, _archetype_rank(archetype))
+    if archetype in {
+        "existence_count",
+        "null_coalesce_agg",
+        "join_nested_group",
+        "group_count",
+    }:
+        return (1, _archetype_rank(archetype))
+    if archetype == "fk_rollup":
+        return (2, _archetype_rank(archetype))
+    if archetype in {"topn", "simple_filter"}:
+        return (3, _archetype_rank(archetype))
+    return (2, _archetype_rank(archetype))
 
 
 def _slot_balance_key(
@@ -1824,6 +1846,7 @@ async def _run_solve(
     limit: int,
     r_max: int,
     witness_k: int,
+    nlq: str | None = None,
     evaluate: bool = True,
     eval_out_dir: Path | None = None,
     eval_workers: int = 8,
@@ -1835,72 +1858,92 @@ async def _run_solve(
     summary: dict = {}
     out_path = rt.settings.run_dir / "solver_predictions.jsonl"
     failures_path = rt.settings.run_dir / "solver_failures.jsonl"
+    evaluate_outputs = evaluate and nlq is None
     try:
-        inputs = load_solver_release_inputs(
-            dataset_dir,
-            db_id=db_id,
-            record_id=record_id,
-            limit=limit,
-        )
-        if not inputs:
-            rt.log.anomaly(
-                kind=Anomaly.SUPPLY_EXHAUSTED,
-                message="no solver records matched filters",
-                dataset_dir=str(dataset_dir),
-                db_id=db_id,
-                record_id=record_id,
-            )
         with rt.progress:
             rt.workflow.phase("SOLVE")
-            preloaded_dbs = await _preload_solver_witnesses(rt, inputs)
-
-            async def solve_one(
-                batch_index: int,
-                record: dict,
-                schema: dict,
-                data: dict | None,
-            ) -> tuple[int, dict]:
-                db = str(record.get("db_id"))
-                result = await smart_solve_record(
+            if nlq is not None:
+                if not db_id:
+                    raise SourceError("NLQ+DB solver mode requires --db-id")
+                result = await smart_solve_nlq_db(
                     rt.workflow,
-                    record,
-                    schema,
-                    local_data=data,
+                    db_id=str(db_id),
+                    nlq=nlq,
+                    record_id=record_id,
                     r_max=r_max,
                     witness_k=witness_k,
-                    options=SmartSolveOptions(
-                        progress_work_item_id=f"batch_index={batch_index}",
-                    ),
-                    witness_preloaded=db in preloaded_dbs,
                 )
                 payload = result.to_json()
-                payload["batch_index"] = batch_index
-                payload["work_item_id"] = f"solve:{batch_index}:{db}:{record.get('record_id')}"
-                return batch_index, payload
-
-            tasks = [
-                asyncio.create_task(solve_one(index, record, schema, data))
-                for index, (record, schema, data) in enumerate(inputs)
-            ]
-            try:
-                solved = await asyncio.gather(*tasks)
-            except Exception:
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                for exc in results:
-                    if isinstance(exc, Exception) and not isinstance(exc, asyncio.CancelledError):
-                        rt.log.anomaly(wrap_unexpected(exc, stage="solve_gather"))
-                raise
-            for _, payload in sorted(solved, key=lambda item: item[0]):
+                payload["batch_index"] = 0
+                payload["work_item_id"] = f"solve:0:{db_id}:{record_id}"
                 if payload.get("result_type") == "solver_failure":
                     failures.append(payload)
                 else:
                     predictions.append(payload)
+            else:
+                inputs = load_solver_release_inputs(
+                    dataset_dir,
+                    db_id=db_id,
+                    record_id=record_id,
+                    limit=limit,
+                )
+                if not inputs:
+                    rt.log.anomaly(
+                        kind=Anomaly.SUPPLY_EXHAUSTED,
+                        message="no solver records matched filters",
+                        dataset_dir=str(dataset_dir),
+                        db_id=db_id,
+                        record_id=record_id,
+                    )
+                preloaded_dbs = await _preload_solver_witnesses(rt, inputs)
+
+                async def solve_one(
+                    batch_index: int,
+                    record: dict,
+                    schema: dict,
+                    data: dict | None,
+                ) -> tuple[int, dict]:
+                    db = str(record.get("db_id"))
+                    result = await smart_solve_record(
+                        rt.workflow,
+                        record,
+                        schema,
+                        local_data=data,
+                        r_max=r_max,
+                        witness_k=witness_k,
+                        options=SmartSolveOptions(
+                            progress_work_item_id=f"batch_index={batch_index}",
+                        ),
+                        witness_preloaded=db in preloaded_dbs,
+                    )
+                    payload = result.to_json()
+                    payload["batch_index"] = batch_index
+                    payload["work_item_id"] = f"solve:{batch_index}:{db}:{record.get('record_id')}"
+                    return batch_index, payload
+
+                tasks = [
+                    asyncio.create_task(solve_one(index, record, schema, data))
+                    for index, (record, schema, data) in enumerate(inputs)
+                ]
+                try:
+                    solved = await asyncio.gather(*tasks)
+                except Exception:
+                    for task in tasks:
+                        if not task.done():
+                            task.cancel()
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    for exc in results:
+                        if isinstance(exc, Exception) and not isinstance(exc, asyncio.CancelledError):
+                            rt.log.anomaly(wrap_unexpected(exc, stage="solve_gather"))
+                    raise
+                for _, payload in sorted(solved, key=lambda item: item[0]):
+                    if payload.get("result_type") == "solver_failure":
+                        failures.append(payload)
+                    else:
+                        predictions.append(payload)
             _write_jsonl(out_path, predictions)
             _write_jsonl(failures_path, failures)
-            if predictions:
+            if predictions and evaluate_outputs:
                 rt.progress.phase("EVAL")
                 evaluation = await _maybe_evaluate(
                     rt,
@@ -1908,7 +1951,7 @@ async def _run_solve(
                     predictions_path=out_path,
                     dataset_dir=dataset_dir,
                     experiment_kind="solver",
-                    evaluate=evaluate,
+                    evaluate=evaluate_outputs,
                     eval_out_dir=eval_out_dir,
                     eval_workers=eval_workers,
                 )
@@ -1944,7 +1987,7 @@ async def _run_solve(
             out_path,
             failures_path,
             evaluation,
-            evaluate=evaluate,
+            evaluate=evaluate_outputs,
         )
         _close_runtime(rt)
 
@@ -2397,6 +2440,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--dataset-dir", default=None,
                    help="release dataset dir (default: release/TEND-dataset)")
     s.add_argument("--db-id", default=None, help="optional db_id filter")
+    s.add_argument("--nlq", default=None,
+                   help="solve one natural-language question against --db-id by querying MongoDB")
     s.add_argument("--record-id", type=int, default=None, help="optional record_id filter")
     s.add_argument("--limit", type=int, default=1, help="max records to solve")
     s.add_argument("--r-max", type=int, default=DEFAULT_R_MAX, help="SMART fallback limit")
@@ -2522,6 +2567,7 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             r_max=args.r_max,
             witness_k=args.witness_k,
+            nlq=args.nlq,
             evaluate=not args.no_eval,
             eval_out_dir=_resolve_repo_path(settings, args.eval_out) if args.eval_out else None,
             eval_workers=args.eval_workers,

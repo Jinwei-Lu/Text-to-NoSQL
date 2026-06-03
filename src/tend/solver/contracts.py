@@ -40,6 +40,12 @@ class CollectionShape:
     variants: list[ShapeVariant] = field(default_factory=list)
     field_locus: dict[str, list[FieldLocus]] = field(default_factory=dict)
     doc_count: int | None = None
+    dynamic_key_paths: list[str] = field(default_factory=list)
+    dynamic_key_samples: dict[str, list[str]] = field(default_factory=dict)
+    array_paths: list[str] = field(default_factory=list)
+    dynamic_array_object_paths: list[str] = field(default_factory=list)
+    array_object_dynamic_paths: list[str] = field(default_factory=list)
+    presence_state_counts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -79,6 +85,22 @@ class ShapeModel:
                 variants=variants,
                 field_locus=loci,
                 doc_count=raw.get("doc_count"),
+                dynamic_key_paths=[str(path) for path in raw.get("dynamic_key_paths", [])],
+                dynamic_key_samples={
+                    str(path): [str(sample) for sample in samples]
+                    for path, samples in dict(raw.get("dynamic_key_samples") or {}).items()
+                },
+                array_paths=[str(path) for path in raw.get("array_paths", [])],
+                dynamic_array_object_paths=[
+                    str(path) for path in raw.get("dynamic_array_object_paths", [])
+                ],
+                array_object_dynamic_paths=[
+                    str(path) for path in raw.get("array_object_dynamic_paths", [])
+                ],
+                presence_state_counts={
+                    str(state): int(count)
+                    for state, count in dict(raw.get("presence_state_counts") or {}).items()
+                },
             )
         return cls(
             collections=collections,

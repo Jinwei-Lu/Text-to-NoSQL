@@ -13,6 +13,7 @@ from ..workflow import Workflow
 from . import agents as _agents  # noqa: F401 - import registers SMART agents
 from .contracts import LogicalSpec, PhysicalPlan, SolverDisclosure, SolverPrediction
 from .guards import SolverBoundary, render_mql
+from .introspection import introspect_solver_database
 
 DEFAULT_R_MAX = 2
 DEFAULT_WITNESS_K = 3
@@ -64,6 +65,42 @@ class SolverFailure:
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
+
+
+async def smart_solve_nlq_db(
+    wf: Workflow,
+    *,
+    db_id: str,
+    nlq: str,
+    record_id: int | None = None,
+    r_max: int = DEFAULT_R_MAX,
+    witness_k: int = DEFAULT_WITNESS_K,
+    options: SmartSolveOptions | None = None,
+) -> SolverPrediction | SolverFailure:
+    """Solve from only NLQ + DB by deriving public context from MongoDB itself."""
+    sample_size = max(1, witness_k)
+    snapshot = await asyncio.to_thread(
+        introspect_solver_database,
+        wf.ctx.mongo,
+        db_id,
+        sample_size=sample_size,
+    )
+    record: dict[str, Any] = {
+        "db_id": db_id,
+        "nl_queries": {"canonical": nlq},
+    }
+    if record_id is not None:
+        record["record_id"] = record_id
+    return await smart_solve_record(
+        wf,
+        record,
+        snapshot.schema,
+        local_data=snapshot.local_data,
+        r_max=r_max,
+        witness_k=witness_k,
+        options=options,
+        witness_preloaded=True,
+    )
 
 
 async def smart_solve_record(

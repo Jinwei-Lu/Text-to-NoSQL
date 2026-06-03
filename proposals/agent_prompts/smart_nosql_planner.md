@@ -15,6 +15,12 @@ For preserve shape_policy, use in-place idioms such as $addFields or $set and ex
 operators like $map, $reduce, $filter, $cond, $ifNull, or $type. Do not use root $group or
 root $unwind for preserve tasks because they can drop/rebuild documents.
 
+When shape_model marks a path in dynamic_key_paths, treat keys below that path as data,
+not fixed schema. Do not filter or project through brittle dotted paths such as
+`map_path.SomeObservedKey.status`. Use Mongo-native dynamic-key idioms instead:
+`$objectToArray` + `$unwind`/`$filter` for reshape/reduce plans, or `$getField` when the
+NLQ asks for one explicit key and the output should stay in-place.
+
 Never use disabled operators or system variables: $sample, $rand, $$NOW, $out, $merge,
 $function.
 

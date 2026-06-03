@@ -255,6 +255,13 @@ class SmartNosqlPlanner(LLMAgent):
             inputs.get("witness_digest", {}),
         )
         violations.extend(literal_violations)
+        violations.extend(
+            _dynamic_key_path_violations(
+                output.get("collection", ""),
+                stages,
+                inputs.get("shape_model", {}),
+            )
+        )
         if (
             not output.get("variant_handling")
             and extra.get("solver_require_variant_handling") is not False
@@ -350,6 +357,12 @@ def _collection_shape(collection: str, schema: dict[str, Any]) -> dict[str, Any]
                     k: [FieldLocus(**entry) for entry in entries] for k, entries in loci.items()
                 },
                 doc_count=schema.get("doc_count"),
+                dynamic_key_paths=_str_list(schema.get("dynamic_key_paths")),
+                dynamic_key_samples=_str_list_map(schema.get("dynamic_key_samples")),
+                array_paths=_str_list(schema.get("array_paths")),
+                dynamic_array_object_paths=_str_list(schema.get("dynamic_array_object_paths")),
+                array_object_dynamic_paths=_str_list(schema.get("array_object_dynamic_paths")),
+                presence_state_counts=_int_map(schema.get("presence_state_counts")),
             ))
         },
         "coverage_gaps": [],
@@ -517,3 +530,83 @@ def _literal_violations_in_node(
 
     walk(node)
     return violations
+
+
+def _dynamic_key_path_violations(
+    root_collection: str,
+    stages: list[dict[str, Any]],
+    shape_model: dict[str, Any],
+) -> list[str]:
+    dynamic_paths = _dynamic_key_paths_for_collection(root_collection, shape_model)
+    if not dynamic_paths:
+        return []
+    violations: list[str] = []
+    for i, item in enumerate(stages):
+        stage = item.get("stage") or {}
+        for path in dynamic_paths:
+            refs = _direct_dynamic_key_refs(stage, path)
+            if refs:
+                violations.append(
+                    f"stage {i} uses brittle dotted dynamic-key path {path}: "
+                    f"{sorted(refs)}; use $objectToArray or $getField before filtering/projecting "
+                    "observed dynamic keys"
+                )
+    return sorted(set(violations))
+
+
+def _dynamic_key_paths_for_collection(
+    root_collection: str,
+    shape_model: dict[str, Any],
+) -> list[str]:
+    collections = shape_model.get("collections", {})
+    if not isinstance(collections, dict):
+        return []
+    candidates: list[dict[str, Any]] = []
+    if root_collection and isinstance(collections.get(root_collection), dict):
+        candidates.append(collections[root_collection])
+    if not candidates:
+        candidates.extend(raw for raw in collections.values() if isinstance(raw, dict))
+    paths: set[str] = set()
+    for raw in candidates:
+        paths.update(str(path) for path in raw.get("dynamic_key_paths", []) if str(path))
+    return sorted(paths, key=lambda item: (-len(item), item))
+
+
+def _direct_dynamic_key_refs(node: Any, dynamic_path: str) -> set[str]:
+    prefix = dynamic_path + "."
+    refs: set[str] = set()
+
+    def check(value: str) -> None:
+        path = value[1:] if value.startswith("$") and not value.startswith("$$") else value
+        if path.startswith(prefix):
+            refs.add(path)
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if isinstance(key, str) and not key.startswith("$"):
+                    check(key)
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+        elif isinstance(value, str):
+            check(value)
+
+    walk(node)
+    return refs
+
+
+def _str_list(value: Any) -> list[str]:
+    return [str(item) for item in value or []]
+
+
+def _str_list_map(value: Any) -> dict[str, list[str]]:
+    return {
+        str(key): [str(item) for item in items or []]
+        for key, items in dict(value or {}).items()
+    }
+
+
+def _int_map(value: Any) -> dict[str, int]:
+    return {str(key): int(count) for key, count in dict(value or {}).items()}

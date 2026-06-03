@@ -950,6 +950,45 @@ def test_artifact_diversity_planner_populates_seeded_slot_metadata():
     assert all(slot.diversity_key and slot.schema_feature for slot in slots)
 
 
+def test_artifact_diversity_balancer_defers_low_yield_topn_slots():
+    from tend.cli import _balanced_slot_specs, _slot_spec
+
+    def spec(archetype: str, index: int) -> dict:
+        mechanism = {
+            "has_vs_absent_compare": "sparse_embed",
+            "join_nested_group": "none",
+            "group_count": "none",
+            "topn": "none",
+        }[archetype]
+        return _slot_spec(
+            mechanism=mechanism,
+            archetype=archetype,
+            reference_oracle={
+                "template": archetype,
+                "params": {"collection": "account", "field": f"f{index}"},
+            },
+            schema_feature=f"account.f{index}",
+            diversity_hint=f"{archetype} {index}",
+        )
+
+    specs = (
+        [spec("topn", i) for i in range(12)]
+        + [spec("group_count", i) for i in range(12, 18)]
+        + [spec("join_nested_group", i) for i in range(18, 24)]
+        + [spec("has_vs_absent_compare", i) for i in range(24, 30)]
+    )
+
+    ordered = _balanced_slot_specs(specs, seed=7)
+    first_non_topn = ordered[:18]
+
+    assert {slot["archetype"] for slot in first_non_topn} == {
+        "group_count",
+        "has_vs_absent_compare",
+        "join_nested_group",
+    }
+    assert all(slot["archetype"] != "topn" for slot in first_non_topn)
+
+
 def test_build_record_backfills_hidden_certification_oracle_into_ms(stub_settings, logger):
     from tend.workflow.flows import CoverageSlot, DbArtifacts, _build_record
 

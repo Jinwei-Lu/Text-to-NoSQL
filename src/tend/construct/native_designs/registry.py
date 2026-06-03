@@ -38,6 +38,33 @@ def get_native_design(db_id: str) -> ModuleType:
 
 def build_native_recipe_for_db(source: Any, db_id: str) -> NativeMigrationRecipe:
     design = get_native_design(db_id)
+    return _build_native_recipe_from_design(source, db_id, design)
+
+
+def materialize_native_dataworld_for_db(
+    source: Any,
+    db_id: str,
+    *,
+    event_hook: Any = None,
+) -> Any:
+    design = get_native_design(db_id)
+    materializer = getattr(design, "materialize_native_dataworld", None)
+    if materializer is not None:
+        return materializer(source, db_id, event_hook=event_hook)
+
+    recipe = _build_native_recipe_from_design(source, db_id, design)
+    from ..native_executor import execute_native_recipe
+
+    result = execute_native_recipe(source, db_id, recipe, event_hook=event_hook)
+    result.migration_recipe = recipe
+    return result
+
+
+def _build_native_recipe_from_design(
+    source: Any,
+    db_id: str,
+    design: ModuleType,
+) -> NativeMigrationRecipe:
     builder = getattr(design, "build_native_recipe", None)
     if builder is None:
         raise MigrationError(

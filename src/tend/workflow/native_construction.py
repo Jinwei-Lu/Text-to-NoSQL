@@ -51,6 +51,12 @@ def _execute_native_recipe(source: Any, db_id: str, recipe: Any, **kwargs: Any) 
     return execute_native_recipe(source, db_id, recipe, **kwargs)
 
 
+def _materialize_native_dataworld_for_db(source: Any, db_id: str, **kwargs: Any) -> Any:
+    from ..construct.native_designs.registry import materialize_native_dataworld_for_db
+
+    return materialize_native_dataworld_for_db(source, db_id, **kwargs)
+
+
 async def run_native_phase_a(wf: Any, db_ids: list[str]) -> dict[str, NativeDbArtifacts]:
     """Build native Phase A assets for each db, isolated from legacy Phase A."""
     wf.phase("A.native")
@@ -72,20 +78,13 @@ async def _native_phase_a_one_db(wf: Any, db_id: str) -> NativeDbArtifacts:
         raise MigrationError("native Phase A requires a source", context={"db_id": db_id})
 
     source_schema = source.schema(db_id)
-    recipe = _build_native_recipe_for_db(source, db_id)
-    validation = _verify_native_recipe(recipe, source_schema)
-    if not getattr(validation, "ok", False):
-        raise MigrationError(
-            "native migration recipe failed verification",
-            context={"db_id": db_id, "errors": list(getattr(validation, "errors", []) or [])},
-        )
-
-    result = _execute_native_recipe(
+    result = _materialize_native_dataworld_for_db(
         source,
         db_id,
-        recipe,
         event_hook=_event_hook(wf, db_id),
     )
+    recipe = _result_migration_recipe(db_id, result)
+    validation = getattr(result, "validation", None)
     workload = source.workload(db_id) if hasattr(source, "workload") else []
     conversion_code_ref = f"tend.construct.native_designs.{db_id}"
     provenance = _native_provenance_payload(
@@ -97,7 +96,7 @@ async def _native_phase_a_one_db(wf: Any, db_id: str) -> NativeDbArtifacts:
         db_id=db_id,
         mongodb_schema=getattr(result, "schema", {}),
         mongodb_data=getattr(result, "data", {}),
-        rationale=_native_rationale(recipe, validation),
+        rationale=_native_rationale(recipe, validation, getattr(result, "manifest", None)),
         world_signature=str(getattr(result, "world_signature", "")),
         migration_recipe=recipe,
         native_feature_manifest=getattr(result, "manifest", {}),
@@ -123,8 +122,35 @@ def _event_hook(wf: Any, db_id: str) -> Any:
     return emit
 
 
-def _native_rationale(recipe: Any, validation: Any) -> dict[str, Any]:
+def _result_migration_recipe(db_id: str, result: Any) -> Any:
+    recipe = getattr(result, "migration_recipe", None) or getattr(result, "recipe", None)
+    if recipe is not None:
+        return recipe
+    manifest = getattr(result, "manifest", None)
+    feature_count = len(getattr(manifest, "features", []) or [])
     return {
+        "db_id": db_id,
+        "recipe_version": "direct",
+        "direct_conversion": True,
+        "design_goal": "database-specific semantic MongoDB materialization",
+        "native_feature_count": feature_count,
+    }
+
+
+def _native_rationale(recipe: Any, validation: Any, manifest: Any = None) -> dict[str, Any]:
+    if isinstance(recipe, dict) and recipe.get("direct_conversion"):
+        return {
+            "construction_mode": "direct_materializer",
+            "design_goal": str(recipe.get("design_goal") or ""),
+            "recipe_version": recipe.get("recipe_version"),
+            "native_feature_count": recipe.get(
+                "native_feature_count",
+                len(getattr(manifest, "features", []) or []),
+            ),
+            "validation_errors": list(getattr(validation, "errors", []) or []),
+        }
+    return {
+        "construction_mode": "recipe_executor",
         "design_goal": str(getattr(recipe, "design_goal", "")),
         "recipe_version": getattr(recipe, "recipe_version", None),
         "native_feature_count": getattr(validation, "native_feature_count", 0),

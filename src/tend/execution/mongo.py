@@ -73,6 +73,22 @@ class MongoExecutor:
             fields.update(doc.keys())
         return fields
 
+    def snapshot_database(self, db_id: str, sample_size: int) -> dict[str, list[dict[str, Any]]]:
+        """Return a bounded JSON-safe sample from every collection in the working DB."""
+        from bson import json_util
+
+        client = self._connect()
+        db = client[self._db_name(db_id)]
+        out: dict[str, list[dict[str, Any]]] = {}
+        for collection in sorted(db.list_collection_names()):
+            docs = list(db[collection].find({}, limit=max(1, sample_size)))
+            out[collection] = [
+                json.loads(json_util.dumps(doc, default=str))
+                for doc in docs
+                if isinstance(doc, dict)
+            ]
+        return out
+
     # ------------------------------------------------------------------ #
     def load_witness(self, db_id: str, collections: dict[str, list[dict[str, Any]]]) -> None:
         """Drop and reload the working db for ``db_id`` from ``{collection: [docs]}``.

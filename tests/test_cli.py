@@ -542,3 +542,80 @@ def test_run_solve_writes_failures_separately(
     payload = json.loads(failures.read_text(encoding="utf-8").splitlines()[0])
     assert payload["result_type"] == "solver_failure"
     assert payload["error_code"] == "SOLVER_EXHAUSTED"
+
+
+def test_run_solve_nlq_db_only_skips_release_loader(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tend.agents import AgentContext
+    from tend.config import Settings
+    from tend.observability import make_reporter, setup_logging
+    from tend.workflow import Workflow
+
+    settings = Settings.from_env(
+        run_id="solver-nlq-db-cli-test",
+        overrides={"TEND_LLM_STUB": "1"},
+        require_bird=False,
+    )
+    settings = replace(settings, paths=replace(settings.paths, runs=tmp_path / "runs"))
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = make_reporter(settings.run_id, log, enabled=False)
+    ctx = AgentContext(settings=settings, llm=None, log=log, progress=progress, mongo=None)
+    rt = cli.Runtime(
+        settings,
+        ctx,
+        Workflow(ctx),
+        progress,
+        log,
+        None,
+        SimpleNamespace(close=lambda: None),
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        cli,
+        "load_solver_release_inputs",
+        lambda *_args, **_kwargs: pytest.fail("NLQ+DB solve must not read release inputs"),
+    )
+
+    async def fake_solve_nlq_db(*_args, **kwargs):
+        captured.update(kwargs)
+
+        class FakePrediction:
+            def to_json(self) -> dict:
+                return {
+                    "record_id": 12,
+                    "db_id": "manual_formula",
+                    "MQL": "db.race_weekends_v2.aggregate([])",
+                }
+
+        return FakePrediction()
+
+    monkeypatch.setattr(cli, "smart_solve_nlq_db", fake_solve_nlq_db)
+
+    rc = __import__("asyncio").run(
+        cli._run_solve(
+            rt,
+            dataset_dir=tmp_path,
+            db_id="manual_formula",
+            record_id=12,
+            limit=1,
+            r_max=0,
+            witness_k=2,
+            nlq="List race weekends with Finished status buckets.",
+            evaluate=True,
+        )
+    )
+
+    assert rc == 0
+    assert captured == {
+        "db_id": "manual_formula",
+        "nlq": "List race weekends with Finished status buckets.",
+        "record_id": 12,
+        "r_max": 0,
+        "witness_k": 2,
+    }
+    predictions = settings.run_dir / "solver_predictions.jsonl"
+    assert predictions.exists()
+    assert json.loads(predictions.read_text(encoding="utf-8").splitlines()[0])["db_id"] == "manual_formula"

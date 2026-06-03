@@ -1,0 +1,165 @@
+{
+  "schema_version": "2026-06-03",
+  "description": "Manual NLQ+DB-only solver cases. The solver_input object is the only input allowed for solver calls; database.collections is loaded into MongoDB for self-discovery.",
+  "cases": [
+    {
+      "case_id": "manual_formula_status_bucket",
+      "solver_input": {
+        "db_id": "manual_formula",
+        "nlq": "List race weekends that have a Finished result-status bucket, returning the race name, status name, and driver count."
+      },
+      "database": {
+        "collections": {
+          "race_weekends_v2": [
+            {
+              "_id": "race:1",
+              "calendar": {
+                "race_name": "Australian GP",
+                "season_year": 2008,
+                "round": 1
+              },
+              "sessions": {
+                "race": {
+                  "schema_state": "present",
+                  "results_by_status": {
+                    "Finished": {
+                      "count": 2,
+                      "points_total": 18,
+                      "entries": [
+                        {
+                          "driver": {"ref": "driver:1", "name": "Hamilton"},
+                          "points": 10,
+                          "pace_profile": {
+                            "laps_by_number": {
+                              "1": {"position": 1, "milliseconds": 92123},
+                              "2": {"position": 1, "milliseconds": 91455}
+                            }
+                          }
+                        },
+                        {
+                          "driver": {"ref": "driver:2", "name": "Rosberg"},
+                          "points": 8,
+                          "pace_profile": {
+                            "laps_by_number": {
+                              "1": {"position": 2, "milliseconds": 92500}
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "Accident": {
+                      "count": 1,
+                      "points_total": 0,
+                      "entries": []
+                    }
+                  },
+                  "laps_by_number": {
+                    "1": {
+                      "running_order": [
+                        {"driver": {"ref": "driver:1"}, "position": 1},
+                        {"driver": {"ref": "driver:2"}, "position": 2}
+                      ]
+                    },
+                    "2": {
+                      "running_order": [
+                        {"driver": {"ref": "driver:1"}, "position": 1}
+                      ]
+                    }
+                  }
+                }
+              },
+              "schema_state": {
+                "race_results": "present",
+                "pit_stops": "empty",
+                "external_weather_feed": "missing"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "accepted_native_constructs": ["$objectToArray", "$getField"],
+        "target_collection": "race_weekends_v2",
+        "target_paths": ["sessions.race.results_by_status"]
+      }
+    },
+    {
+      "case_id": "manual_card_legality_matrix",
+      "solver_input": {
+        "db_id": "manual_cards",
+        "nlq": "Find card printings where the Modern legality entry is present and banned; return the card name, format key, and legality status."
+      },
+      "database": {
+        "collections": {
+          "card_print_dossiers": [
+            {
+              "_id": "card:alpha",
+              "print_identity": {
+                "name": "Alpha Bolt",
+                "set": {"code": "MNL", "release_date": "2020-01-01"}
+              },
+              "legality": {
+                "by_format": {
+                  "Modern": {
+                    "status": "banned",
+                    "status_presence_state": "present",
+                    "history": [
+                      {"date": "2021-01-01", "status": "legal"},
+                      {"date": "2022-01-01", "status": "banned"}
+                    ]
+                  },
+                  "Legacy": {
+                    "status": "legal",
+                    "status_presence_state": "present",
+                    "history": []
+                  }
+                }
+              },
+              "rulings": {
+                "by_year": {
+                  "2021": {
+                    "entries": [
+                      {"date": "2021-05-01", "text": "Damage cannot be prevented."}
+                    ]
+                  }
+                }
+              },
+              "schema_state": {
+                "legalities": "present",
+                "foreign_data": "empty",
+                "digital_faces": "missing"
+              }
+            },
+            {
+              "_id": "card:beta",
+              "print_identity": {
+                "name": "Beta Shield",
+                "set": {"code": "MNL", "release_date": "2020-01-01"}
+              },
+              "legality": {
+                "by_format": {
+                  "Modern": {
+                    "status": "legal",
+                    "status_presence_state": "present",
+                    "history": []
+                  }
+                }
+              },
+              "rulings": {"by_year": {}},
+              "schema_state": {
+                "legalities": "present",
+                "foreign_data": "missing",
+                "digital_faces": "missing"
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "accepted_native_constructs": ["$objectToArray", "$getField"],
+        "target_collection": "card_print_dossiers",
+        "target_paths": ["legality.by_format"]
+      }
+    }
+  ]
+}

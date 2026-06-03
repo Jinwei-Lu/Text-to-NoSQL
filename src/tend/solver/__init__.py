@@ -12,7 +12,7 @@ from .contracts import (
     SolverDisclosure,
     SolverPrediction,
 )
-from .workflow import smart_solve_record
+from .workflow import smart_solve_nlq_db, smart_solve_record
 
 __all__ = [
     "CollectionShape",
@@ -24,5 +24,6 @@ __all__ = [
     "ShapeVariant",
     "SolverDisclosure",
     "SolverPrediction",
+    "smart_solve_nlq_db",
     "smart_solve_record",
 ]
