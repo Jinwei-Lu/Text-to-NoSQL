@@ -474,6 +474,88 @@ def test_ablation_with_dataset_dir_does_not_require_bird(
     )
 
 
+def test_baseline_cli_accepts_nlq_db_only_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setenv("TEND_BIRD_ROOT", str(tmp_path / "missing-bird"))
+
+    def fail_bird_source(*_args, **_kwargs):
+        raise AssertionError("baseline should not construct BirdSource")
+
+    async def fake_run_baseline(rt, **kwargs):
+        captured["source"] = rt.source
+        captured["db_id"] = kwargs["db_id"]
+        captured["nlq"] = kwargs["nlq"]
+        captured["baselines"] = kwargs["baselines"]
+        rt.mongo.close()
+        rt.log.close()
+        return 0
+
+    monkeypatch.setattr(cli, "BirdSource", fail_bird_source)
+    monkeypatch.setattr(cli, "_run_baseline", fake_run_baseline)
+
+    assert cli.main([
+        "baseline",
+        "--db-id",
+        "manual_formula",
+        "--nlq",
+        "List race weekends with Finished status buckets.",
+        "--baselines",
+        "direct",
+        "--stub",
+        "--quiet",
+        "--run-id",
+        "baseline-nlq-db",
+    ]) == 0
+    assert captured["source"] is None
+    assert captured["db_id"] == "manual_formula"
+    assert captured["nlq"] == "List race weekends with Finished status buckets."
+    assert captured["baselines"] == "direct"
+
+
+def test_ablation_cli_accepts_nlq_db_only_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setenv("TEND_BIRD_ROOT", str(tmp_path / "missing-bird"))
+
+    def fail_bird_source(*_args, **_kwargs):
+        raise AssertionError("ablation should not construct BirdSource")
+
+    async def fake_run_ablation(rt, **kwargs):
+        captured["source"] = rt.source
+        captured["db_id"] = kwargs["db_id"]
+        captured["nlq"] = kwargs["nlq"]
+        captured["ablations"] = kwargs["ablations"]
+        rt.mongo.close()
+        rt.log.close()
+        return 0
+
+    monkeypatch.setattr(cli, "BirdSource", fail_bird_source)
+    monkeypatch.setattr(cli, "_run_ablation", fake_run_ablation)
+
+    assert cli.main([
+        "ablation",
+        "--db-id",
+        "manual_cards",
+        "--nlq",
+        "Find Modern banned card printings.",
+        "--ablations",
+        "full_smart",
+        "--stub",
+        "--quiet",
+        "--run-id",
+        "ablation-nlq-db",
+    ]) == 0
+    assert captured["source"] is None
+    assert captured["db_id"] == "manual_cards"
+    assert captured["nlq"] == "Find Modern banned card printings."
+    assert captured["ablations"] == "full_smart"
+
+
 def test_run_solve_writes_failures_separately(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -618,4 +700,150 @@ def test_run_solve_nlq_db_only_skips_release_loader(
     }
     predictions = settings.run_dir / "solver_predictions.jsonl"
     assert predictions.exists()
-    assert json.loads(predictions.read_text(encoding="utf-8").splitlines()[0])["db_id"] == "manual_formula"
+    first_prediction = json.loads(predictions.read_text(encoding="utf-8").splitlines()[0])
+    assert first_prediction["db_id"] == "manual_formula"
+
+
+def test_run_baseline_nlq_db_only_skips_evaluation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tend.agents import AgentContext
+    from tend.config import Settings
+    from tend.observability import make_reporter, setup_logging
+    from tend.workflow import Workflow
+
+    settings = Settings.from_env(
+        run_id="baseline-nlq-db-cli-test",
+        overrides={"TEND_LLM_STUB": "1"},
+        require_bird=False,
+    )
+    settings = replace(settings, paths=replace(settings.paths, runs=tmp_path / "runs"))
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = make_reporter(settings.run_id, log, enabled=False)
+    ctx = AgentContext(settings=settings, llm=None, log=log, progress=progress, mongo=None)
+    rt = cli.Runtime(
+        settings,
+        ctx,
+        Workflow(ctx),
+        progress,
+        log,
+        None,
+        SimpleNamespace(close=lambda: None),
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_run_baseline_suite(*_args, **kwargs):
+        captured.update(kwargs)
+        return [
+            {
+                "baseline_id": "direct",
+                "record_id": 12,
+                "db_id": "manual_formula",
+                "MQL": "db.race_weekends_v2.aggregate([])",
+                "status": "ok",
+            }
+        ]
+
+    monkeypatch.setattr(cli, "run_baseline_suite", fake_run_baseline_suite)
+    monkeypatch.setattr(
+        cli,
+        "_maybe_evaluate",
+        lambda *_args, **_kwargs: pytest.fail("NLQ+DB baseline must not auto-evaluate"),
+    )
+
+    rc = __import__("asyncio").run(
+        cli._run_baseline(
+            rt,
+            dataset_dir=tmp_path,
+            baselines="direct",
+            db_id="manual_formula",
+            record_id=12,
+            limit=1,
+            witness_k=2,
+            nlq="List race weekends with Finished status buckets.",
+            evaluate=True,
+        )
+    )
+
+    assert rc == 0
+    assert captured["nlq"] == "List race weekends with Finished status buckets."
+    assert captured["db_id"] == "manual_formula"
+    assert captured["record_id"] == 12
+    predictions = settings.run_dir / "baseline_predictions.jsonl"
+    assert predictions.exists()
+    first_prediction = json.loads(predictions.read_text(encoding="utf-8").splitlines()[0])
+    assert first_prediction["db_id"] == "manual_formula"
+
+
+def test_run_ablation_nlq_db_only_skips_evaluation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tend.agents import AgentContext
+    from tend.config import Settings
+    from tend.observability import make_reporter, setup_logging
+    from tend.workflow import Workflow
+
+    settings = Settings.from_env(
+        run_id="ablation-nlq-db-cli-test",
+        overrides={"TEND_LLM_STUB": "1"},
+        require_bird=False,
+    )
+    settings = replace(settings, paths=replace(settings.paths, runs=tmp_path / "runs"))
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = make_reporter(settings.run_id, log, enabled=False)
+    ctx = AgentContext(settings=settings, llm=None, log=log, progress=progress, mongo=None)
+    rt = cli.Runtime(
+        settings,
+        ctx,
+        Workflow(ctx),
+        progress,
+        log,
+        None,
+        SimpleNamespace(close=lambda: None),
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_run_ablation_suite(*_args, **kwargs):
+        captured.update(kwargs)
+        return [
+            {
+                "ablation_id": "full_smart",
+                "record_id": 7,
+                "db_id": "manual_cards",
+                "MQL": "db.card_print_dossiers.aggregate([])",
+                "status": "ok",
+            }
+        ]
+
+    monkeypatch.setattr(cli, "run_ablation_suite", fake_run_ablation_suite)
+    monkeypatch.setattr(
+        cli,
+        "_maybe_evaluate",
+        lambda *_args, **_kwargs: pytest.fail("NLQ+DB ablation must not auto-evaluate"),
+    )
+
+    rc = __import__("asyncio").run(
+        cli._run_ablation(
+            rt,
+            dataset_dir=tmp_path,
+            ablations="full_smart",
+            db_id="manual_cards",
+            record_id=7,
+            limit=1,
+            r_max=1,
+            witness_k=2,
+            nlq="Find Modern banned card printings.",
+            evaluate=True,
+        )
+    )
+
+    assert rc == 0
+    assert captured["nlq"] == "Find Modern banned card printings."
+    assert captured["db_id"] == "manual_cards"
+    assert captured["record_id"] == 7
+    predictions = settings.run_dir / "ablation_predictions.jsonl"
+    assert predictions.exists()
+    first_prediction = json.loads(predictions.read_text(encoding="utf-8").splitlines()[0])
+    assert first_prediction["db_id"] == "manual_cards"

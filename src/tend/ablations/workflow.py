@@ -8,10 +8,11 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from ..errors import Anomaly, TendError, wrap_unexpected
+from ..errors import Anomaly, SourceError, TendError, wrap_unexpected
 from ..execution.ast_check import parse_pipeline, scan_disabled
 from ..solver.workflow import (
     SmartSolveOptions,
+    build_nlq_db_solver_input,
     build_witness_digest,
     load_solver_release_inputs,
     smart_solve_record,
@@ -105,18 +106,31 @@ async def run_ablation_suite(
     dataset_dir: Path,
     ablation_selection: str | list[str] | tuple[str, ...] | None = "all",
     db_id: str | None = None,
+    nlq: str | None = None,
     record_id: int | None = None,
     limit: int = 1,
     r_max: int = 2,
     witness_k: int = 3,
 ) -> list[dict[str, Any]]:
     specs = resolve_ablations(ablation_selection)
-    inputs = load_solver_release_inputs(
-        dataset_dir,
-        db_id=db_id,
-        record_id=record_id,
-        limit=limit,
-    )
+    if nlq is not None:
+        if not db_id:
+            raise SourceError("NLQ+DB ablation mode requires --db-id")
+        runtime_input = await build_nlq_db_solver_input(
+            wf,
+            db_id=str(db_id),
+            nlq=nlq,
+            record_id=record_id,
+            witness_k=witness_k,
+        )
+        inputs = [(runtime_input.record, runtime_input.schema, runtime_input.local_data)]
+    else:
+        inputs = load_solver_release_inputs(
+            dataset_dir,
+            db_id=db_id,
+            record_id=record_id,
+            limit=limit,
+        )
     log = wf.ctx.log.bind(component="ablation_suite")
     log.info(
         "ablation_suite_start",
@@ -127,6 +141,7 @@ async def run_ablation_suite(
         record_id=record_id,
         r_max=r_max,
         witness_k=witness_k,
+        input_mode="nlq_db" if nlq is not None else "release",
     )
     if not inputs:
         log.anomaly(
@@ -141,7 +156,10 @@ async def run_ablation_suite(
     if wf.ctx.progress:
         wf.ctx.progress.phase("ABLATION")
 
-    preloaded_dbs = await _preload_ablation_witnesses(wf, inputs, log)
+    if nlq is not None and db_id:
+        preloaded_dbs = {str(db_id)}
+    else:
+        preloaded_dbs = await _preload_ablation_witnesses(wf, inputs, log)
 
     work: list[
         tuple[int, AblationSpec, dict[str, Any], dict[str, Any], dict[str, Any] | None]

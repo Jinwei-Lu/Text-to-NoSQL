@@ -48,6 +48,13 @@ class SmartSolveOptions:
 
 
 @dataclass(frozen=True)
+class NlqDbSolverInput:
+    record: dict[str, Any]
+    schema: dict[str, Any]
+    local_data: dict[str, list[dict[str, Any]]]
+
+
+@dataclass(frozen=True)
 class SolverFailure:
     """Typed terminal solver result that is not a prediction."""
 
@@ -67,6 +74,34 @@ class SolverFailure:
         return asdict(self)
 
 
+async def build_nlq_db_solver_input(
+    wf: Workflow,
+    *,
+    db_id: str,
+    nlq: str,
+    record_id: int | None = None,
+    witness_k: int = DEFAULT_WITNESS_K,
+) -> NlqDbSolverInput:
+    """Derive the public solver input from only a MongoDB database and an NLQ."""
+    snapshot = await asyncio.to_thread(
+        introspect_solver_database,
+        wf.ctx.mongo,
+        db_id,
+        sample_size=max(1, witness_k),
+    )
+    record: dict[str, Any] = {
+        "db_id": db_id,
+        "nl_queries": {"canonical": nlq},
+    }
+    if record_id is not None:
+        record["record_id"] = record_id
+    return NlqDbSolverInput(
+        record=record,
+        schema=snapshot.schema,
+        local_data=snapshot.local_data,
+    )
+
+
 async def smart_solve_nlq_db(
     wf: Workflow,
     *,
@@ -78,24 +113,18 @@ async def smart_solve_nlq_db(
     options: SmartSolveOptions | None = None,
 ) -> SolverPrediction | SolverFailure:
     """Solve from only NLQ + DB by deriving public context from MongoDB itself."""
-    sample_size = max(1, witness_k)
-    snapshot = await asyncio.to_thread(
-        introspect_solver_database,
-        wf.ctx.mongo,
-        db_id,
-        sample_size=sample_size,
+    runtime_input = await build_nlq_db_solver_input(
+        wf,
+        db_id=db_id,
+        nlq=nlq,
+        record_id=record_id,
+        witness_k=witness_k,
     )
-    record: dict[str, Any] = {
-        "db_id": db_id,
-        "nl_queries": {"canonical": nlq},
-    }
-    if record_id is not None:
-        record["record_id"] = record_id
     return await smart_solve_record(
         wf,
-        record,
-        snapshot.schema,
-        local_data=snapshot.local_data,
+        runtime_input.record,
+        runtime_input.schema,
+        local_data=runtime_input.local_data,
         r_max=r_max,
         witness_k=witness_k,
         options=options,

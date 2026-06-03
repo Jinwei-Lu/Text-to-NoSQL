@@ -4,6 +4,7 @@ from collections import Counter
 
 from tend.construct.native_recipe import NativeFeature, NativeFeatureManifest
 from tend.workflow.native_phase_b import (
+    _compatible_dynamic_key_metric_pairs,
     build_native_record,
     dynamic_key_comparison,
     nested_event_filter,
@@ -138,6 +139,43 @@ def test_plan_native_slots_covers_features_before_repeating_sparse_types() -> No
     assert len({slot.feature_id for slot in slots}) == 5
 
 
+def test_plan_native_slots_balances_features_for_records_per_db_release_runs() -> None:
+    manifest = NativeFeatureManifest(
+        db_id="card_games",
+        features=[
+            NativeFeature(
+                id=f"card_print_dossiers.dynamic_{index}",
+                type="dynamic_key_object",
+                collection="card_print_dossiers",
+                field=f"dynamic_{index}",
+                query_patterns=["dynamic_key_comparison"],
+                required_constructs=["$objectToArray"],
+            )
+            for index in range(4)
+        ]
+        + [
+            NativeFeature(
+                id="card_print_dossiers.digital_faces_presence",
+                type="missing_vs_present",
+                collection="card_print_dossiers",
+                field="schema_state.digital_faces",
+                query_patterns=["missing_vs_present"],
+                required_constructs=["$ifNull"],
+            )
+        ],
+    )
+
+    slots = plan_native_slots([manifest], n_records=10, seed=0, records_per_db=10)
+
+    assert Counter(slot.feature_id for slot in slots) == {
+        "card_print_dossiers.dynamic_0": 2,
+        "card_print_dossiers.dynamic_1": 2,
+        "card_print_dossiers.dynamic_2": 2,
+        "card_print_dossiers.dynamic_3": 2,
+        "card_print_dossiers.digital_faces_presence": 2,
+    }
+
+
 def test_plan_native_slots_rotates_feature_query_patterns_for_repeated_features() -> None:
     manifest = NativeFeatureManifest(
         db_id="formula_1",
@@ -198,6 +236,242 @@ def test_plan_native_slots_rotates_patterns_by_feature_usage_not_global_slot_ind
         "lap running order dynamic object",
         "lap telemetry dynamic object",
     ]
+
+
+def test_build_native_record_generates_snapshot_semantic_variants_for_repeated_feature() -> None:
+    manifest = NativeFeatureManifest(
+        db_id="financial",
+        features=[
+            NativeFeature(
+                id="account_ledgers.monthly_activity_matrix",
+                type="dynamic_key_object",
+                collection="account_ledgers",
+                field="cashflow.activity_by_month",
+                query_patterns=["monthly_account_cashflow_matrix"],
+                required_constructs=["$objectToArray", "$unwind"],
+                provenance_refs=["trans.date", "trans.amount"],
+            )
+        ],
+    )
+    snapshot = {
+        "account_ledgers": [
+            {
+                "_id": 1,
+                "cashflow": {
+                    "activity_by_month": {
+                        "2024-01": {"amount_total": 120, "transaction_count": 3},
+                        "2024-02": {"amount_total": 80, "transaction_count": 2},
+                    }
+                },
+            },
+            {
+                "_id": 2,
+                "cashflow": {
+                    "activity_by_month": {
+                        "2024-02": {"amount_total": 220, "transaction_count": 5},
+                        "2024-03": {"amount_total": 40, "transaction_count": 1},
+                    }
+                },
+            },
+        ]
+    }
+    slots = plan_native_slots([manifest], n_records=6, seed=0, records_per_db=6)
+
+    records = [
+        build_native_record(slot, manifest, snapshot=snapshot)
+        for slot in slots
+    ]
+
+    assert len({record["MQL"] for record in records}) >= 5
+    assert all(record["native_verification"]["ok"] for record in records)
+    assert any("2024-02" in record["MQL"] for record in records)
+    assert any("amount_total" in record["MQL"] for record in records)
+    assert all(
+        record["native_metadata"]["compiler"] == "semantic_snapshot_variant"
+        for record in records
+    )
+
+
+def test_nested_event_object_field_prefers_shape_aware_blueprint() -> None:
+    manifest = NativeFeatureManifest(
+        db_id="formula_1",
+        features=[
+            NativeFeature(
+                id="race_weekends_v2.qualifying_windows",
+                type="nested_event_stream",
+                collection="race_weekends_v2",
+                field="sessions.qualifying.elimination_windows",
+                query_patterns=["qualifying elimination window"],
+                required_constructs=["$filter", "$ifNull", "$size"],
+                extra={
+                    "pipeline_blueprints": [
+                        {
+                            "query_pattern": "qualifying elimination window",
+                            "intent": "filter Q1 entries from an object-backed qualifying window",
+                            "pipeline": [
+                                {
+                                    "$project": {
+                                        "q1_entries": {
+                                            "$ifNull": [
+                                                "$sessions.qualifying.elimination_windows.q1_slowest_five.entries",
+                                                [],
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "$addFields": {
+                                        "native_filtered_events": {
+                                            "$filter": {
+                                                "input": "$q1_entries",
+                                                "as": "entry",
+                                                "cond": {"$ne": ["$$entry.driver.ref", None]},
+                                            }
+                                        }
+                                    }
+                                },
+                            ],
+                            "mongo_native_constructs": ["$filter", "$ifNull", "$size"],
+                        }
+                    ]
+                },
+            )
+        ],
+    )
+    snapshot = {
+        "race_weekends_v2": [
+            {
+                "_id": "race:1",
+                "sessions": {
+                    "qualifying": {
+                        "elimination_windows": {
+                            "q1_slowest_five": {
+                                "entries": [{"driver": {"ref": "senna"}}],
+                            }
+                        }
+                    }
+                },
+            }
+        ]
+    }
+    slot = plan_native_slots([manifest], n_records=1, seed=0, records_per_db=1)[0]
+
+    record = build_native_record(slot, manifest, snapshot=snapshot)
+
+    assert record["native_metadata"]["compiler"] == "pipeline_blueprint"
+    assert "q1_slowest_five.entries" in record["MQL"]
+
+
+def test_nested_event_type_time_variants_use_observed_type_time_pairs() -> None:
+    manifest = NativeFeatureManifest(
+        db_id="thrombosis_prediction",
+        features=[
+            NativeFeature(
+                id="patient_clinical_profiles.thrombosis_diagnosis_events",
+                type="nested_event_stream",
+                collection="patient_clinical_profiles",
+                field="timeline.events",
+                query_patterns=["thrombosis_event_evidence_filter"],
+                required_constructs=["$filter", "$ifNull", "$size"],
+            )
+        ],
+    )
+    snapshot = {
+        "patient_clinical_profiles": [
+            {"_id": 1, "timeline": {"events": [{"event_type": "A", "event_time": "2020-01-01"}]}},
+            {"_id": 2, "timeline": {"events": [{"event_type": "A", "event_time": "2019-01-01"}]}},
+            {"_id": 3, "timeline": {"events": [{"event_type": "B", "event_time": "2010-01-01"}]}},
+        ]
+    }
+    slot = plan_native_slots([manifest], n_records=3, seed=0, records_per_db=3)[2]
+
+    record = build_native_record(slot, manifest, snapshot=snapshot)
+
+    assert '"$$event.event_type","B"' in record["MQL"]
+    assert '"$$event.event_time","2010-01-01"' in record["MQL"]
+    assert '"$$event.event_time","2020-01-01"' not in record["MQL"]
+    assert record["native_verification"]["ok"] is True
+
+
+def test_dynamic_key_metric_variants_require_observed_key_metric_pairs() -> None:
+    manifest = NativeFeatureManifest(
+        db_id="codebase_community",
+        features=[
+            NativeFeature(
+                id="user_reputation_profiles.reputation_activity_lattice",
+                type="dynamic_key_object",
+                collection="user_reputation_profiles",
+                field="activity.by_year",
+                query_patterns=["community_user_reputation_activity_lattice"],
+                required_constructs=["$objectToArray", "$unwind"],
+            )
+        ],
+    )
+    feature = manifest.features[0]
+    snapshot = {
+        "user_reputation_profiles": [
+            {
+                "_id": 1,
+                "activity": {
+                    "by_year": {
+                        "2014": {
+                            "question_accepted": {"score_total": 20},
+                            "comment": {"score_total": 7},
+                        }
+                    }
+                },
+            },
+            {
+                "_id": 2,
+                "activity": {
+                    "by_year": {
+                        "2014": {
+                            "question_accepted": {"score_total": 12},
+                            "comment": {"score_total": 3},
+                        }
+                    }
+                },
+            },
+            {
+                "_id": 3,
+                "activity": {
+                    "by_year": {
+                        "2009": {
+                            "rare_answer": {"score_total": 1},
+                        }
+                    }
+                },
+            },
+        ]
+    }
+
+    pairs = _compatible_dynamic_key_metric_pairs(
+        feature,
+        snapshot,
+        keys=["2014", "2009"],
+        metrics=[
+            "question_accepted.score_total",
+            "comment.score_total",
+            "rare_answer.score_total",
+        ],
+    )
+    assert ("2009", "question_accepted.score_total") not in {
+        (key, metric) for key, metric, _ in pairs
+    }
+    assert ("2009", "rare_answer.score_total") in {
+        (key, metric) for key, metric, _ in pairs
+    }
+
+    record = build_native_record(
+        plan_native_slots([manifest], n_records=1, seed=0, records_per_db=1)[0],
+        manifest,
+        snapshot=snapshot,
+    )
+
+    assert '"native_dynamic_entries.k":"2009"' not in record["MQL"] or (
+        "rare_answer.score_total" in record["MQL"]
+    )
+    assert record["native_verification"]["ok"] is True
 
 
 def test_build_native_record_uses_feature_pipeline_blueprint_for_semantic_pattern() -> None:

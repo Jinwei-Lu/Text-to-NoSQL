@@ -1678,10 +1678,14 @@ async def _run_native_construct(
                     )
                 else:
                     manifests = [art.native_feature_manifest for art in artifacts.values()]
+                    slot_request_records = n_records
                     slot_cap = records_per_db if records_per_db is not None else None
+                    if records_per_db is not None:
+                        slot_request_records = n_records * 2
+                        slot_cap = records_per_db * 2
                     slots = plan_native_slots(
                         manifests,
-                        n_records,
+                        slot_request_records,
                         seed=rt.settings.seed,
                         records_per_db=slot_cap,
                     )
@@ -1689,13 +1693,36 @@ async def _run_native_construct(
                     rt.log.info(
                         "native_slot_plan",
                         requested_records=n_records,
+                        oversampled_records=slot_request_records,
                         slots=slot_count,
                         dbs=sorted(artifacts),
                         records_per_db=records_per_db,
                     )
-                    records = await run_native_phase_b(rt.workflow, artifacts, slots)
+                    raw_records = await run_native_phase_b(rt.workflow, artifacts, slots)
+                    records = _select_distinct_native_records(
+                        raw_records,
+                        db_ids=sorted(artifacts),
+                        records_per_db=records_per_db,
+                    )
                     write_records(out_dir, records)
                     built_by_db = dict(Counter(str(record.get("db_id")) for record in records))
+                    raw_by_db = dict(Counter(str(record.get("db_id")) for record in raw_records))
+                    unique_mql_by_db = {
+                        db_id: len({
+                            str(record.get("MQL") or "")
+                            for record in raw_records
+                            if record.get("db_id") == db_id
+                        })
+                        for db_id in sorted(artifacts)
+                    }
+                    rt.log.info(
+                        "native_distinct_selection",
+                        raw_records=len(raw_records),
+                        selected_records=len(records),
+                        raw_by_db=raw_by_db,
+                        selected_by_db=built_by_db,
+                        unique_mql_by_db=unique_mql_by_db,
+                    )
                     rt.log.info(
                         "native_release_summary",
                         requested_records=n_records,
@@ -1744,6 +1771,48 @@ async def _run_native_construct(
         _close_runtime(rt)
 
     return 1 if failed or summary.get("anomaly_total", 0) else 0
+
+
+def _select_distinct_native_records(
+    records: list[dict[str, Any]],
+    *,
+    db_ids: list[str],
+    records_per_db: int | None,
+) -> list[dict[str, Any]]:
+    """Select a release-sized prefix with distinct MQL and maximally distinct NL."""
+    if records_per_db is None:
+        return records
+
+    selected: list[dict[str, Any]] = []
+    by_db: dict[str, list[dict[str, Any]]] = {db_id: [] for db_id in db_ids}
+    for record in records:
+        db_id = str(record.get("db_id") or "")
+        if db_id in by_db:
+            by_db[db_id].append(record)
+
+    for db_id in db_ids:
+        candidates = by_db.get(db_id, [])
+        chosen: list[dict[str, Any]] = []
+        seen_mql: set[str] = set()
+        seen_nl: set[str] = set()
+        for require_new_nl in (True, False):
+            for record in candidates:
+                if len(chosen) >= records_per_db:
+                    break
+                mql = str(record.get("MQL") or "")
+                nl_queries = record.get("nl_queries") if isinstance(record.get("nl_queries"), dict) else {}
+                canonical = str(nl_queries.get("canonical") or "")
+                if not mql or mql in seen_mql:
+                    continue
+                if require_new_nl and canonical in seen_nl:
+                    continue
+                seen_mql.add(mql)
+                seen_nl.add(canonical)
+                chosen.append(record)
+            if len(chosen) >= records_per_db:
+                break
+        selected.extend(chosen)
+    return selected
 
 
 async def _preload_solver_witnesses(
@@ -2003,6 +2072,7 @@ async def _run_baseline(
     record_id: int | None,
     limit: int,
     witness_k: int,
+    nlq: str | None = None,
     evaluate: bool = True,
     eval_out_dir: Path | None = None,
     eval_workers: int = 8,
@@ -2015,6 +2085,7 @@ async def _run_baseline(
     summary: dict = {}
     out_path = rt.settings.run_dir / "baseline_predictions.jsonl"
     failures_path = rt.settings.run_dir / "baseline_failures.jsonl"
+    evaluate_outputs = evaluate and nlq is None
     try:
         with rt.progress:
             outputs = await run_baseline_suite(
@@ -2022,6 +2093,7 @@ async def _run_baseline(
                 dataset_dir=dataset_dir,
                 baseline_selection=baselines,
                 db_id=db_id,
+                nlq=nlq,
                 record_id=record_id,
                 limit=limit,
                 witness_k=witness_k,
@@ -2030,7 +2102,7 @@ async def _run_baseline(
             failures = [item for item in outputs if item.get("status") != "ok"]
             _write_jsonl(out_path, predictions)
             _write_jsonl(failures_path, failures)
-            if predictions:
+            if predictions and evaluate_outputs:
                 rt.progress.phase("EVAL")
                 evaluation = await _maybe_evaluate(
                     rt,
@@ -2038,7 +2110,7 @@ async def _run_baseline(
                     predictions_path=out_path,
                     dataset_dir=dataset_dir,
                     experiment_kind="baseline",
-                    evaluate=evaluate,
+                    evaluate=evaluate_outputs,
                     eval_out_dir=eval_out_dir,
                     eval_workers=eval_workers,
                 )
@@ -2075,7 +2147,7 @@ async def _run_baseline(
             out_path,
             failures_path,
             evaluation,
-            evaluate=evaluate,
+            evaluate=evaluate_outputs,
         )
         _close_runtime(rt)
 
@@ -2092,6 +2164,7 @@ async def _run_ablation(
     limit: int,
     r_max: int,
     witness_k: int,
+    nlq: str | None = None,
     evaluate: bool = True,
     eval_out_dir: Path | None = None,
     eval_workers: int = 8,
@@ -2105,6 +2178,7 @@ async def _run_ablation(
     out_path = rt.settings.run_dir / "ablation_predictions.jsonl"
     failures_path = rt.settings.run_dir / "ablation_failures.jsonl"
     summary_path = rt.settings.run_dir / "ablation_summary.json"
+    evaluate_outputs = evaluate and nlq is None
     try:
         with rt.progress:
             outputs = await run_ablation_suite(
@@ -2112,6 +2186,7 @@ async def _run_ablation(
                 dataset_dir=dataset_dir,
                 ablation_selection=ablations,
                 db_id=db_id,
+                nlq=nlq,
                 record_id=record_id,
                 limit=limit,
                 r_max=r_max,
@@ -2121,7 +2196,7 @@ async def _run_ablation(
             failures = [item for item in outputs if item.get("status") != "ok"]
             _write_jsonl(out_path, predictions)
             _write_jsonl(failures_path, failures)
-            if predictions:
+            if predictions and evaluate_outputs:
                 rt.progress.phase("EVAL")
                 evaluation = await _maybe_evaluate(
                     rt,
@@ -2129,7 +2204,7 @@ async def _run_ablation(
                     predictions_path=out_path,
                     dataset_dir=dataset_dir,
                     experiment_kind="ablation",
-                    evaluate=evaluate,
+                    evaluate=evaluate_outputs,
                     eval_out_dir=eval_out_dir,
                     eval_workers=eval_workers,
                 )
@@ -2182,7 +2257,7 @@ async def _run_ablation(
             failures_path,
             summary_path,
             evaluation,
-            evaluate=evaluate,
+            evaluate=evaluate_outputs,
         )
         _close_runtime(rt)
 
@@ -2458,6 +2533,8 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--baselines", default="all",
                    help=f"comma-separated baseline ids or all; known={','.join(BASELINE_IDS)}")
     b.add_argument("--db-id", default=None, help="optional db_id filter")
+    b.add_argument("--nlq", default=None,
+                   help="run baselines for one natural-language question against --db-id")
     b.add_argument("--record-id", type=int, default=None, help="optional record_id filter")
     b.add_argument("--limit", type=int, default=1, help="max records per baseline")
     b.add_argument("--witness-k", type=int, default=DEFAULT_WITNESS_K,
@@ -2473,6 +2550,8 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--ablations", default="all",
                    help=f"comma-separated ablation ids or all; known={','.join(ABLATION_IDS)}")
     a.add_argument("--db-id", default=None, help="optional db_id filter")
+    a.add_argument("--nlq", default=None,
+                   help="run ablations for one natural-language question against --db-id")
     a.add_argument("--record-id", type=int, default=None, help="optional record_id filter")
     a.add_argument("--limit", type=int, default=1, help="max records per ablation")
     a.add_argument("--r-max", type=int, default=DEFAULT_R_MAX, help="SMART fallback limit")
@@ -2582,6 +2661,7 @@ def main(argv: list[str] | None = None) -> int:
             record_id=args.record_id,
             limit=args.limit,
             witness_k=args.witness_k,
+            nlq=args.nlq,
             evaluate=not args.no_eval,
             eval_out_dir=_resolve_repo_path(settings, args.eval_out) if args.eval_out else None,
             eval_workers=args.eval_workers,
@@ -2597,6 +2677,7 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             r_max=args.r_max,
             witness_k=args.witness_k,
+            nlq=args.nlq,
             evaluate=not args.no_eval,
             eval_out_dir=_resolve_repo_path(settings, args.eval_out) if args.eval_out else None,
             eval_workers=args.eval_workers,

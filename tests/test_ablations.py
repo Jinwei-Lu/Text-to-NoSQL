@@ -3,7 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
 
+import pytest
+
+import tend.ablations.workflow as ablation_workflow
 from tend.ablations import ABLATION_IDS, run_ablation_record, run_ablation_suite
 from tend.ablations.strategies import resolve_ablations
 from tend.agents import AgentContext
@@ -30,6 +34,34 @@ def _workflow(settings: Settings, run_dir: Path) -> tuple[Workflow, object, Prog
     client.set_stub(stub_fn)
     ctx = AgentContext(settings=settings, llm=client, log=log, progress=progress)
     return Workflow(ctx), log, progress
+
+
+class _SnapshotMongo:
+    def __init__(self, docs: dict[str, list[dict[str, Any]]]) -> None:
+        self.docs = docs
+        self.calls: list[tuple[str, int]] = []
+
+    def snapshot_database(self, db_id: str, sample_size: int) -> dict[str, list[dict[str, Any]]]:
+        self.calls.append((db_id, sample_size))
+        return {name: rows[:sample_size] for name, rows in self.docs.items()}
+
+
+def _manual_native_docs() -> dict[str, list[dict[str, Any]]]:
+    return {
+        "card_print_dossiers": [
+            {
+                "_id": "card:alpha",
+                "print_identity": {"name": "Alpha Bolt"},
+                "legality": {
+                    "by_format": {
+                        "Modern": {"status": "banned", "status_presence_state": "present"},
+                        "Legacy": {"status": "legal", "status_presence_state": "present"},
+                    }
+                },
+                "schema_state": {"legalities": "present", "foreign_data": "missing"},
+            }
+        ]
+    }
 
 
 def test_ablation_registry_covers_smart_mechanisms() -> None:
@@ -129,6 +161,103 @@ def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Pa
     assert by_id["full_smart"]["transcript_refs"]
     assert by_id["full_smart"]["diagnostics_refs"]
     assert not (run_dir / "anomalies.jsonl").read_text(encoding="utf-8").strip()
+
+
+def test_ablation_suite_nlq_db_only_derives_context_and_skips_release_loader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings()
+    wf, log, _progress = _workflow(settings, tmp_path / "run")
+    mongo = _SnapshotMongo(_manual_native_docs())
+    wf.ctx.mongo = mongo
+    captured: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        ablation_workflow,
+        "load_solver_release_inputs",
+        lambda *_args, **_kwargs: pytest.fail("NLQ+DB ablation must not read release inputs"),
+    )
+
+    async def fake_run_ablation_record(
+        _wf: Workflow,
+        spec: Any,
+        record: dict[str, Any],
+        schema: dict[str, Any],
+        *,
+        local_data: dict[str, list[dict[str, Any]]] | None = None,
+        r_max: int,
+        witness_k: int,
+        batch_index: int | None,
+        witness_preloaded: bool,
+    ) -> Any:
+        captured.append(
+            {
+                "ablation_id": spec.id,
+                "record": record,
+                "schema": schema,
+                "local_data": local_data,
+                "r_max": r_max,
+                "witness_k": witness_k,
+                "batch_index": batch_index,
+                "witness_preloaded": witness_preloaded,
+            }
+        )
+
+        class _Result:
+            def to_json(self) -> dict[str, Any]:
+                return {
+                    "ablation_id": spec.id,
+                    "record_id": record.get("record_id"),
+                    "db_id": record.get("db_id"),
+                    "status": "ok",
+                    "result_type": "ablation_prediction",
+                    "MQL": "db.card_print_dossiers.aggregate([])",
+                }
+
+        return _Result()
+
+    monkeypatch.setattr(ablation_workflow, "run_ablation_record", fake_run_ablation_record)
+
+    try:
+        outputs = asyncio.run(
+            run_ablation_suite(
+                wf,
+                dataset_dir=tmp_path,
+                ablation_selection="all",
+                db_id="manual_cards",
+                record_id=7,
+                limit=999,
+                r_max=1,
+                witness_k=2,
+                nlq="Find Modern banned card printings.",
+            )
+        )
+    finally:
+        log.close()
+
+    assert mongo.calls == [("manual_cards", 2)]
+    assert [item["ablation_id"] for item in outputs] == list(ABLATION_IDS)
+    assert [item["batch_index"] for item in outputs] == list(range(len(ABLATION_IDS)))
+    assert len(captured) == len(ABLATION_IDS)
+    for item in captured:
+        assert item["record"] == {
+            "db_id": "manual_cards",
+            "record_id": 7,
+            "nl_queries": {"canonical": "Find Modern banned card printings."},
+        }
+        assert "MQL" not in item["record"]
+        assert "shape_policy" not in item["record"]
+        assert item["schema"]["collections"]["card_print_dossiers"]["schema_flex"] == (
+            "native_deep"
+        )
+        assert "legality.by_format" in (
+            item["schema"]["collections"]["card_print_dossiers"]["dynamic_key_paths"]
+        )
+        assert item["local_data"] == _manual_native_docs()
+        assert item["r_max"] == 1
+        assert item["witness_k"] == 2
+        assert item["witness_preloaded"] is True
 
 
 def test_ablation_record_missing_nlq_is_prompt_anomaly(tmp_path: Path) -> None:

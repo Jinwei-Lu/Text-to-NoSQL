@@ -8,10 +8,14 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..errors import Anomaly, PromptAnomalyError, TendError, wrap_unexpected
+from ..errors import Anomaly, PromptAnomalyError, SourceError, TendError, wrap_unexpected
 from ..execution.ast_check import parse_pipeline, scan_disabled
 from ..solver.guards import SolverBoundary, check_disjointness, load_solver_allow_list
-from ..solver.workflow import build_witness_digest, load_solver_release_inputs
+from ..solver.workflow import (
+    build_nlq_db_solver_input,
+    build_witness_digest,
+    load_solver_release_inputs,
+)
 from ..workflow import Workflow
 from .strategies import (
     BaselinePromptContext,
@@ -78,17 +82,30 @@ async def run_baseline_suite(
     dataset_dir: Path,
     baseline_selection: str | list[str] | tuple[str, ...] | None = "all",
     db_id: str | None = None,
+    nlq: str | None = None,
     record_id: int | None = None,
     limit: int = 1,
     witness_k: int = 3,
 ) -> list[dict[str, Any]]:
     specs = resolve_baselines(baseline_selection)
-    inputs = load_solver_release_inputs(
-        dataset_dir,
-        db_id=db_id,
-        record_id=record_id,
-        limit=limit,
-    )
+    if nlq is not None:
+        if not db_id:
+            raise SourceError("NLQ+DB baseline mode requires --db-id")
+        runtime_input = await build_nlq_db_solver_input(
+            wf,
+            db_id=str(db_id),
+            nlq=nlq,
+            record_id=record_id,
+            witness_k=witness_k,
+        )
+        inputs = [(runtime_input.record, runtime_input.schema, runtime_input.local_data)]
+    else:
+        inputs = load_solver_release_inputs(
+            dataset_dir,
+            db_id=db_id,
+            record_id=record_id,
+            limit=limit,
+        )
     log = wf.ctx.log.bind(component="baseline_suite")
     log.info(
         "baseline_suite_start",
@@ -97,6 +114,7 @@ async def run_baseline_suite(
         dataset_dir=str(dataset_dir),
         db_id=db_id,
         record_id=record_id,
+        input_mode="nlq_db" if nlq is not None else "release",
     )
     if not inputs:
         log.anomaly(
