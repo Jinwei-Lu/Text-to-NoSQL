@@ -1,16 +1,8 @@
-"""Heterogeneity mechanisms, archetype catalog, and reference oracles (deterministic).
+"""Heterogeneity mechanisms, archetype catalog, and reference oracles.
 
-The deterministic engine the construction agents stand on (Session A; see COORDINATION.md):
-
-* :mod:`tend.mechanisms.detectors` — the five DAR mechanisms recovered from *real* BIRD signal
-  (03 §03-II-10): polymorphic, sparse_scalar, sparse_embed, dynamic_key, versioning. No
-  synthesis fallback; discriminators are real column names; a mechanism counts only if it is
-  query-bearing (referenced by the real workload SQL).
-* :mod:`tend.mechanisms.archetypes` — the closed archetype catalog (04 §04-2-4): each
-  ``mechanism × question-shape`` entry carries its falls-out difficulty + sql_infeasibility_class
-  and names a reference-oracle template. QPS enumerates intents over this catalog.
-* :mod:`tend.mechanisms.oracles` — naive, auditable reference implementations R (04 §04-2-4):
-  independent Python that *defines* the answer for MS gold-lock (``NormExec(gold) ≡_rec R``).
+This package preserves deterministic mechanism/archetype utilities and reference
+oracles used by historical audits and evaluation helpers. Active native construction
+does not depend on these utilities as a generic migration fallback.
 
 Everything here is zero-LLM and reads BIRD via :class:`tend.source.BirdSource`.
 """

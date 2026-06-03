@@ -9,8 +9,8 @@ from typing import Any
 
 from ..errors import Anomaly, SourceError, TendError, wrap_unexpected
 from ..execution.ast_check import static_mql_feedback
-from ..solver.guards import SolverBoundary, check_disjointness, load_solver_allow_list
-from ..solver.workflow import (
+from .boundary import SolverBoundary, check_disjointness, load_solver_allow_list
+from ..solver.inputs import (
     NlqTrack,
     _canonical_nlq,
     build_nlq_db_solver_input,

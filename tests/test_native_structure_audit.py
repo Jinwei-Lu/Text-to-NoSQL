@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tend.construct.native_audit import audit_database_structure, validate_structure_gate
+from tend.construction.audit import audit_database_structure, validate_structure_gate
 
 
 def test_structure_audit_rejects_shallow_top_level_native_shapes() -> None:

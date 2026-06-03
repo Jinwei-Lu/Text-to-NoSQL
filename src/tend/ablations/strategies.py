@@ -1,29 +1,93 @@
-"""Ablation definitions for the SMART reference solver."""
+"""Ablation definitions for the SMART-EG solver."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
-from ..solver.workflow import SmartSolveOptions
+DEFAULT_MAX_TOOL_TURNS = 24
+DEFAULT_MAX_REVISITS = 2
+DEFAULT_COST_BUDGET_USD = 1.0
 
 
 @dataclass(frozen=True, slots=True)
-class AblationSpec:
+class SmartEGAblationSpec:
     id: str
     title: str
     description: str
-    options: SmartSolveOptions
-    limitations: tuple[str, ...]
+    limitations: tuple[str, ...] = ()
+    use_evidence_gate: bool = True
+    use_counterexample: bool = True
+    use_value_grounding: bool = True
+    use_relationship_probe: bool = True
+    use_prefix_execution: bool = True
+    use_revisit: bool = True
+    use_probe_scheduler: bool = True
+    max_tool_turns: int | None = None
+    max_revisits: int | None = None
+    cost_budget_usd: float | None = None
+
+    def to_runtime_options(
+        self,
+        *,
+        max_tool_turns: int | None = None,
+        max_revisits: int | None = None,
+        cost_budget_usd: float | None = None,
+        progress_group_prefix: str = "solve",
+        progress_work_item_id: str | None = None,
+    ) -> dict[str, Any]:
+        effective_tool_turns = (
+            self.max_tool_turns
+            if self.max_tool_turns is not None
+            else max_tool_turns
+            if max_tool_turns is not None
+            else DEFAULT_MAX_TOOL_TURNS
+        )
+        effective_revisits = (
+            self.max_revisits
+            if self.max_revisits is not None
+            else max_revisits
+            if max_revisits is not None
+            else DEFAULT_MAX_REVISITS
+        )
+        effective_cost = (
+            self.cost_budget_usd
+            if self.cost_budget_usd is not None
+            else cost_budget_usd
+            if cost_budget_usd is not None
+            else DEFAULT_COST_BUDGET_USD
+        )
+        return {
+            "ablation_id": self.id,
+            "solver_variant": self.id,
+            "use_evidence_gate": self.use_evidence_gate,
+            "use_counterexample": self.use_counterexample,
+            "use_value_grounding": self.use_value_grounding,
+            "use_relationship_probe": self.use_relationship_probe,
+            "use_prefix_execution": self.use_prefix_execution,
+            "use_revisit": self.use_revisit,
+            "use_probe_scheduler": self.use_probe_scheduler,
+            "max_tool_turns": max(1, int(effective_tool_turns)),
+            "max_revisits": max(0, int(effective_revisits)),
+            "cost_budget_usd": max(0.0, float(effective_cost)),
+            "progress_group_prefix": progress_group_prefix,
+            "progress_work_item_id": progress_work_item_id,
+        }
+
+
+AblationSpec = SmartEGAblationSpec
 
 
 def ablation_ids() -> tuple[str, ...]:
     return tuple(_ABLATIONS)
 
 
-def resolve_ablations(selection: str | list[str] | tuple[str, ...] | None) -> list[AblationSpec]:
+def resolve_ablations(
+    selection: str | list[str] | tuple[str, ...] | None,
+) -> list[SmartEGAblationSpec]:
     if selection is None or selection == "all":
         return list(_ABLATIONS.values())
     parts = selection if isinstance(selection, (list, tuple)) else selection.split(",")
-    specs: list[AblationSpec] = []
+    specs: list[SmartEGAblationSpec] = []
     unknown: list[str] = []
     for part in parts:
         key = str(part).strip()
@@ -39,100 +103,100 @@ def resolve_ablations(selection: str | list[str] | tuple[str, ...] | None) -> li
     return specs
 
 
-def _options(ablation_id: str, **overrides: object) -> SmartSolveOptions:
-    return SmartSolveOptions(solver_variant=ablation_id, **overrides)
-
-
-_ABLATIONS: dict[str, AblationSpec] = {
-    "full_smart": AblationSpec(
-        id="full_smart",
-        title="Full SMART",
-        description="Reference four-stage SMART solver with per-stage variant-stratified feedback.",
-        options=_options("full_smart"),
-        limitations=(),
-    ),
-    "no_shape_model": AblationSpec(
-        id="no_shape_model",
-        # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix CF3/F2)
-        title="No shape model",
-        description="Bypass shape comprehension while leaving schema variants and witness strata intact.",
-        options=_options(
-            "no_shape_model",
-            use_shape_comprehension=False,
+_ABLATIONS: dict[str, SmartEGAblationSpec] = {
+    "smart_eg_full": SmartEGAblationSpec(
+        id="smart_eg_full",
+        title="SMART-EG full",
+        description=(
+            "Provider-native SMART-EG solver with evidence gates, probes, revisits, "
+            "and prefix execution."
         ),
-        limitations=("no shape probes",),
     ),
-    "no_schema_variants": AblationSpec(
-        id="no_schema_variants",
-        title="No schema variants",
-        description="Keep shape probes but remove public __variants/schema_flex hints from schema.",
-        options=_options("no_schema_variants", use_schema_variants=False),
-        limitations=("public variant hints removed",),
+    "smart_eg_no_evidence_gate": SmartEGAblationSpec(
+        id="smart_eg_no_evidence_gate",
+        title="No evidence gate",
+        description="Disable deterministic submit-gate evidence requirements.",
+        limitations=("submit gates do not block insufficient evidence",),
+        use_evidence_gate=False,
     ),
-    "no_witness_strata": AblationSpec(
-        id="no_witness_strata",
-        # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix CF3/F2)
-        title="No witness strata",
-        description="Disable witness-inferred local strata while keeping shape probes and schema variants.",
-        options=_options("no_witness_strata", allow_local_witness_strata=False),
-        limitations=("no witness-inferred strata",),
+    "smart_eg_no_counterexample": SmartEGAblationSpec(
+        id="smart_eg_no_counterexample",
+        title="No counterexample mining",
+        description="Disable automatic and agent-callable counterexample probes.",
+        limitations=("counterexample mining disabled",),
+        use_counterexample=False,
     ),
-    "canonical_only": AblationSpec(
-        id="canonical_only",
-        title="Canonical NLQ only",
-        description="Do not pass the colloquial NLQ cross-check into intent formalization.",
-        options=_options("canonical_only", use_colloquial_nlq=False),
-        limitations=("colloquial NLQ disabled",),
+    "smart_eg_no_value_grounding": SmartEGAblationSpec(
+        id="smart_eg_no_value_grounding",
+        title="No value grounding",
+        description="Disable NLQ constant/entity grounding probes.",
+        limitations=("value grounding disabled",),
+        use_value_grounding=False,
     ),
-    "no_intent_contracts": AblationSpec(
-        id="no_intent_contracts",
-        title="No intent contracts",
-        description="Disable deterministic shape_policy/target_fields/clause_coverage checks.",
-        options=_options("no_intent_contracts", use_intent_contracts=False),
-        limitations=("intent semantic repair disabled",),
+    "smart_eg_no_relationship_probe": SmartEGAblationSpec(
+        id="smart_eg_no_relationship_probe",
+        title="No relationship probe",
+        description="Disable relationship-candidate discovery and validation probes.",
+        limitations=("relationship probes disabled",),
+        use_relationship_probe=False,
     ),
-    "no_variant_handling_guard": AblationSpec(
-        id="no_variant_handling_guard",
-        title="No variant-handling guard",
-        description="Do not require non-empty variant_handling when the shape model is flexible.",
-        options=_options("no_variant_handling_guard", require_variant_handling=False),
-        limitations=("variant_handling contract disabled",),
+    "smart_eg_no_prefix_execution": SmartEGAblationSpec(
+        id="smart_eg_no_prefix_execution",
+        title="No prefix execution",
+        description="Disable prefix execution checkpoints while retaining final execution.",
+        limitations=("prefix execution disabled",),
+        use_prefix_execution=False,
     ),
-    "no_witness_digest": AblationSpec(
-        id="no_witness_digest",
-        title="No prompt witness",
-        description="Set prompt-visible witness K to zero while leaving local execution enabled.",
-        options=_options("no_witness_digest", witness_k=0),
-        limitations=("prompt witness digest disabled",),
+    "smart_eg_no_revisit": SmartEGAblationSpec(
+        id="smart_eg_no_revisit",
+        title="No revisit",
+        description="Disable explicit milestone revisits and stale propagation.",
+        limitations=("revisit actions disabled",),
+        use_revisit=False,
+        max_revisits=0,
     ),
-    "whole_query_execution": AblationSpec(
-        id="whole_query_execution",
-        title="Whole-query execution",
-        description="Execute only the completed MQL instead of per-stage prefixes.",
-        options=_options("whole_query_execution", execution_mode="whole_query"),
-        limitations=("no prefix checkpoints", "no stage_index-localized feedback"),
+    "smart_eg_no_probe_scheduler": SmartEGAblationSpec(
+        id="smart_eg_no_probe_scheduler",
+        title="No probe scheduler",
+        description="Disable adaptive scheduling of high-value probes.",
+        limitations=("probe scheduler disabled",),
+        use_probe_scheduler=False,
     ),
-    "no_per_stage_execution": AblationSpec(
-        id="no_per_stage_execution",
-        title="No execution feedback",
-        description="Render MQL and run only static disabled-operator guards.",
-        options=_options("no_per_stage_execution", execution_mode="static", r_max=0),
-        limitations=("no local execution", "no execution feedback loop"),
+    "smart_eg_budget_low": SmartEGAblationSpec(
+        id="smart_eg_budget_low",
+        title="Low budget",
+        description="Run SMART-EG with a constrained tool-turn, revisit, and cost budget.",
+        limitations=("low tool-turn budget", "no revisits", "low cost budget"),
+        max_tool_turns=8,
+        max_revisits=0,
+        cost_budget_usd=0.25,
     ),
-    "no_variant_stratification": AblationSpec(
-        id="no_variant_stratification",
-        title="No variant stratification",
-        description="Keep per-stage execution but execute unstratified prefixes only.",
-        options=_options("no_variant_stratification", use_variant_stratification=False),
-        limitations=("variant-stratified checkpoints disabled",),
+    "smart_eg_budget_medium": SmartEGAblationSpec(
+        id="smart_eg_budget_medium",
+        title="Medium budget",
+        description="Run SMART-EG with the reference medium budget.",
+        max_tool_turns=DEFAULT_MAX_TOOL_TURNS,
+        max_revisits=DEFAULT_MAX_REVISITS,
+        cost_budget_usd=DEFAULT_COST_BUDGET_USD,
     ),
-    "no_feedback_retry": AblationSpec(
-        id="no_feedback_retry",
-        title="No feedback retry",
-        description="Run one SMART attempt only, without self-debug feedback turns.",
-        options=_options("no_feedback_retry", r_max=0),
-        limitations=("R_max forced to zero",),
+    "smart_eg_budget_high": SmartEGAblationSpec(
+        id="smart_eg_budget_high",
+        title="High budget",
+        description="Run SMART-EG with an expanded tool-turn, revisit, and cost budget.",
+        limitations=("high tool-turn budget", "high revisit budget", "high cost budget"),
+        max_tool_turns=48,
+        max_revisits=4,
+        cost_budget_usd=3.0,
     ),
 }
 
 ABLATION_IDS = ablation_ids()
+
+
+__all__ = [
+    "ABLATION_IDS",
+    "AblationSpec",
+    "SmartEGAblationSpec",
+    "ablation_ids",
+    "resolve_ablations",
+]

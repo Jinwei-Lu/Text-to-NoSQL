@@ -8,5 +8,14 @@ uniformly so agents only deal with validated structured output.
 from __future__ import annotations
 
 from .client import LLMClient, LLMResult, Message
+from .types import ToolCall, ToolChoice, ToolLLMResult, ToolSchema
 
-__all__ = ["LLMClient", "LLMResult", "Message"]
+__all__ = [
+    "LLMClient",
+    "LLMResult",
+    "Message",
+    "ToolCall",
+    "ToolChoice",
+    "ToolLLMResult",
+    "ToolSchema",
+]

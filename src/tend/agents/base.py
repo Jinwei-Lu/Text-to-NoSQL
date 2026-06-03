@@ -5,7 +5,7 @@ Two layers:
   * :class:`Agent` — the abstract unit of work. Its :meth:`Agent.__call__` is the uniform
     lifecycle: bind logging context, open a progress task, time the run, and convert any
     failure into a logged anomaly + a failed progress task. Subclass and implement
-    :meth:`Agent.run` for deterministic stages (DM, detectors).
+    :meth:`Agent.run` for deterministic or LLM-assisted stages.
 
   * :class:`LLMAgent` — adds the standard "prompt -> model -> validated JSON -> contract"
     flow: it loads the methodology prompt once, calls the model with the output schema

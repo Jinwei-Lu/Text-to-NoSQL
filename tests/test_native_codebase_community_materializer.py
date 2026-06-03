@@ -5,9 +5,9 @@ from typing import Any
 
 import pytest
 
-from tend.construct.native_audit import audit_database_structure, validate_structure_gate
+from tend.construction.audit import audit_database_structure, validate_structure_gate
 from tend.source import BirdSource
-from tend.workflow.native_phase_b import NativeCoverageSlot, pipeline_blueprint
+from tend.construction.phase_b import NativeCoverageSlot, pipeline_blueprint
 
 
 def _bird_source() -> BirdSource:
@@ -25,7 +25,7 @@ def _max_depth(value: Any) -> int:
 
 @pytest.fixture(scope="module")
 def community_result() -> Any:
-    from tend.construct.native_designs.codebase_community import materialize_native_dataworld
+    from tend.construction.designs.codebase_community import materialize_native_dataworld
 
     return materialize_native_dataworld(_bird_source(), "codebase_community")
 

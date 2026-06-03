@@ -146,7 +146,7 @@ def _valid_recipe_mapping() -> dict:
 
 
 def test_load_native_recipe_accepts_supported_native_transforms():
-    from tend.construct.native_recipe import load_native_recipe, verify_native_recipe
+    from tend.construction.recipe import load_native_recipe, verify_native_recipe
 
     recipe = load_native_recipe(_valid_recipe_mapping())
     result = verify_native_recipe(recipe, _source_schema())
@@ -189,7 +189,7 @@ def test_load_native_recipe_accepts_supported_native_transforms():
     ],
 )
 def test_verify_native_recipe_rejects_invalid_native_contracts(mutation, expected):
-    from tend.construct.native_recipe import load_native_recipe, verify_native_recipe
+    from tend.construction.recipe import load_native_recipe, verify_native_recipe
 
     data = _valid_recipe_mapping()
     mutation(data)
@@ -201,7 +201,7 @@ def test_verify_native_recipe_rejects_invalid_native_contracts(mutation, expecte
 
 
 def test_native_feature_manifest_round_trips_mapping():
-    from tend.construct.native_recipe import (
+    from tend.construction.recipe import (
         NativeFeature,
         NativeFeatureManifest,
         dump_native_feature_manifest,

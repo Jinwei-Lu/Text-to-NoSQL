@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections import Counter
 
-from tend.construct.native_recipe import NativeFeature, NativeFeatureManifest
-from tend.workflow.native_phase_b import (
+from tend.construction.recipe import NativeFeature, NativeFeatureManifest
+from tend.construction.phase_b import (
     _compatible_dynamic_key_metric_pairs,
     build_native_record,
     dynamic_key_comparison,

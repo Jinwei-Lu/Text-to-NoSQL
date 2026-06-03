@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from tend.construct.native_recipe import NativeFeature, NativeFeatureManifest
-from tend.workflow.native_phase_b import build_native_record, plan_native_slots
+from tend.construction.recipe import NativeFeature, NativeFeatureManifest
+from tend.construction.phase_b import build_native_record, plan_native_slots
 
 
 def _manifest() -> NativeFeatureManifest:

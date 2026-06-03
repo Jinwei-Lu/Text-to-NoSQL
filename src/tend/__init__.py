@@ -1,14 +1,15 @@
-"""TEND — Text-to-NoSQL benchmark construction pipeline.
+"""TEND - Text-to-NoSQL benchmark construction and evaluation package.
 
-A dynamic-workflow orchestrator that spawns LLM sub-agents to construct the TEND
-dataset from BIRD mini-dev: Phase A (DataWorld: WP -> SRA -> SC -> DM) and Phase B
-(reverse-engineered NL-MQL: QPS -> MS -> MUT -> PV -> NLP -> RTV -> NNC -> RA).
+The active dataset builder is a MongoDB-native construction stack over BIRD
+mini-dev. It materializes database-specific native DataWorlds, builds
+manifest-driven NL-MQL records, validates release artifacts, and runs solver,
+baseline, ablation, and evaluation workflows.
 
 Design pillars (see proposals/ for the methodology SSoT):
   - Structured, machine-greppable logging with first-class anomaly capture
     (every LLM prompt/response is persisted; anomalies are classified and streamed).
   - Live terminal progress so a human sees stalls/failures as they happen.
-  - A dynamic workflow engine that fans out sub-agent tasks per-db / per-record.
+  - A dynamic workflow engine for bounded parallel work.
 """
 from __future__ import annotations
 

@@ -13,9 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import json
-import math
 import shutil
 import sys
 import tempfile
@@ -34,45 +32,35 @@ from ._cli_summaries import (
 )
 from .agents import AgentContext
 from .ablations import ABLATION_IDS, run_ablation_suite
+from .ablations.strategies import (
+    DEFAULT_COST_BUDGET_USD,
+    DEFAULT_MAX_REVISITS,
+    DEFAULT_MAX_TOOL_TURNS,
+)
 from .baselines import BASELINE_IDS, run_baseline_suite
 from .config import Settings
-from .dataset import write_catalog, write_native_phase_a, write_phase_a, write_records
+from .construction.artifacts import write_native_phase_a, write_records
+from .construction.phase_a import NativeDbArtifacts, run_native_phase_a
+from .construction.phase_b import plan_native_slots, run_native_phase_b
 from .errors import Anomaly, SourceError, TendError, wrap_unexpected
 from .evaluation import EvaluationOutput, evaluate_predictions
-from .execution import mql_signature, mql_skeleton_signature
 from .execution.mongo import MongoExecutor
 from .llm import LLMClient
-from .mechanisms import get_archetype
 from .observability import make_reporter, new_run_id, setup_logging
 from .publish import ReleaseReport, validate_release
 from .source import BirdSource
-from .source.census import (
-    CoverageRequest,
-    plan_coverage_slots,
-    plan_source_full_structural_slots,
-    run_census,
-)
+from .source.census import run_census
 from .stubs import stub_fn
-from .solver.workflow import (
-    DEFAULT_R_MAX,
+from .solver.inputs import (
     DEFAULT_WITNESS_K,
-    SmartSolveOptions,
+    _canonical_nlq,
     load_solver_release_inputs,
     select_solver_release_records,
-    smart_solve_nlq_db,
-    smart_solve_record,
 )
-from .workflow import Workflow, run_phase_a, run_phase_b
-from .workflow.flows import CoverageSlot, DbArtifacts
-from .workflow.native_construction import NativeDbArtifacts, run_native_phase_a
-from .workflow.native_phase_b import plan_native_slots, run_native_phase_b
+from .workflow import Workflow
 
 PRODUCTION_RELEASE_DIR = Path("release/TEND-dataset")
 VALIDATION_ISSUE_LIMIT = 12
-SLOT_L4_MIN = 0.30
-SLOT_L0_MAX = 0.05
-SLOT_FLEX_MIN = 0.25
-SLOT_SSF_MIN = 0.20
 
 
 @dataclass
@@ -117,1207 +105,75 @@ def build_solver_runtime(settings: Settings, *, run_kind: str = "solver") -> Run
     return Runtime(settings, ctx, Workflow(ctx), progress, log, None, mongo)
 
 
+async def smart_solve_nlq_db_eg(*args: Any, **kwargs: Any) -> Any:
+    from .solver.eg import SmartEGPolicy, smart_solve_nlq_db_eg as solve
+
+    if kwargs.get("policy") is None:
+        kwargs["policy"] = _smart_eg_policy(SmartEGPolicy, kwargs)
+    _strip_policy_kwargs(kwargs)
+
+    return await solve(*args, **kwargs)
+
+
+async def smart_solve_record_eg(*args: Any, **kwargs: Any) -> Any:
+    if len(args) < 3:
+        raise TypeError("smart_solve_record_eg requires wf, record, schema")
+    wf = args[0]
+    record = args[1]
+    if not isinstance(record, dict):
+        raise TypeError("smart_solve_record_eg record must be a dict")
+    db_id = str(record.get("db_id") or "")
+    return await smart_solve_nlq_db_eg(
+        wf,
+        db_id=db_id,
+        nlq=_canonical_nlq(record),
+        record_id=record.get("record_id"),
+        max_tool_turns=kwargs.get("max_tool_turns", DEFAULT_MAX_TOOL_TURNS),
+        max_revisits=kwargs.get("max_revisits", DEFAULT_MAX_REVISITS),
+        cost_budget_usd=kwargs.get("cost_budget_usd", DEFAULT_COST_BUDGET_USD),
+        policy=kwargs.get("policy"),
+    )
+
+
+def _smart_eg_policy(policy_cls: Any, kwargs: dict[str, Any]) -> Any:
+    options = kwargs.get("options") if isinstance(kwargs.get("options"), dict) else {}
+    return policy_cls(
+        max_tool_turns=int(
+            kwargs.get("max_tool_turns", options.get("max_tool_turns", DEFAULT_MAX_TOOL_TURNS))
+        ),
+        max_revisits=int(
+            kwargs.get("max_revisits", options.get("max_revisits", DEFAULT_MAX_REVISITS))
+        ),
+        cost_budget_usd=float(
+            kwargs.get("cost_budget_usd", options.get("cost_budget_usd", DEFAULT_COST_BUDGET_USD))
+        ),
+        evidence_gate=bool(options.get("use_evidence_gate", True)),
+        counterexample_gate=bool(options.get("use_counterexample", True)),
+        value_grounding=bool(options.get("use_value_grounding", True)),
+        relationship_probe=bool(options.get("use_relationship_probe", True)),
+        prefix_execution=bool(options.get("use_prefix_execution", True)),
+        revisit=bool(options.get("use_revisit", True)),
+        probe_scheduler=bool(options.get("use_probe_scheduler", True)),
+    )
+
+
+def _strip_policy_kwargs(kwargs: dict[str, Any]) -> None:
+    for key in (
+        "max_tool_turns",
+        "max_revisits",
+        "cost_budget_usd",
+        "options",
+        "witness_preloaded",
+    ):
+        kwargs.pop(key, None)
+
+
 def _close_runtime(rt: Runtime) -> None:
     """Release the run's source/mongo/log handles; safe to call once in finally."""
     if rt.source is not None:
         rt.source.close()
     rt.mongo.close()
     rt.log.close()
-
-
-def _slot_from_request(
-    request: CoverageRequest,
-    record_id: int,
-    *,
-    slot_index: int = 0,
-    diversity_key: str = "",
-    diversity_hint: str = "",
-    schema_feature: str = "",
-    reference_oracle_seed: dict[str, Any] | None = None,
-    intent_seed: dict[str, Any] | None = None,
-) -> CoverageSlot:
-    target_schema_flex = (
-        "polymorphic"
-        if request.sql_infeasibility_class == "structural_schema_flex"
-        else "none"
-    )
-    return CoverageSlot(
-        db_id=request.db_id,
-        mechanism=request.mechanism,
-        archetype=request.archetype,
-        record_id=record_id,
-        target_difficulty=request.target_difficulty,
-        target_sql_infeasibility_class=request.sql_infeasibility_class,
-        target_schema_flex=target_schema_flex,
-        slot_index=slot_index,
-        diversity_key=diversity_key,
-        diversity_hint=diversity_hint,
-        schema_feature=schema_feature,
-        reference_oracle_seed=reference_oracle_seed,
-        intent_seed=intent_seed,
-    )
-
-
-def _coverage_slots_for(
-    source: BirdSource,
-    db_ids: list[str],
-    n_records: int,
-    *,
-    seed: int,
-    structural_only: bool = False,
-    structural_fraction: float = 0.0,
-) -> list[CoverageSlot]:
-    """Plan coverage slots.
-
-    ``structural_only`` schedules only source-full structural_schema_flex slots.
-    ``structural_fraction`` (0..1) requests a *hybrid* plan: that fraction of slots are
-    structural_schema_flex (each becomes a genuine ssf + polymorphic + L4 record) and the
-    rest are the broad census mix — this is what lets a large run meet the release
-    complexity floors (H5 L4>=30%, H7 flex>=25%, H9 ssf>=20%) while staying diverse.
-    """
-    census = run_census(source, db_ids=db_ids)
-    if structural_only:
-        requests = list(plan_source_full_structural_slots(census, n_records=n_records, seed=seed))
-    elif structural_fraction > 0:
-        n_struct = max(1, round(n_records * min(structural_fraction, 1.0)))
-        n_broad = max(0, n_records - n_struct)
-        try:
-            requests = list(plan_source_full_structural_slots(census, n_records=n_struct, seed=seed))
-        except SourceError:
-            # This db (or selection) has no query-bearing structural supply. Degrade gracefully
-            # to a pure broad-census mix instead of hard-failing the whole run: the complexity
-            # floors (H7 flex / H9 ssf) are unreachable without structural supply, and validate
-            # will report that honestly. No silent cap — emit a warning naming the affected dbs.
-            import structlog
-            structlog.get_logger("tend").warning(
-                "structural_fraction_no_supply",
-                db_ids=sorted(census.databases), requested_structural=n_struct,
-                note="degraded to broad census mix; complexity floors unreachable for this db",
-            )
-            requests = []
-            n_broad = n_records
-        if n_broad:
-            requests += list(plan_coverage_slots(census, n_records=n_broad, seed=seed + 1))
-    else:
-        requests = list(plan_coverage_slots(census, n_records=n_records, seed=seed))
-    return [
-        _slot_from_request(request, record_id=1001 + i, slot_index=i)
-        for i, request in enumerate(requests)
-    ]
-
-
-def _artifact_diversity_slots_for(
-    artifacts: dict[str, DbArtifacts],
-    n_records: int,
-    *,
-    seed: int,
-    records_per_db: int | None = None,
-) -> list[CoverageSlot]:
-    """Plan slots from the materialized schema so large runs have distinct oracle seeds."""
-    targets = _artifact_target_counts(
-        artifacts,
-        n_records,
-        records_per_db=records_per_db,
-    )
-    return _artifact_diversity_slots_for_targets(
-        artifacts,
-        targets,
-        seed=seed,
-    )
-
-
-def _artifact_target_counts(
-    artifacts: dict[str, DbArtifacts],
-    n_records: int,
-    *,
-    records_per_db: int | None = None,
-) -> dict[str, int]:
-    db_ids = sorted(artifacts)
-    if not db_ids or n_records <= 0:
-        return {}
-    if records_per_db is not None:
-        return {db_id: records_per_db for db_id in db_ids}
-    base, rem = divmod(n_records, len(db_ids))
-    return {db_id: base + (1 if i < rem else 0) for i, db_id in enumerate(db_ids)}
-
-
-def _artifact_diversity_slots_for_targets(
-    artifacts: dict[str, DbArtifacts],
-    targets: dict[str, int],
-    *,
-    seed: int,
-    start_record_id: int = 1001,
-    per_db_start_index: dict[str, int] | None = None,
-) -> list[CoverageSlot]:
-    """Plan one batch of never-before-attempted artifact slots for explicit DB targets."""
-    if not targets:
-        return []
-
-    slots: list[CoverageSlot] = []
-    next_record_id = start_record_id
-    per_db_start_index = per_db_start_index or {}
-    for db_id, target in sorted(targets.items()):
-        if target <= 0 or db_id not in artifacts:
-            continue
-        pool = _artifact_slot_pool(artifacts[db_id], seed=seed)
-        if not pool:
-            continue
-        start = per_db_start_index.get(db_id, 0)
-        for i in range(target):
-            pool_index = start + i
-            if pool_index >= len(pool):
-                break
-            spec = pool[pool_index]
-            slots.append(_slot_from_spec(
-                db_id=db_id,
-                record_id=next_record_id,
-                slot_index=pool_index,
-                spec=spec,
-            ))
-            next_record_id += 1
-    return slots
-
-
-def _slot_from_spec(
-    *,
-    db_id: str,
-    record_id: int,
-    slot_index: int,
-    spec: dict[str, Any],
-) -> CoverageSlot:
-    arch = get_archetype(spec["archetype"])
-    return CoverageSlot(
-        db_id=db_id,
-        mechanism=spec["mechanism"],
-        archetype=spec["archetype"],
-        record_id=record_id,
-        target_difficulty=arch.difficulty,
-        target_sql_infeasibility_class=arch.sql_infeasibility_class,
-        target_schema_flex=_schema_flex_target(spec["mechanism"]),
-        slot_index=slot_index,
-        diversity_key=spec["diversity_key"],
-        diversity_hint=spec["diversity_hint"],
-        schema_feature=spec["schema_feature"],
-        reference_oracle_seed=spec.get("reference_oracle"),
-        intent_seed=spec.get("intent_seed") or _design_card_from_spec(spec),
-    )
-
-
-def _schema_flex_target(mechanism: str) -> str:
-    return {
-        "polymorphic": "polymorphic",
-        "sparse_embed": "polymorphic",
-        "sparse_scalar": "polymorphic",
-        "dynamic_key": "dynamic_key",
-        "versioning": "schema_versioning",
-    }.get(mechanism, "none")
-
-
-def _design_card_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
-    params = spec.get("reference_oracle", {}).get("params", {})
-    if not isinstance(params, dict):
-        params = {}
-    collections = [
-        params[key] for key in (
-            "collection",
-            "parent_collection",
-            "child_collection",
-        )
-        if isinstance(params.get(key), str)
-    ]
-    fields = [
-        value for key, value in params.items()
-        if isinstance(value, str)
-        and key not in {
-            "collection",
-            "parent_collection",
-            "child_collection",
-            "agg",
-            "order",
-        }
-    ]
-    if isinstance(params.get("match"), dict):
-        match = params["match"]
-        if isinstance(match.get("field"), str):
-            fields.append(match["field"])
-    card = {
-        "schema_feature": spec.get("schema_feature", ""),
-        "feature_family": spec.get("feature_family", ""),
-        "collection_hints": _ordered_unique([str(value) for value in collections]),
-        "field_hints": _ordered_unique([str(value) for value in fields]),
-        "complexity_score": spec.get("complexity_score", 0),
-        "query_pressure": _design_pressure_for(
-            str(spec.get("mechanism", "")),
-            str(spec.get("archetype", "")),
-            str(spec.get("feature_family", "")),
-        ),
-        "avoid": [
-            "do not emit avg/sum/min/max over identifier-like fields",
-            "do not make a near copy by only changing a field name or accumulator",
-            "do not expose helper fields in the final output",
-        ],
-        "certification": (
-            "A hidden reference oracle will certify the answer; treat this card as "
-            "schema pressure, not a query template."
-        ),
-    }
-    for key in ("target_field", "missing_default", "absent_value", "default"):
-        if key in params:
-            card[key] = params[key]
-    return card
-
-
-def _design_pressure_for(mechanism: str, archetype: str, family: str) -> list[str]:
-    if family == "cross_collection" or archetype == "fk_rollup":
-        return [
-            "use a real multi-collection financial rollup",
-            "prefer $lookup with a child pipeline or equivalent staged aggregation",
-            "include a business filter such as transaction type/operation when available",
-        ]
-    if family == "nested_array" or archetype == "join_nested_group":
-        return [
-            "use $unwind over an embedded array and regroup at a meaningful grain",
-            "aggregate a measure field, not an id",
-        ]
-    if mechanism == "sparse_embed":
-        return [
-            "branch on optional embedded-object presence",
-            "combine the optional branch with a meaningful financial metric when possible",
-        ]
-    if mechanism == "polymorphic":
-        return [
-            "make subtype branches semantically different",
-            "avoid a $switch whose every branch reads the same field",
-        ]
-    if mechanism == "sparse_scalar":
-        return [
-            "use missing-field behavior as part of a larger business question",
-            "avoid a one-stage global coalesce aggregate unless no richer option exists",
-        ]
-    return ["design a realistic multi-stage query when the schema supports it"]
-
-
-def _artifact_slot_pool(artifact: DbArtifacts, *, seed: int) -> list[dict[str, Any]]:
-    specs: list[dict[str, Any]] = []
-    schema = artifact.mongodb_schema
-    data = artifact.mongodb_data if isinstance(artifact.mongodb_data, dict) else {}
-    for coll, node in sorted(_schema_collections(schema).items()):
-        if not isinstance(node, dict):
-            continue
-        specs.extend(_variant_slot_specs(coll, node))
-        specs.extend(_array_slot_specs(coll, node))
-        specs.extend(_generic_slot_specs(
-            coll,
-            node,
-            data.get(coll, []),
-            sparse_scalar_fields=_feature_names_by_family(node, "sparse_scalar"),
-        ))
-    specs.extend(_fk_rollup_slot_specs(schema, data))
-
-    deduped: dict[str, dict[str, Any]] = {}
-    for spec in specs:
-        key = json.dumps(spec["reference_oracle"], ensure_ascii=False, sort_keys=True)
-        deduped.setdefault(key, spec)
-    return _balanced_slot_specs(list(deduped.values()), seed=seed)
-
-
-def _balanced_slot_specs(specs: list[dict[str, Any]], *, seed: int) -> list[dict[str, Any]]:
-    """Order slots so prefixes stay balanced across diversity axes."""
-    remaining = sorted(
-        specs,
-        key=lambda spec: _stable_slot_rank(spec.get("diversity_key", ""), seed=seed),
-    )
-    ordered: list[dict[str, Any]] = []
-    mechanism_counts: Counter[str] = Counter()
-    archetype_counts: Counter[str] = Counter()
-    collection_counts: Counter[str] = Counter()
-    feature_counts: Counter[str] = Counter()
-    family_counts: Counter[str] = Counter()
-    composition_counts: Counter[str] = Counter()
-
-    while remaining:
-        next_n = len(ordered) + 1
-        non_l0_available = any(not _slot_composition_traits(spec)["l0"] for spec in remaining)
-        best_index = min(
-            range(len(remaining)),
-            key=lambda i: (
-                _slot_composition_key(
-                    remaining[i],
-                    composition_counts=composition_counts,
-                    next_n=next_n,
-                    non_l0_available=non_l0_available,
-                ),
-                _slot_practicality_key(remaining[i]),
-                _slot_balance_key(
-                    remaining[i],
-                    mechanism_counts=mechanism_counts,
-                    archetype_counts=archetype_counts,
-                    collection_counts=collection_counts,
-                    feature_counts=feature_counts,
-                    family_counts=family_counts,
-                    seed=seed,
-                ),
-            ),
-        )
-        spec = remaining.pop(best_index)
-        ordered.append(spec)
-        mechanism_counts[str(spec.get("mechanism", ""))] += 1
-        archetype_counts[str(spec.get("archetype", ""))] += 1
-        collection_counts[str(spec.get("collection", ""))] += 1
-        feature_counts[str(spec.get("schema_feature", ""))] += 1
-        family_counts[str(spec.get("feature_family", ""))] += 1
-        for key, enabled in _slot_composition_traits(spec).items():
-            if enabled:
-                composition_counts[key] += 1
-    return ordered
-
-
-def _slot_composition_traits(spec: dict[str, Any]) -> dict[str, bool]:
-    arch = get_archetype(str(spec.get("archetype", "")))
-    return {
-        "l4": arch.difficulty == "L4",
-        "l0": arch.difficulty == "L0",
-        "flex": _schema_flex_target(str(spec.get("mechanism", ""))) != "none",
-        "ssf": arch.sql_infeasibility_class == "structural_schema_flex",
-    }
-
-
-def _slot_composition_key(
-    spec: dict[str, Any],
-    *,
-    composition_counts: Counter[str],
-    next_n: int,
-    non_l0_available: bool,
-) -> tuple[int, int, int, int, int]:
-    traits = _slot_composition_traits(spec)
-    l0_limit = math.floor(SLOT_L0_MAX * next_n)
-    l0_over_cap = (
-        traits["l0"]
-        and composition_counts["l0"] + 1 > l0_limit
-        and non_l0_available
-    )
-    needs = {
-        "l4": composition_counts["l4"] < math.ceil(SLOT_L4_MIN * next_n),
-        "flex": composition_counts["flex"] < math.ceil(SLOT_FLEX_MIN * next_n),
-        "ssf": composition_counts["ssf"] < math.ceil(SLOT_SSF_MIN * next_n),
-    }
-    hits = sum(1 for key, needed in needs.items() if needed and traits[key])
-    misses = sum(1 for key, needed in needs.items() if needed and not traits[key])
-    return (
-        1 if l0_over_cap else 0,
-        -hits,
-        misses,
-        1 if traits["l0"] else 0,
-        0 if traits["l4"] else 1,
-    )
-
-
-def _slot_practicality_key(spec: dict[str, Any]) -> tuple[int, int]:
-    """Prefer candidates that are both structurally useful and verifier-friendly."""
-    archetype = str(spec.get("archetype", ""))
-    traits = _slot_composition_traits(spec)
-    if traits["l4"] and traits["ssf"]:
-        return (0, _archetype_rank(archetype))
-    if archetype in {
-        "existence_count",
-        "null_coalesce_agg",
-        "join_nested_group",
-        "group_count",
-    }:
-        return (1, _archetype_rank(archetype))
-    if archetype == "fk_rollup":
-        return (2, _archetype_rank(archetype))
-    if archetype in {"topn", "simple_filter"}:
-        return (3, _archetype_rank(archetype))
-    return (2, _archetype_rank(archetype))
-
-
-def _slot_balance_key(
-    spec: dict[str, Any],
-    *,
-    mechanism_counts: Counter[str],
-    archetype_counts: Counter[str],
-    collection_counts: Counter[str],
-    feature_counts: Counter[str],
-    family_counts: Counter[str],
-    seed: int,
-) -> tuple[int, int, int, int, int, int, int, int, int]:
-    mechanism = str(spec.get("mechanism", ""))
-    archetype = str(spec.get("archetype", ""))
-    collection = str(spec.get("collection", ""))
-    feature = str(spec.get("schema_feature", ""))
-    family = str(spec.get("feature_family", ""))
-    complexity = int(spec.get("complexity_score") or 0)
-    return (
-        archetype_counts[archetype],
-        feature_counts[feature],
-        family_counts[family],
-        collection_counts[collection],
-        mechanism_counts[mechanism],
-        -complexity,
-        _mechanism_rank(mechanism),
-        _archetype_rank(archetype),
-        _stable_slot_rank(str(spec.get("diversity_key", "")), seed=seed),
-    )
-
-
-def _stable_slot_rank(value: str, *, seed: int) -> int:
-    digest = hashlib.sha256(f"{seed}:{value}".encode("utf-8")).hexdigest()
-    return int(digest[:16], 16)
-
-
-def _feature_names_by_family(node: dict[str, Any], family: str) -> set[str]:
-    features = node.get("__schema_less_features")
-    if not isinstance(features, list):
-        return set()
-    out: set[str] = set()
-    for feature in features:
-        if not isinstance(feature, dict) or feature.get("family") != family:
-            continue
-        name = feature.get("feature")
-        if isinstance(name, str) and name:
-            out.add(name)
-    return out
-
-
-def _mechanism_rank(mechanism: str) -> int:
-    return {
-        "sparse_embed": 0,
-        "polymorphic": 1,
-        "dynamic_key": 2,
-        "sparse_scalar": 3,
-        "versioning": 4,
-        "none": 5,
-    }.get(mechanism, 99)
-
-
-def _archetype_rank(archetype: str) -> int:
-    return {
-        "optional_embed_projection": 0,
-        "present_missing_projection": 1,
-        "subtype_cond_projection": 2,
-        "simple_filter": 3,
-        "subtype_specific_field": 4,
-        "topn": 5,
-        "existence_count": 6,
-        "group_count": 7,
-        "has_vs_absent_compare": 8,
-        "null_coalesce_agg": 9,
-        "per_subtype_agg": 10,
-        "join_nested_group": 11,
-        "fk_rollup": 12,
-    }.get(archetype, 99)
-
-
-def _slot_spec(
-    *,
-    mechanism: str,
-    archetype: str,
-    reference_oracle: dict[str, Any],
-    schema_feature: str,
-    diversity_hint: str,
-    feature_family: str | None = None,
-) -> dict[str, Any]:
-    return {
-        "mechanism": mechanism,
-        "archetype": archetype,
-        "reference_oracle": reference_oracle,
-        "schema_feature": schema_feature,
-        "collection": schema_feature.split(".", 1)[0],
-        "feature_family": feature_family or _default_feature_family(
-            mechanism, archetype, schema_feature
-        ),
-        "complexity_score": _slot_complexity_score(
-            mechanism=mechanism,
-            archetype=archetype,
-            feature_family=feature_family or _default_feature_family(
-                mechanism, archetype, schema_feature
-            ),
-            reference_oracle=reference_oracle,
-        ),
-        "diversity_hint": diversity_hint,
-        "diversity_key": (
-            f"{mechanism}:{archetype}:"
-            f"{json.dumps(reference_oracle, ensure_ascii=False, sort_keys=True)}"
-        ),
-    }
-
-
-def _slot_complexity_score(
-    *,
-    mechanism: str,
-    archetype: str,
-    feature_family: str,
-    reference_oracle: dict[str, Any],
-) -> int:
-    """Small ranking hint: prefer structural, multi-stage certifiers over template-simple ones."""
-    score = 0
-    if feature_family == "cross_collection" or archetype == "fk_rollup":
-        score += 8
-    if feature_family == "nested_array" or archetype == "join_nested_group":
-        score += 7
-    if mechanism == "polymorphic":
-        score += 6
-    if mechanism == "sparse_embed":
-        score += 5
-    if mechanism == "sparse_scalar":
-        score += 2
-    if archetype in {"simple_filter", "group_count", "topn"}:
-        score += 1
-    params = reference_oracle.get("params") if isinstance(reference_oracle, dict) else {}
-    if isinstance(params, dict):
-        if isinstance(params.get("match"), dict):
-            score += 2
-        if params.get("value_field"):
-            score += 1
-        predicates = params.get("predicates")
-        if isinstance(predicates, list):
-            score += max(0, len(predicates) - 1)
-    return score
-
-
-def _default_feature_family(mechanism: str, archetype: str, schema_feature: str) -> str:
-    if schema_feature.endswith("[]"):
-        return "nested_array"
-    if mechanism == "polymorphic":
-        return "polymorphic"
-    if mechanism == "sparse_embed":
-        return "optional_embed"
-    if mechanism == "sparse_scalar":
-        return "sparse_scalar"
-    return archetype or "baseline"
-
-
-def _schema_collections(schema: dict[str, Any]) -> dict[str, Any]:
-    colls = schema.get("collections", schema)
-    return colls if isinstance(colls, dict) else {}
-
-
-def _variant_slot_specs(coll: str, node: dict[str, Any]) -> list[dict[str, Any]]:
-    by_disc: dict[str, list[Any]] = {}
-    variants = node.get("__variants") if isinstance(node.get("__variants"), list) else []
-    for variant in variants:
-        disc = variant.get("discriminator") if isinstance(variant, dict) else None
-        if not isinstance(disc, dict) or len(disc) != 1:
-            continue
-        field, value = next(iter(disc.items()))
-        by_disc.setdefault(str(field), []).append(value)
-
-    specs: list[dict[str, Any]] = []
-    for field, values in sorted(by_disc.items()):
-        value_set = {str(v) for v in values}
-        feature = f"{coll}.{field}"
-        field_spec = node.get(field)
-        if {"present", "missing"} & value_set:
-            specs.extend(_present_missing_specs(coll, field, field_spec, node, feature))
-        else:
-            specs.extend(_polymorphic_specs(coll, field, sorted(value_set), node, feature))
-    return specs
-
-
-def _present_missing_specs(
-    coll: str, field: str, field_spec: Any, node: dict[str, Any], feature: str
-) -> list[dict[str, Any]]:
-    specs = [
-        _slot_spec(
-            mechanism="sparse_scalar",
-            archetype="existence_count",
-            reference_oracle={
-                "template": "existence_count",
-                "params": {"collection": coll, "field": field},
-            },
-            schema_feature=feature,
-            feature_family=(
-                "optional_embed" if _is_object_spec(field_spec)
-                else "optional_array" if _is_array_object_spec(field_spec)
-                else "sparse_scalar"
-            ),
-            diversity_hint=f"count documents where {field} is present",
-        )
-    ]
-    if _is_object_spec(field_spec):
-        nested = _nested_scalar_paths(field_spec)
-        useful_nested = [
-            (p, spec) for p, spec in nested
-            if not _is_identifier_like_field(p)
-        ]
-        numeric = [
-            p for p, spec in useful_nested
-            if _is_numeric_spec(spec) and _is_measure_like_field(p)
-        ]
-        for value_path, spec in useful_nested[:6]:
-            specs.append(_slot_spec(
-                mechanism="sparse_embed",
-                archetype="present_missing_projection",
-                reference_oracle={
-                    "template": "optional_embed_projection",
-                    "params": {
-                        "parent_collection": coll,
-                        "embed_field": field,
-                        "value_path": value_path,
-                        "target_field": f"{field}_{_safe_field(value_path)}_or_default",
-                        "missing_default": 0 if _is_numeric_spec(spec) else "",
-                    },
-                },
-                schema_feature=feature,
-                feature_family="optional_embed",
-                diversity_hint=f"project {field}.{value_path} with an explicit missing default",
-            ))
-        for metric in numeric[:5]:
-            path = f"{field}.{metric}"
-            for agg in ("sum", "avg", "min", "max"):
-                specs.append(_slot_spec(
-                    mechanism="sparse_embed",
-                    archetype="has_vs_absent_compare",
-                    reference_oracle={
-                        "template": "has_vs_absent_compare",
-                        "params": {
-                            "parent_collection": coll,
-                            "embed_field": field,
-                            "metric_field": path,
-                            "agg": agg,
-                        },
-                    },
-                    schema_feature=feature,
-                    feature_family="optional_embed",
-                    diversity_hint=f"compare {field} present vs missing using {agg}({path})",
-                ))
-    elif _is_numeric_spec(field_spec) and _is_measure_like_field(field):
-        for agg in ("sum", "avg", "min", "max"):
-            specs.append(_slot_spec(
-                mechanism="sparse_scalar",
-                archetype="null_coalesce_agg",
-                reference_oracle={
-                    "template": "null_coalesce_agg",
-                    "params": {"collection": coll, "field": field, "agg": agg, "default": 0},
-                },
-                schema_feature=feature,
-                feature_family="sparse_scalar",
-                diversity_hint=f"aggregate sparse scalar {field} with {agg} and missing=0",
-            ))
-    return specs
-
-
-def _polymorphic_specs(
-    coll: str, discriminator: str, values: list[str], node: dict[str, Any], feature: str
-) -> list[dict[str, Any]]:
-    variants = node.get("__variants") if isinstance(node.get("__variants"), list) else []
-    variant_fields = _variant_field_names(variants, discriminator, values)
-    variant_numeric_fields = _variant_measure_fields(variants, discriminator, values)
-    variant_specific = sorted({
-        field for fields in variant_fields.values() for field in fields
-        if field != discriminator
-        and not _is_identifier_like_field(field)
-    })
-    scalar = [
-        p for p, _spec in _top_scalar_paths(node)
-        if p != discriminator
-        and not _is_identifier_like_field(p)
-    ]
-    projection_fields = _ordered_unique(variant_specific + scalar)
-    specs: list[dict[str, Any]] = []
-    field_maps = _subtype_measure_field_maps(variant_numeric_fields, values)
-    if field_maps:
-        for field_by_subtype in field_maps[:3]:
-            for agg in ("sum", "avg", "max"):
-                specs.append(_slot_spec(
-                    mechanism="polymorphic",
-                    archetype="per_subtype_agg",
-                    reference_oracle={
-                        "template": "per_subtype_agg",
-                        "params": {
-                            "collection": coll,
-                            "discriminator": discriminator,
-                            "field_by_subtype": field_by_subtype,
-                            "agg": agg,
-                        },
-                    },
-                    schema_feature=feature,
-                    feature_family="polymorphic",
-                    diversity_hint=(
-                        f"group {coll} by {discriminator} and {agg} subtype-specific metrics"
-                    ),
-                ))
-            specs.append(_slot_spec(
-                mechanism="polymorphic",
-                archetype="subtype_cond_projection",
-                reference_oracle={
-                    "template": "subtype_cond_projection",
-                    "params": {
-                        "collection": coll,
-                        "discriminator": discriminator,
-                        "field_by_subtype": field_by_subtype,
-                        "target_field": f"{_safe_field(discriminator)}_metric_by_subtype",
-                        "default": 0,
-                    },
-                },
-                schema_feature=feature,
-                feature_family="polymorphic",
-                diversity_hint=(
-                    f"preserve docs and attach a metric chosen by {discriminator} subtype"
-                ),
-                ))
-    for value in values[:6]:
-        for field in projection_fields[:6]:
-            specs.append(_slot_spec(
-                mechanism="polymorphic",
-                archetype="subtype_specific_field",
-                reference_oracle={
-                    "template": "subtype_specific_field",
-                    "params": {
-                        "collection": coll,
-                        "discriminator": discriminator,
-                        "subtype_value": value,
-                        "field": field,
-                        "project": [discriminator, field],
-                    },
-                },
-                schema_feature=feature,
-                feature_family="polymorphic",
-                diversity_hint=f"read field {field} only for subtype {discriminator}={value}",
-            ))
-    return specs
-
-
-def _array_slot_specs(coll: str, node: dict[str, Any]) -> list[dict[str, Any]]:
-    specs: list[dict[str, Any]] = []
-    for field, spec in sorted(node.items()):
-        if field.startswith("__") or not _is_array_object_spec(spec):
-            continue
-        item = spec.get("items", {}) if isinstance(spec, dict) else {}
-        item_node = item.get("fields", item) if isinstance(item, dict) else {}
-        item_fields = _top_scalar_paths(item_node if isinstance(item_node, dict) else {})
-        group_fields = [
-            p for p, s in item_fields
-            if not _is_numeric_spec(s) and not _is_identifier_like_field(p)
-        ] or [
-            p for p, _s in item_fields
-            if not _is_identifier_like_field(p)
-        ]
-        numeric_fields = [
-            p for p, s in item_fields
-            if _is_numeric_spec(s)
-            and _is_measure_like_field(p)
-            and not _is_identifier_like_field(p)
-        ]
-        for group_by in group_fields[:5]:
-            specs.append(_slot_spec(
-                mechanism="none",
-                archetype="join_nested_group",
-                reference_oracle={
-                    "template": "join_nested_group",
-                    "params": {"collection": coll, "array_field": field, "group_by": group_by},
-            },
-            schema_feature=f"{coll}.{field}[]",
-            feature_family="nested_array",
-            diversity_hint=f"unwind nested array {field} and count by {group_by}",
-        ))
-            for value_field in numeric_fields[:4]:
-                for agg in ("sum", "avg", "max"):
-                    specs.append(_slot_spec(
-                        mechanism="none",
-                        archetype="join_nested_group",
-                        reference_oracle={
-                            "template": "join_nested_group",
-                            "params": {
-                                "collection": coll,
-                                "array_field": field,
-                                "group_by": group_by,
-                                "value_field": value_field,
-                                "agg": agg,
-                            },
-                        },
-                        schema_feature=f"{coll}.{field}[]",
-                        feature_family="nested_array",
-                        diversity_hint=f"unwind {field}, group by {group_by}, {agg}({value_field})",
-                    ))
-    return specs
-
-
-def _fk_rollup_slot_specs(schema: dict[str, Any], data: dict[str, Any]) -> list[dict[str, Any]]:
-    """Suggest LLM-designed multi-collection rollups from real id-like relationships."""
-    collections = _schema_collections(schema)
-    specs: list[dict[str, Any]] = []
-    for child, child_node in sorted(collections.items()):
-        if not isinstance(child_node, dict):
-            continue
-        child_scalars = _top_scalar_paths(child_node)
-        child_fields = {field for field, _spec in child_scalars}
-        numeric_measures = [
-            field for field, spec in child_scalars
-            if _is_numeric_spec(spec)
-            and _is_measure_like_field(field)
-            and not _is_identifier_like_field(field)
-        ]
-        categorical = [
-            field for field, spec in child_scalars
-            if not _is_numeric_spec(spec)
-            and not _is_identifier_like_field(field)
-        ]
-        for parent, parent_node in sorted(collections.items()):
-            if child == parent or not isinstance(parent_node, dict):
-                continue
-            parent_fields = {field for field, _spec in _top_scalar_paths(parent_node)}
-            for parent_key, foreign_key in _relationship_key_pairs(
-                parent, parent_fields, child_fields
-            ):
-                specs.append(_slot_spec(
-                    mechanism="none",
-                    archetype="fk_rollup",
-                    reference_oracle={
-                        "template": "fk_rollup",
-                        "params": {
-                            "parent_collection": parent,
-                            "child_collection": child,
-                            "parent_key": parent_key,
-                            "foreign_key": foreign_key,
-                            "agg": "count",
-                        },
-                    },
-                    schema_feature=f"{parent}.{parent_key}->{child}.{foreign_key}",
-                    feature_family="cross_collection",
-                    diversity_hint=(
-                        f"roll up {child} rows to each {parent} via "
-                        f"{child}.{foreign_key}={parent}.{parent_key}"
-                    ),
-                ))
-                for value_field in numeric_measures[:3]:
-                    for agg in ("sum", "avg", "max"):
-                        specs.append(_slot_spec(
-                            mechanism="none",
-                            archetype="fk_rollup",
-                            reference_oracle={
-                                "template": "fk_rollup",
-                                "params": {
-                                    "parent_collection": parent,
-                                    "child_collection": child,
-                                    "parent_key": parent_key,
-                                    "foreign_key": foreign_key,
-                                    "agg": agg,
-                                    "value_field": value_field,
-                                },
-                            },
-                            schema_feature=f"{parent}.{parent_key}->{child}.{foreign_key}",
-                            feature_family="cross_collection",
-                            diversity_hint=(
-                                f"compute per-{parent} {agg} of {child}.{value_field} "
-                                f"through a real foreign-key rollup"
-                            ),
-                        ))
-                    for match_field in categorical[:2]:
-                        for match_value in _sample_values(data.get(child, []), match_field, limit=3):
-                            specs.append(_slot_spec(
-                                mechanism="none",
-                                archetype="fk_rollup",
-                                reference_oracle={
-                                    "template": "fk_rollup",
-                                    "params": {
-                                        "parent_collection": parent,
-                                        "child_collection": child,
-                                        "parent_key": parent_key,
-                                        "foreign_key": foreign_key,
-                                        "agg": "sum",
-                                        "value_field": value_field,
-                                        "match": {"field": match_field, "value": match_value},
-                                    },
-                                },
-                                schema_feature=(
-                                    f"{parent}.{parent_key}->{child}.{foreign_key}"
-                                    f"[{match_field}]"
-                                ),
-                                feature_family="cross_collection",
-                                diversity_hint=(
-                                    f"sum {child}.{value_field} per {parent} after filtering "
-                                    f"{child}.{match_field}={match_value!r}"
-                                ),
-                            ))
-    return specs
-
-
-def _relationship_key_pairs(
-    parent: str, parent_fields: set[str], child_fields: set[str]
-) -> list[tuple[str, str]]:
-    pairs: list[tuple[str, str]] = []
-    parent_id = f"{parent}_id"
-    if parent_id in parent_fields and parent_id in child_fields:
-        pairs.append((parent_id, parent_id))
-    if "_id" in parent_fields and parent_id in child_fields:
-        pairs.append(("_id", parent_id))
-    return _ordered_unique_pairs(pairs)
-
-
-def _generic_slot_specs(
-    coll: str,
-    node: dict[str, Any],
-    docs: Any = None,
-    *,
-    sparse_scalar_fields: set[str] | None = None,
-) -> list[dict[str, Any]]:
-    specs: list[dict[str, Any]] = []
-    sparse_scalar_fields = sparse_scalar_fields or set()
-    scalars = _top_scalar_paths(node)
-    numeric = [
-        p for p, spec in scalars
-        if _is_numeric_spec(spec) and not _is_identifier_like_field(p)
-    ]
-    categorical = [
-        p for p, spec in scalars
-        if not _is_numeric_spec(spec) and not _is_identifier_like_field(p)
-    ]
-    for field in categorical[:10]:
-        specs.append(_slot_spec(
-            mechanism="none",
-            archetype="group_count",
-            reference_oracle={
-                "template": "group_count",
-                "params": {"collection": coll, "group_by": field},
-            },
-            schema_feature=f"{coll}.{field}",
-            diversity_hint=f"group baseline documents by {field}",
-        ))
-        for value in _sample_values(docs, field, limit=10):
-            specs.append(_slot_spec(
-                mechanism="none",
-                archetype="simple_filter",
-                reference_oracle={
-                    "template": "simple_filter",
-                    "params": {
-                        "collection": coll,
-                        "predicates": [{"field": field, "op": "eq", "value": value}],
-                        "project": ["_id", field],
-                    },
-                },
-                schema_feature=f"{coll}.{field}",
-                diversity_hint=f"filter {field} to a real value {value!r}",
-            ))
-    for field in numeric[:10]:
-        if (
-            field in sparse_scalar_fields
-            and _is_measure_like_field(field)
-            and not _is_identifier_like_field(field)
-        ):
-            for agg in ("sum", "avg", "min", "max"):
-                specs.append(_slot_spec(
-                    mechanism="sparse_scalar",
-                    archetype="null_coalesce_agg",
-                    reference_oracle={
-                        "template": "null_coalesce_agg",
-                        "params": {"collection": coll, "field": field, "agg": agg, "default": 0},
-                    },
-                    schema_feature=f"{coll}.{field}",
-                    feature_family="sparse_scalar",
-                    diversity_hint=f"{agg} sparse numeric field {field} with explicit missing default",
-                ))
-        for order in ("desc", "asc"):
-            for n in (3, 5, 10):
-                specs.append(_slot_spec(
-                    mechanism="none",
-                    archetype="topn",
-                    reference_oracle={
-                        "template": "topn",
-                        "params": {
-                            "collection": coll,
-                            "sort_key": field,
-                            "n": n,
-                            "order": order,
-                            "project": ["_id", field],
-                            "nulls": "last",
-                        },
-                    },
-                    schema_feature=f"{coll}.{field}",
-                    diversity_hint=f"top {n} documents by {field} ordered {order}",
-                ))
-    return specs
-
-
-def _sample_values(docs: Any, field: str, *, limit: int) -> list[Any]:
-    if not isinstance(docs, list) or limit <= 0:
-        return []
-    seen: set[str] = set()
-    values: list[Any] = []
-    for doc in docs:
-        if not isinstance(doc, dict) or field not in doc:
-            continue
-        value = doc.get(field)
-        if value is None or isinstance(value, (dict, list)):
-            continue
-        key = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
-        if key in seen:
-            continue
-        seen.add(key)
-        values.append(value)
-        if len(values) >= limit:
-            break
-    return values
-
-
-def _top_scalar_paths(node: dict[str, Any]) -> list[tuple[str, Any]]:
-    out: list[tuple[str, Any]] = []
-    for field, spec in sorted(node.items()):
-        if field.startswith("__") or isinstance(spec, dict):
-            continue
-        out.append((field, spec))
-    return out
-
-
-def _nested_scalar_paths(spec: Any, prefix: str = "") -> list[tuple[str, Any]]:
-    if not isinstance(spec, dict):
-        return []
-    fields = spec.get("fields") if spec.get("type") == "OBJECT" else spec
-    if not isinstance(fields, dict):
-        return []
-    out: list[tuple[str, Any]] = []
-    for field, child in sorted(fields.items()):
-        if field.startswith("__"):
-            continue
-        path = f"{prefix}.{field}" if prefix else field
-        if isinstance(child, dict) and child.get("type") == "OBJECT":
-            out.extend(_nested_scalar_paths(child, path))
-        elif not isinstance(child, dict):
-            out.append((path, child))
-    return out
-
-
-def _is_object_spec(spec: Any) -> bool:
-    return isinstance(spec, dict) and spec.get("type") == "OBJECT"
-
-
-def _is_array_object_spec(spec: Any) -> bool:
-    if not isinstance(spec, dict) or spec.get("type") != "ARRAY":
-        return False
-    item = spec.get("items")
-    return isinstance(item, dict) and item.get("type") == "OBJECT"
-
-
-def _is_numeric_spec(spec: Any) -> bool:
-    if not isinstance(spec, str):
-        return False
-    return spec.upper() in {"INT", "INTEGER", "REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMBER"}
-
-
-def _is_identifier_like_field(field: str) -> bool:
-    leaf = str(field).split(".")[-1].lower()
-    if leaf in {"_id", "id", "account", "account_to", "disp_id"}:
-        return True
-    return leaf.endswith("_id") or leaf.endswith(" id")
-
-
-def _is_measure_like_field(field: str) -> bool:
-    leaf = str(field).split(".")[-1].lower()
-    if _is_identifier_like_field(leaf):
-        return False
-    if len(leaf) > 1 and leaf[0] == "a" and leaf[1:].isdigit():
-        return True
-    return any(
-        token in leaf
-        for token in (
-            "amount",
-            "balance",
-            "payment",
-            "value",
-            "total",
-            "sum",
-            "cost",
-            "price",
-            "rate",
-            "ratio",
-            "salary",
-            "score",
-            "count",
-        )
-    )
-
-
-def _variant_field_names(
-    variants: list[Any], discriminator: str, values: list[str]
-) -> dict[str, set[str]]:
-    wanted = {str(value) for value in values}
-    out: dict[str, set[str]] = {value: set() for value in wanted}
-    for variant in variants:
-        if not isinstance(variant, dict):
-            continue
-        disc = variant.get("discriminator")
-        if not isinstance(disc, dict) or str(disc.get(discriminator)) not in wanted:
-            continue
-        value = str(disc.get(discriminator))
-        fields = variant.get("fields")
-        if isinstance(fields, dict):
-            out.setdefault(value, set()).update(
-                str(field) for field in fields if not str(field).startswith("__")
-            )
-    return out
-
-
-def _variant_measure_fields(
-    variants: list[Any], discriminator: str, values: list[str]
-) -> dict[str, list[str]]:
-    wanted = {str(value) for value in values}
-    out: dict[str, list[str]] = {value: [] for value in wanted}
-    for variant in variants:
-        if not isinstance(variant, dict):
-            continue
-        disc = variant.get("discriminator")
-        if not isinstance(disc, dict) or str(disc.get(discriminator)) not in wanted:
-            continue
-        value = str(disc.get(discriminator))
-        fields = variant.get("fields")
-        if not isinstance(fields, dict):
-            continue
-        measures = [
-            str(field)
-            for field, spec in sorted(fields.items())
-            if _is_numeric_spec(spec)
-            and _is_measure_like_field(str(field))
-            and not _is_identifier_like_field(str(field))
-        ]
-        out[value] = _ordered_unique(out.get(value, []) + measures)
-    return out
-
-
-def _subtype_measure_field_maps(
-    by_value: dict[str, list[str]], values: list[str]
-) -> list[dict[str, str]]:
-    usable_values = [value for value in values if by_value.get(str(value))]
-    if len(usable_values) < 2:
-        return []
-    maps: list[dict[str, str]] = []
-    max_width = max(len(by_value[str(value)]) for value in usable_values)
-    for index in range(max_width):
-        field_map = {
-            str(value): by_value[str(value)][index % len(by_value[str(value)])]
-            for value in usable_values
-        }
-        if len(set(field_map.values())) > 1:
-            maps.append(field_map)
-    return maps
-
-
-def _ordered_unique(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for value in values:
-        if value in seen:
-            continue
-        seen.add(value)
-        out.append(value)
-    return out
-
-
-def _ordered_unique_pairs(values: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    seen: set[tuple[str, str]] = set()
-    out: list[tuple[str, str]] = []
-    for value in values:
-        if value in seen:
-            continue
-        seen.add(value)
-        out.append(value)
-    return out
-
-
-def _safe_field(value: str) -> str:
-    cleaned = "".join(ch.lower() if ch.isalnum() else "_" for ch in str(value))
-    return "_".join(part for part in cleaned.split("_") if part)[:48] or "field"
-
 
 def _resolve_construct_records(source: BirdSource, db_ids: list[str], value: str) -> int:
     raw = value.strip().lower()
@@ -1336,312 +192,7 @@ def _resolve_construct_records(source: BirdSource, db_ids: list[str], value: str
     return n_records
 
 
-async def _run_artifact_diversity_phase_b(
-    rt: Runtime,
-    artifacts: dict[str, DbArtifacts],
-    *,
-    n_records: int,
-    records_per_db: int | None,
-) -> tuple[list[dict], int, dict[str, int], dict[str, int]]:
-    """Run Phase B with artifact-seeded slots, refilling drops with unused seeds."""
-    targets = _artifact_target_counts(
-        artifacts,
-        n_records,
-        records_per_db=records_per_db,
-    )
-    pool_sizes = {
-        db_id: len(_artifact_slot_pool(artifact, seed=rt.settings.seed))
-        for db_id, artifact in sorted(artifacts.items())
-    }
-    rt.log.info(
-        "artifact_diversity_plan",
-        targets=targets,
-        records_per_db=records_per_db,
-        pool_sizes=pool_sizes,
-        dbs=sorted(artifacts),
-    )
-    if not targets or not any(pool_sizes.values()):
-        return [], 0, targets, pool_sizes
-
-    records: list[dict] = []
-    attempts_by_db: dict[str, int] = {db_id: 0 for db_id in targets}
-    seen_mql: dict[tuple[str, str], int] = {}
-    seen_skeleton: dict[tuple[str, str], list[int]] = {}
-    seen_canonical_nl: dict[tuple[str, str], int] = {}
-    seen_nl_mql_pair: dict[tuple[str, str, str], int] = {}
-    total_slots = 0
-    next_record_id = 1001
-    batch = 0
-
-    while True:
-        built_by_db = Counter(str(record.get("db_id")) for record in records)
-        remaining = {
-            db_id: target - built_by_db.get(db_id, 0)
-            for db_id, target in targets.items()
-            if target > built_by_db.get(db_id, 0)
-            and attempts_by_db.get(db_id, 0) < pool_sizes.get(db_id, 0)
-        }
-        if not remaining:
-            break
-
-        slots = _artifact_diversity_slots_for_targets(
-            artifacts,
-            remaining,
-            seed=rt.settings.seed,
-            start_record_id=next_record_id,
-            per_db_start_index=attempts_by_db,
-        )
-        if not slots:
-            break
-        batch += 1
-        total_slots += len(slots)
-        next_record_id = max(slot.record_id for slot in slots) + 1
-        for slot in slots:
-            attempts_by_db[slot.db_id] = max(
-                attempts_by_db.get(slot.db_id, 0),
-                slot.slot_index + 1,
-            )
-
-        unique_keys = len({slot.diversity_key for slot in slots if slot.diversity_key})
-        rt.log.info(
-            "artifact_diversity_batch",
-            batch=batch,
-            slots=len(slots),
-            remaining_targets=remaining,
-            attempts_by_db=attempts_by_db,
-            unique_diversity_keys=unique_keys,
-        )
-        before = len(records)
-        records.extend(
-            await run_phase_b(
-                rt.workflow,
-                artifacts,
-                slots,
-                seen_mql=seen_mql,
-                seen_skeleton=seen_skeleton,
-                seen_canonical_nl=seen_canonical_nl,
-                seen_nl_mql_pair=seen_nl_mql_pair,
-            )
-        )
-        built_this_batch = len(records) - before
-        dropped_this_batch = len(slots) - built_this_batch
-        yield_ratio = built_this_batch / len(slots) if slots else 0.0
-        rt.log.info(
-            "artifact_diversity_batch_done",
-            batch=batch,
-            slots=len(slots),
-            built_records=built_this_batch,
-            dropped_records=dropped_this_batch,
-            yield_ratio=round(yield_ratio, 4),
-            total_records=len(records),
-            built_by_db=dict(Counter(str(record.get("db_id")) for record in records)),
-        )
-        if slots and yield_ratio < 0.25:
-            rt.log.warning(
-                "artifact_diversity_low_yield",
-                batch=batch,
-                slots=len(slots),
-                built_records=built_this_batch,
-                dropped_records=dropped_this_batch,
-                yield_ratio=round(yield_ratio, 4),
-                remaining_targets=remaining,
-                attempts_by_db=attempts_by_db,
-            )
-
-    final_built_by_db = Counter(str(record.get("db_id")) for record in records)
-    final_diversity = _phase_b_record_diversity(records)
-    reserved_skeleton_family_sizes = [len(record_ids) for record_ids in seen_skeleton.values()]
-    rt.log.info(
-        "artifact_diversity_ledger_summary",
-        total_slots=total_slots,
-        built_records=len(records),
-        built_by_db=dict(final_built_by_db),
-        **final_diversity,
-        reserved_mql=len(seen_mql),
-        reserved_mql_skeletons=len(seen_skeleton),
-        reserved_canonical_nl=len(seen_canonical_nl),
-        reserved_nl_mql_pairs=len(seen_nl_mql_pair),
-        reserved_max_mql_skeleton_family=max(reserved_skeleton_family_sizes, default=0),
-    )
-    shortfalls = {
-        db_id: target - final_built_by_db.get(db_id, 0)
-        for db_id, target in targets.items()
-        if target > final_built_by_db.get(db_id, 0)
-    }
-    if shortfalls:
-        rt.log.warning(
-            "artifact_diversity_supply_shortfall",
-            shortfalls=shortfalls,
-            targets=targets,
-            attempts_by_db=attempts_by_db,
-            pool_sizes=pool_sizes,
-        )
-    return records, total_slots, targets, pool_sizes
-
-
-def _phase_b_record_diversity(records: list[dict[str, Any]]) -> dict[str, int]:
-    mql_sigs: set[tuple[str, str]] = set()
-    skeleton_families: Counter[tuple[str, str]] = Counter()
-    canonical_sigs: set[tuple[str, str]] = set()
-    pair_sigs: set[tuple[str, str, str]] = set()
-
-    for record in records:
-        db_id = str(record.get("db_id") or "")
-        mql = record.get("MQL")
-        mql_sig = str(record.get("mql_signature") or "")
-        if not mql_sig and isinstance(mql, str) and mql.strip():
-            mql_sig = mql_signature(mql)
-        skeleton_sig = str(record.get("mql_skeleton_signature") or "")
-        if not skeleton_sig and isinstance(mql, str) and mql.strip():
-            skeleton_sig = mql_skeleton_signature(mql)
-        if mql_sig:
-            mql_sigs.add((db_id, mql_sig))
-        if skeleton_sig:
-            skeleton_families[(db_id, skeleton_sig)] += 1
-
-        nl_queries = record.get("nl_queries")
-        canonical = (
-            " ".join(str(nl_queries.get("canonical") or "").strip().lower().split())
-            if isinstance(nl_queries, dict)
-            else ""
-        )
-        if canonical:
-            nl_sig = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-            canonical_sigs.add((db_id, nl_sig))
-            if mql_sig:
-                pair_sigs.add((db_id, nl_sig, mql_sig))
-
-    return {
-        "distinct_mql": len(mql_sigs),
-        "distinct_mql_skeletons": len(skeleton_families),
-        "distinct_canonical_nl": len(canonical_sigs),
-        "distinct_nl_mql_pairs": len(pair_sigs),
-        "max_mql_skeleton_family": max(skeleton_families.values(), default=0),
-    }
-
-
 async def _run_construct(
-    rt: Runtime,
-    db_ids: list[str],
-    phase: str,
-    n_records: int,
-    *,
-    structural_only_records: bool = False,
-    structural_fraction: float = 0.0,
-    records_per_db: int | None = None,
-    construction_mode: str = "legacy",
-) -> int:
-    if construction_mode == "native":
-        return await _run_native_construct(
-            rt,
-            db_ids,
-            phase,
-            n_records,
-            records_per_db=records_per_db,
-        )
-    if construction_mode != "legacy":
-        raise ValueError(f"unknown construction mode: {construction_mode}")
-
-    out_dir = rt.settings.paths.dataset_out
-    artifacts: dict[str, DbArtifacts] = {}
-    records: list[dict] = []
-    failed: TendError | None = None
-    summary: dict = {}
-    try:
-        with rt.progress:
-            if phase in ("A", "all"):
-                artifacts = await run_phase_a(rt.workflow, db_ids)
-                write_phase_a(out_dir, artifacts)
-                write_catalog(out_dir, artifacts)
-                rt.log.info("phase_a_complete", dbs=sorted(artifacts),
-                            signatures={d: a.world_signature for d, a in artifacts.items()})
-            if phase in ("B", "all"):
-                if not artifacts:
-                    rt.log.anomaly(
-                        kind=Anomaly.INTERNAL,
-                        message="phase B requested without Phase A artifacts",
-                        phase=phase,
-                        requested_records=n_records,
-                    )
-                else:
-                    if rt.source is None:
-                        raise RuntimeError("construct requires a BIRD source")
-                    slot_db_ids = sorted(artifacts)
-                    non_query_bearing = sorted(
-                        db_id for db_id, art in artifacts.items() if not art.query_bearing
-                    )
-                    if non_query_bearing:
-                        rt.log.warning(
-                            "phase_b_non_query_bearing_advisory",
-                            dbs=non_query_bearing,
-                            reason=(
-                                "phase A SC marked artifacts as non query-bearing; "
-                                "Phase B still uses deterministic census supply"
-                            ),
-                        )
-                    records, slot_count, target_counts, pool_sizes = (
-                        await _run_artifact_diversity_phase_b(
-                            rt,
-                            artifacts,
-                            n_records=n_records,
-                            records_per_db=records_per_db,
-                        )
-                    )
-                    if slot_count == 0:
-                        rt.log.warning(
-                            "artifact_diversity_plan_empty",
-                            dbs=slot_db_ids,
-                            reason="no schema-derived oracle seed pool; falling back to census",
-                        )
-                        slots = _coverage_slots_for(
-                            rt.source,
-                            slot_db_ids,
-                            n_records,
-                            seed=rt.settings.seed,
-                            structural_only=structural_only_records,
-                            structural_fraction=structural_fraction,
-                        )
-                        slot_count = len(slots)
-                        records = await run_phase_b(rt.workflow, artifacts, slots)
-                    write_records(out_dir, records)
-                    rt.log.info(
-                        "phase_b_complete",
-                        records=len(records),
-                        slots=slot_count,
-                        requested_records=n_records,
-                        target_counts=target_counts,
-                        pool_sizes=pool_sizes,
-                    )
-                    if len(records) < n_records:
-                        rt.log.anomaly(
-                            kind=Anomaly.SUPPLY_EXHAUSTED,
-                            message="phase B record target not met",
-                            requested_records=n_records,
-                            built_records=len(records),
-                        )
-    except TendError as err:
-        failed = err
-        if not err.logged:
-            rt.log.anomaly(err)
-        rt.log.error("run_failed", error_type=type(err).__name__, message=err.message,
-                     anomaly=err.anomaly.value if err.anomaly else None)
-    except Exception as exc:  # noqa: BLE001 - final CLI boundary
-        failed = wrap_unexpected(exc, stage="construct")
-        rt.log.anomaly(failed)
-        rt.log.error("run_failed", error_type=type(failed).__name__, message=failed.message,
-                     anomaly=failed.anomaly.value if failed.anomaly else None)
-    finally:
-        summary = rt.progress.summary() if hasattr(rt.progress, "summary") else {}
-        failed_run = failed is not None or summary.get("anomaly_total", 0) > 0
-        rt.log.info("run_done", status="failed" if failed_run else "ok", **summary,
-                    dbs=len(artifacts), records=len(records))
-        _print_summary(rt, artifacts, records, summary, out_dir)
-        _close_runtime(rt)
-
-    return 1 if failed or summary.get("anomaly_total", 0) else 0
-
-
-async def _run_native_construct(
     rt: Runtime,
     db_ids: list[str],
     phase: str,
@@ -2032,8 +583,9 @@ async def _run_solve(
     db_id: str | None,
     record_id: int | None,
     limit: int,
-    r_max: int,
-    witness_k: int,
+    max_tool_turns: int,
+    max_revisits: int,
+    cost_budget_usd: float,
     nlq_track: str = "record",
     nlq: str | None = None,
     evaluate: bool = True,
@@ -2058,13 +610,14 @@ async def _run_solve(
                     raise SourceError("NLQ+DB solver mode requires --db-id")
                 record_stub = {"db_id": str(db_id), "record_id": record_id}
                 try:
-                    result = await smart_solve_nlq_db(
+                    result = await smart_solve_nlq_db_eg(
                         rt.workflow,
                         db_id=str(db_id),
                         nlq=nlq,
                         record_id=record_id,
-                        r_max=r_max,
-                        witness_k=witness_k,
+                        max_tool_turns=max_tool_turns,
+                        max_revisits=max_revisits,
+                        cost_budget_usd=cost_budget_usd,
                     )
                     payload = result.to_json()
                     payload["batch_index"] = 0
@@ -2121,16 +674,14 @@ async def _run_solve(
                 ) -> tuple[int, dict]:
                     db = str(record.get("db_id"))
                     try:
-                        result = await smart_solve_record(
+                        result = await smart_solve_record_eg(
                             rt.workflow,
                             record,
                             schema,
                             local_data=data,
-                            r_max=r_max,
-                            witness_k=witness_k,
-                            options=SmartSolveOptions(
-                                progress_work_item_id=f"batch_index={batch_index}",
-                            ),
+                            max_tool_turns=max_tool_turns,
+                            max_revisits=max_revisits,
+                            cost_budget_usd=cost_budget_usd,
                             witness_preloaded=db in preloaded_dbs,
                         )
                         payload = result.to_json()
@@ -2355,8 +906,9 @@ async def _run_ablation(
     db_id: str | None,
     record_id: int | None,
     limit: int,
-    r_max: int,
-    witness_k: int,
+    max_tool_turns: int,
+    max_revisits: int,
+    cost_budget_usd: float,
     nlq: str | None = None,
     nlq_track: str = "record",
     evaluate: bool = True,
@@ -2407,8 +959,9 @@ async def _run_ablation(
                 nlq_track=nlq_track,
                 record_id=record_id,
                 limit=limit,
-                r_max=r_max,
-                witness_k=witness_k,
+                max_tool_turns=max_tool_turns,
+                max_revisits=max_revisits,
+                cost_budget_usd=cost_budget_usd,
             )
             predictions = [item for item in outputs if item.get("status") == "ok"]
             failures = [item for item in outputs if item.get("status") != "ok"]
@@ -2685,12 +1238,6 @@ def main(argv: list[str] | None = None) -> int:
 
     c = sub.add_parser("construct", help="run the construction pipeline")
     c.add_argument("--phase", choices=["A", "B", "all"], default="all")
-    c.add_argument(
-        "--construction-mode",
-        choices=["legacy", "native"],
-        default="legacy",
-        help="construction route: legacy deterministic migration or per-database native designs",
-    )
     c.add_argument("--dbs", default="financial",
                    help="comma-separated db_ids, or 'all' (default: financial)")
     c.add_argument(
@@ -2703,19 +1250,6 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=None,
         help="Phase B records to attempt for each selected db; useful for all-db 100+ runs",
-    )
-    c.add_argument(
-        "--full-db",
-        action="store_true",
-        help="materialize full MongoDB data without reference-table row caps",
-    )
-    c.add_argument(
-        "--structural-fraction",
-        type=float,
-        default=0.0,
-        help="hybrid plan: fraction (0..1) of slots forced to structural_schema_flex so a "
-             "large run meets the complexity floors (L4>=30%%/flex>=25%%/ssf>=20%%) while "
-             "staying diverse; 0 = pure broad census mix",
     )
     c.add_argument("--stub", action="store_true", help="offline mode (no live LLM)")
     c.add_argument("--quiet", action="store_true", help="disable the live progress UI")
@@ -2731,7 +1265,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", default=str(PRODUCTION_RELEASE_DIR),
                    help="production release dir (default: release/TEND-dataset)")
 
-    s = sub.add_parser("solve", help="run the SMART schema-less reference solver")
+    s = sub.add_parser("solve", help="run the SMART-EG schema-less solver")
     s.add_argument("--dataset-dir", default=None,
                    help="release dataset dir (default: release/TEND-dataset)")
     s.add_argument("--db-id", default=None, help="optional db_id filter")
@@ -2743,9 +1277,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="solve one natural-language question against --db-id by querying MongoDB")
     s.add_argument("--record-id", type=int, default=None, help="optional record_id filter")
     s.add_argument("--limit", type=int, default=1, help="max records to solve")
-    s.add_argument("--r-max", type=int, default=DEFAULT_R_MAX, help="SMART fallback limit")
-    s.add_argument("--witness-k", type=int, default=DEFAULT_WITNESS_K,
-                   help="prompt witness disclosure limit")
+    s.add_argument("--max-tool-turns", type=int, default=DEFAULT_MAX_TOOL_TURNS,
+                   help="SMART-EG maximum provider tool turns")
+    s.add_argument("--max-revisits", type=int, default=DEFAULT_MAX_REVISITS,
+                   help="SMART-EG maximum milestone revisits")
+    s.add_argument("--cost-budget-usd", type=float, default=DEFAULT_COST_BUDGET_USD,
+                   help="SMART-EG cost budget in USD")
     s.add_argument("--stub", action="store_true", help="offline mode (no live LLM)")
     s.add_argument("--quiet", action="store_true", help="disable the live progress UI")
     _add_eval_args(s)
@@ -2772,7 +1309,7 @@ def main(argv: list[str] | None = None) -> int:
     _add_eval_args(b)
     b.add_argument("--run-id", default=None)
 
-    a = sub.add_parser("ablation", help="run SMART solver ablation study")
+    a = sub.add_parser("ablation", help="run SMART-EG solver ablation study")
     a.add_argument("--dataset-dir", default=None,
                    help="release dataset dir (default: release/TEND-dataset)")
     a.add_argument("--ablations", default="all",
@@ -2786,9 +1323,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="run ablations for one natural-language question against --db-id")
     a.add_argument("--record-id", type=int, default=None, help="optional record_id filter")
     a.add_argument("--limit", type=int, default=1, help="max records per ablation")
-    a.add_argument("--r-max", type=int, default=DEFAULT_R_MAX, help="SMART fallback limit")
-    a.add_argument("--witness-k", type=int, default=DEFAULT_WITNESS_K,
-                   help="prompt witness sample count for ablations that use samples")
+    a.add_argument("--max-tool-turns", type=int, default=DEFAULT_MAX_TOOL_TURNS,
+                   help="SMART-EG maximum provider tool turns")
+    a.add_argument("--max-revisits", type=int, default=DEFAULT_MAX_REVISITS,
+                   help="SMART-EG maximum milestone revisits")
+    a.add_argument("--cost-budget-usd", type=float, default=DEFAULT_COST_BUDGET_USD,
+                   help="SMART-EG cost budget in USD")
     a.add_argument("--stub", action="store_true", help="offline mode (no live LLM)")
     a.add_argument("--quiet", action="store_true", help="disable the live progress UI")
     _add_eval_args(a)
@@ -2812,8 +1352,6 @@ def main(argv: list[str] | None = None) -> int:
         overrides["TEND_LLM_STUB"] = "1"
     if getattr(args, "quiet", False):
         overrides["TEND_QUIET"] = "1"
-    if getattr(args, "full_db", False):
-        overrides["TEND_MIGRATION_REF_SAMPLE_CAP"] = "0"
     run_id = getattr(args, "run_id", None) or new_run_id()
     settings = Settings.from_env(
         run_id=run_id,
@@ -2851,7 +1389,6 @@ def main(argv: list[str] | None = None) -> int:
         db_ids = list(rt.source.db_ids) if args.dbs == "all" else [
             db.strip() for db in args.dbs.split(",") if db.strip()
         ]
-        structural_only_records = args.records.strip().lower() == "all"
         if args.records_per_db is not None:
             if args.records_per_db <= 0:
                 raise ValueError("--records-per-db must be positive")
@@ -2863,10 +1400,7 @@ def main(argv: list[str] | None = None) -> int:
             db_ids,
             args.phase,
             n_records,
-            structural_only_records=structural_only_records,
-            structural_fraction=getattr(args, "structural_fraction", 0.0),
             records_per_db=args.records_per_db,
-            construction_mode=args.construction_mode,
         ))
     if args.command == "solve":
         rt = build_solver_runtime(settings)
@@ -2876,8 +1410,9 @@ def main(argv: list[str] | None = None) -> int:
             db_id=args.db_id,
             record_id=args.record_id,
             limit=args.limit,
-            r_max=args.r_max,
-            witness_k=args.witness_k,
+            max_tool_turns=args.max_tool_turns,
+            max_revisits=args.max_revisits,
+            cost_budget_usd=args.cost_budget_usd,
             nlq_track=args.nlq_track,
             nlq=args.nlq,
             evaluate=not args.no_eval,
@@ -2909,8 +1444,9 @@ def main(argv: list[str] | None = None) -> int:
             db_id=args.db_id,
             record_id=args.record_id,
             limit=args.limit,
-            r_max=args.r_max,
-            witness_k=args.witness_k,
+            max_tool_turns=args.max_tool_turns,
+            max_revisits=args.max_revisits,
+            cost_budget_usd=args.cost_budget_usd,
             nlq_track=args.nlq_track,
             nlq=args.nlq,
             evaluate=not args.no_eval,

@@ -43,7 +43,7 @@ class Anomaly(str, enum.Enum):
     DISABLED_OPERATOR = "disabled_operator"  # one of the 6 banned operators appeared
     GOLD_LOCK_FAILED = "gold_lock_failed"  # gold !=_rec reference oracle / dual-path
     GATE_FAILED = "gate_failed"            # a publish gate rejected the candidate
-    MIGRATION_ERROR = "migration_error"    # DM produced inconsistent witness data
+    MIGRATION_ERROR = "migration_error"    # native construction produced inconsistent witness data
     SOLVER_EXHAUSTED = "solver_exhausted"  # SMART solver exhausted bounded attempts
     SUPPLY_EXHAUSTED = "supply_exhausted"  # coverage cell infeasible / no candidates
     INTERNAL = "internal"                  # unexpected bug (wraps stray exceptions)
@@ -234,7 +234,7 @@ class GateError(TendError):
 
 
 class MigrationError(TendError):
-    """DM produced witness data inconsistent with the SRA schema (Gate-SD)."""
+    """Native construction produced inconsistent or unsupported witness data."""
 
     default_anomaly = Anomaly.MIGRATION_ERROR
 

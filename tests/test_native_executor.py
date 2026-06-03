@@ -231,8 +231,8 @@ def _recipe() -> dict:
 
 
 def test_execute_native_recipe_materializes_polymorphic_documents(tmp_path):
-    from tend.construct.native_executor import execute_native_recipe
-    from tend.construct.native_recipe import load_native_recipe
+    from tend.construction.executor import execute_native_recipe
+    from tend.construction.recipe import load_native_recipe
 
     result = execute_native_recipe(_fixture_source(tmp_path), "financial", load_native_recipe(_recipe()))
 
@@ -249,8 +249,8 @@ def test_execute_native_recipe_materializes_polymorphic_documents(tmp_path):
 
 
 def test_execute_native_recipe_materializes_dynamic_key_object_and_events(tmp_path):
-    from tend.construct.native_executor import execute_native_recipe
-    from tend.construct.native_recipe import load_native_recipe
+    from tend.construction.executor import execute_native_recipe
+    from tend.construction.recipe import load_native_recipe
 
     result = execute_native_recipe(_fixture_source(tmp_path), "financial", load_native_recipe(_recipe()))
 
@@ -268,8 +268,8 @@ def test_execute_native_recipe_materializes_dynamic_key_object_and_events(tmp_pa
 
 
 def test_execute_native_recipe_returns_manifest_provenance_and_signature(tmp_path):
-    from tend.construct.native_executor import execute_native_recipe
-    from tend.construct.native_recipe import load_native_recipe
+    from tend.construction.executor import execute_native_recipe
+    from tend.construction.recipe import load_native_recipe
 
     result = execute_native_recipe(_fixture_source(tmp_path), "financial", load_native_recipe(_recipe()))
 
@@ -297,8 +297,8 @@ def test_execute_native_recipe_returns_manifest_provenance_and_signature(tmp_pat
 
 
 def test_execute_native_recipe_fails_closed_on_unsupported_expression(tmp_path):
-    from tend.construct.native_executor import execute_native_recipe
-    from tend.construct.native_recipe import load_native_recipe
+    from tend.construction.executor import execute_native_recipe
+    from tend.construction.recipe import load_native_recipe
 
     recipe = _recipe()
     recipe["collections"]["financial_entities"]["transforms"][0]["variants"]["account"]["fields"][

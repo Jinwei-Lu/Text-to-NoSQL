@@ -2,13 +2,12 @@
 
 An archetype is ``mechanism × question-shape`` pinned to a falls-out difficulty, an
 ``sql_infeasibility_class``, a ``shape_policy``, and the name of the reference-oracle template R
-that *defines* the answer. QPS enumerates intents as ``mechanism instance × archetype × domain``
-— the catalog is what makes coverage countable and query-bearing-ness structural (each archetype
-is, by definition, "an operation that must hit mechanism M").
+that *defines* the answer. The catalog makes coverage countable and query-bearing-ness structural
+(each archetype is, by definition, "an operation that must hit mechanism M").
 
 Difficulties/classes here mirror census_supply.py and 04 §04-2-4. Mechanism ids are the
-SSoT/census vocabulary; :data:`MECHANISM_ALIASES` maps Session B's terms (e.g. ``optional_embed``)
-onto them so intents from either session resolve.
+SSoT/census vocabulary; :data:`MECHANISM_ALIASES` maps historical aliases such as
+``optional_embed`` onto them.
 """
 from __future__ import annotations
 
@@ -60,7 +59,7 @@ def _a(mechanism: str, _id: str, shape: str, op: str, diff: str, cls: str,
                      shape_policy=policy)
 
 
-#: mechanism -> list[Archetype]. Single source for QPS enumeration + census reachability.
+#: mechanism -> list[Archetype]. Single source for archetype catalog + census reachability.
 ARCHETYPES: dict[str, list[Archetype]] = {
     "polymorphic": [
         _a("polymorphic", "per_subtype_agg",

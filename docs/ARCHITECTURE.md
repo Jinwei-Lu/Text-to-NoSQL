@@ -1,135 +1,135 @@
-# TEND Construction Pipeline — Architecture
+# TEND Construction Pipeline - Architecture
 
-A dynamic-workflow orchestrator that spawns LLM sub-agents to construct the TEND
-Text-to-NoSQL benchmark from BIRD mini-dev. Phase A builds the MongoDB DataWorld;
-Phase B reverse-engineers NL–MQL records.
+TEND currently has one dataset construction path: MongoDB-native DataWorld
+construction under `src/tend/construction/`. The previous legacy relation-to-document
+migration flow has been removed from runtime, CLI, public imports, and active tests.
 
 ## Layout (`src/tend/`)
 
 | Module | Role |
 |---|---|
-| `config.py` | `.env` loading, paths, OpenAI-compatible provider (DeepSeek default), toggles |
-| `errors.py` | Typed exception taxonomy + `Anomaly` classification — the backbone of anomaly capture |
+| `config.py` | `.env` loading, paths, OpenAI-compatible provider configuration, toggles |
+| `errors.py` | Typed exception taxonomy and `Anomaly` classification |
 | `source/bird.py` | BIRD mini-dev loader: schema, workload, column enums, SQLite probes |
-| `observability/logging.py` | File-first JSONL logging: `events.jsonl`, `anomalies.jsonl`, per-call `llm/<agent>/<call_id>.md` transcripts plus `.diagnostics.json` sidecars; anomaly subscriber callbacks |
-| `observability/progress.py` | Live `rich` phase→group→task tree + counters + anomaly ticker |
-| `llm/client.py` | Async OpenAI-compatible client: transport retries, JSON/schema repair loop, per-call Markdown transcripts + diagnostics, typed anomaly classification, stub mode |
-| `agents/base.py` | `Agent` lifecycle wrapper + `LLMAgent` (prompt→schema→contract repair) + registry |
-| `agents/phase_a.py` | WP, SRA, SC (LLM) |
-| `agents/dm.py` | DM — **deterministic** migration agent |
-| `agents/native_migration.py`, `agents/native_nl.py` | Native construction helper agents for reviewed recipe design and native NL wording |
-| `agents/phase_b.py` | QPS, MS, MUT, PV, NLP, RTV, NNC, RA |
-| `execution/ast_check.py` | MQL parse, 6 banned-operator scan, `canonical_form_set` eval + thin derivation |
-| `execution/mongo.py` | NormExec (run MQL aggregate) + `equiv_rec` (≡_rec) |
-| `execution/signature.py` | `world_signature` over canonicalized witness |
-| `construct/migrate.py` | DM's deterministic document-aggregate migration (FK-derived embed/reference plan) |
-| `construct/native_designs/` | One checked-in MongoDB-native conversion module per BIRD database; native mode fails closed if a database has no module |
-| `construct/native_recipe.py`, `construct/native_executor.py` | Typed native migration recipes, manifest/provenance contracts, and deterministic recipe execution |
-| `workflow/engine.py` | `Workflow`: `agent` / `parallel` / `pipeline` primitives (concurrency + failure isolation) |
-| `workflow/flows.py` | `run_phase_a` (per-db WP→SRA→SC*→DM) and `run_phase_b` (per-record 8-agent pipeline + feedback) |
-| `workflow/native_construction.py`, `workflow/native_phase_b.py`, `workflow/native_verify.py` | Native Phase A route, manifest-driven slots/gold compilers, and anti-SQL-transfer verification |
-| `cli.py` | Runtime assembly + `tend construct` |
+| `observability/logging.py` | File-first JSONL logging, anomalies, transcripts, diagnostics |
+| `observability/progress.py` | Live progress tree plus `progress.jsonl` snapshots |
+| `llm/client.py` | Async OpenAI-compatible client, schema repair loop, transcripts, stub mode |
+| `agents/base.py` | `Agent` lifecycle wrapper, `LLMAgent`, and registry |
+| `agents/native_migration.py`, `agents/native_nl.py` | Optional native construction helper agents for reviewed recipe design and NL wording |
+| `construction/phase_a.py` | Native Phase A orchestration and `NativeDbArtifacts` |
+| `construction/phase_b.py` | Manifest-driven coverage planning and deterministic gold-MQL compilers |
+| `construction/verify.py` | Native record verification and anti-SQL-transfer classification |
+| `construction/recipe.py` | Typed native recipe, feature manifest, provenance, and validation contracts |
+| `construction/executor.py` | Deterministic recipe executor for recipe-backed designs |
+| `construction/audit.py` | Structural audits for native DataWorld materializers |
+| `construction/designs/` | One database-specific MongoDB-native design module per supported BIRD db |
+| `construction/artifacts.py` | Dataset artifact writers for schemas, data, manifests, provenance, and records |
+| `workflow/engine.py` | Generic `Workflow`: `agent`, `parallel`, and `pipeline` primitives |
+| `execution/` | MQL parsing, banned-operator scan, signatures, Mongo execution, world signatures |
+| `publish/` | Release validation against record, schema, artifact, and composition contracts |
+| `solver/`, `baselines/`, `ablations/` | Evaluation-time solvers and experiment runners |
+| `cli.py` | Runtime assembly and command dispatch |
 
-## Run
+## Construction CLI
 
 ```bash
-# offline (no LLM, exercises the whole machine deterministically)
-python -m tend construct --phase all --dbs financial --records 1 --stub --quiet
-
-# MongoDB-native smoke: per-database design code -> recipe -> manifest-driven NL-MQL
-python -m tend construct --construction-mode native --phase all --dbs financial --records 2 --stub --quiet --run-id native-smoke
+# native smoke, offline
+python -m tend construct --phase all --dbs financial --records 2 --stub --quiet --run-id native-smoke
 python -m tend validate --dataset-dir runs/native-smoke/dataset --smoke
 
-# live (DeepSeek per .env) — Phase A only
+# native Phase A only
 python -m tend construct --phase A --dbs financial
 
-# all 11 dbs
+# all registered BIRD mini-dev databases
 python -m tend construct --phase all --dbs all --records 20
 
-# complete native benchmark target: all 11 dbs, 100 records per db
-python -m tend construct --construction-mode native --phase all --dbs all --records-per-db 100 --stub --quiet --run-id native-full-11db
+# full benchmark-style target: all 11 dbs, fixed records per db
+python -m tend construct --phase all --dbs all --records-per-db 100 --stub --quiet --run-id native-full-11db
 python -m tend validate --dataset-dir runs/native-full-11db/dataset
-
-# full financial source workload + uncapped MongoDB export
-python -m tend construct --phase all --dbs financial --records all --full-db
 ```
 
-Everything for a run lands under `runs/<run_id>/`; by default `tend construct`
-writes dataset assets under `runs/<run_id>/dataset/` (`mongodb_schema/`,
-`mongodb_data/`, `agent_design_rationale/`, `test.json`, `TEND.json`,
-`bird_db_catalog.json`). `--records all` resolves to the selected BIRD workload count
-before Phase B starts and schedules source-full structural-schema-flex slots rather than
-lower-tier composition padding. When sparse optional embeds are available, the source-full
-planner prefers those cells because Phase A materializes them as MongoDB `__variants` that
-live gold-lock can verify. `--full-db` disables the deterministic migration reference-table
-cap, so large fact collections such as `financial.trans` are exported completely. The
-explicit release-copy step writes `release/TEND-dataset/`.
+`tend construct` is native-only. There is no `--construction-mode`, `--full-db`, or
+`--structural-fraction` flag. `--records all` resolves to the selected BIRD workload
+count. `--phase B` requires Phase A artifacts in the same process and fails closed
+when they are absent; the CLI intentionally does not implement disk resume.
 
-## Construction Modes
+Everything for a run lands under `runs/<run_id>/`; by default construction writes
+dataset assets under `runs/<run_id>/dataset/`:
 
-`--construction-mode legacy` is the default and preserves the original route:
-`WP/SRA/SC` provide design context and review while deterministic `DM` derives a
-document-aggregate migration from foreign-key structure.
+- `mongodb_schema/`
+- `mongodb_data/`
+- `agent_design_rationale/`
+- `migration_recipe/`
+- `native_feature_manifest/`
+- `provenance/`
+- `bird_db_catalog.json`
+- `test.json`
+- `TEND.json`
 
-`--construction-mode native` is a separate route. It does not use a generic
-relational-to-Mongo conversion. Instead, every BIRD database has a checked-in module under
-`src/tend/construct/native_designs/` that encodes its table and field semantics. Shared
-helpers are allowed, but the database module decides which real fields become
-polymorphic collections, dynamic-key objects, derived tag arrays, nested event streams,
-or related native structures. Native mode fails closed when a selected `db_id` has no
-registered design module.
+## Native Phase A
 
-Native Phase A writes the legacy-visible assets plus native-specific review artifacts:
+Native Phase A is database-design-code-first. Each module under
+`src/tend/construction/designs/` encodes the actual semantics of one BIRD database:
+tables, fields, foreign keys, source workloads, value distributions, and domain
+concepts. Shared helpers are allowed, but the design module decides which real source
+fields become MongoDB-native structures such as:
 
-- `migration_recipe/<db_id>.yaml`
-- `native_feature_manifest/<db_id>.yaml`
-- `provenance/<db_id>.json`
+- polymorphic collections
+- dynamic key objects
+- derived tag arrays
+- nested event streams
+- attribute bags
+- versioned fields
+- missing-vs-present structures
 
-`provenance/<db_id>.json` records `conversion_code_ref` so a native DataWorld can be
-traced back to the exact conversion module and source-column/derived-rule lineage.
-Native Phase B plans slots from `native_feature_manifest`, compiles deterministic gold
-MQL patterns such as dynamic-key comparison and subtype dispatch, verifies MongoDB-native
-construct usage, and records metadata including `native_feature_id`,
-`native_query_pattern`, `mongo_native_constructs`, `anti_sql_transfer_level`,
-`provenance_refs`, and `migration_recipe_ref`.
+Registered modules are listed in `construction/designs/registry.py`. Selecting an
+unregistered `db_id` raises a construction error rather than falling back to a generic
+migration. `provenance/<db_id>.json` records `conversion_code_ref` values such as
+`tend.construction.designs.financial`, linking artifacts back to their exact code and
+source-column lineage.
 
-## Logging & anomaly capture (for operators / Claude Code)
+## Native Phase B
 
-Triage starts at one file: `runs/<run_id>/anomalies.jsonl`. Every line is a structured
-anomaly with `anomaly` (kind), `message`, the bound context (`db_id`/`record_id`/`agent`),
-and — for LLM faults — a `transcript_ref` pointing at
-`runs/<run_id>/llm/<agent>/<call_id>.md` plus a `diagnostics_ref` sidecar at
-`runs/<run_id>/llm/<agent>/<call_id>.diagnostics.json`. The Markdown transcript is the
-human/agent triage view; the diagnostics JSON preserves the full structured payload.
-Prompt anomalies (malformed/oversize prompts) are captured too. `events.jsonl` is the full
-event stream.
+Native Phase B reads `NativeFeatureManifest` objects produced by Phase A and plans
+coverage slots directly from native features. Gold MQL is compiled deterministically
+from feature type and query pattern, then structurally verified before record output.
+The main feature families are:
 
-Anomaly kinds: `api_error`, `rate_limit`, `timeout`, `empty_response`, `truncated`,
-`refusal`, `prompt_malformed`, `context_overflow`, `parse_error`, `schema_invalid`,
-`contract_violation`, `exec_error`, `disabled_operator`, `gold_lock_failed`,
-`gate_failed`, `migration_error`, `supply_exhausted`, `internal`.
+- dynamic key comparison
+- subtype field dispatch
+- tag combination logic
+- nested event filtering
+- missing-vs-present expressions
 
-## Progress
+Records include native metadata such as `native_feature_id`, `native_query_pattern`,
+`mongo_native_constructs`, `anti_sql_transfer_level`, `provenance_refs`, and
+`migration_recipe_ref`.
 
-A live terminal tree (phase → db/records → agent tasks) with running/ok/fail/retry
-counters, anomaly counts, and watched warning/retry/reject alert counts. Disabled with
-`--quiet` (or off-TTY), which still writes `progress.jsonl` snapshots.
+## Prompts
 
-## The dynamic workflow
+The active prompt directory `proposals/agent_prompts/` contains only prompts still
+loaded by runtime code:
 
-`Workflow` is the engine; the work-list is discovered at runtime (dbs from the source,
-records from coverage slots). `run_phase_a` fans out one sub-agent chain per db in
-parallel; `run_phase_b` pipelines records through the 8-agent chain with bounded feedback
-loops (SC→SRA, MS gold-lock retry, RTV→NLP, etc.). Each `agent(...)` call dynamically
-spawns one concurrency-limited sub-agent whose lifecycle is logged and shown in progress.
+- `native_migration_designer.md`
+- `native_nl_generator.md`
+- `smart_intent_formalizer.md`
+- `smart_nosql_planner.md`
 
-## Status / next
+Legacy construction prompts are archived under
+`proposals/archive/legacy_agent_prompts/` and are not part of the active runtime.
 
-- **Done**: legacy pipeline runs stub end-to-end and live `financial` Phase A/B; deterministic
-  migration can run capped for fast iteration or uncapped via `--full-db`; legacy Phase B uses
-  the census-driven coverage controller and emits validated NL-MQL records. Native mode now
-  supports all 11 BIRD databases through per-database conversion modules and has a validated
-  stub release path with 100 native NL-MQL records per database.
-- **Next**: run the native path with live LLM wording/review where desired, then tune the
-  database-specific conversion modules from benchmark-quality audits rather than replacing them
-  with a generic migration rule.
+## Logging And Anomaly Capture
+
+Triage starts at `runs/<run_id>/anomalies.jsonl`. Every line is a structured anomaly
+with kind, message, bound context, and, for LLM faults, a transcript reference under
+`runs/<run_id>/llm/<agent>/<call_id>.md` plus a diagnostics JSON sidecar. `events.jsonl`
+is the complete event stream; `progress.jsonl` stores progress snapshots even when
+`--quiet` disables the live UI.
+
+## Status
+
+The active construction stack supports all 11 BIRD mini-dev databases through
+database-specific native design modules and manifest-driven Phase B. The repository's
+final dataset artifact, statistics, provenance, and audit evidence are tracked under
+`runs/native-variant-11db-110distinct-final3/`; large MongoDB witness data is referenced
+through the artifact notes rather than stored directly in Git.

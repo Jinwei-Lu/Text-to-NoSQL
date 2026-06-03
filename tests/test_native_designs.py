@@ -51,16 +51,16 @@ def _fixture_schema(
 
 
 def test_native_design_registry_covers_each_bird_minidev_db():
-    from tend.construct.native_designs.registry import NATIVE_DESIGN_MODULES
+    from tend.construction.designs.registry import NATIVE_DESIGN_MODULES
 
     assert set(NATIVE_DESIGN_MODULES) == set(BIRD_DBS)
     for db_id, module_ref in NATIVE_DESIGN_MODULES.items():
-        assert module_ref == f"tend.construct.native_designs.{db_id}"
+        assert module_ref == f"tend.construction.designs.{db_id}"
 
 
 def test_native_designs_build_verified_database_specific_recipes():
-    from tend.construct.native_designs.registry import build_native_recipe_for_db
-    from tend.construct.native_recipe import NATIVE_TRANSFORMS, verify_native_recipe
+    from tend.construction.designs.registry import build_native_recipe_for_db
+    from tend.construction.recipe import NATIVE_TRANSFORMS, verify_native_recipe
 
     source = _bird_source()
 
@@ -79,21 +79,21 @@ def test_native_designs_build_verified_database_specific_recipes():
         assert any(transform.type == "dynamic_key_object" for transform in transforms)
         assert sum(transform.type in NATIVE_TRANSFORMS for transform in transforms) >= 2
         assert any(
-            f"tend.construct.native_designs.{db_id}" in transform.raw.get("design_module", "")
+            f"tend.construction.designs.{db_id}" in transform.raw.get("design_module", "")
             for transform in transforms
         )
 
 
 def test_native_design_registry_fails_closed_for_unknown_db():
-    from tend.construct.native_designs.registry import build_native_recipe_for_db
+    from tend.construction.designs.registry import build_native_recipe_for_db
 
     with pytest.raises(MigrationError, match="no native design module"):
         build_native_recipe_for_db(_bird_source(), "not_a_bird_db")
 
 
 def test_financial_bank_account_tags_cover_source_local_and_derived_rules():
-    from tend.construct.native_designs.financial import build_native_recipe
-    from tend.construct.native_executor import execute_native_recipe
+    from tend.construction.designs.financial import build_native_recipe
+    from tend.construction.executor import execute_native_recipe
 
     conn = sqlite3.connect(":memory:")
     conn.executescript(
@@ -269,8 +269,8 @@ def test_financial_bank_account_tags_cover_source_local_and_derived_rules():
 
 
 def test_student_club_declared_event_and_member_tags_materialize():
-    from tend.construct.native_designs.student_club import build_native_recipe
-    from tend.construct.native_executor import execute_native_recipe
+    from tend.construction.designs.student_club import build_native_recipe
+    from tend.construction.executor import execute_native_recipe
 
     conn = sqlite3.connect(":memory:")
     conn.executescript(
@@ -420,8 +420,8 @@ def test_student_club_declared_event_and_member_tags_materialize():
 
 
 def test_california_schools_design_materializes_frpm_snapshot_stream():
-    from tend.construct.native_designs.california_schools import build_native_recipe
-    from tend.construct.native_executor import execute_native_recipe
+    from tend.construction.designs.california_schools import build_native_recipe
+    from tend.construction.executor import execute_native_recipe
 
     conn = sqlite3.connect(":memory:")
     conn.executescript(

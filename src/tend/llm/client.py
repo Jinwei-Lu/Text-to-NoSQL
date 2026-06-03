@@ -42,8 +42,8 @@ from ..errors import (
     TruncatedResponseError,
 )
 from ..observability import RunLogger
+from .types import Message, ToolChoice, ToolLLMResult, ToolSchema, parse_tool_calls
 
-Message = dict[str, str]                       # {"role": ..., "content": ...}
 StubFn = Callable[[str, list[Message], dict | None], "str | dict[str, Any]"]
 
 _REFUSAL_MARKERS = (
@@ -420,6 +420,179 @@ class LLMClient:
             raise err from exc
 
     # ------------------------------------------------------------------ #
+    async def complete_with_tools(
+        self,
+        *,
+        agent: str,
+        messages: list[Message],
+        tools: list[ToolSchema],
+        logger: RunLogger | None = None,
+        tool_choice: ToolChoice | None = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        stream: bool = True,
+        first_token_timeout_s: float = 6.0,
+    ) -> ToolLLMResult:
+        """Run one provider-native tool-call completion.
+
+        This is intentionally separate from :meth:`complete`: JSON parsing/schema repair
+        remains the structured-output contract, while SMART-EG can use native provider
+        tool calls with the same transcript, retry, and anomaly behavior.
+        """
+        log = (logger or self._log).bind(agent=agent)
+        call_id = uuid4().hex[:12]
+        model = model or self._s.llm.model_for(agent)
+        temperature = self._s.llm.temperature if temperature is None else temperature
+        max_tokens = max_tokens or self._s.llm.max_tokens
+
+        convo = list(messages)
+        attempts: list[dict[str, Any]] = []
+        t0 = time.monotonic()
+        try:
+            prompt_chars = sum(
+                len(str(m.get("content", ""))) if isinstance(m, dict) else 0
+                for m in convo
+            )
+            start_ref = log.save_transcript(agent, call_id, {
+                "model": model,
+                "messages": convo,
+                "tools": tools,
+                "tool_choice": tool_choice,
+                "stream": stream,
+                "first_token_timeout_s": first_token_timeout_s,
+                "attempts": attempts,
+                "started": True,
+            })
+            start_diagnostics_ref = _diagnostics_ref_from_transcript(start_ref)
+            log.info(
+                "llm_call_start",
+                agent=agent,
+                call_id=call_id,
+                model=model,
+                message_count=len(convo),
+                prompt_chars=prompt_chars,
+                tools_count=len(tools),
+                stream=stream,
+                first_token_timeout_s=first_token_timeout_s,
+                transcript_ref=start_ref,
+                diagnostics_ref=start_diagnostics_ref,
+            )
+            if self._s.llm.prompt_warn_chars > 0 and prompt_chars >= self._s.llm.prompt_warn_chars:
+                log.warning(
+                    "llm_prompt_size_warning",
+                    agent=agent,
+                    call_id=call_id,
+                    model=model,
+                    prompt_chars=prompt_chars,
+                    threshold_chars=self._s.llm.prompt_warn_chars,
+                    transcript_ref=start_ref,
+                    diagnostics_ref=start_diagnostics_ref,
+                )
+            self._validate_prompt(convo, agent, call_id)
+            self._validate_tools(tools, tool_choice, agent, call_id)
+            text, finish, usage, raw, tool_calls, fallback = await self._send_tools_with_retries(
+                agent,
+                call_id,
+                model,
+                convo,
+                temperature,
+                max_tokens,
+                tools,
+                tool_choice,
+                stream,
+                first_token_timeout_s,
+                attempts,
+                log,
+                transcript_ref=start_ref,
+                diagnostics_ref=start_diagnostics_ref,
+            )
+            return self._finish_tools(
+                agent,
+                call_id,
+                model,
+                text,
+                finish,
+                usage,
+                raw,
+                tool_calls,
+                t0,
+                attempts,
+                log,
+                messages=convo,
+                tools=tools,
+                tool_choice=tool_choice,
+                stream=stream,
+                first_token_timeout_s=first_token_timeout_s,
+                tool_choice_fallback=fallback,
+            )
+        except LLMError as err:
+            ref = log.save_transcript(agent, call_id, {
+                "model": model,
+                "messages": convo,
+                "tools": tools,
+                "tool_choice": tool_choice,
+                "stream": stream,
+                "first_token_timeout_s": first_token_timeout_s,
+                "attempts": attempts,
+                "failed": True,
+                "error": err.to_record(),
+            })
+            diagnostics_ref = _diagnostics_ref_from_transcript(ref)
+            err.with_context(
+                agent=agent,
+                call_id=call_id,
+                model=model,
+                transcript_ref=ref,
+                diagnostics_ref=diagnostics_ref,
+            )
+            log.anomaly(
+                err,
+                transcript_ref=ref,
+                diagnostics_ref=diagnostics_ref,
+                call_id=call_id,
+            )
+            raise
+        except Exception as exc:  # noqa: BLE001 - preserve prompt context for LLM-layer bugs
+            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            ref = log.save_transcript(agent, call_id, {
+                "model": model,
+                "messages": convo,
+                "tools": tools,
+                "tool_choice": tool_choice,
+                "stream": stream,
+                "first_token_timeout_s": first_token_timeout_s,
+                "attempts": attempts,
+                "failed": True,
+                "unexpected_exception": {
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                    "traceback": tb,
+                },
+            })
+            err = LLMError(
+                f"unexpected LLM tool client error: {type(exc).__name__}: {exc}",
+                anomaly=Anomaly.INTERNAL,
+                context={
+                    "agent": agent,
+                    "call_id": call_id,
+                    "model": model,
+                    "transcript_ref": ref,
+                    "diagnostics_ref": _diagnostics_ref_from_transcript(ref),
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                    "traceback": tb,
+                },
+            )
+            log.anomaly(
+                err,
+                transcript_ref=ref,
+                diagnostics_ref=_diagnostics_ref_from_transcript(ref),
+                call_id=call_id,
+            )
+            raise err from exc
+
+    # ------------------------------------------------------------------ #
     def _validate_prompt(self, messages: list[Message], agent: str, call_id: str) -> None:
         if not messages:
             raise PromptAnomalyError("empty message list", context={"agent": agent})
@@ -430,12 +603,13 @@ class LLMClient:
                     context={"agent": agent, "call_id": call_id, "index": i,
                              "message_type": type(m).__name__},
                 )
-            if "role" not in m or "content" not in m:
+            role = m.get("role")
+            allows_empty_assistant_content = role == "assistant" and bool(m.get("tool_calls"))
+            if "role" not in m or ("content" not in m and not allows_empty_assistant_content):
                 raise PromptAnomalyError(
                     "message missing role/content",
                     context={"agent": agent, "index": i, "keys": list(m)},
                 )
-            role = m.get("role")
             if role not in _ALLOWED_ROLES:
                 raise PromptAnomalyError(
                     "message role is not supported",
@@ -459,7 +633,11 @@ class LLMClient:
                         "unsupported_keys": extra_keys,
                     },
                 )
-            if not isinstance(m["content"], str) or not m["content"].strip():
+            content = m.get("content", "")
+            if (
+                (not isinstance(content, str) or not content.strip())
+                and not allows_empty_assistant_content
+            ):
                 raise PromptAnomalyError(
                     "message content empty or non-string",
                     context={
@@ -469,6 +647,175 @@ class LLMClient:
                         "role": m.get("role"),
                     },
                 )
+        self._validate_tool_message_pairs(messages, agent, call_id)
+
+    def _validate_tools(
+        self,
+        tools: list[ToolSchema],
+        tool_choice: ToolChoice | None,
+        agent: str,
+        call_id: str,
+    ) -> None:
+        if not isinstance(tools, list) or not tools:
+            raise PromptAnomalyError(
+                "tools must be a non-empty list",
+                context={"agent": agent, "call_id": call_id, "tools_type": type(tools).__name__},
+            )
+        names: set[str] = set()
+        for i, tool in enumerate(tools):
+            if not isinstance(tool, dict) or tool.get("type") != "function":
+                raise PromptAnomalyError(
+                    "tool schema must be an OpenAI function tool",
+                    context={"agent": agent, "call_id": call_id, "index": i, "tool": tool},
+                )
+            function = tool.get("function")
+            if not isinstance(function, dict):
+                raise PromptAnomalyError(
+                    "tool schema missing function object",
+                    context={"agent": agent, "call_id": call_id, "index": i},
+                )
+            name = function.get("name")
+            parameters = function.get("parameters")
+            if not isinstance(name, str) or not name.strip():
+                raise PromptAnomalyError(
+                    "tool function missing name",
+                    context={"agent": agent, "call_id": call_id, "index": i},
+                )
+            if parameters is not None and not isinstance(parameters, dict):
+                raise PromptAnomalyError(
+                    "tool function parameters must be a JSON schema object",
+                    context={"agent": agent, "call_id": call_id, "index": i, "name": name},
+                )
+            names.add(name)
+        if tool_choice is None or isinstance(tool_choice, str):
+            return
+        if not isinstance(tool_choice, dict):
+            raise PromptAnomalyError(
+                "tool_choice must be a string or OpenAI tool choice object",
+                context={
+                    "agent": agent,
+                    "call_id": call_id,
+                    "tool_choice_type": type(tool_choice).__name__,
+                },
+            )
+        choice_function = tool_choice.get("function")
+        choice_name = choice_function.get("name") if isinstance(choice_function, dict) else None
+        if tool_choice.get("type") != "function" or not isinstance(choice_name, str):
+            raise PromptAnomalyError(
+                "tool_choice must name a function tool",
+                context={"agent": agent, "call_id": call_id, "tool_choice": tool_choice},
+            )
+        if choice_name not in names:
+            raise PromptAnomalyError(
+                "tool_choice names an unknown tool",
+                context={
+                    "agent": agent,
+                    "call_id": call_id,
+                    "tool_choice": tool_choice,
+                    "available_tools": sorted(names),
+                },
+            )
+
+    def _validate_tool_message_pairs(
+        self,
+        messages: list[Message],
+        agent: str,
+        call_id: str,
+    ) -> None:
+        pending: set[str] = set()
+        for i, message in enumerate(messages):
+            role = message.get("role")
+            if role == "assistant":
+                if pending:
+                    raise PromptAnomalyError(
+                        "assistant tool_calls missing tool result messages",
+                        context={
+                            "agent": agent,
+                            "call_id": call_id,
+                            "index": i,
+                            "missing_tool_call_ids": sorted(pending),
+                        },
+                    )
+                tool_calls = message.get("tool_calls") or []
+                if not tool_calls:
+                    continue
+                if not isinstance(tool_calls, list):
+                    raise PromptAnomalyError(
+                        "assistant tool_calls must be a list",
+                        context={"agent": agent, "call_id": call_id, "index": i},
+                    )
+                pending = set()
+                for j, call in enumerate(tool_calls):
+                    if not isinstance(call, dict):
+                        raise PromptAnomalyError(
+                            "assistant tool_call must be an object",
+                            context={
+                                "agent": agent,
+                                "call_id": call_id,
+                                "index": i,
+                                "tool_call_index": j,
+                            },
+                        )
+                    call_id_value = call.get("id")
+                    function = call.get("function")
+                    if (
+                        not isinstance(call_id_value, str)
+                        or not call_id_value.strip()
+                        or call.get("type") != "function"
+                        or not isinstance(function, dict)
+                        or not isinstance(function.get("name"), str)
+                        or not isinstance(function.get("arguments"), str)
+                    ):
+                        raise PromptAnomalyError(
+                            "assistant tool_call is not OpenAI-compatible",
+                            context={
+                                "agent": agent,
+                                "call_id": call_id,
+                                "index": i,
+                                "tool_call_index": j,
+                            },
+                        )
+                    pending.add(call_id_value)
+                continue
+            if role == "tool":
+                tool_call_id = message.get("tool_call_id")
+                if not isinstance(tool_call_id, str) or not tool_call_id.strip():
+                    raise PromptAnomalyError(
+                        "tool result message missing tool_call_id",
+                        context={"agent": agent, "call_id": call_id, "index": i},
+                    )
+                if tool_call_id not in pending:
+                    raise PromptAnomalyError(
+                        "tool message has no matching assistant tool_call",
+                        context={
+                            "agent": agent,
+                            "call_id": call_id,
+                            "index": i,
+                            "tool_call_id": tool_call_id,
+                            "pending_tool_call_ids": sorted(pending),
+                        },
+                    )
+                pending.remove(tool_call_id)
+                continue
+            if pending:
+                raise PromptAnomalyError(
+                    "assistant tool_calls missing tool result messages",
+                    context={
+                        "agent": agent,
+                        "call_id": call_id,
+                        "index": i,
+                        "missing_tool_call_ids": sorted(pending),
+                    },
+                )
+        if pending:
+            raise PromptAnomalyError(
+                "assistant tool_calls missing tool result messages",
+                context={
+                    "agent": agent,
+                    "call_id": call_id,
+                    "missing_tool_call_ids": sorted(pending),
+                },
+            )
 
     async def _send_with_transport_retries(
         self, agent: str, call_id: str, model: str, convo: list[Message],
@@ -515,6 +862,132 @@ class LLMClient:
         assert last is not None
         raise last
 
+    async def _send_tools_with_retries(
+        self,
+        agent: str,
+        call_id: str,
+        model: str,
+        convo: list[Message],
+        temperature: float,
+        max_tokens: int,
+        tools: list[ToolSchema],
+        tool_choice: ToolChoice | None,
+        stream: bool,
+        first_token_timeout_s: float,
+        attempts: list[dict[str, Any]],
+        log: RunLogger,
+        *,
+        transcript_ref: str,
+        diagnostics_ref: str,
+    ) -> tuple[str, str | None, dict[str, int], Any, list[dict[str, Any]], bool]:
+        last: LLMError | None = None
+        active_tool_choice = tool_choice
+        fallback_used = False
+        retries_used = 0
+        send_index = 0
+        while True:
+            t0 = time.monotonic()
+            try:
+                text, finish, usage, raw, tool_calls = await self._raw_tool_call(
+                    agent,
+                    model,
+                    convo,
+                    temperature,
+                    max_tokens,
+                    tools,
+                    active_tool_choice,
+                    stream,
+                    first_token_timeout_s,
+                )
+                provider_metadata = _provider_metadata(raw, finish)
+                attempts.append({
+                    "attempt": send_index,
+                    "kind": "tool_send",
+                    "finish_reason": finish,
+                    "usage": usage,
+                    "latency_s": round(time.monotonic() - t0, 3),
+                    "response": text,
+                    "response_preview": text[:500],
+                    "tool_calls": tool_calls,
+                    "provider_metadata": provider_metadata,
+                    "raw_response": _json_safe(raw),
+                    "stream": stream,
+                    "first_token_timeout_s": first_token_timeout_s,
+                    "tool_choice": active_tool_choice,
+                })
+                self._check_tool_response(
+                    text,
+                    tool_calls,
+                    finish,
+                    agent,
+                    provider_metadata=provider_metadata,
+                )
+                return text, finish, usage, raw, tool_calls, fallback_used
+            except LLMError as err:
+                last = err
+                attempts.append({
+                    "attempt": send_index,
+                    "kind": "tool_send_error",
+                    "latency_s": round(time.monotonic() - t0, 3),
+                    "error": err.to_record(),
+                    "stream": stream,
+                    "first_token_timeout_s": first_token_timeout_s,
+                    "tool_choice": active_tool_choice,
+                })
+                if isinstance(err, LLMTimeoutError):
+                    timeout_event = (
+                        "llm_stream_first_token_timeout"
+                        if "first token" in err.message
+                        else "llm_stream_inter_token_timeout"
+                    )
+                    log.warning(
+                        timeout_event,
+                        agent=agent,
+                        call_id=call_id,
+                        model=model,
+                        attempt=send_index,
+                        first_token_timeout_s=first_token_timeout_s,
+                        transcript_ref=transcript_ref,
+                        diagnostics_ref=diagnostics_ref,
+                    )
+                if (
+                    active_tool_choice is not None
+                    and not fallback_used
+                    and self._should_fallback_tool_choice(err)
+                ):
+                    log.warning(
+                        "llm_tool_choice_fallback",
+                        agent=agent,
+                        call_id=call_id,
+                        model=model,
+                        requested_tool_choice=active_tool_choice,
+                        reason=err.message,
+                        transcript_ref=transcript_ref,
+                        diagnostics_ref=diagnostics_ref,
+                    )
+                    active_tool_choice = None
+                    fallback_used = True
+                    send_index += 1
+                    continue
+                if not err.retryable or retries_used >= self._s.llm.max_retries:
+                    raise
+                delay = min(8.0, 0.5 * (2 ** retries_used)) + random.uniform(0, 0.3)
+                log.warning(
+                    "llm_transport_retry",
+                    agent=agent,
+                    call_id=call_id,
+                    attempt=send_index,
+                    anomaly=err.anomaly.value if err.anomaly else None,
+                    delay_s=round(delay, 2),
+                    transcript_ref=transcript_ref,
+                    diagnostics_ref=diagnostics_ref,
+                )
+                retries_used += 1
+                send_index += 1
+                await asyncio.sleep(delay)
+        assert last is not None
+        raise last
+
     async def _raw_call(
         self, agent: str, model: str, convo: list[Message],
         temperature: float, max_tokens: int,
@@ -543,6 +1016,141 @@ class LLMClient:
             usage["reasoning_preview"] = str(reasoning)[:1200]
         return text, choice.finish_reason, usage, resp
 
+    async def _raw_tool_call(
+        self,
+        agent: str,
+        model: str,
+        convo: list[Message],
+        temperature: float,
+        max_tokens: int,
+        tools: list[ToolSchema],
+        tool_choice: ToolChoice | None,
+        stream: bool,
+        first_token_timeout_s: float,
+    ) -> tuple[str, str | None, dict[str, int], Any, list[dict[str, Any]]]:
+        if self._s.stub:
+            return self._stub_tool_call(agent, convo)
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": convo,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "tools": tools,
+            "stream": stream,
+        }
+        if tool_choice is not None:
+            kwargs["tool_choice"] = tool_choice
+        if stream:
+            kwargs["stream_options"] = {"include_usage": True}
+        async with (self._sem or nullcontext()):
+            try:
+                resp = await self._client.chat.completions.create(**kwargs)
+            except Exception as exc:  # noqa: BLE001 - mapped to typed anomalies below
+                raise self._map_provider_error(exc) from exc
+        if stream:
+            return await self._collect_tool_stream(resp, first_token_timeout_s)
+        choice = resp.choices[0]
+        message = choice.message
+        text = getattr(message, "content", None) or ""
+        usage = self._usage_dict(getattr(resp, "usage", None))
+        reasoning = getattr(message, "reasoning_content", None)
+        if reasoning:
+            usage["reasoning_preview"] = str(reasoning)[:1200]
+        tool_calls = self._normalize_tool_calls(getattr(message, "tool_calls", None))
+        return text, choice.finish_reason, usage, resp, tool_calls
+
+    async def _collect_tool_stream(
+        self,
+        stream_resp: Any,
+        first_token_timeout_s: float,
+    ) -> tuple[str, str | None, dict[str, int], Any, list[dict[str, Any]]]:
+        iterator = stream_resp.__aiter__()
+        try:
+            if first_token_timeout_s > 0:
+                first_chunk = await asyncio.wait_for(
+                    anext(iterator),
+                    timeout=first_token_timeout_s,
+                )
+            else:
+                first_chunk = await anext(iterator)
+        except StopAsyncIteration as exc:
+            raise EmptyResponseError("provider stream ended before first token") from exc
+        except asyncio.TimeoutError as exc:
+            raise LLMTimeoutError(
+                "provider stream first token timeout",
+                context={"first_token_timeout_s": first_token_timeout_s},
+            ) from exc
+
+        chunks = [first_chunk]
+        while True:
+            try:
+                if first_token_timeout_s > 0:
+                    chunk = await asyncio.wait_for(
+                        anext(iterator),
+                        timeout=first_token_timeout_s,
+                    )
+                else:
+                    chunk = await anext(iterator)
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError as exc:
+                raise LLMTimeoutError(
+                    "provider stream inter-token timeout",
+                    context={"first_token_timeout_s": first_token_timeout_s},
+                ) from exc
+            chunks.append(chunk)
+        return self._assemble_tool_stream_chunks(chunks)
+
+    def _assemble_tool_stream_chunks(
+        self,
+        chunks: list[Any],
+    ) -> tuple[str, str | None, dict[str, int], Any, list[dict[str, Any]]]:
+        text_parts: list[str] = []
+        finish: str | None = None
+        usage: dict[str, int] = {}
+        tool_calls_by_index: dict[int, dict[str, Any]] = {}
+        raw_chunks: list[Any] = []
+        for chunk in chunks:
+            raw_chunks.append(_json_safe(chunk))
+            chunk_usage = self._usage_dict(self._get(chunk, "usage"))
+            if chunk_usage:
+                usage = chunk_usage
+            for choice in self._get(chunk, "choices", []) or []:
+                finish = self._get(choice, "finish_reason") or finish
+                delta = self._get(choice, "delta", {}) or {}
+                content = self._get(delta, "content")
+                if content:
+                    text_parts.append(str(content))
+                for call_delta in self._get(delta, "tool_calls", []) or []:
+                    index = self._get(call_delta, "index")
+                    if not isinstance(index, int):
+                        index = len(tool_calls_by_index)
+                    item = tool_calls_by_index.setdefault(
+                        index,
+                        {"id": "", "type": "function", "function": {"name": "", "arguments": ""}},
+                    )
+                    call_id = self._get(call_delta, "id")
+                    if call_id:
+                        item["id"] = str(call_id)
+                    call_type = self._get(call_delta, "type")
+                    if call_type:
+                        item["type"] = str(call_type)
+                    function = self._get(call_delta, "function")
+                    if function is not None:
+                        name = self._get(function, "name")
+                        if name:
+                            item["function"]["name"] = str(name)
+                        arguments = self._get(function, "arguments")
+                        if arguments:
+                            item["function"]["arguments"] += str(arguments)
+        tool_calls = [
+            call
+            for _index, call in sorted(tool_calls_by_index.items(), key=lambda item: item[0])
+            if call.get("id") or call.get("function", {}).get("name")
+        ]
+        raw = {"stream_chunks": raw_chunks}
+        return "".join(text_parts), finish, usage, raw, tool_calls
+
     def _stub_call(
         self, agent: str, convo: list[Message]
     ) -> tuple[str, str | None, dict[str, int], Any]:
@@ -552,6 +1160,77 @@ class LLMClient:
             payload = self._stub_fn(agent, convo, None)
         text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
         return text, "stop", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, None
+
+    def _stub_tool_call(
+        self,
+        agent: str,
+        convo: list[Message],
+    ) -> tuple[str, str | None, dict[str, int], Any, list[dict[str, Any]]]:
+        if self._stub_fn is None:
+            payload: str | dict = {"_stub": True, "agent": agent}
+        else:
+            payload = self._stub_fn(agent, convo, None)
+        if isinstance(payload, dict) and "tool_calls" in payload:
+            text = str(payload.get("content") or "")
+            tool_calls = self._normalize_tool_calls(payload.get("tool_calls"))
+            finish = "tool_calls" if tool_calls else "stop"
+            return text, finish, {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            }, payload, tool_calls
+        text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+        return text, "stop", {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }, payload, []
+
+    @staticmethod
+    def _get(value: Any, key: str, default: Any = None) -> Any:
+        if isinstance(value, dict):
+            return value.get(key, default)
+        return getattr(value, key, default)
+
+    @classmethod
+    def _usage_dict(cls, usage: Any) -> dict[str, int]:
+        if not usage:
+            return {}
+        out = {
+            "prompt_tokens": int(cls._get(usage, "prompt_tokens", 0) or 0),
+            "completion_tokens": int(cls._get(usage, "completion_tokens", 0) or 0),
+            "total_tokens": int(cls._get(usage, "total_tokens", 0) or 0),
+        }
+        return out
+
+    @classmethod
+    def _normalize_tool_calls(cls, tool_calls: Any) -> list[dict[str, Any]]:
+        safe = _json_safe(tool_calls)
+        if safe is None:
+            return []
+        if not isinstance(safe, list):
+            safe = [safe]
+        out: list[dict[str, Any]] = []
+        for call in safe:
+            if not isinstance(call, dict):
+                continue
+            function = call.get("function")
+            if not isinstance(function, dict):
+                function = {}
+            arguments = function.get("arguments", "")
+            if isinstance(arguments, (dict, list)):
+                arguments = json.dumps(arguments, ensure_ascii=False)
+            normalized = {
+                "id": str(call.get("id") or ""),
+                "type": str(call.get("type") or "function"),
+                "function": {
+                    "name": str(function.get("name") or ""),
+                    "arguments": str(arguments or ""),
+                },
+            }
+            if normalized["id"] or normalized["function"]["name"]:
+                out.append(normalized)
+        return out
 
     @staticmethod
     def _map_provider_error(exc: Exception) -> LLMError:
@@ -605,6 +1284,54 @@ class LLMClient:
         if len(low) < 120 and any(low.startswith(m) for m in _REFUSAL_MARKERS):
             raise RefusalError("response looks like a refusal",
                                context={"agent": agent, "preview": text[:200]})
+
+    @staticmethod
+    def _check_tool_response(
+        text: str,
+        tool_calls: list[dict[str, Any]],
+        finish: str | None,
+        agent: str,
+        *,
+        provider_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        refusal = _metadata_refusal(provider_metadata)
+        if refusal:
+            raise RefusalError(
+                "model returned a refusal",
+                context={
+                    "agent": agent,
+                    "finish_reason": finish,
+                    "refusal": _safe_repr(refusal, limit=500),
+                },
+            )
+        if finish == "length":
+            raise TruncatedResponseError("response truncated (finish_reason=length)",
+                                         context={
+                                             "agent": agent,
+                                             "finish_reason": finish,
+                                             "truncation": (
+                                                 provider_metadata or {}
+                                             ).get("truncation"),
+                                             "incomplete_details": (
+                                                 provider_metadata or {}
+                                             ).get("incomplete_details"),
+                                         })
+        if not text.strip() and not tool_calls:
+            raise EmptyResponseError("model returned empty content and no tool calls",
+                                     context={"agent": agent, "finish_reason": finish})
+
+    @staticmethod
+    def _should_fallback_tool_choice(err: LLMError) -> bool:
+        message = err.message.lower()
+        field = str(err.context.get("field") or "").lower()
+        return "tool_choice" in message or field == "tool_choice"
+
+    @staticmethod
+    def _cost_source(usage: dict[str, int]) -> str:
+        token_keys = ("prompt_tokens", "completion_tokens", "total_tokens")
+        if any(int(usage.get(key, 0) or 0) > 0 for key in token_keys):
+            return "api"
+        return "unavailable"
 
     @staticmethod
     def _repair_prompt(err: LLMError, schema: dict | None) -> str:
@@ -664,4 +1391,99 @@ class LLMClient:
             agent=agent, call_id=call_id, model=model, text=text, parsed=parsed,
             finish_reason=finish, usage=usage, latency_s=latency,
             attempts=len(attempts), transcript_ref=ref,
+        )
+
+    def _finish_tools(
+        self,
+        agent: str,
+        call_id: str,
+        model: str,
+        text: str,
+        finish: str | None,
+        usage: dict[str, int],
+        raw: Any,
+        tool_calls: list[dict[str, Any]],
+        t0: float,
+        attempts: list[dict[str, Any]],
+        log: RunLogger,
+        *,
+        messages: list[Message],
+        tools: list[ToolSchema],
+        tool_choice: ToolChoice | None,
+        stream: bool,
+        first_token_timeout_s: float,
+        tool_choice_fallback: bool,
+    ) -> ToolLLMResult:
+        latency = round(time.monotonic() - t0, 3)
+        provider_metadata = next(
+            (
+                item.get("provider_metadata")
+                for item in reversed(attempts)
+                if item.get("provider_metadata")
+            ),
+            None,
+        )
+        cost_source = self._cost_source(usage)
+        ref = log.save_transcript(agent, call_id, {
+            "model": model,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": tool_choice,
+            "tool_choice_fallback": tool_choice_fallback,
+            "stream": stream,
+            "first_token_timeout_s": first_token_timeout_s,
+            "attempts": attempts,
+            "response_text": text,
+            "tool_calls": tool_calls,
+            "finish_reason": finish,
+            "usage": usage,
+            "latency_s": latency,
+            "parsed_ok": None,
+            "provider_metadata": provider_metadata,
+            "raw_response": _json_safe(raw),
+            "cost_source": cost_source,
+        })
+        diagnostics_ref = _diagnostics_ref_from_transcript(ref)
+        if self._s.llm.slow_call_warn_s > 0 and latency >= self._s.llm.slow_call_warn_s:
+            log.warning(
+                "llm_slow_call",
+                agent=agent,
+                call_id=call_id,
+                model=model,
+                latency_s=latency,
+                threshold_s=self._s.llm.slow_call_warn_s,
+                attempts=len(attempts),
+                transcript_ref=ref,
+                diagnostics_ref=diagnostics_ref,
+            )
+        log.info("llm_call_ok", agent=agent, call_id=call_id, model=model,
+                 attempts=len(attempts), latency_s=latency,
+                 total_tokens=usage.get("total_tokens", 0),
+                 tool_calls=len(tool_calls),
+                 cost_source=cost_source,
+                 transcript_ref=ref, diagnostics_ref=diagnostics_ref)
+        parsed_tool_calls = parse_tool_calls(tool_calls)
+        assistant_message: Message = {"role": "assistant", "content": text}
+        if tool_calls:
+            assistant_message["tool_calls"] = tool_calls
+        cost = {
+            "source": cost_source,
+            "total_tokens": int(usage.get("total_tokens", 0) or 0),
+        }
+        return ToolLLMResult(
+            agent=agent,
+            call_id=call_id,
+            model=model,
+            assistant_message=assistant_message,
+            tool_calls=parsed_tool_calls,
+            cost=cost,
+            text=text,
+            finish_reason=finish,
+            usage=usage,
+            latency_s=latency,
+            attempts=len(attempts),
+            transcript_ref=ref,
+            diagnostics_ref=diagnostics_ref,
+            provider_metadata=provider_metadata or {},
+            tool_choice_fallback=tool_choice_fallback,
         )

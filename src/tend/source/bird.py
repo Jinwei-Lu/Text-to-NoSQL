@@ -1,8 +1,8 @@
 """BIRD mini-dev loader: schema, workload, column semantics, and SQLite probes.
 
-One :class:`BirdSource` is built per run and shared (read-only) by Phase A agents and
-the supply census. It is deliberately *pure data access* — no MongoDB design decisions
-live here (those belong to SRA). All SQLite access is read-only and connection-cached.
+One :class:`BirdSource` is built per construction run and shared read-only by native
+materializers, validators, and census helpers. It is deliberately pure data access:
+MongoDB design decisions live in `tend.construction.designs`.
 """
 from __future__ import annotations
 
@@ -217,7 +217,7 @@ class BirdSource:
         return self._conns[db_id]
 
     # ------------------------------------------------------------------ #
-    # SQLite probes (deterministic; used by census + WP + mechanism detectors)
+    # SQLite probes (deterministic; used by census and mechanism detectors)
     # ------------------------------------------------------------------ #
     @staticmethod
     def _q(name: str) -> str:

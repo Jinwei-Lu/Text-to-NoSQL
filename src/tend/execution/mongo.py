@@ -8,6 +8,7 @@ stub/offline runs that never execute don't require a reachable server.
 """
 from __future__ import annotations
 
+from collections import Counter
 import json
 import threading
 from typing import Any
@@ -15,7 +16,7 @@ from typing import Any
 from ..config import Settings
 from ..errors import ExecutionError
 from ..observability import RunLogger
-from .ast_check import parse_pipeline
+from .ast_check import assert_no_disabled, parse_pipeline
 from .signature import _canon, _FLOAT_NDIGITS
 
 # Server-side time bound for every aggregate. Indexed gold/round-trip queries finish in
@@ -24,6 +25,8 @@ from .signature import _canon, _FLOAT_NDIGITS
 # the whole run. A timed-out aggregate raises ExecutionTimeout -> ExecutionError, which PV
 # correctly treats as a discriminating (result-changing) mutation.
 _EXEC_MAX_TIME_MS = 30_000
+_PUBLIC_SAMPLE_LIMIT = 100
+_PUBLIC_PROBE_LIMIT = 100
 
 
 class MongoExecutor:
@@ -90,6 +93,95 @@ class MongoExecutor:
                 if isinstance(doc, dict)
             ]
         return out
+
+    def list_collections(self, db_id: str) -> list[dict[str, Any]]:
+        """Return a bounded public summary of collection names and approximate sizes."""
+        client = self._connect()
+        db = client[self._db_name(db_id)]
+        out: list[dict[str, Any]] = []
+        for collection in sorted(db.list_collection_names()):
+            try:
+                count = int(db[collection].estimated_document_count())
+            except Exception:  # noqa: BLE001 - fake/remote collections may not expose counts
+                count = 0
+            out.append({"collection": collection, "estimated_document_count": count})
+        return out
+
+    def sample_documents(
+        self,
+        db_id: str,
+        collection: str,
+        *,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        """Return a bounded public sample summary without raw documents."""
+        sample_limit = _bounded_read_limit(limit, default=5, maximum=_PUBLIC_SAMPLE_LIMIT)
+        docs = self._sample_documents_raw(db_id, collection, limit=sample_limit)
+        normalized = [_normalize_doc(doc) for doc in docs]
+        return {
+            "ok": True,
+            "db_id": db_id,
+            "collection": collection,
+            "limit": sample_limit,
+            "sample_count": len(normalized),
+            "result_shape": _summarize_documents_shape(normalized),
+            "redaction": {"raw_rows": False},
+        }
+
+    def _sample_documents_raw(
+        self,
+        db_id: str,
+        collection: str,
+        *,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Return a bounded JSON-safe sample for internal redacted tool computation."""
+        from bson import json_util
+
+        sample_limit = _bounded_read_limit(limit, default=5, maximum=_PUBLIC_SAMPLE_LIMIT)
+        client = self._connect()
+        docs = client[self._db_name(db_id)][collection].find({}, limit=sample_limit)
+        return [
+            json.loads(json_util.dumps(doc, default=str))
+            for doc in docs
+            if isinstance(doc, dict)
+        ]
+
+    def run_readonly_probe(
+        self,
+        db_id: str,
+        mql: str,
+        *,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Run a bounded read-only aggregate and return a result-shape summary.
+
+        The public probe rejects destructive/nondeterministic operators and always caps
+        execution with a root ``$limit``. It never returns raw result rows.
+        """
+        assert_no_disabled(mql)
+        collection, pipeline = parse_pipeline(mql)
+        forced_limit = _bounded_read_limit(limit, default=20, maximum=_PUBLIC_PROBE_LIMIT)
+        bounded_pipeline = _force_pipeline_limit(pipeline, forced_limit)
+        client = self._connect()
+        db = client[self._db_name(db_id)]
+        try:
+            raw = list(db[collection].aggregate(bounded_pipeline, maxTimeMS=_EXEC_MAX_TIME_MS))
+        except Exception as exc:  # noqa: BLE001 - pymongo/operator errors -> typed anomaly
+            raise ExecutionError(
+                "readonly probe execution failed",
+                context={"db_id": db_id, "collection": collection, "error": str(exc)[:300]},
+            ) from exc
+        docs = [_normalize_doc(doc) for doc in raw if isinstance(doc, dict)]
+        return {
+            "ok": True,
+            "db_id": db_id,
+            "collection": collection,
+            "stage_count": len(pipeline),
+            "forced_limit": forced_limit,
+            "result_count": len(docs),
+            "result_shape": _summarize_documents_shape(docs),
+        }
 
     # ------------------------------------------------------------------ #
     def load_witness(self, db_id: str, collections: dict[str, list[dict[str, Any]]]) -> None:
@@ -194,6 +286,97 @@ def _unify_number(v: Any) -> Any:
             return int(v)
         return round(v, _FLOAT_NDIGITS)
     return v
+
+
+def _bounded_read_limit(limit: int | None, *, default: int, maximum: int) -> int:
+    try:
+        parsed = int(limit) if limit is not None else default
+    except (TypeError, ValueError):
+        parsed = default
+    if parsed <= 0:
+        parsed = default
+    return min(parsed, maximum)
+
+
+def _force_pipeline_limit(pipeline: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    bounded: list[dict[str, Any]] = []
+    saw_limit = False
+    for stage in pipeline:
+        if not isinstance(stage, dict):
+            bounded.append(stage)
+            continue
+        copied = dict(stage)
+        if "$limit" in copied:
+            saw_limit = True
+            copied["$limit"] = _bounded_read_limit(
+                copied.get("$limit"),
+                default=limit,
+                maximum=limit,
+            )
+        bounded.append(copied)
+    if not saw_limit:
+        bounded.append({"$limit": limit})
+    return bounded
+
+
+def _summarize_documents_shape(docs: list[dict[str, Any]]) -> dict[str, Any]:
+    paths: dict[str, Counter[str]] = {}
+    for doc in docs:
+        _walk_doc_shape(doc, (), paths)
+    return {
+        "document_count": len(docs),
+        "paths": {
+            path: {"type_counts": dict(sorted(counts.items()))}
+            for path, counts in sorted(paths.items())
+        },
+    }
+
+
+def _walk_doc_shape(value: Any, path: tuple[str, ...], paths: dict[str, Counter[str]]) -> None:
+    if isinstance(value, dict):
+        if path:
+            paths.setdefault(_shape_path(path), Counter())["object"] += 1
+        for key, child in value.items():
+            _walk_doc_shape(child, path + (str(key),), paths)
+        return
+    if isinstance(value, list):
+        if path:
+            paths.setdefault(_shape_path(path), Counter())["array"] += 1
+        for item in value:
+            if isinstance(item, dict):
+                _walk_doc_shape(item, path + ("[]",), paths)
+            else:
+                paths.setdefault(_shape_path(path + ("[]",)), Counter())[_shape_kind(item)] += 1
+        return
+    if path:
+        paths.setdefault(_shape_path(path), Counter())[_shape_kind(value)] += 1
+
+
+def _shape_path(path: tuple[str, ...]) -> str:
+    out: list[str] = []
+    for part in path:
+        if part == "[]":
+            if out:
+                out[-1] += "[]"
+            else:
+                out.append("[]")
+        else:
+            out.append(part)
+    return ".".join(out)
+
+
+def _shape_kind(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return "int"
+    if isinstance(value, float):
+        return "float"
+    if isinstance(value, str):
+        return "str"
+    return type(value).__name__
 
 
 def _doc_key(doc: Any) -> str:

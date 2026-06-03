@@ -22,7 +22,6 @@ def clean_cli_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "TEND_DATASET_OUT",
         "TEND_LLM_STUB",
         "TEND_QUIET",
-        "TEND_MIGRATION_REF_SAMPLE_CAP",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -68,10 +67,10 @@ def test_construct_default_output_is_run_dataset_unless_env_overrides(
     assert captured[-1] == override
 
 
-def test_construct_passes_construction_mode(
+def test_construct_is_native_only_and_rejects_legacy_mode_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured: list[str] = []
+    captured: list[dict[str, object]] = []
 
     def fake_build_runtime(settings):
         return SimpleNamespace(
@@ -80,7 +79,7 @@ def test_construct_passes_construction_mode(
         )
 
     async def fake_run_construct(_rt, _db_ids, _phase, _records, **kwargs):
-        captured.append(kwargs.get("construction_mode"))
+        captured.append(kwargs)
         return 0
 
     monkeypatch.setattr(cli, "build_runtime", fake_build_runtime)
@@ -95,26 +94,17 @@ def test_construct_passes_construction_mode(
         "--records",
         "1",
         "--run-id",
-        "cli-legacy-mode",
-    ]) == 0
-    assert cli.main([
-        "construct",
-        "--construction-mode",
-        "native",
-        "--stub",
-        "--quiet",
-        "--dbs",
-        "financial",
-        "--records",
-        "1",
-        "--run-id",
-        "cli-native-mode",
+        "cli-native-only",
     ]) == 0
 
-    assert captured == ["legacy", "native"]
+    assert "construction_mode" not in captured[-1]
+
+    with pytest.raises(SystemExit) as old_mode:
+        cli.main(["construct", "--construction-mode", "legacy", "--stub", "--quiet"])
+    assert old_mode.value.code == 2
 
 
-def test_construct_full_db_and_all_records(
+def test_construct_all_records_uses_source_workload_and_rejects_legacy_knobs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -127,7 +117,6 @@ def test_construct_full_db_and_all_records(
         return SimpleNamespace(databases={"financial": FakeDb()})
 
     def fake_build_runtime(settings):
-        captured["cap"] = settings.migration_ref_sample_cap
         return SimpleNamespace(
             settings=settings,
             source=SimpleNamespace(db_ids=("financial",)),
@@ -136,7 +125,7 @@ def test_construct_full_db_and_all_records(
     async def fake_run_construct(_rt, db_ids, _phase, records, **kwargs):
         captured["db_ids"] = db_ids
         captured["records"] = records
-        captured["structural_only"] = kwargs.get("structural_only_records")
+        captured["kwargs"] = kwargs
         return 0
 
     monkeypatch.setattr(cli, "run_census", fake_run_census)
@@ -147,7 +136,6 @@ def test_construct_full_db_and_all_records(
         "construct",
         "--stub",
         "--quiet",
-        "--full-db",
         "--dbs",
         "financial",
         "--records",
@@ -155,11 +143,18 @@ def test_construct_full_db_and_all_records(
         "--run-id",
         "cli-full-financial",
     ]) == 0
-    assert captured["cap"] is None
     assert captured["census_db_ids"] == ["financial"]
     assert captured["db_ids"] == ["financial"]
     assert captured["records"] == 32
-    assert captured["structural_only"] is True
+    assert "structural_only_records" not in captured["kwargs"]
+
+    with pytest.raises(SystemExit) as full_db:
+        cli.main(["construct", "--full-db", "--stub", "--quiet"])
+    assert full_db.value.code == 2
+
+    with pytest.raises(SystemExit) as structural_fraction:
+        cli.main(["construct", "--structural-fraction", "0.2", "--stub", "--quiet"])
+    assert structural_fraction.value.code == 2
 
 
 def test_construct_records_per_db_expands_total_and_passes_target(
@@ -198,130 +193,6 @@ def test_construct_records_per_db_expands_total_and_passes_target(
     assert captured["db_ids"] == ["financial", "toxicology"]
     assert captured["records"] == 200
     assert captured["records_per_db"] == 100
-
-
-def test_artifact_diversity_runner_refills_with_unused_slots(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from tend.workflow.flows import DbArtifacts
-
-    events: list[tuple[str, dict]] = []
-
-    class FakeLog:
-        def info(self, event: str, **fields):
-            events.append((event, fields))
-
-        def warning(self, event: str, **fields):
-            events.append((event, fields))
-
-    artifact = DbArtifacts(
-        db_id="financial",
-        mongodb_schema={
-            "account": {
-                "_id": "INT",
-                "frequency": "TEXT",
-                "loan": {"type": "OBJECT", "fields": {"amount": "REAL"}},
-                "trans": {
-                    "type": "ARRAY",
-                    "items": {"type": "OBJECT", "fields": {"amount": "REAL"}},
-                },
-                "__variants": [
-                    {"discriminator": {"loan": "present"}, "fields": {}},
-                    {"discriminator": {"loan": "missing"}, "fields": {}},
-                    {"discriminator": {"frequency": "present"}, "fields": {}},
-                    {"discriminator": {"frequency": "missing"}, "fields": {}},
-                ],
-            }
-        },
-        mongodb_data={"account": [{"_id": 1, "frequency": "monthly"}]},
-        rationale={},
-        world_signature="sha256:" + "5" * 64,
-        scenario_summary="financial",
-        query_bearing=True,
-    )
-    calls: list[list[int]] = []
-    seen_skeleton_ids: list[int] = []
-    seen_canonical_nl_ids: list[int] = []
-    seen_nl_mql_pair_ids: list[int] = []
-
-    async def fake_run_phase_b(
-        _workflow,
-        _artifacts,
-        slots,
-        *,
-        seen_mql=None,
-        seen_skeleton=None,
-        seen_canonical_nl=None,
-        seen_nl_mql_pair=None,
-    ):
-        assert isinstance(seen_mql, dict)
-        assert isinstance(seen_skeleton, dict)
-        assert isinstance(seen_canonical_nl, dict)
-        assert isinstance(seen_nl_mql_pair, dict)
-        seen_skeleton_ids.append(id(seen_skeleton))
-        seen_canonical_nl_ids.append(id(seen_canonical_nl))
-        seen_nl_mql_pair_ids.append(id(seen_nl_mql_pair))
-        calls.append([slot.slot_index for slot in slots])
-        for slot in slots:
-            mql_sig = f"mql-{slot.slot_index}"
-            seen_mql[(slot.db_id, mql_sig)] = slot.record_id
-            seen_skeleton.setdefault((slot.db_id, "shared-skeleton"), []).append(slot.record_id)
-            if slot.slot_index == 0:
-                continue
-            nl_sig = f"nl-{slot.slot_index}"
-            seen_canonical_nl[(slot.db_id, nl_sig)] = slot.record_id
-            seen_nl_mql_pair[(slot.db_id, nl_sig, mql_sig)] = slot.record_id
-        return [
-            {
-                "db_id": slot.db_id,
-                "record_id": slot.record_id,
-                "MQL": f'db.account.aggregate([{{"$match":{{"slot":{slot.slot_index}}}}}])',
-                "mql_signature": f"mql-{slot.slot_index}",
-                "mql_skeleton_signature": "shared-skeleton",
-                "nl_queries": {"canonical": f"Find slot {slot.slot_index}."},
-            }
-            for slot in slots
-            if slot.slot_index != 0
-        ]
-
-    monkeypatch.setattr(cli, "run_phase_b", fake_run_phase_b)
-    rt = SimpleNamespace(settings=SimpleNamespace(seed=0), log=FakeLog(), workflow=object())
-
-    records, slot_count, targets, pool_sizes = __import__("asyncio").run(
-        cli._run_artifact_diversity_phase_b(
-            rt,
-            {"financial": artifact},
-            n_records=2,
-            records_per_db=2,
-        )
-    )
-
-    assert len(records) == 2
-    assert calls[0] == [0, 1]
-    assert calls[1] == [2]
-    assert len(set(seen_skeleton_ids)) == 1
-    assert len(set(seen_canonical_nl_ids)) == 1
-    assert len(set(seen_nl_mql_pair_ids)) == 1
-    assert slot_count == 3
-    assert targets == {"financial": 2}
-    assert pool_sizes["financial"] >= 3
-    assert any(event == "artifact_diversity_batch_done" for event, _fields in events)
-    ledger_summary = next(
-        fields for event, fields in events if event == "artifact_diversity_ledger_summary"
-    )
-    assert ledger_summary["total_slots"] == 3
-    assert ledger_summary["built_records"] == 2
-    assert ledger_summary["built_by_db"] == {"financial": 2}
-    assert ledger_summary["distinct_mql"] == 2
-    assert ledger_summary["distinct_mql_skeletons"] == 1
-    assert ledger_summary["distinct_canonical_nl"] == 2
-    assert ledger_summary["distinct_nl_mql_pairs"] == 2
-    assert ledger_summary["max_mql_skeleton_family"] == 2
-    assert ledger_summary["reserved_mql"] == 3
-    assert ledger_summary["reserved_mql_skeletons"] == 1
-    assert ledger_summary["reserved_canonical_nl"] == 2
-    assert ledger_summary["reserved_nl_mql_pairs"] == 2
-    assert ledger_summary["reserved_max_mql_skeleton_family"] == 3
 
 
 def test_validate_smoke_relaxes_all_db_composition(capsys: pytest.CaptureFixture[str]) -> None:
@@ -506,7 +377,7 @@ def test_ablation_with_dataset_dir_does_not_require_bird(
         "--dataset-dir",
         "tests/fixtures/smoke_release",
         "--ablations",
-        "full_smart,no_shape_model",
+        "smart_eg_full,smart_eg_no_evidence_gate",
         "--nlq-track",
         "colloquial",
         "--stub",
@@ -515,7 +386,7 @@ def test_ablation_with_dataset_dir_does_not_require_bird(
         "ablation-no-bird",
     ]) == 0
     assert captured["source"] is None
-    assert captured["ablations"] == "full_smart,no_shape_model"
+    assert captured["ablations"] == "smart_eg_full,smart_eg_no_evidence_gate"
     assert captured["dataset_dir"] == (
         config_module._find_repo_root() / "tests" / "fixtures" / "smoke_release"
     )
@@ -592,7 +463,7 @@ def test_ablation_cli_accepts_nlq_db_only_mode(
         "--nlq",
         "Find Modern banned card printings.",
         "--ablations",
-        "full_smart",
+        "smart_eg_full",
         "--stub",
         "--quiet",
         "--run-id",
@@ -601,7 +472,64 @@ def test_ablation_cli_accepts_nlq_db_only_mode(
     assert captured["source"] is None
     assert captured["db_id"] == "manual_cards"
     assert captured["nlq"] == "Find Modern banned card printings."
-    assert captured["ablations"] == "full_smart"
+    assert captured["ablations"] == "smart_eg_full"
+
+
+def test_solve_cli_accepts_smart_eg_budget_flags_and_rejects_old_knobs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setenv("TEND_BIRD_ROOT", str(tmp_path / "missing-bird"))
+
+    def fake_build_solver_runtime(settings, *, run_kind: str = "solver"):
+        return SimpleNamespace(
+            settings=settings,
+            source=None,
+            mongo=SimpleNamespace(close=lambda: None),
+            log=SimpleNamespace(close=lambda: None),
+        )
+
+    async def fake_run_solve(rt, **kwargs):
+        captured["source"] = rt.source
+        captured.update(kwargs)
+        rt.mongo.close()
+        rt.log.close()
+        return 0
+
+    monkeypatch.setattr(cli, "build_solver_runtime", fake_build_solver_runtime)
+    monkeypatch.setattr(cli, "_run_solve", fake_run_solve)
+
+    assert cli.main([
+        "solve",
+        "--dataset-dir",
+        "tests/fixtures/smoke_release",
+        "--max-tool-turns",
+        "17",
+        "--max-revisits",
+        "3",
+        "--cost-budget-usd",
+        "2.5",
+        "--stub",
+        "--quiet",
+        "--run-id",
+        "solve-smart-eg-flags",
+    ]) == 0
+
+    assert captured["source"] is None
+    assert captured["max_tool_turns"] == 17
+    assert captured["max_revisits"] == 3
+    assert captured["cost_budget_usd"] == 2.5
+    assert "r_max" not in captured
+    assert "witness_k" not in captured
+
+    with pytest.raises(SystemExit) as old_r_max:
+        cli.main(["solve", "--r-max", "1", "--stub", "--quiet"])
+    assert old_r_max.value.code == 2
+
+    with pytest.raises(SystemExit) as old_witness_k:
+        cli.main(["solve", "--witness-k", "2", "--stub", "--quiet"])
+    assert old_witness_k.value.code == 2
 
 
 def test_run_solve_writes_failures_separately(
@@ -651,7 +579,7 @@ def test_run_solve_writes_failures_separately(
     async def fake_solve_record(*_args, **_kwargs):
         return FakeFailure()
 
-    monkeypatch.setattr(cli, "smart_solve_record", fake_solve_record)
+    monkeypatch.setattr(cli, "smart_solve_record_eg", fake_solve_record)
 
     rc = __import__("asyncio").run(
         cli._run_solve(
@@ -660,8 +588,9 @@ def test_run_solve_writes_failures_separately(
             db_id=None,
             record_id=None,
             limit=1,
-            r_max=0,
-            witness_k=0,
+            max_tool_turns=1,
+            max_revisits=0,
+            cost_budget_usd=0.1,
         )
     )
 
@@ -809,16 +738,16 @@ def test_run_solve_writes_failure_artifact_for_solver_exception(
         raise ContractViolationError(
             "agent output failed semantic contract",
             context={
-                "agent": "smart_plan",
+                "agent": "smart_eg",
                 "violations": ["preserve target_fields missing from plan output: ['*']"],
-                "transcript_ref": "llm/smart_plan/abc.md",
-                "diagnostics_ref": "llm/smart_plan/abc.diagnostics.json",
+                "transcript_ref": "llm/smart_eg/abc.md",
+                "diagnostics_ref": "llm/smart_eg/abc.diagnostics.json",
                 "db_id": "financial",
                 "record_id": 1001,
             },
         )
 
-    monkeypatch.setattr(cli, "smart_solve_record", fake_solve_record)
+    monkeypatch.setattr(cli, "smart_solve_record_eg", fake_solve_record)
 
     rc = __import__("asyncio").run(
         cli._run_solve(
@@ -827,8 +756,9 @@ def test_run_solve_writes_failure_artifact_for_solver_exception(
             db_id=None,
             record_id=None,
             limit=1,
-            r_max=0,
-            witness_k=0,
+            max_tool_turns=1,
+            max_revisits=0,
+            cost_budget_usd=0.1,
         )
     )
 
@@ -838,9 +768,9 @@ def test_run_solve_writes_failure_artifact_for_solver_exception(
     payload = json.loads(failures.read_text(encoding="utf-8").splitlines()[0])
     assert payload["result_type"] == "solver_failure"
     assert payload["error_code"] == "CONTRACT_VIOLATION"
-    assert payload["agent"] == "smart_plan"
-    assert payload["transcript_ref"] == "llm/smart_plan/abc.md"
-    assert payload["diagnostics_ref"] == "llm/smart_plan/abc.diagnostics.json"
+    assert payload["agent"] == "smart_eg"
+    assert payload["transcript_ref"] == "llm/smart_eg/abc.md"
+    assert payload["diagnostics_ref"] == "llm/smart_eg/abc.diagnostics.json"
 
 
 def test_run_solve_nlq_db_only_skips_release_loader(
@@ -891,7 +821,7 @@ def test_run_solve_nlq_db_only_skips_release_loader(
 
         return FakePrediction()
 
-    monkeypatch.setattr(cli, "smart_solve_nlq_db", fake_solve_nlq_db)
+    monkeypatch.setattr(cli, "smart_solve_nlq_db_eg", fake_solve_nlq_db)
 
     rc = __import__("asyncio").run(
         cli._run_solve(
@@ -900,8 +830,9 @@ def test_run_solve_nlq_db_only_skips_release_loader(
             db_id="manual_formula",
             record_id=12,
             limit=1,
-            r_max=0,
-            witness_k=2,
+            max_tool_turns=9,
+            max_revisits=1,
+            cost_budget_usd=0.25,
             nlq="List race weekends with Finished status buckets.",
             evaluate=True,
         )
@@ -912,8 +843,9 @@ def test_run_solve_nlq_db_only_skips_release_loader(
         "db_id": "manual_formula",
         "nlq": "List race weekends with Finished status buckets.",
         "record_id": 12,
-        "r_max": 0,
-        "witness_k": 2,
+        "max_tool_turns": 9,
+        "max_revisits": 1,
+        "cost_budget_usd": 0.25,
     }
     predictions = settings.run_dir / "solver_predictions.jsonl"
     assert predictions.exists()
@@ -1026,7 +958,7 @@ def test_run_ablation_nlq_db_only_skips_evaluation(
         captured.update(kwargs)
         return [
             {
-                "ablation_id": "full_smart",
+                "ablation_id": "smart_eg_full",
                 "record_id": 7,
                 "db_id": "manual_cards",
                 "MQL": "db.card_print_dossiers.aggregate([])",
@@ -1045,12 +977,13 @@ def test_run_ablation_nlq_db_only_skips_evaluation(
         cli._run_ablation(
             rt,
             dataset_dir=tmp_path,
-            ablations="full_smart",
+            ablations="smart_eg_full",
             db_id="manual_cards",
             record_id=7,
             limit=1,
-            r_max=1,
-            witness_k=2,
+            max_tool_turns=13,
+            max_revisits=1,
+            cost_budget_usd=0.75,
             nlq="Find Modern banned card printings.",
             evaluate=True,
         )
@@ -1060,6 +993,9 @@ def test_run_ablation_nlq_db_only_skips_evaluation(
     assert captured["nlq"] == "Find Modern banned card printings."
     assert captured["db_id"] == "manual_cards"
     assert captured["record_id"] == 7
+    assert captured["max_tool_turns"] == 13
+    assert captured["max_revisits"] == 1
+    assert captured["cost_budget_usd"] == 0.75
     predictions = settings.run_dir / "ablation_predictions.jsonl"
     assert predictions.exists()
     first_prediction = json.loads(predictions.read_text(encoding="utf-8").splitlines()[0])

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..construct.native_recipe import load_native_recipe, verify_native_recipe
+from ..construction.recipe import load_native_recipe, verify_native_recipe
 from ..errors import ContractViolationError, MigrationError
 from .base import AgentContext, LLMAgent, register
 
@@ -120,7 +120,7 @@ class NativeMigrationDesigner(LLMAgent):
 
 def _stub_recipe(ctx: AgentContext, db_id: str) -> dict[str, Any]:
     try:
-        from ..construct.native_designs.registry import build_native_recipe_for_db
+        from ..construction.designs.registry import build_native_recipe_for_db
 
         if ctx.source is not None:
             recipe = build_native_recipe_for_db(ctx.source, db_id)

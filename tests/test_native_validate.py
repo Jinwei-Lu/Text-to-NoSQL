@@ -113,7 +113,7 @@ def _write_native_dataset(tmp_path: Path) -> Path:
         json.dumps(
             {
                 "db_id": "financial",
-                "conversion_code_ref": "tend.construct.native_designs.financial",
+                "conversion_code_ref": "tend.construction.designs.financial",
                 "entries": {
                     "account_activity.activity_by_month": {
                         "source_columns": ["account.account_id", "trans.amount"]

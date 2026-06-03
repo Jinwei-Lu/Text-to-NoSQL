@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from tend.construct.native_executor import NativeExecutionResult
-from tend.construct.native_recipe import NativeFeature, NativeFeatureManifest
+from tend.construction.executor import NativeExecutionResult
+from tend.construction.recipe import NativeFeature, NativeFeatureManifest
 from tend.source import DbSchema
 
 
@@ -58,7 +58,7 @@ def _direct_result(db_id: str) -> NativeExecutionResult:
 
 
 def test_registry_prefers_direct_materializer_when_design_module_exposes_one(monkeypatch: pytest.MonkeyPatch) -> None:
-    from tend.construct.native_designs import registry
+    from tend.construction.designs import registry
 
     module = types.ModuleType("tests.fake_direct_native_design")
 
@@ -85,7 +85,7 @@ def test_registry_prefers_direct_materializer_when_design_module_exposes_one(mon
 
 
 def test_native_phase_a_accepts_direct_materializer_without_recipe_validation(monkeypatch: pytest.MonkeyPatch) -> None:
-    from tend.workflow import native_construction
+    import tend.construction.phase_a as native_construction
 
     async def parallel(tasks: list[Any], *, isolate: bool) -> list[Any]:
         assert isolate is True

@@ -61,13 +61,13 @@ def _artifact_payload() -> dict:
         "sqlite_path": "/tmp/financial.sqlite",
         "table_count": 4,
         "query_count": 32,
-        "conversion_code_ref": "tend.construct.native_designs.financial",
+        "conversion_code_ref": "tend.construction.designs.financial",
         "query_bearing": True,
     }
 
 
 def test_native_writers_materialize_recipe_manifest_and_provenance(tmp_path: Path) -> None:
-    from tend.dataset import (
+    from tend.construction.artifacts import (
         write_native_feature_manifest,
         write_native_recipe,
         write_provenance,
@@ -94,8 +94,8 @@ def test_native_writers_materialize_recipe_manifest_and_provenance(tmp_path: Pat
 
 
 def test_write_native_phase_a_materializes_native_artifact_tree(tmp_path: Path) -> None:
-    from tend.dataset import write_native_phase_a
-    from tend.workflow.native_construction import NativeDbArtifacts
+    from tend.construction.artifacts import write_native_phase_a
+    from tend.construction.phase_a import NativeDbArtifacts
 
     artifacts = {"financial": NativeDbArtifacts(**_artifact_payload())}
 
@@ -134,6 +134,6 @@ def test_write_native_phase_a_materializes_native_artifact_tree(tmp_path: Path) 
             "query_count": 32,
             "selected": True,
             "flex_eligible": True,
-            "selection_reason": "constructed by tend workflow",
+            "selection_reason": "constructed by tend native workflow",
         }
     ]

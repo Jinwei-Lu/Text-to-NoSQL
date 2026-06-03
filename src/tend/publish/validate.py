@@ -17,11 +17,11 @@ from typing import Any
 
 import yaml
 
-from ..construct.native_recipe import NativeFeatureManifest, load_native_feature_manifest
+from ..construction.recipe import NativeFeatureManifest, load_native_feature_manifest
 from ..execution import mql_signature, mql_skeleton_signature, mql_skeleton_summary, world_signature
 from ..execution import ast_check
 from ..execution.ast_check import DISABLED_OPERATORS, DISABLED_SYSTEM_VARS
-from ..workflow.native_verify import verify_native_record
+from ..construction.verify import verify_native_record
 
 DISABLED_TOKENS: frozenset[str] = DISABLED_OPERATORS | DISABLED_SYSTEM_VARS
 DIFFICULTIES = ("L0", "L1", "L2", "L3", "L4")

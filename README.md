@@ -33,9 +33,9 @@ TEND 关注那些很难通过机械 SQL 翻译得到的 MongoDB 查询。构造�
 | `tend.config` | 读取 `.env`，解析路径，配置 OpenAI-compatible LLM、MongoDB URI、stub 模式、并发和 run id。 |
 | `tend.source` | 加载 BIRD mini-dev schema、workload、列描述、SQLite 探针、census 数据和源目录。 |
 | `tend.mechanisms` | 检测 query-bearing 异构机制，并映射到 archetype 和 reference oracle。 |
-| `tend.construct` | 提供 legacy 确定性迁移，以及 native 模式下每个数据库专属的 MongoDB-native 转换设计代码、recipe 和 executor。 |
-| `tend.agents` | 定义 agent 生命周期、LLM agent 基类、Phase A agent、Phase B agent 和确定性验证 agent。 |
-| `tend.workflow` | 提供动态 workflow engine，包括结构化的 `agent`、`parallel`、`pipeline`、Phase A 和 Phase B flow；live LLM 并发由 `tend.llm` 客户端统一限流。 |
+| `tend.construction` | 最终 MongoDB-native 数据集构建包，包含 Phase A/B、每库专属 design、recipe、executor、audit、verification 和 artifact writers。 |
+| `tend.agents` | 定义 agent 生命周期、LLM agent 基类，以及仍被运行时使用的 native 设计/NL 辅助 agent。 |
+| `tend.workflow` | 提供动态 workflow engine，包括结构化的 `agent`、`parallel`、`pipeline`；live LLM 并发由 `tend.llm` 客户端统一限流。 |
 | `tend.execution` | 解析 MQL，扫描禁用 operator，派生 canonical form set，加载/执行 MongoDB witness，归一化结果并计算 world signature。 |
 | `tend.publish` | 校验发布记录、schema 夹具、必需文件和测试集组成约束。 |
 | `tend.solver` | 实现 SMART 参考求解器，包括 solver 可见边界、分阶段契约、逐 stage 执行检查和类型化失败。 |
@@ -57,36 +57,32 @@ MongoDB witness data is distributed through Google Drive rather than Git/LFS:
 
 ## 构造流水线
 
-构造 workflow 分为两个阶段。
+构造 workflow 分为两个阶段，当前唯一可执行路线是 MongoDB-native construction，代码集中在 `src/tend/construction/`。仓库不再提供 legacy 关系型 schema 到文档聚合的构建 API、CLI 入口或兼容 shim。
 
-### Phase A：DataWorld 构造
+### Phase A：Native DataWorld 构造
 
-Phase A 按 BIRD 数据库运行：
+Phase A 按 BIRD 数据库运行。`src/tend/construction/designs/` 下的每个数据库模块根据该库自己的表语义、字段含义、外键、workload 和取值分布，直接物化 MongoDB-native DataWorld。每个设计模块可以复用 `common.py` helper，但最终必须显式决定哪些真实源字段形成多形态集合、动态 key object、派生 tag array、嵌套事件流、attribute bag、版本化字段或 missing-vs-present 结构。
 
-1. `WP` 分析真实 workload，并总结访问模式。
-2. `SRA` 根据 workload 和 schema 记录文档设计理由。
-3. `DM` 根据真实外键基数确定性推导文档聚合结构，物化 witness 文档，计算 `world_signature`，并在 MongoDB 可用时加载数据。
-4. `SC` 审查物化后的 schema/data 以及 query-bearing 证据。若审查拒绝，会触发有界的 SRA 修订循环。
+Phase A 会写出 release 可见资产：
 
-DM 是确定性的，并且是物化 schema/data 的权威来源。LLM 输出可以提供理由和审查上下文，但不会覆盖实际 DM witness。
+- `mongodb_schema/<db>.json`
+- `mongodb_data/<db>.json`
+- `agent_design_rationale/<db>.yaml`
+- `bird_db_catalog.json`
 
-Native construction 是显式 opt-in：`--construction-mode native`。它不使用一个通用程序把关系型 schema 机械映射成 MongoDB，而是从
-`src/tend/construct/native_designs/` 加载每个数据库自己的转换模块。每个模块根据该数据库的真实表、字段语义、外键和 workload 设计转换逻辑，可以复用 `common.py` 的 helper，但必须明确写出哪些源字段形成多形态集合、动态 key、派生 tag、嵌套事件流等结构。native 模式会写出 `migration_recipe/<db>.yaml`、`native_feature_manifest/<db>.yaml` 和 `provenance/<db>.json`，其中 provenance 包含 `conversion_code_ref`，用于追溯到具体转换代码和源字段/派生规则。若某个数据库没有注册的 native 设计模块，native 模式会直接失败，不会回退到 legacy 迁移。
+同时写出 native provenance 和审计资产：
 
-### Phase B：NL-MQL 记录构造
+- `migration_recipe/<db>.yaml`
+- `native_feature_manifest/<db>.yaml`
+- `provenance/<db>.json`
 
-Phase B 对每个 coverage slot 运行一条 pipeline：
+`provenance/<db>.json` 中的 `conversion_code_ref` 指向 `tend.construction.designs.<db>`，用于追溯具体转换代码、源字段和派生规则。若某个数据库没有注册 native design，构建会 fail closed，不会回退到 legacy 迁移。
 
-1. `QPS` 为检测到的 mechanism/archetype cell 枚举一个具体 intent。
-2. `MS` 合成候选 gold MQL，并通过确定性执行检查和 reference oracle 做 gold-lock。
-3. `MUT` 生成看起来合理但结果错误的 mutation。
-4. `PV` 验证足够多的 mutation 具有区分能力。
-5. `NLP` 写出 canonical 和 colloquial 自然语言问题。
-6. `RTV` 独立地把 canonical NLQ 翻译回 MQL，并检查结果等价。
-7. `NNC` 分配 difficulty 和 SQL infeasibility class。
-8. `RA` 基于 witness 检查记录是否非平凡。
+### Phase B：Manifest-driven NL-MQL 记录构造
 
-workflow 对已知反馈环使用有界重试，包括 SC->SRA、MS gold-lock retry、PV->MUT、RTV->NLP，以及 RA/NNC 后续路径。在 stub 模式下，LLM 调用使用固定响应，依赖执行的检查会走离线友好路径，因此可以在没有 API 调用的情况下跑通整个控制流。
+Phase B 从 Phase A 产出的 `native_feature_manifest` 规划 coverage slots，并由 `src/tend/construction/phase_b.py` 中的确定性 compiler 生成 gold MQL 和 native metadata。它覆盖动态 key 比较、多形态 subtype dispatch、派生 tag 集合逻辑、嵌套事件流过滤、missing-vs-present 表达等 MongoDB-native 模式，并通过 `src/tend/construction/verify.py` 做结构验证和 anti-SQL-transfer 分级。
+
+`--phase B` 只在同一进程中已经有 Phase A artifacts 时可用；没有同进程 artifacts 会 fail closed。当前实现不做磁盘 resume。
 
 ## SMART 求解器
 
@@ -192,26 +188,26 @@ python -m tend baseline --help
 
 ### 构造
 
-对 `financial` 数据库执行确定性离线 smoke construction：
+对 `financial` 数据库执行 native 离线 smoke construction：
 
 ```bash
 python -m tend construct --phase all --dbs financial --records 1 --stub --quiet
 ```
 
-执行 MongoDB-native 离线 smoke construction，并验证 native artifacts：
+验证 smoke run 的 native artifacts：
 
 ```bash
-python -m tend construct --construction-mode native --phase all --dbs financial --records 2 --stub --quiet --run-id native-smoke
+python -m tend construct --phase all --dbs financial --records 2 --stub --quiet --run-id native-smoke
 python -m tend validate --dataset-dir runs/native-smoke/dataset --smoke
 ```
 
-只运行 live Phase A：
+只运行 live native Phase A：
 
 ```bash
 python -m tend construct --phase A --dbs financial
 ```
 
-尝试在所有已配置的 BIRD mini-dev 数据库上做更大的 live construction：
+尝试在所有已配置的 BIRD mini-dev 数据库上做更大的 native construction：
 
 ```bash
 python -m tend construct --phase all --dbs all --records 20
@@ -220,7 +216,7 @@ python -m tend construct --phase all --dbs all --records 20
 构建完整 native 目标数据集：11 个数据库，每库 100 条 NL-MQL 记录：
 
 ```bash
-python -m tend construct --construction-mode native --phase all --dbs all --records-per-db 100 --stub --quiet --run-id native-full-11db
+python -m tend construct --phase all --dbs all --records-per-db 100 --stub --quiet --run-id native-full-11db
 python -m tend validate --dataset-dir runs/native-full-11db/dataset
 ```
 
@@ -229,7 +225,6 @@ python -m tend validate --dataset-dir runs/native-full-11db/dataset
 | 参数 | 含义 |
 | --- | --- |
 | `--phase A|B|all` | 选择构造阶段。Phase B 需要同一 run 中的 Phase A artifacts。 |
-| `--construction-mode legacy|native` | 选择构造路线；默认 `legacy`，`native` 使用每库专属 MongoDB-native 转换代码和 manifest-driven Phase B。 |
 | `--dbs financial` | 逗号分隔的数据库 id，或 `all`。 |
 | `--records 1` | Phase B 要尝试构造的记录数。 |
 | `--records-per-db 100` | 为每个选中数据库尝试构造固定数量的记录，适合全 11 库 native benchmark 构建。 |

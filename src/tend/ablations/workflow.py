@@ -1,4 +1,4 @@
-"""Runtime workflow for SMART ablation studies."""
+"""Runtime workflow for SMART-EG ablation studies."""
 from __future__ import annotations
 
 import asyncio
@@ -10,17 +10,15 @@ from typing import Any
 
 from ..errors import Anomaly, SourceError, TendError, wrap_unexpected
 from ..execution.ast_check import static_mql_feedback
-from ..solver.workflow import (
+from ..solver.inputs import (
+    DEFAULT_INPUT_SAMPLE_SIZE,
     NlqTrack,
-    SmartSolveOptions,
-    SolverFailure,
+    _canonical_nlq,
     build_nlq_db_solver_input,
-    build_witness_digest,
     load_solver_release_inputs,
-    smart_solve_record,
 )
 from ..workflow import Workflow
-from .strategies import AblationSpec, resolve_ablations
+from .strategies import SmartEGAblationSpec, resolve_ablations
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,27 +32,30 @@ class AblationPrediction:
     db_id: str
     MQL: str
     attempts: int
-    r_max: int
-    witness_k: int
-    prompt_witness_sample_count_by_collection: dict[str, int]
-    uses_shape_model: bool
-    uses_variant_handling: bool
-    uses_clause_coverage: bool
-    uses_preserve_guard: bool
-    uses_per_stage: bool
-    uses_variant_strata: bool
-    uses_execution_feedback: bool
-    uses_static_feedback: bool
+    max_tool_turns: int
+    max_revisits: int
+    cost_budget_usd: float
+    uses_evidence_gate: bool
+    uses_counterexample: bool
+    uses_value_grounding: bool
+    uses_relationship_probe: bool
+    uses_prefix_execution: bool
+    uses_revisit: bool
+    uses_probe_scheduler: bool
     disclosure: dict[str, Any]
-    shape_model: dict[str, Any]
-    logical_spec: dict[str, Any]
-    physical_plan: dict[str, Any]
-    feedback: list[dict[str, Any]]
-    static_feedback: list[dict[str, Any]]
-    transcript_refs: list[str]
-    diagnostics_refs: list[str]
-    events_path: str
-    anomalies_path: str
+    feedback: list[dict[str, Any]] = field(default_factory=list)
+    static_feedback: list[dict[str, Any]] = field(default_factory=list)
+    environment_model_ref: str | None = None
+    intent_ref: str | None = None
+    query_plan_ref: str | None = None
+    execution_trace_ref: str | None = None
+    evidence_ledger_ref: str | None = None
+    agent_session_ref: str | None = None
+    submit_gate_refs: list[str] = field(default_factory=list)
+    transcript_refs: list[str] = field(default_factory=list)
+    diagnostics_refs: list[str] = field(default_factory=list)
+    events_path: str = "events.jsonl"
+    anomalies_path: str = "anomalies.jsonl"
     result_type: str = "ablation_prediction"
     status: str = "ok"
 
@@ -74,23 +75,25 @@ class AblationFailure:
     error_code: str
     message: str
     attempts: int
-    r_max: int
-    witness_k: int
-    prompt_witness_sample_count_by_collection: dict[str, int]
-    uses_shape_model: bool
-    uses_variant_handling: bool
-    uses_clause_coverage: bool
-    uses_preserve_guard: bool
-    uses_per_stage: bool
-    uses_variant_strata: bool
-    uses_execution_feedback: bool
-    uses_static_feedback: bool
+    max_tool_turns: int
+    max_revisits: int
+    cost_budget_usd: float
+    uses_evidence_gate: bool
+    uses_counterexample: bool
+    uses_value_grounding: bool
+    uses_relationship_probe: bool
+    uses_prefix_execution: bool
+    uses_revisit: bool
+    uses_probe_scheduler: bool
     disclosure: dict[str, Any]
-    shape_model: dict[str, Any] = field(default_factory=dict)
-    logical_spec: dict[str, Any] = field(default_factory=dict)
-    physical_plan: dict[str, Any] = field(default_factory=dict)
+    MQL: str = ""
     feedback: list[dict[str, Any]] = field(default_factory=list)
     static_feedback: list[dict[str, Any]] = field(default_factory=list)
+    last_candidate_ref: str | None = None
+    unresolved_debts: list[str] = field(default_factory=list)
+    evidence_ledger_ref: str | None = None
+    execution_trace_ref: str | None = None
+    agent_session_ref: str | None = None
     transcript_refs: list[str] = field(default_factory=list)
     diagnostics_refs: list[str] = field(default_factory=list)
     events_path: str = "events.jsonl"
@@ -100,6 +103,37 @@ class AblationFailure:
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
+
+
+async def smart_solve_record_eg(*args: Any, **kwargs: Any) -> Any:
+    from ..solver.eg import SmartEGPolicy, smart_solve_nlq_db_eg as solve
+
+    if len(args) < 3:
+        raise TypeError("smart_solve_record_eg requires wf, record, schema")
+    wf = args[0]
+    record = args[1]
+    if not isinstance(record, dict):
+        raise TypeError("smart_solve_record_eg record must be a dict")
+    options = kwargs.get("options") if isinstance(kwargs.get("options"), dict) else {}
+    policy = kwargs.get("policy") or SmartEGPolicy(
+        max_tool_turns=int(kwargs.get("max_tool_turns", options.get("max_tool_turns", 24))),
+        max_revisits=int(kwargs.get("max_revisits", options.get("max_revisits", 2))),
+        cost_budget_usd=float(kwargs.get("cost_budget_usd", options.get("cost_budget_usd", 1.0))),
+        evidence_gate=bool(options.get("use_evidence_gate", True)),
+        counterexample_gate=bool(options.get("use_counterexample", True)),
+        value_grounding=bool(options.get("use_value_grounding", True)),
+        relationship_probe=bool(options.get("use_relationship_probe", True)),
+        prefix_execution=bool(options.get("use_prefix_execution", True)),
+        revisit=bool(options.get("use_revisit", True)),
+        probe_scheduler=bool(options.get("use_probe_scheduler", True)),
+    )
+    return await solve(
+        wf,
+        db_id=str(record.get("db_id") or ""),
+        nlq=_canonical_nlq(record),
+        record_id=record.get("record_id"),
+        policy=policy,
+    )
 
 
 async def run_ablation_suite(
@@ -112,8 +146,9 @@ async def run_ablation_suite(
     nlq_track: NlqTrack = "record",
     record_id: int | None = None,
     limit: int = 1,
-    r_max: int = 2,
-    witness_k: int = 3,
+    max_tool_turns: int = 24,
+    max_revisits: int = 2,
+    cost_budget_usd: float = 1.0,
 ) -> list[dict[str, Any]]:
     specs = resolve_ablations(ablation_selection)
     if nlq is not None:
@@ -124,7 +159,7 @@ async def run_ablation_suite(
             db_id=str(db_id),
             nlq=nlq,
             record_id=record_id,
-            witness_k=witness_k,
+            sample_size=DEFAULT_INPUT_SAMPLE_SIZE,
         )
         inputs = [(runtime_input.record, runtime_input.schema, runtime_input.local_data)]
     else:
@@ -143,8 +178,9 @@ async def run_ablation_suite(
         dataset_dir=str(dataset_dir),
         db_id=db_id,
         record_id=record_id,
-        r_max=r_max,
-        witness_k=witness_k,
+        max_tool_turns=max_tool_turns,
+        max_revisits=max_revisits,
+        cost_budget_usd=cost_budget_usd,
         input_mode="nlq_db" if nlq is not None else "release",
     )
     if not inputs:
@@ -166,7 +202,7 @@ async def run_ablation_suite(
         preloaded_dbs = await _preload_ablation_witnesses(wf, inputs, log)
 
     work: list[
-        tuple[int, AblationSpec, dict[str, Any], dict[str, Any], dict[str, Any] | None]
+        tuple[int, SmartEGAblationSpec, dict[str, Any], dict[str, Any], dict[str, Any] | None]
     ] = []
     for record, schema, data in inputs:
         for spec in specs:
@@ -174,7 +210,7 @@ async def run_ablation_suite(
 
     async def run_one(
         batch_index: int,
-        spec: AblationSpec,
+        spec: SmartEGAblationSpec,
         record: dict[str, Any],
         schema: dict[str, Any],
         data: dict[str, list[dict[str, Any]]] | None,
@@ -185,8 +221,9 @@ async def run_ablation_suite(
             record,
             schema,
             local_data=data,
-            r_max=r_max,
-            witness_k=witness_k,
+            max_tool_turns=max_tool_turns,
+            max_revisits=max_revisits,
+            cost_budget_usd=cost_budget_usd,
             batch_index=batch_index,
             witness_preloaded=str(record.get("db_id") or "") in preloaded_dbs,
         )
@@ -223,13 +260,6 @@ async def _preload_ablation_witnesses(
     inputs: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]],
     log: Any,
 ) -> set[str]:
-    """Load each unique db witness exactly once before the (record x spec) fan-out.
-
-    All work items gather concurrently and share the run+db-scoped working database, so a
-    per-record reload would race ``drop_database``/``insert_many`` against ``norm_exec``.
-    Preloading once mirrors the solver ``solve`` path and lets each record pass
-    ``witness_preloaded=True``.
-    """
     if wf.ctx.settings.stub or wf.ctx.mongo is None or not wf.ctx.mongo.available():
         return set()
     by_db: dict[str, dict[str, list[dict[str, Any]]]] = {}
@@ -253,24 +283,30 @@ async def _preload_ablation_witnesses(
 
 async def run_ablation_record(
     wf: Workflow,
-    spec: AblationSpec,
+    spec: SmartEGAblationSpec,
     record: dict[str, Any],
     schema: dict[str, Any],
     *,
     local_data: dict[str, list[dict[str, Any]]] | None = None,
-    r_max: int = 2,
-    witness_k: int = 3,
+    max_tool_turns: int = 24,
+    max_revisits: int = 2,
+    cost_budget_usd: float = 1.0,
     batch_index: int | None = None,
     witness_preloaded: bool = False,
 ) -> AblationPrediction | AblationFailure:
     db_id = str(record.get("db_id") or "")
     record_id = record.get("record_id")
-    options = _runtime_options(spec, r_max=r_max, witness_k=witness_k,
-                               batch_index=batch_index)
+    options = _runtime_options(
+        spec,
+        max_tool_turns=max_tool_turns,
+        max_revisits=max_revisits,
+        cost_budget_usd=cost_budget_usd,
+        batch_index=batch_index,
+    )
     base_log = wf.ctx.log.bind(
         component="ablation_runner",
         ablation_id=spec.id,
-        solver_variant=options.solver_variant,
+        solver_variant=options["solver_variant"],
         db_id=db_id,
         record_id=record_id,
         batch_index=batch_index,
@@ -279,24 +315,26 @@ async def run_ablation_record(
         "ablation_record_start",
         title=spec.title,
         limitations=list(spec.limitations),
-        solver_options=options.to_json(),
+        solver_options=options,
     )
 
     variant_wf = _variant_workflow(wf, spec, options, batch_index)
     try:
-        result = await smart_solve_record(
+        _canonical_nlq(record)
+        result = await smart_solve_record_eg(
             variant_wf,
             record,
             schema,
             local_data=local_data,
-            r_max=r_max,
-            witness_k=witness_k,
             options=options,
+            max_tool_turns=options["max_tool_turns"],
+            max_revisits=options["max_revisits"],
+            cost_budget_usd=options["cost_budget_usd"],
             witness_preloaded=witness_preloaded,
         )
-        if isinstance(result, SolverFailure):
-            payload = result.to_json()
-            refs = _llm_refs_for(wf, spec.id, db_id, record_id)
+        payload = result.to_json() if hasattr(result, "to_json") else dict(result)
+        refs = _llm_refs_for(wf, spec.id, db_id, record_id)
+        if payload.get("result_type") == "solver_failure":
             failure = _failure_from_solver_payload(
                 wf,
                 spec,
@@ -314,8 +352,6 @@ async def run_ablation_record(
             )
             return failure
 
-        payload = result.to_json()
-        refs = _llm_refs_for(wf, spec.id, db_id, record_id)
         prediction = _prediction_from_solver_payload(
             wf,
             spec,
@@ -355,7 +391,7 @@ async def run_ablation_record(
             message=failure.message,
         )
         return failure
-    except Exception as exc:  # noqa: BLE001 - ablations should continue across variants
+    except Exception as exc:
         err = wrap_unexpected(
             exc,
             ablation_id=spec.id,
@@ -379,50 +415,45 @@ async def run_ablation_record(
 
 
 def _runtime_options(
-    spec: AblationSpec,
+    spec: SmartEGAblationSpec,
     *,
-    r_max: int,
-    witness_k: int,
+    max_tool_turns: int,
+    max_revisits: int,
+    cost_budget_usd: float,
     batch_index: int | None = None,
-) -> SmartSolveOptions:
-    options = spec.options
-    effective_r_max = options.r_max if options.r_max is not None else r_max
-    effective_witness_k = options.witness_k if options.witness_k is not None else witness_k
+) -> dict[str, Any]:
     prefix = (
         f"ablation:{batch_index}:{spec.id}"
         if batch_index is not None
         else f"ablation:{spec.id}"
     )
-    return replace(
-        options,
-        solver_variant=spec.id,
-        r_max=max(0, effective_r_max),
-        witness_k=max(0, effective_witness_k),
+    return spec.to_runtime_options(
+        max_tool_turns=max_tool_turns,
+        max_revisits=max_revisits,
+        cost_budget_usd=cost_budget_usd,
         progress_group_prefix=prefix,
-        progress_work_item_id=(
-            f"{spec.id}:{batch_index}" if batch_index is not None else spec.id
-        ),
+        progress_work_item_id=f"{spec.id}:{batch_index}" if batch_index is not None else spec.id,
     )
 
 
 def _variant_workflow(
     wf: Workflow,
-    spec: AblationSpec,
-    options: SmartSolveOptions,
+    spec: SmartEGAblationSpec,
+    options: dict[str, Any],
     batch_index: int | None = None,
 ) -> Workflow:
     ctx = replace(
         wf.ctx,
         log=wf.ctx.log.bind(
             ablation_id=spec.id,
-            solver_variant=options.solver_variant,
+            solver_variant=options["solver_variant"],
             batch_index=batch_index,
         ),
         extra={
             **wf.ctx.extra,
             "ablation_id": spec.id,
             "batch_index": batch_index,
-            "solver_options": options.to_json(),
+            "solver_options": options,
         },
     )
     return Workflow(ctx)
@@ -430,56 +461,55 @@ def _variant_workflow(
 
 def _prediction_from_solver_payload(
     wf: Workflow,
-    spec: AblationSpec,
-    options: SmartSolveOptions,
+    spec: SmartEGAblationSpec,
+    options: dict[str, Any],
     payload: dict[str, Any],
     *,
     local_data: dict[str, list[dict[str, Any]]] | None,
     transcript_refs: list[str],
     diagnostics_refs: list[str],
 ) -> AblationPrediction:
-    logical = dict(payload.get("logical_spec") or {})
-    physical = dict(payload.get("physical_plan") or {})
     feedback = list(payload.get("feedback") or [])
     mql = str(payload.get("MQL") or "")
     return AblationPrediction(
         run_id=wf.ctx.settings.run_id,
         ablation_id=spec.id,
         ablation_title=spec.title,
-        solver_variant=options.solver_variant,
+        solver_variant=str(options["solver_variant"]),
         baseline_id=None,
         record_id=payload.get("record_id"),
         db_id=str(payload.get("db_id") or ""),
         MQL=mql,
-        attempts=_attempt_count(feedback),
-        r_max=int(options.r_max or 0),
-        witness_k=int(options.witness_k or 0),
-        prompt_witness_sample_count_by_collection=_witness_counts(local_data, options),
-        uses_shape_model=options.use_shape_comprehension,
-        uses_variant_handling=bool(physical.get("variant_handling")),
-        uses_clause_coverage=bool(logical.get("clause_coverage")),
-        uses_preserve_guard=options.use_preserve_guard,
-        uses_per_stage=options.execution_mode == "per_stage",
-        uses_variant_strata=options.use_variant_stratification,
-        uses_execution_feedback=options.execution_mode in {"per_stage", "whole_query"},
-        uses_static_feedback=options.execution_mode == "static",
+        attempts=_attempt_count(feedback, payload),
+        max_tool_turns=int(options["max_tool_turns"]),
+        max_revisits=int(options["max_revisits"]),
+        cost_budget_usd=float(options["cost_budget_usd"]),
+        uses_evidence_gate=bool(options["use_evidence_gate"]),
+        uses_counterexample=bool(options["use_counterexample"]),
+        uses_value_grounding=bool(options["use_value_grounding"]),
+        uses_relationship_probe=bool(options["use_relationship_probe"]),
+        uses_prefix_execution=bool(options["use_prefix_execution"]),
+        uses_revisit=bool(options["use_revisit"]),
+        uses_probe_scheduler=bool(options["use_probe_scheduler"]),
         disclosure=_disclosure(spec, options, payload.get("disclosure") or {}),
-        shape_model=dict(payload.get("shape_model") or {}),
-        logical_spec=logical,
-        physical_plan=physical,
         feedback=feedback,
         static_feedback=static_mql_feedback(mql),
+        environment_model_ref=_optional_str(payload.get("environment_model_ref")),
+        intent_ref=_optional_str(payload.get("intent_ref")),
+        query_plan_ref=_optional_str(payload.get("query_plan_ref")),
+        execution_trace_ref=_optional_str(payload.get("execution_trace_ref")),
+        evidence_ledger_ref=_optional_str(payload.get("evidence_ledger_ref")),
+        agent_session_ref=_optional_str(payload.get("agent_session_ref")),
+        submit_gate_refs=_str_list(payload.get("submit_gate_refs")),
         transcript_refs=transcript_refs,
         diagnostics_refs=diagnostics_refs,
-        events_path="events.jsonl",
-        anomalies_path="anomalies.jsonl",
     )
 
 
 def _failure_from_solver_payload(
     wf: Workflow,
-    spec: AblationSpec,
-    options: SmartSolveOptions,
+    spec: SmartEGAblationSpec,
+    options: dict[str, Any],
     payload: dict[str, Any],
     *,
     local_data: dict[str, list[dict[str, Any]]] | None,
@@ -487,37 +517,37 @@ def _failure_from_solver_payload(
     diagnostics_refs: list[str],
 ) -> AblationFailure:
     feedback = list(payload.get("feedback") or [])
-    physical = dict(payload.get("physical_plan") or {})
-    logical = dict(payload.get("logical_spec") or {})
-    static_feedback = static_mql_feedback(str(payload.get("MQL") or ""))
+    mql = str(payload.get("MQL") or "")
     return AblationFailure(
         run_id=wf.ctx.settings.run_id,
         ablation_id=spec.id,
         ablation_title=spec.title,
-        solver_variant=options.solver_variant,
+        solver_variant=str(options["solver_variant"]),
         baseline_id=None,
         record_id=payload.get("record_id"),
         db_id=str(payload.get("db_id") or ""),
         error_code=str(payload.get("error_code") or "SOLVER_FAILURE"),
         message=str(payload.get("message") or "solver returned failure"),
-        attempts=_attempt_count(feedback),
-        r_max=int(options.r_max or 0),
-        witness_k=int(options.witness_k or 0),
-        prompt_witness_sample_count_by_collection=_witness_counts(local_data, options),
-        uses_shape_model=options.use_shape_comprehension,
-        uses_variant_handling=bool(physical.get("variant_handling")),
-        uses_clause_coverage=bool(logical.get("clause_coverage")),
-        uses_preserve_guard=options.use_preserve_guard,
-        uses_per_stage=options.execution_mode == "per_stage",
-        uses_variant_strata=options.use_variant_stratification,
-        uses_execution_feedback=options.execution_mode in {"per_stage", "whole_query"},
-        uses_static_feedback=options.execution_mode == "static",
+        attempts=_attempt_count(feedback, payload),
+        max_tool_turns=int(options["max_tool_turns"]),
+        max_revisits=int(options["max_revisits"]),
+        cost_budget_usd=float(options["cost_budget_usd"]),
+        uses_evidence_gate=bool(options["use_evidence_gate"]),
+        uses_counterexample=bool(options["use_counterexample"]),
+        uses_value_grounding=bool(options["use_value_grounding"]),
+        uses_relationship_probe=bool(options["use_relationship_probe"]),
+        uses_prefix_execution=bool(options["use_prefix_execution"]),
+        uses_revisit=bool(options["use_revisit"]),
+        uses_probe_scheduler=bool(options["use_probe_scheduler"]),
         disclosure=_disclosure(spec, options, payload.get("disclosure") or {}),
-        shape_model=dict(payload.get("shape_model") or {}),
-        logical_spec=logical,
-        physical_plan=physical,
+        MQL=mql,
         feedback=feedback,
-        static_feedback=static_feedback,
+        static_feedback=static_mql_feedback(mql),
+        last_candidate_ref=_optional_str(payload.get("last_candidate_ref")),
+        unresolved_debts=_str_list(payload.get("unresolved_debts")),
+        evidence_ledger_ref=_optional_str(payload.get("evidence_ledger_ref")),
+        execution_trace_ref=_optional_str(payload.get("execution_trace_ref")),
+        agent_session_ref=_optional_str(payload.get("agent_session_ref")),
         transcript_refs=transcript_refs,
         diagnostics_refs=diagnostics_refs,
     )
@@ -525,8 +555,8 @@ def _failure_from_solver_payload(
 
 def _failure_from_error(
     wf: Workflow,
-    spec: AblationSpec,
-    options: SmartSolveOptions,
+    spec: SmartEGAblationSpec,
+    options: dict[str, Any],
     err: TendError,
     *,
     db_id: str,
@@ -539,26 +569,23 @@ def _failure_from_error(
         run_id=wf.ctx.settings.run_id,
         ablation_id=spec.id,
         ablation_title=spec.title,
-        solver_variant=options.solver_variant,
+        solver_variant=str(options["solver_variant"]),
         baseline_id=None,
         record_id=record_id,
         db_id=db_id,
         error_code=err.anomaly.value if err.anomaly else "tend_error",
         message=err.message,
-        # attempts=0 is a sentinel: the error fired pre-loop / before any solve attempt, so
-        # the true attempt count is unknown (distinct from a genuine single-attempt run).
         attempts=0,
-        r_max=int(options.r_max or 0),
-        witness_k=int(options.witness_k or 0),
-        prompt_witness_sample_count_by_collection=_witness_counts(local_data, options),
-        uses_shape_model=options.use_shape_comprehension,
-        uses_variant_handling=False,
-        uses_clause_coverage=False,
-        uses_preserve_guard=options.use_preserve_guard,
-        uses_per_stage=options.execution_mode == "per_stage",
-        uses_variant_strata=options.use_variant_stratification,
-        uses_execution_feedback=options.execution_mode in {"per_stage", "whole_query"},
-        uses_static_feedback=options.execution_mode == "static",
+        max_tool_turns=int(options["max_tool_turns"]),
+        max_revisits=int(options["max_revisits"]),
+        cost_budget_usd=float(options["cost_budget_usd"]),
+        uses_evidence_gate=bool(options["use_evidence_gate"]),
+        uses_counterexample=bool(options["use_counterexample"]),
+        uses_value_grounding=bool(options["use_value_grounding"]),
+        uses_relationship_probe=bool(options["use_relationship_probe"]),
+        uses_prefix_execution=bool(options["use_prefix_execution"]),
+        uses_revisit=bool(options["use_revisit"]),
+        uses_probe_scheduler=bool(options["use_probe_scheduler"]),
         disclosure=_disclosure(spec, options, {}),
         transcript_refs=transcript_refs,
         diagnostics_refs=diagnostics_refs,
@@ -566,48 +593,49 @@ def _failure_from_error(
 
 
 def _disclosure(
-    spec: AblationSpec,
-    options: SmartSolveOptions,
+    spec: SmartEGAblationSpec,
+    options: dict[str, Any],
     solver_disclosure: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "ablation_id": spec.id,
         "ablation_title": spec.title,
-        "solver_variant": options.solver_variant,
-        "options": options.to_json(),
+        "solver_variant": options["solver_variant"],
+        "options": options,
         "limitations": list(spec.limitations),
-        # Hoist the comparable fields to the top level so ablation disclosures line up
-        # with the baseline _baseline_disclosure shape; the full object stays nested below.
         "backbone": solver_disclosure.get("backbone"),
         "disjointness_ok": solver_disclosure.get("disjointness_ok"),
         "s_solver": solver_disclosure.get("s_solver"),
-        "r_max": solver_disclosure.get("r_max"),
-        "witness_k": solver_disclosure.get("witness_k"),
+        "max_tool_turns": solver_disclosure.get("max_tool_turns", options["max_tool_turns"]),
+        "max_revisits": solver_disclosure.get("max_revisits", options["max_revisits"]),
+        "cost_budget_usd": solver_disclosure.get("cost_budget_usd", options["cost_budget_usd"]),
         "no_training": solver_disclosure.get("no_training"),
         "solver_disclosure": solver_disclosure,
     }
 
 
-def _attempt_count(feedback: list[dict[str, Any]]) -> int:
-    # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix H6)
-    # feedback_log holds only failed attempts; the winning (final) attempt is not appended,
-    # so the total attempt count is the number of failed attempts plus the successful one.
+def _attempt_count(
+    feedback: list[dict[str, Any]],
+    payload: dict[str, Any] | None = None,
+) -> int:
+    if payload:
+        for key in ("attempts", "tool_turns", "turns"):
+            value = payload.get(key)
+            if isinstance(value, int) and value > 0:
+                return value
     if not feedback:
         return 1
     return len(feedback) + 1
 
 
-def _witness_counts(
-    local_data: dict[str, list[dict[str, Any]]] | None,
-    options: SmartSolveOptions,
-) -> dict[str, int]:
-    digest = build_witness_digest(local_data if int(options.witness_k or 0) > 0 else None,
-                                  int(options.witness_k or 0))
-    return {
-        str(collection): int(info.get("sample_count") or 0)
-        for collection, info in digest.items()
-        if isinstance(info, dict)
-    }
+def _optional_str(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _str_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if item not in (None, "")]
 
 
 def _llm_refs_for(
@@ -644,4 +672,5 @@ __all__ = [
     "AblationPrediction",
     "run_ablation_record",
     "run_ablation_suite",
+    "smart_solve_record_eg",
 ]

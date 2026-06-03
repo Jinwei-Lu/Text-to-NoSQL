@@ -5,10 +5,10 @@ from typing import Any
 
 import pytest
 
-from tend.construct.native_audit import audit_database_structure, validate_structure_gate
-from tend.construct.native_designs.financial import materialize_native_dataworld
+from tend.construction.audit import audit_database_structure, validate_structure_gate
+from tend.construction.designs.financial import materialize_native_dataworld
 from tend.source import BirdSource
-from tend.workflow.native_phase_b import NativeCoverageSlot, pipeline_blueprint
+from tend.construction.phase_b import NativeCoverageSlot, pipeline_blueprint
 
 
 def _bird_source() -> BirdSource:

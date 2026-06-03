@@ -1,17 +1,14 @@
-"""Reference oracles R — naive, auditable answer definitions for MS gold-lock (04 §04-2-4).
+"""Reference oracles R - naive, auditable answer definitions.
 
 R is *not* gold: it is an independent Python reimplementation, keyed by archetype, that **defines
-the answer**. MS locks gold by checking ``NormExec(gold, D) ≡_rec Norm(R(D))`` — so a systematic
-bug in gold (wrong ``$ifNull`` default, dropped present/missing branch) is caught by R, which the
-double-path triangulation alone cannot. The discipline (04 §04-2-4): only archetypes with a
-*simple, auditable* R go in the catalog.
+the answer**. Historical gold-lock checks compared ``NormExec(gold, D)`` with ``Norm(R(D))`` so
+systematic gold bugs could be caught by a simple, auditable reference implementation.
 
 R operates directly on the witness ``snapshot`` (``{collection: [doc, ...]}`` of plain JSON-native
-docs) — no MongoDB, no LLM — and returns a raw list of result docs. The caller (MS) passes both
-R's output and ``NormExec(gold)`` through the same Norm before ``≡_rec``.
+docs) - no MongoDB, no LLM - and returns a raw list of result docs. Historical checkers
+passed both R's output and ``NormExec(gold)`` through the same normalization before equivalence.
 
-Param contract (the ``intent.reference_oracle`` payload each template expects) is documented per
-oracle below; see COORDINATION.md for the cross-session contract Session B's MS should populate.
+Param contract details for each template are documented near the oracle implementation below.
 """
 from __future__ import annotations
 

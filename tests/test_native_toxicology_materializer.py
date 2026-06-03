@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from tend.construct.native_audit import audit_database_structure, validate_structure_gate
+from tend.construction.audit import audit_database_structure, validate_structure_gate
 from tend.source import ColumnSchema, DbSchema, ForeignKey
 
 
@@ -131,7 +131,7 @@ def _max_depth(value: Any) -> int:
 
 
 def test_toxicology_native_materializer_builds_deep_semantic_molecule_graphs() -> None:
-    from tend.construct.native_designs.toxicology import materialize_native_dataworld
+    from tend.construction.designs.toxicology import materialize_native_dataworld
 
     events: list[tuple[str, dict[str, Any]]] = []
     result = materialize_native_dataworld(
@@ -156,7 +156,7 @@ def test_toxicology_native_materializer_builds_deep_semantic_molecule_graphs() -
 
 
 def test_toxicology_native_materializer_passes_high_nesting_structure_gate() -> None:
-    from tend.construct.native_designs.toxicology import materialize_native_dataworld
+    from tend.construction.designs.toxicology import materialize_native_dataworld
 
     result = materialize_native_dataworld(_source(), "toxicology")
     audit = audit_database_structure("toxicology", result.data)

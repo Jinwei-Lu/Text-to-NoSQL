@@ -29,7 +29,7 @@ from tend.config import Settings
 from tend.errors import PromptAnomalyError
 from tend.llm import LLMClient
 from tend.observability import setup_logging
-from tend.solver.workflow import _canonical_nlq, load_solver_release_inputs
+from tend.solver.inputs import _canonical_nlq, load_solver_release_inputs
 from tend.stubs import stub_fn
 from tend.workflow import Workflow
 

@@ -253,11 +253,9 @@ def plan_source_full_structural_slots(
             diff, inf_class, _shape = _archetype_meta(arch)
             if diff == "L4" and inf_class == "structural_schema_flex":
                 structural_cells.append((db_id, mech, arch))
-    # Source-full construction feeds live gold-lock, not only composition accounting. DM now
-    # materializes MongoDB ``__variants`` for BOTH sparse embeds (optional satellites) and
-    # polymorphic discriminators (subtypes with different field sets, e.g. trans.type), so
-    # schedule both mechanisms — this diversifies the schema-less set beyond a single
-    # optional-embed structure. (Scalar-only enum signals still create no variant collection.)
+    # Source-full planning historically fed live gold-lock, not only composition accounting.
+    # Keep both sparse-embed and polymorphic signals when this census helper is used for
+    # workload accounting.
     materialized_variant_cells = [
         c for c in structural_cells if c[1] in ("sparse_embed", "polymorphic")
     ]

@@ -53,16 +53,6 @@ def _env(envmap: dict[str, str], key: str, default: str | None = None) -> str | 
     return os.environ.get(key, envmap.get(key, default))
 
 
-def _optional_positive_int(envmap: dict[str, str], key: str, default: str) -> int | None:
-    raw = (_env(envmap, key, default) or "").strip().lower()
-    if raw in {"0", "-1", "none", "all", "full", "unlimited"}:
-        return None
-    value = int(raw)
-    if value <= 0:
-        return None
-    return value
-
-
 @dataclass(frozen=True)
 class LLMSettings:
     base_url: str
@@ -111,7 +101,6 @@ class Settings:
     use_existing_mongo_dbs: bool = False
     stub: bool = False               # offline: deterministic fake LLM, no live calls
     quiet: bool = False              # suppress the live progress UI (CI / logs only)
-    migration_ref_sample_cap: int | None = 40_000
     seed: int = 0
     run_id: str = "dev"
 
@@ -183,11 +172,6 @@ class Settings:
             use_existing_mongo_dbs=_env(envmap, "TEND_USE_EXISTING_MONGO_DBS", "0") == "1",
             stub=stub,
             quiet=_env(envmap, "TEND_QUIET", "0") == "1",
-            migration_ref_sample_cap=_optional_positive_int(
-                envmap,
-                "TEND_MIGRATION_REF_SAMPLE_CAP",
-                "40000",
-            ),
             seed=int(_env(envmap, "TEND_SEED", "0")),
             run_id=run_id,
         )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from tend.construct.native_recipe import NativeFeature, NativeFeatureManifest
-from tend.workflow.native_verify import (
+from tend.construction.recipe import NativeFeature, NativeFeatureManifest
+from tend.construction.verify import (
     classify_anti_sql_transfer,
     verify_native_record,
 )
