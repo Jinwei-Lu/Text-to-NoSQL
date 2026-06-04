@@ -73,15 +73,45 @@ def test_anomaly_stream_keeps_message_context_and_transcript_ref(tmp_path: Path)
     assert anomaly["context"] == {"missing": ["MQL"]}
     assert anomaly["transcript_ref"] == transcript_ref
     assert (tmp_path / "run" / transcript_ref).exists()
-    assert transcript_ref == "llm/solver/call-1.md"
+    assert transcript_ref == "llm/solver/call-1.diagnostics.json"
     assert (tmp_path / "run" / "llm/solver/call-1.diagnostics.json").exists()
-    transcript_md = (tmp_path / "run" / transcript_ref).read_text(encoding="utf-8")
-    assert "## Messages" in transcript_md
-    assert "> solve" in transcript_md
-    assert "### Content" in transcript_md
+    diagnostics = json.loads((tmp_path / "run" / transcript_ref).read_text(encoding="utf-8"))
+    assert diagnostics["messages"] == [{"role": "user", "content": "solve"}]
+    assert diagnostics["response"] == "{}"
+    assert diagnostics["markdown_transcript_enabled"] is False
+    assert not (tmp_path / "run" / "llm/solver/call-1.md").exists()
     assert anomaly["missing"] == ["MQL"]
     assert anomaly["stage"] == "solver"
     assert anomaly["agent"] == "solver"
+
+
+def test_llm_markdown_transcripts_are_optional_debug_artifacts(tmp_path: Path) -> None:
+    log = setup_logging(
+        tmp_path / "run",
+        console=False,
+        write_llm_markdown_transcripts=True,
+    )
+
+    transcript_ref = log.save_transcript(
+        "solver",
+        "call-debug",
+        {"messages": [{"role": "user", "content": "solve"}], "response": "{}"},
+    )
+    log.close()
+
+    assert transcript_ref == "llm/solver/call-debug.md"
+    assert (tmp_path / "run" / transcript_ref).exists()
+    assert (tmp_path / "run" / "llm/solver/call-debug.diagnostics.json").exists()
+    transcript_md = (tmp_path / "run" / transcript_ref).read_text(encoding="utf-8")
+    diagnostics = json.loads(
+        (tmp_path / "run" / "llm/solver/call-debug.diagnostics.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert "## Messages" in transcript_md
+    assert "> solve" in transcript_md
+    assert diagnostics["markdown_transcript_enabled"] is True
+    assert diagnostics["markdown_transcript_ref"] == transcript_ref
 
 
 def test_llm_prompt_anomalies_are_written_with_transcripts(tmp_path: Path, monkeypatch) -> None:
@@ -123,12 +153,12 @@ def test_llm_prompt_anomalies_are_written_with_transcripts(tmp_path: Path, monke
     assert prompt_record["context"]["diagnostics_ref"] == prompt_record["diagnostics_ref"]
     assert (tmp_path / "run" / prompt_record["transcript_ref"]).exists()
     assert (tmp_path / "run" / prompt_record["diagnostics_ref"]).exists()
-    prompt_md = (tmp_path / "run" / prompt_record["transcript_ref"]).read_text(
-        encoding="utf-8"
+    prompt_diagnostics = json.loads(
+        (tmp_path / "run" / prompt_record["diagnostics_ref"]).read_text(encoding="utf-8")
     )
-    assert prompt_record["transcript_ref"].endswith(".md")
-    assert "message content empty or non-string" in prompt_md
-    assert "llm/solver/" in prompt_md
+    assert prompt_record["transcript_ref"].endswith(".diagnostics.json")
+    assert prompt_diagnostics["markdown_transcript_enabled"] is False
+    assert "message content empty or non-string" in json.dumps(prompt_diagnostics)
 
     overflow_record = by_kind[Anomaly.CONTEXT_OVERFLOW.value]
     assert overflow_record["error_type"] == "ContextOverflowError"
@@ -138,11 +168,11 @@ def test_llm_prompt_anomalies_are_written_with_transcripts(tmp_path: Path, monke
     assert overflow_record["context"]["diagnostics_ref"] == overflow_record["diagnostics_ref"]
     assert (tmp_path / "run" / overflow_record["transcript_ref"]).exists()
     assert (tmp_path / "run" / overflow_record["diagnostics_ref"]).exists()
-    overflow_md = (tmp_path / "run" / overflow_record["transcript_ref"]).read_text(
-        encoding="utf-8"
+    overflow_diagnostics = json.loads(
+        (tmp_path / "run" / overflow_record["diagnostics_ref"]).read_text(encoding="utf-8")
     )
-    assert overflow_record["transcript_ref"].endswith(".md")
-    assert "context length exceeded" in overflow_md
+    assert overflow_record["transcript_ref"].endswith(".diagnostics.json")
+    assert "context length exceeded" in json.dumps(overflow_diagnostics)
 
 
 def test_llm_prompt_role_anomalies_are_written_with_transcripts(tmp_path: Path) -> None:
@@ -163,12 +193,16 @@ def test_llm_prompt_role_anomalies_are_written_with_transcripts(tmp_path: Path) 
     assert anomalies[0]["anomaly"] == Anomaly.PROMPT_MALFORMED.value
     assert anomalies[0]["message"] == "message role is not supported"
     assert anomalies[0]["context"]["role"] == "bad-role"
-    assert anomalies[0]["transcript_ref"].endswith(".md")
+    assert anomalies[0]["transcript_ref"].endswith(".diagnostics.json")
     assert (tmp_path / "run" / anomalies[0]["diagnostics_ref"]).exists()
 
 
 def test_failed_llm_markdown_expands_attempt_details(tmp_path: Path, monkeypatch) -> None:
-    log = setup_logging(tmp_path / "run", console=False)
+    log = setup_logging(
+        tmp_path / "run",
+        console=False,
+        write_llm_markdown_transcripts=True,
+    )
     client = LLMClient(_stub_settings(tmp_path), log)
     schema = {
         "type": "object",
@@ -196,6 +230,7 @@ def test_failed_llm_markdown_expands_attempt_details(tmp_path: Path, monkeypatch
     transcript_md = (tmp_path / "run" / anomaly["transcript_ref"]).read_text(
         encoding="utf-8"
     )
+    assert anomaly["transcript_ref"].endswith(".md")
     assert anomaly["anomaly"] == Anomaly.PARSE_ERROR.value
     assert "## Attempt Details" in transcript_md
     assert "#### Response" in transcript_md

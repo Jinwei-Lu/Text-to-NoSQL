@@ -2,9 +2,9 @@
 
 Responsibilities (and *only* these — agent semantics live in tend/agents):
   1. Send chat completions to the configured provider (DeepSeek by default).
-  2. Persist a full transcript (every attempt: messages, raw response, usage, timing)
-     as ``llm/<agent>/<call_id>.md`` plus ``.diagnostics.json`` so any anomaly
-     points at a readable prompt/response file with full structured detail nearby.
+  2. Persist full structured call diagnostics (every attempt: messages, raw response,
+     usage, timing) as ``llm/<agent>/<call_id>.diagnostics.json``. Optional debug
+     markdown transcripts can be enabled at the logger layer.
   3. Classify every failure into a typed LLMError with an :class:`Anomaly` kind.
   4. Retry transport faults (rate-limit/timeout/empty/truncated) with backoff, and run a
      bounded JSON/schema *repair* loop (feed the validation error back to the model).
@@ -67,7 +67,7 @@ class LLMResult:
     usage: dict[str, int]
     latency_s: float
     attempts: int
-    transcript_ref: str                         # rel path under the run dir
+    transcript_ref: str                         # primary call artifact ref under run dir
 
     @property
     def diagnostics_ref(self) -> str:

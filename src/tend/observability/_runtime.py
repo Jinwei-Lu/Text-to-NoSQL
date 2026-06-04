@@ -1,8 +1,8 @@
 """Runtime state and public logger implementation for run observability."""
 from __future__ import annotations
 
-import threading
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable

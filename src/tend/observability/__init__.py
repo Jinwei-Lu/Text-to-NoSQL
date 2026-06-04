@@ -3,7 +3,8 @@
 Two cooperating subsystems:
   - :mod:`tend.observability._runtime` — file-first JSONL logs. ``events.jsonl`` (all),
     ``anomalies.jsonl`` (the subset an operator/Claude-Code greps first), and
-    ``llm/<agent>/<call_id>.md`` plus ``.diagnostics.json`` sidecars for LLM calls.
+    ``llm/<agent>/<call_id>.diagnostics.json`` sidecars for LLM calls. Per-call
+    markdown transcripts are optional debug artifacts.
     Anomalies fire subscriber callbacks so the UI can surface them the instant they happen.
   - :mod:`tend.observability.progress` — a rich live tree showing phase/db/record/agent
     state plus a rolling anomaly ticker, so a human catches stalls and failures in time.

@@ -129,13 +129,11 @@ def test_baseline_suite_stub_logs_markdown_transcripts(tmp_path: Path) -> None:
         assert event["baseline_step"]
         transcript_ref = event["transcript_ref"]
         diagnostics_ref = event["diagnostics_ref"]
-        assert transcript_ref.endswith(".md")
+        assert transcript_ref.endswith(".diagnostics.json")
         assert diagnostics_ref.endswith(".diagnostics.json")
-        md = (run_dir / transcript_ref).read_text(encoding="utf-8")
         diagnostics = json.loads((run_dir / diagnostics_ref).read_text(encoding="utf-8"))
-        assert "## Messages" in md
-        assert "## Response" in md
-        assert "## Diagnostics" in md
+        assert diagnostics["markdown_transcript_enabled"] is False
+        assert not (run_dir / diagnostics_ref.replace(".diagnostics.json", ".md")).exists()
         assert diagnostics["baseline_id"] == event["baseline_id"]
         assert diagnostics["baseline_step"] == event["baseline_step"]
         prompt_text = "\n".join(message["content"] for message in diagnostics["messages"])

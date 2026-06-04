@@ -161,11 +161,17 @@ def test_complete_with_tools_returns_native_tool_calls(tmp_path) -> None:
     assert result.assistant_message["tool_calls"][0]["function"]["name"] == "list_collections"
     assert result.cost["source"] in {"unavailable", "estimated", "api", "error"}
     assert result.transcript_ref.startswith("llm/smart_eg/")
+    assert result.transcript_ref.endswith(".diagnostics.json")
+    assert not (log.run_dir / result.transcript_ref.replace(".diagnostics.json", ".md")).exists()
 
 
 def test_complete_with_tools_markdown_renders_full_request_and_tool_context(tmp_path) -> None:
     settings = _settings(tmp_path)
-    log = setup_logging(settings.run_dir, console=False)
+    log = setup_logging(
+        settings.run_dir,
+        console=False,
+        write_llm_markdown_transcripts=True,
+    )
     client = LLMClient(settings, log)
     tool_choice = {"type": "function", "function": {"name": "list_collections"}}
 
