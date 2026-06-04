@@ -1,5 +1,0 @@
-db_id: european_football_2
-recipe_version: direct
-direct_conversion: true
-design_goal: database-specific semantic MongoDB materialization
-native_feature_count: 4

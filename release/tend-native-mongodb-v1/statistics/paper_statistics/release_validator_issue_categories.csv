@@ -1,8 +1,0 @@
-category,issues,affected_records,issue_share,record_share
-ast_allowlist_check,690,690,0.42698,0.570248
-unresolved_provenance_refs,498,498,0.308168,0.41157
-claimed_native_constructs_absent,233,233,0.144183,0.192562
-feature_path_not_accessed,160,160,0.09901,0.132231
-dynamic_key_requires_objectToArray_path,19,19,0.011757,0.015702
-nested_event_filter_requirement,15,8,0.009282,0.006612
-polymorphic_discriminator_requirement,1,1,0.000619,0.000826

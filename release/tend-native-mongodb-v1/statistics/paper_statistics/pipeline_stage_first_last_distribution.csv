@@ -1,8 +1,0 @@
-stage,first_count,first_share,second_count,second_share,penultimate_count,penultimate_share,last_count,last_share
-$addFields,910,0.752066,160,0.132231,0,0.0,0,0.0
-$group,0,0.0,4,0.003306,0,0.0,0,0.0
-$limit,0,0.0,0,0.0,0,0.0,1209,0.999174
-$match,6,0.004959,28,0.02314,2,0.001653,0,0.0
-$project,152,0.12562,881,0.728099,1,0.000826,0,0.0
-$sort,0,0.0,0,0.0,1207,0.997521,1,0.000826
-$unwind,142,0.117355,137,0.113223,0,0.0,0,0.0

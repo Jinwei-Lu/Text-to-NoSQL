@@ -1,8 +1,0 @@
-role,stage_occurrences,occurrence_share,record_presence_count,record_presence_share
-aggregation,595,0.070173,595,0.491736
-array_traversal,1085,0.127963,893,0.738017
-enrichment,1139,0.134332,1053,0.870248
-filter,1222,0.144121,1093,0.903306
-ordering,1208,0.14247,1208,0.998347
-projection,2021,0.238354,1200,0.991736
-result_bound,1209,0.142588,1209,0.999174
