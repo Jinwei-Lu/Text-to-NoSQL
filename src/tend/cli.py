@@ -457,6 +457,24 @@ async def _maybe_evaluate(
     )
 
 
+def _evaluation_skip_reason(
+    *,
+    evaluate: bool,
+    nlq: str | None,
+    evaluation: EvaluationOutput | None,
+    evaluation_rows: list[dict],
+) -> str | None:
+    if evaluation is not None:
+        return None
+    if not evaluate:
+        return "disabled"
+    if nlq is not None:
+        return "no_release_dataset"
+    if not evaluation_rows:
+        return "no_predictions"
+    return None
+
+
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
     """Write ``rows`` one JSON object per line, creating parents; no-op when empty."""
     if not rows:
@@ -630,6 +648,7 @@ async def _run_solve(
     failures_path = rt.settings.run_dir / "solver_failures.jsonl"
     eval_input_path = rt.settings.run_dir / "solver_evaluation_inputs.jsonl"
     evaluate_outputs = evaluate and nlq is None
+    evaluation_rows: list[dict] = []
     evaluation_dataset_dir: Path | None = None
     try:
         with rt.progress:
@@ -802,7 +821,13 @@ async def _run_solve(
             out_path,
             failures_path,
             evaluation,
-            evaluate=evaluate_outputs,
+            evaluate=evaluate,
+            skip_reason=_evaluation_skip_reason(
+                evaluate=evaluate,
+                nlq=nlq,
+                evaluation=evaluation,
+                evaluation_rows=evaluation_rows,
+            ),
         )
         _close_runtime(rt)
 
@@ -834,6 +859,7 @@ async def _run_baseline(
     failures_path = rt.settings.run_dir / "baseline_failures.jsonl"
     eval_input_path = rt.settings.run_dir / "baseline_evaluation_inputs.jsonl"
     evaluate_outputs = evaluate and nlq is None
+    evaluation_rows: list[dict] = []
     evaluation_dataset_dir: Path | None = None
     try:
         with rt.progress:
@@ -920,7 +946,13 @@ async def _run_baseline(
             out_path,
             failures_path,
             evaluation,
-            evaluate=evaluate_outputs,
+            evaluate=evaluate,
+            skip_reason=_evaluation_skip_reason(
+                evaluate=evaluate,
+                nlq=nlq,
+                evaluation=evaluation,
+                evaluation_rows=evaluation_rows,
+            ),
         )
         _close_runtime(rt)
 
@@ -955,6 +987,7 @@ async def _run_ablation(
     eval_input_path = rt.settings.run_dir / "ablation_evaluation_inputs.jsonl"
     summary_path = rt.settings.run_dir / "ablation_summary.json"
     evaluate_outputs = evaluate and nlq is None
+    evaluation_rows: list[dict] = []
     evaluation_dataset_dir: Path | None = None
     try:
         with rt.progress:
@@ -1026,9 +1059,8 @@ async def _run_ablation(
         summary = rt.progress.summary() if hasattr(rt.progress, "summary") else {}
         failed_run = (
             failed is not None
-            or not predictions
-            or bool(failures)
-            or (evaluation is not None and not evaluation.ok)
+            or not outputs
+            or (evaluation is not None and evaluation.status == "failed")
             or summary.get("anomaly_total", 0) > 0
         )
         summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1059,7 +1091,13 @@ async def _run_ablation(
             failures_path,
             summary_path,
             evaluation,
-            evaluate=evaluate_outputs,
+            evaluate=evaluate,
+            skip_reason=_evaluation_skip_reason(
+                evaluate=evaluate,
+                nlq=nlq,
+                evaluation=evaluation,
+                evaluation_rows=evaluation_rows,
+            ),
         )
         _close_runtime(rt)
 

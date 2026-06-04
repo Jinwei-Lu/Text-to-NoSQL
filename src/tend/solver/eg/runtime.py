@@ -1,6 +1,7 @@
 """SMART-EG provider-native tool-call loop."""
 from __future__ import annotations
 
+from copy import deepcopy
 import inspect
 from typing import Any
 
@@ -8,7 +9,7 @@ from .contracts import SmartEGBudgets, SmartEGFailure, SmartEGState, ToolObserva
 from .history import SmartEGHistory
 from .observability import SmartEGObserver, build_session_id
 from .policy import SmartEGConvergenceChecker, SmartEGPolicy
-from .tools import SmartEGToolAPI, tool_schemas
+from .tools import SmartEGToolAPI, tool_schemas as _base_tool_schemas
 from ..inputs import _canonical_nlq
 
 SYSTEM_PROMPT = """# SMART-EG Solver
@@ -18,30 +19,189 @@ calls. Do not answer in natural language. Every productive step is a tool call.
 
 ## Stage Contract
 
-1. Environment: inspect the database with `list_collections` and compact Mongo tools,
-   then call `submit_environment_model` with `candidate_collections` and
-   `evidence_refs`.
-2. Intent: ground the NLQ in observed paths or values, then call
-   `submit_intent_hypothesis`.
-3. Planning: build a MongoDB aggregation plan, then call `submit_query_plan`.
-4. Execution: validate or sanity-check the candidate query, then call
+Stage order is mandatory.
+
+1. Environment: inspect the database with `list_collections` and compact Mongo tools.
+   Submit `submit_environment_model` only after you have observed candidate
+   collections plus shape/path evidence. The submit requires `candidate_collections`
+   and `evidence_refs`.
+2. Intent: accepted environment is required before intent submit. Ground the NLQ in
+   observed paths, observed value buckets, or relationship evidence, then call
+   `submit_intent_hypothesis` with `evidence_refs`.
+3. Planning: accepted intent is required before plan submit. Build one MongoDB
+   aggregation plan from the grounded intent, then call `submit_query_plan`.
+4. Execution: accepted query_plan is required before final submit. Validate the
+   candidate query with read-only probes and boundary checks, then call
    `submit_final_mql`.
 
 ## Tool Boundary
 
-- Use only tools exposed in the current turn.
+- Only call tools exposed in the current turn. The exact exposed tools are the
+  provider-native tools attached to this request; do not assume every SMART-EG tool
+  is available in every stage.
 - `read_documents` and `run_query` are not available tools.
-- Use `sample_documents`, `discover_paths`, `profile_path_values`,
-  `run_readonly_probe`, and the `submit_*` tools instead.
+- Use the exposed subset of these Batch 2 tool names:
+  `list_collections`, `sample_documents`, `discover_paths`, `profile_path`,
+  `profile_path_values`, `search_values`, `inspect_array_shape`,
+  `inspect_dynamic_keys`, `profile_relationship_candidates`, `run_readonly_probe`,
+  `add_evidence_claim`, `link_evidence`, `inspect_evidence_ledger`,
+  `inspect_evidence_debt`, `mine_counterexamples`, `render_pipeline`,
+  `check_ast_filter`, `run_final_sanity_execution`,
+  `render_pipeline_prefix`, `execute_pipeline_prefix`, `check_prefix_checkpoint`,
+  `submit_environment_model`, `submit_intent_hypothesis`, `submit_query_plan`,
+  `submit_final_mql`, `request_revisit`, `request_mode_shift`,
+  `abandon_with_failure`.
 - Use `evidence_id` values returned by tools in later `evidence_refs`.
+- If `profile_relationship_candidates` is exposed, treat it as the relationship
+  probe. Use it before `$lookup` or relationship cardinality assumptions.
+- If prefix tools are exposed, treat them as currently unimplemented: their
+  `TOOL_UNIMPLEMENTED` / non-success observations are feedback, not proof that a
+  prefix executed successfully.
+
+## Evidence Grounding
+
+- `evidence_refs` must cite typed evidence from observations. Typed evidence means
+  source tool, observed collection/path/type information, observed value buckets,
+  relationship candidates, counterexamples, and read-only probe outputs.
+- Use typed value grounding before constants, enums, dates, ObjectId filters, regexes,
+  or comparisons. Do not invent values that were not observed or profiled.
+- Tool rejections return typed feedback such as `reason`, `error_code`,
+  `required_tool`, `missing_evidence`, `debt_ids`, and `gate_ref`. Repair from those
+  fields instead of repeating the same invalid call.
 
 ## Exit Contract
 
 - Successful completion is only `submit_final_mql`.
 - Normal failure is only `abandon_with_failure`.
+- Production success requires final sanity execution. `submit_final_mql` runs the
+  final sanity execution when enabled; if the final sanity observation is not ok,
+  the solver must repair or use typed failure.
 - Keep exploration bounded: prefer one or two targeted tool calls per turn and stop
   probing once the current stage has enough evidence.
+
+## MongoDB Idioms
+
+- Use MongoDB aggregation idioms: choose one base collection, provide `collection`
+  plus `pipeline`, `$match` early, `$unwind` arrays before filtering nested array
+  members, `$group` only for real aggregation, and `$project` final answer fields.
+- Use `$lookup` only after proving relationship keys with evidence. Avoid SQL table,
+  join, and column language in the final MQL.
+- Use ObjectId and ISODate only when observed values prove those BSON/date types.
 """
+
+_RUNTIME_TOOL_DESCRIPTION_OVERRIDES = {
+    "list_collections": (
+        "List the MongoDB collections available for the current database. This is "
+        "environment typed evidence and should precede submit_environment_model."
+    ),
+    "sample_documents": (
+        "Return a compact redacted shape summary for sampled documents. It produces "
+        "typed evidence for paths and types, never raw rows."
+    ),
+    "discover_paths": (
+        "Discover bounded document paths and value type counts for one collection. "
+        "Use this typed evidence for environment, intent, and query_plan grounding."
+    ),
+    "profile_path": (
+        "Profile presence, missing count, value count, and type counts for one path. "
+        "Use the typed path evidence before filters or projections depend on that path."
+    ),
+    "profile_path_values": (
+        "Profile hashed value buckets for one path as typed value grounding. Use this "
+        "before constants, enum filters, ObjectId filters, ISODate filters, regexes, "
+        "or comparisons."
+    ),
+    "search_values": (
+        "Search sampled scalar values for a user-mentioned term and return redacted "
+        "path matches. Use the typed value evidence to ground NLQ constants."
+    ),
+    "inspect_array_shape": (
+        "Inspect array lengths, element types, and object subpaths at a path. Use this "
+        "typed evidence before $unwind or nested array filtering."
+    ),
+    "inspect_dynamic_keys": (
+        "Inspect dynamic object keys at a path with hashed key samples and value type "
+        "counts. Use this typed evidence before dynamic-key query construction."
+    ),
+    "profile_relationship_candidates": (
+        "Relationship probe, if exposed: find sampled _id and *_id relationship "
+        "candidates across collections. Use before $lookup, relationship filters, or "
+        "cardinality assumptions."
+    ),
+    "run_readonly_probe": (
+        "Run a bounded read-only aggregate probe from MQL/mql or collection plus "
+        "pipeline. Disabled operators are rejected and failures return typed feedback "
+        "for repair."
+    ),
+    "add_evidence_claim": (
+        "Record a typed evidence claim that must be linked to evidence ids before "
+        "gated submission."
+    ),
+    "link_evidence": "Link an existing evidence id to a typed evidence claim id.",
+    "inspect_evidence_ledger": (
+        "Inspect typed evidence records, linked claims, and unresolved grounding debt."
+    ),
+    "inspect_evidence_debt": (
+        "Inspect blocking evidence debt and suggested exposed tools for the next repair."
+    ),
+    "mine_counterexamples": (
+        "Mine counterexample risks from the current plan and evidence, returning typed "
+        "feedback that must be resolved or cited."
+    ),
+    "render_pipeline": (
+        "Render collection plus pipeline into MQL for inspection. Rendering is not "
+        "execution proof."
+    ),
+    "check_ast_filter": (
+        "Check MQL against the read-only safety boundary and return typed feedback for "
+        "disabled operators or parse errors."
+    ),
+    "run_final_sanity_execution": (
+        "Run final sanity execution for the candidate MQL. Production success requires "
+        "an ok final sanity execution before or during submit_final_mql."
+    ),
+    "render_pipeline_prefix": (
+        "Prefix tools are exposed only as non-success feedback today. This prefix tool "
+        "is unimplemented and returns TOOL_UNIMPLEMENTED, not execution proof."
+    ),
+    "execute_pipeline_prefix": (
+        "Prefix tools are exposed only as non-success feedback today. This prefix tool "
+        "is unimplemented and returns TOOL_UNIMPLEMENTED, not execution proof."
+    ),
+    "check_prefix_checkpoint": (
+        "Prefix tools are exposed only as non-success feedback today. This prefix tool "
+        "is unimplemented and returns TOOL_UNIMPLEMENTED, not execution proof."
+    ),
+    "submit_environment_model": (
+        "Submit the accepted environment model after collection and shape/path "
+        "exploration. Requires candidate_collections and evidence_refs."
+    ),
+    "submit_intent_hypothesis": (
+        "Submit the grounded NLQ intent after accepted environment evidence. Requires "
+        "evidence_refs that support task kind, target collection, fields, filters, or "
+        "aggregations."
+    ),
+    "submit_query_plan": (
+        "Submit a MongoDB aggregation plan after accepted intent evidence. Requires "
+        "collection, stages, and evidence_refs that support the query_plan."
+    ),
+    "submit_final_mql": (
+        "Submit the final MQL. This is the only successful solver exit, requires "
+        "accepted environment, intent, and query_plan plus evidence_refs, and "
+        "production success requires final sanity execution to be ok."
+    ),
+    "request_revisit": (
+        "Request a controlled revisit when typed feedback shows an accepted earlier "
+        "milestone is stale."
+    ),
+    "request_mode_shift": (
+        "Request a mode shift only when typed feedback requires repair in another stage."
+    ),
+    "abandon_with_failure": (
+        "Terminate with a typed failure when no valid query can be produced. Use an "
+        "allowed error_code and concise message."
+    ),
+}
 
 SUBMIT_FOCUS_HISTORY_MAX_MESSAGES = 2
 RECENT_EVIDENCE_RECORD_LIMIT = 12
@@ -121,7 +281,7 @@ async def smart_solve_nlq_db_eg(
         record_id=record_id,
         system_prompt=SYSTEM_PROMPT,
         user_message=initial_user_message,
-        tools=tool_schemas(),
+        tools=_tool_schemas(),
         max_turns=policy.budgets.max_tool_turns,
     )
     api = SmartEGToolAPI(policy, observer=observer, db_handle=db_handle, executor=executor)
@@ -139,7 +299,7 @@ async def smart_solve_nlq_db_eg(
                 state.terminal_only = True
                 state.terminal_reason = convergence.reason
 
-            exposed_tools = api.tools_for_state(state)
+            exposed_tools = _document_runtime_tool_schemas(api.tools_for_state(state))
             exposed_tool_names = {tool["function"]["name"] for tool in exposed_tools}
             tool_choice = api.tool_choice_for_state(state)
             turn_index = state.counters.llm_turns + 1
@@ -661,7 +821,50 @@ def default_budgets() -> SmartEGBudgets:
 
 
 def _tool_schemas(*, terminal_only: bool = False) -> list[dict[str, Any]]:
-    return tool_schemas(terminal_only=terminal_only)
+    return _document_runtime_tool_schemas(_base_tool_schemas(terminal_only=terminal_only))
+
+
+def _document_runtime_tool_schemas(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    documented = deepcopy(tools)
+    for tool in documented:
+        function = tool.get("function")
+        if not isinstance(function, dict):
+            continue
+        name = function.get("name")
+        if isinstance(name, str) and name in _RUNTIME_TOOL_DESCRIPTION_OVERRIDES:
+            function["description"] = _RUNTIME_TOOL_DESCRIPTION_OVERRIDES[name]
+        parameters = function.get("parameters")
+        if not isinstance(parameters, dict):
+            continue
+        properties = parameters.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        evidence_refs = properties.get("evidence_refs")
+        if isinstance(evidence_refs, dict):
+            evidence_refs["description"] = (
+                "Evidence ids returned by prior observation tools. Cite typed "
+                "path/value/relationship/probe evidence that supports this milestone."
+            )
+        pipeline = properties.get("pipeline")
+        if isinstance(pipeline, dict):
+            pipeline["description"] = (
+                "MongoDB aggregation pipeline stages. Use MongoDB idioms and keep "
+                "the pipeline read-only."
+            )
+        mql = properties.get("MQL")
+        if isinstance(mql, dict):
+            mql["description"] = (
+                "Full MongoDB MQL aggregate expression. Use only when it matches "
+                "collection plus pipeline."
+            )
+        lower_mql = properties.get("mql")
+        if isinstance(lower_mql, dict):
+            lower_mql["description"] = (
+                mql.get("description")
+                if isinstance(mql, dict)
+                else "Full MongoDB MQL aggregate expression."
+            )
+    return documented
 
 
 def _policy_from_options(

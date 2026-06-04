@@ -50,6 +50,11 @@ DIAGNOSTIC_SLICE_AXES: tuple[str, ...] = (
     "structural_sql_solvable",
     "sql_infeasibility_class",
 )
+FAILURE_RESULT_TYPES = frozenset({
+    "solver_failure",
+    "baseline_failure",
+    "ablation_failure",
+})
 ORDER_SENSITIVE_ROOT_OPS = {"$sort", "$limit", "$skip", "$setWindowFields"}
 FIELD_VALUE_KEYS = {"localField", "foreignField", "as"}
 NON_FIELD_VALUE_KEYS = {"from"}
@@ -724,6 +729,18 @@ def _score_one_prediction_inner(
             message="prediction does not match a release record",
         )
     gold_record = gold[key]
+    failure_type = _typed_failure_type(prediction)
+    if failure_type is not None:
+        return _failure_artifact_row(
+            prediction,
+            record=record,
+            gold_record=gold_record,
+            run_id=run_id,
+            experiment_kind=experiment_kind,
+            system_id=system_id,
+            prediction_index=prediction_index,
+            failure_type=failure_type,
+        )
     mql = str(prediction.get("MQL") or "")
     diagnostics: dict[str, Any] = {}
     metrics = dict.fromkeys(EVALUATION_METRICS, 0)
@@ -840,6 +857,48 @@ def _failed_record_row(
         "fingerprint_order": list(EVALUATION_METRICS),
         "diagnostics": {"error_code": error_code, "message": message},
         "slice_keys": {},
+        "prediction_ref": _prediction_ref(prediction),
+    }
+
+
+def _typed_failure_type(prediction: dict[str, Any]) -> str | None:
+    result_type = prediction.get("result_type")
+    if isinstance(result_type, str) and result_type in FAILURE_RESULT_TYPES:
+        return result_type
+    return None
+
+
+def _failure_artifact_row(
+    prediction: dict[str, Any],
+    *,
+    record: dict[str, Any],
+    gold_record: _GoldRecord,
+    run_id: str,
+    experiment_kind: str,
+    system_id: str,
+    prediction_index: int,
+    failure_type: str,
+) -> dict[str, Any]:
+    metrics = dict.fromkeys(EVALUATION_METRICS, 0)
+    return {
+        "result_type": "evaluation_record",
+        "status": "failed",
+        "run_id": run_id,
+        "experiment_kind": experiment_kind,
+        "system_id": system_id,
+        "prediction_index": prediction_index,
+        "prediction_line": prediction.get("_prediction_line"),
+        "record_id": record.get("record_id"),
+        "db_id": record.get("db_id"),
+        "metrics": metrics,
+        "fingerprint": [0 for _ in EVALUATION_METRICS],
+        "fingerprint_order": list(EVALUATION_METRICS),
+        "diagnostics": {
+            "error_code": str(prediction.get("error_code") or failure_type),
+            "failure_type": failure_type,
+            "message": str(prediction.get("message") or "system reported a failure"),
+        },
+        "slice_keys": _slice_keys(record, gold_record.parsed),
         "prediction_ref": _prediction_ref(prediction),
     }
 
@@ -1249,6 +1308,9 @@ def _diagnostic_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
         error_code = diagnostics.get("error_code")
         if isinstance(error_code, str) and error_code:
             counts[error_code] += 1
+        failure_type = diagnostics.get("failure_type")
+        if isinstance(failure_type, str) and failure_type:
+            counts[failure_type] += 1
         for key in ("parse_error", "forbidden_op_hit", "exec_error", "ast_reasons"):
             if diagnostics.get(key):
                 counts[key] += 1

@@ -6,6 +6,39 @@ from tend.solver.eg import SmartEGPolicy, SmartEGState, SmartEGToolAPI
 from tend.solver.eg.contracts import EvidenceClaim, EvidenceDebt
 from tend.solver.eg.counterexamples import mine_counterexamples
 from tend.solver.eg.evidence import EvidenceLedger
+from tend.solver.eg.safety import value_token
+
+
+class _Executor:
+    def norm_exec(self, _db_id: str, _mql: str):
+        return [{"_id": 1}]
+
+
+def _call(name: str, arguments: dict, call_id: str = "call_submit") -> dict:
+    return {
+        "id": call_id,
+        "type": "function",
+        "function": {"name": name, "arguments": json.dumps(arguments)},
+    }
+
+
+def _staged_execution_state() -> SmartEGState:
+    state = SmartEGState(nlq="list accounts", db_id="financial", mode="execution")
+    state.environment = {"candidate_collections": ["account"]}
+    state.intent = {"task_kind": "list", "target_collection": "account"}
+    state.query_plan = {"collection": "account", "stages": [{"$limit": 2}]}
+    return state
+
+
+def _add_evidence(state: SmartEGState, source_tool: str, summary: dict | None = None) -> str:
+    record = state.evidence_ledger.add_record(
+        source_tool=source_tool,
+        tool_call_id=f"call_{source_tool}",
+        observation_ref=f"agent/session.jsonl#{source_tool}",
+        summary=summary or {"tool": source_tool, "ok": True},
+        redaction={"raw_rows": False},
+    )
+    return record.evidence_id
 
 
 def test_submit_debt_clears_when_required_claim_gets_evidence() -> None:
@@ -519,3 +552,435 @@ def test_submit_plan_allows_scalar_alias_that_reuses_complex_field_name() -> Non
     )
 
     assert observation.result["accepted"] is True
+
+
+def test_submit_final_rejects_direct_first_turn_even_if_exposed() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(), executor=_Executor())
+    state = SmartEGState(nlq="list accounts", db_id="financial")
+
+    observation = api.execute(
+        _call(
+            "submit_final_mql",
+            {
+                "collection": "account",
+                "pipeline": [{"$limit": 2}],
+                "MQL": 'db.account.aggregate([{"$limit":2}])',
+            },
+        ),
+        state,
+        exposed_tool_names={"submit_final_mql"},
+    )
+
+    assert observation.ok is False
+    assert observation.llm_visible_content["ok"] is False
+    assert observation.result["accepted"] is False
+    codes = [item["code"] for item in observation.result["violations"]]
+    assert "wrong_mode" in codes
+    assert "missing_milestone" in codes
+    assert state.terminal is False
+
+
+def test_staged_final_requires_relevant_refs_and_accepts_with_real_executor() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(), executor=_Executor())
+    irrelevant_state = _staged_execution_state()
+    bad_ref = _add_evidence(
+        irrelevant_state,
+        "list_collections",
+        {"tool": "list_collections", "collections": ["account"]},
+    )
+
+    bad = api.execute(
+        _call(
+            "submit_final_mql",
+            {
+                "collection": "account",
+                "pipeline": [{"$limit": 2}],
+                "MQL": 'db.account.aggregate([{"$limit":2}])',
+                "evidence_refs": [bad_ref],
+            },
+        ),
+        irrelevant_state,
+        exposed_tool_names={"submit_final_mql"},
+    )
+
+    assert bad.ok is False
+    assert bad.llm_visible_content["ok"] is False
+    assert bad.result["accepted"] is False
+    assert [item["code"] for item in bad.result["violations"]] == [
+        "irrelevant_evidence_refs"
+    ]
+
+    accepted_state = _staged_execution_state()
+    good_ref = _add_evidence(
+        accepted_state,
+        "run_readonly_probe",
+        {"tool": "run_readonly_probe", "ok": True, "count": 1},
+    )
+
+    good = api.execute(
+        _call(
+            "submit_final_mql",
+            {
+                "collection": "account",
+                "pipeline": [{"$limit": 2}],
+                "MQL": 'db.account.aggregate([{"$limit":2}])',
+                "evidence_refs": [good_ref],
+            },
+        ),
+        accepted_state,
+        exposed_tool_names={"submit_final_mql"},
+    )
+
+    assert good.ok is True
+    assert good.llm_visible_content["ok"] is True
+    assert good.result["accepted"] is True
+    assert accepted_state.terminal is True
+
+
+def test_submit_final_rejects_missing_executor_even_with_relevant_refs() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(), executor=None)
+    state = _staged_execution_state()
+    ref = _add_evidence(
+        state,
+        "run_readonly_probe",
+        {"tool": "run_readonly_probe", "ok": True, "count": 1},
+    )
+
+    observation = api.execute(
+        _call(
+            "submit_final_mql",
+            {
+                "collection": "account",
+                "pipeline": [{"$limit": 2}],
+                "MQL": 'db.account.aggregate([{"$limit":2}])',
+                "evidence_refs": [ref],
+            },
+        ),
+        state,
+        exposed_tool_names={"submit_final_mql"},
+    )
+
+    assert observation.ok is False
+    assert observation.result["accepted"] is False
+    assert [item["code"] for item in observation.result["violations"]] == [
+        "execution_unresolved"
+    ]
+    assert state.execution_trace.final_sanity_runs[-1]["ok"] is False
+    assert state.execution_trace.final_sanity_runs[-1]["reason"] == "no_executor"
+
+
+def test_submit_final_can_repair_previous_value_grounding_debt() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(counterexample_gate=False), executor=_Executor())
+    state = _staged_execution_state()
+    probe_ref = _add_evidence(
+        state,
+        "run_readonly_probe",
+        {"tool": "run_readonly_probe", "ok": True, "count": 1},
+    )
+
+    first = api.execute(
+        _call(
+            "submit_final_mql",
+            {
+                "collection": "account",
+                "pipeline": [{"$match": {"status": "ACTIVE"}}, {"$limit": 1}],
+                "MQL": 'db.account.aggregate([{"$match":{"status":"ACTIVE"}},{"$limit":1}])',
+                "evidence_refs": [probe_ref],
+            },
+        ),
+        state,
+        exposed_tool_names={"submit_final_mql"},
+    )
+
+    assert first.ok is False
+    assert "ungrounded_value_constant" in [
+        item["code"] for item in first.result["violations"]
+    ]
+    assert state.evidence_ledger.blocking_debts(milestone="final")
+
+    value_ref = _add_evidence(
+        state,
+        "profile_path_values",
+        {
+            "tool": "profile_path_values",
+            "collection": "account",
+            "path": "status",
+            "values": [
+                {
+                    "value": {
+                        "type": "str",
+                        "hash": "sha256:active",
+                        "token": "value:str:active",
+                        "literal": "ACTIVE",
+                    },
+                    "count": 2,
+                }
+            ],
+        },
+    )
+
+    repaired = api.execute(
+        _call(
+            "submit_final_mql",
+            {
+                "collection": "account",
+                "pipeline": [{"$match": {"status": "ACTIVE"}}, {"$limit": 1}],
+                "MQL": 'db.account.aggregate([{"$match":{"status":"ACTIVE"}},{"$limit":1}])',
+                "evidence_refs": [probe_ref, value_ref],
+            },
+        ),
+        state,
+        exposed_tool_names={"submit_final_mql"},
+    )
+
+    assert repaired.ok is True
+    assert repaired.result["accepted"] is True
+    assert state.evidence_ledger.blocking_debts(milestone="final") == []
+
+
+def test_no_evidence_gate_relaxes_only_evidence_ref_checks_for_final() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(evidence_gate=False), executor=_Executor())
+    staged_state = _staged_execution_state()
+
+    accepted = api.execute(
+        _call(
+            "submit_final_mql",
+            {
+                "collection": "account",
+                "pipeline": [{"$limit": 2}],
+                "MQL": 'db.account.aggregate([{"$limit":2}])',
+            },
+        ),
+        staged_state,
+        exposed_tool_names={"submit_final_mql"},
+    )
+
+    assert accepted.ok is True
+    assert accepted.result["accepted"] is True
+
+    direct_state = SmartEGState(nlq="list accounts", db_id="financial")
+    rejected = api.execute(
+        _call(
+            "submit_final_mql",
+            {
+                "collection": "account",
+                "pipeline": [{"$limit": 2}],
+                "MQL": 'db.account.aggregate([{"$limit":2}])',
+            },
+        ),
+        direct_state,
+        exposed_tool_names={"submit_final_mql"},
+    )
+
+    assert rejected.ok is False
+    assert rejected.result["accepted"] is False
+    assert "wrong_mode" in [item["code"] for item in rejected.result["violations"]]
+
+
+def test_submit_plan_rejects_irrelevant_existing_evidence_refs() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(counterexample_gate=False, value_grounding=False))
+    state = SmartEGState(nlq="list accounts", db_id="financial", mode="planning")
+    state.intent = {"task_kind": "list"}
+    ref = _add_evidence(
+        state,
+        "list_collections",
+        {"tool": "list_collections", "collections": ["account"]},
+    )
+
+    observation = api.execute(
+        _call(
+            "submit_query_plan",
+            {
+                "collection": "account",
+                "stages": [{"$limit": 2}],
+                "evidence_refs": [ref],
+            },
+        ),
+        state,
+        exposed_tool_names={"submit_query_plan"},
+    )
+
+    assert observation.ok is False
+    assert observation.result["accepted"] is False
+    assert [item["code"] for item in observation.result["violations"]] == [
+        "irrelevant_evidence_refs"
+    ]
+
+
+def test_value_grounding_ignores_lookup_structural_strings_and_requires_literals() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(counterexample_gate=False))
+    lookup_state = SmartEGState(nlq="join accounts to districts", db_id="financial", mode="planning")
+    lookup_state.intent = {"task_kind": "lookup"}
+    lookup_ref = _add_evidence(
+        lookup_state,
+        "discover_paths",
+        {
+            "tool": "discover_paths",
+            "collection": "account",
+            "paths": {
+                "district_id": {"type_counts": {"int": 2}},
+                "_id": {"type_counts": {"int": 2}},
+            },
+        },
+    )
+
+    lookup_observation = api.execute(
+        _call(
+            "submit_query_plan",
+            {
+                "collection": "account",
+                "stages": [
+                    {
+                        "$lookup": {
+                            "from": "district",
+                            "localField": "district_id",
+                            "foreignField": "_id",
+                            "as": "district_docs",
+                        }
+                    }
+                ],
+                "evidence_refs": [lookup_ref],
+            },
+        ),
+        lookup_state,
+        exposed_tool_names={"submit_query_plan"},
+    )
+
+    assert lookup_observation.ok is True
+    assert lookup_observation.result["accepted"] is True
+
+
+def test_value_grounding_requires_token_proof_for_numeric_and_objectid_constants() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(counterexample_gate=False))
+    state = SmartEGState(nlq="find exact account ids and balances", db_id="financial", mode="planning")
+    state.intent = {"task_kind": "filter"}
+    balance_token = value_token(1250)
+    objectid = "507f1f77bcf86cd799439011"
+    objectid_token = value_token(objectid)
+    ref = _add_evidence(
+        state,
+        "profile_path_values",
+        {
+            "tool": "profile_path_values",
+            "collection": "account",
+            "path": "balance",
+            "values": [
+                {
+                    "value": {
+                        "type": "int",
+                        "hash": "sha256:1250",
+                        "token": balance_token,
+                        "proof": {
+                            "token": balance_token,
+                            "numeric_class": "positive",
+                        },
+                    },
+                    "count": 1,
+                }
+            ],
+        },
+    )
+
+    missing_objectid = api.execute(
+        _call(
+            "submit_query_plan",
+            {
+                "collection": "account",
+                "stages": [
+                    {
+                        "$match": {
+                            "_id": objectid,
+                            "balance": {"$eq": 1250},
+                        }
+                    }
+                ],
+                "evidence_refs": [ref],
+            },
+        ),
+        state,
+        exposed_tool_names={"submit_query_plan"},
+    )
+
+    assert missing_objectid.ok is False
+    assert missing_objectid.result["violations"][0]["code"] == "ungrounded_value_constant"
+    assert any(
+        item.startswith("token:")
+        for debt in state.evidence_ledger.blocking_debts(milestone="plan")
+        for item in debt.missing_evidence
+    )
+
+    objectid_ref = _add_evidence(
+        state,
+        "search_values",
+        {
+            "tool": "search_values",
+            "collection": "account",
+            "matches": [
+                {
+                    "path": "_id",
+                    "value": {
+                        "type": "str",
+                        "hash": "sha256:oid",
+                        "token": objectid_token,
+                        "proof": {
+                            "token": objectid_token,
+                            "string_format": "object_id_like",
+                        },
+                    },
+                }
+            ],
+        },
+    )
+
+    grounded = api.execute(
+        _call(
+            "submit_query_plan",
+            {
+                "collection": "account",
+                "stages": [
+                    {
+                        "$match": {
+                            "_id": objectid,
+                            "balance": {"$eq": 1250},
+                        }
+                    }
+                ],
+                "evidence_refs": [ref, objectid_ref],
+            },
+        ),
+        state,
+        exposed_tool_names={"submit_query_plan"},
+    )
+
+    assert grounded.ok is True
+    assert grounded.result["accepted"] is True
+
+    match_state = SmartEGState(nlq="active accounts", db_id="financial", mode="planning")
+    match_state.intent = {"task_kind": "filter"}
+    match_ref = _add_evidence(
+        match_state,
+        "discover_paths",
+        {
+            "tool": "discover_paths",
+            "collection": "account",
+            "paths": {"status": {"type_counts": {"str": 2}}},
+        },
+    )
+
+    match_observation = api.execute(
+        _call(
+            "submit_query_plan",
+            {
+                "collection": "account",
+                "stages": [{"$match": {"status": "ACTIVE"}}],
+                "evidence_refs": [match_ref],
+            },
+        ),
+        match_state,
+        exposed_tool_names={"submit_query_plan"},
+    )
+
+    assert match_observation.ok is False
+    assert [item["code"] for item in match_observation.result["violations"]] == [
+        "ungrounded_value_constant"
+    ]

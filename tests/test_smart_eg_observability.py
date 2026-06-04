@@ -6,6 +6,7 @@ import pytest
 
 from tend.observability import setup_logging
 from tend.solver.eg import SmartEGHistory, SmartEGPolicy, SmartEGState, SmartEGToolAPI
+from tend.solver.eg.execution import run_final_sanity_execution
 from tend.solver.eg.observability import SmartEGRecorder, build_session_id
 
 
@@ -455,13 +456,25 @@ def test_planning_ready_accepts_readonly_probe_as_plan_evidence() -> None:
     }
 
 
-def test_execution_ready_narrows_to_final_submit_without_protocol_penalty() -> None:
+def test_execution_mode_waits_for_final_evidence_before_submit_focus() -> None:
     api = SmartEGToolAPI(SmartEGPolicy(), db_handle=_Mongo())
     state = SmartEGState(nlq="list accounts", db_id="financial", mode="execution")
     state.environment = {"candidate_collections": ["account"]}
     state.intent = {"task_kind": "aggregation"}
     state.query_plan = {"collection": "account", "stages": [{"$limit": 1}]}
 
+    exposed_names = {tool["function"]["name"] for tool in api.tools_for_state(state)}
+
+    assert "run_readonly_probe" in exposed_names
+    assert "run_final_sanity_execution" in exposed_names
+    assert api.tool_choice_for_state(state) is None
+
+    state.evidence_ledger.add_record(
+        source_tool="run_readonly_probe",
+        tool_call_id="call_probe",
+        observation_ref="agent/session.jsonl#probe",
+        summary={"tool": "run_readonly_probe", "ok": True, "count": 1},
+    )
     exposed_names = {tool["function"]["name"] for tool in api.tools_for_state(state)}
 
     assert exposed_names == {
@@ -525,6 +538,71 @@ def test_check_ast_filter_accepts_pipeline_and_never_escapes_parse_error() -> No
     assert bad_observation.result["error_type"] in {"ExecutionError", "ResponseParseError"}
 
 
+def test_check_ast_filter_rejects_canonical_disabled_system_var() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(), db_handle=_Mongo())
+    state = SmartEGState(nlq="recent accounts", db_id="financial", mode="execution")
+
+    observation = api.execute(
+        {
+            "id": "call_now",
+            "type": "function",
+            "function": {
+                "name": "check_ast_filter",
+                "arguments": json.dumps(
+                    {"MQL": 'db.account.aggregate([{"$match":{"created_at":{"$lte":"$$NOW"}}}])'}
+                ),
+            },
+        },
+        state,
+    )
+
+    assert observation.ok is False
+    assert observation.result["ok"] is False
+    assert "$$NOW" in observation.result["disallowed_operators"]
+
+
+def test_run_final_sanity_execution_requires_supported_executor() -> None:
+    missing = run_final_sanity_execution(
+        executor=None,
+        db_id="financial",
+        mql='db.account.aggregate([{"$limit":1}])',
+    )
+    unsupported = run_final_sanity_execution(
+        executor=object(),
+        db_id="financial",
+        mql='db.account.aggregate([{"$limit":1}])',
+    )
+
+    assert missing["ok"] is False
+    assert missing["reason"] == "no_executor"
+    assert unsupported["ok"] is False
+    assert unsupported["reason"] == "unsupported_executor"
+
+
+def test_run_final_sanity_execution_preserves_bounded_executor_failure() -> None:
+    class FailingBoundedExecutor:
+        def aggregate_readonly_bounded(self, _db_id, _mql, limit=50):
+            return {
+                "ok": False,
+                "error_class": "EXECUTION_ERROR",
+                "error_type": "ValueError",
+                "message": "bad pipeline",
+                "count": 0,
+                "sample": [],
+            }
+
+    result = run_final_sanity_execution(
+        executor=FailingBoundedExecutor(),
+        db_id="financial",
+        mql='db.account.aggregate([{"$limit":1}])',
+    )
+
+    assert result["ok"] is False
+    assert result["skipped"] is False
+    assert result["error_type"] == "ValueError"
+    assert result["error_class"] == "EXECUTION_ERROR"
+
+
 def test_readonly_mongo_tools_stay_available_across_non_terminal_modes() -> None:
     api = SmartEGToolAPI(SmartEGPolicy())
     state = SmartEGState(nlq="list accounts", db_id="financial")
@@ -563,3 +641,140 @@ def test_tool_execution_uses_turn_exposure_snapshot() -> None:
     assert first.ok is True
     assert second.ok is True
     assert state.counters.protocol_violations == 0
+
+
+def test_explicit_empty_exposure_snapshot_rejects_known_and_terminal_tools() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(), db_handle=_Mongo())
+    state = SmartEGState(nlq="list accounts", db_id="financial")
+
+    known = api.execute(
+        {
+            "id": "call_1",
+            "function": {"name": "list_collections", "arguments": "{}"},
+        },
+        state,
+        exposed_tool_names=set(),
+    )
+    terminal = api.execute(
+        {
+            "id": "call_2",
+            "function": {
+                "name": "submit_final_mql",
+                "arguments": '{"collection":"account","pipeline":[{"$limit":1}]}',
+            },
+        },
+        state,
+        exposed_tool_names=set(),
+    )
+
+    assert known.ok is False
+    assert known.llm_visible_content["reason"] == "tool_not_exposed"
+    assert terminal.ok is False
+    assert terminal.llm_visible_content["reason"] == "tool_not_exposed"
+
+
+def test_unimplemented_prefix_tools_do_not_report_success() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(), db_handle=_Mongo())
+    state = SmartEGState(nlq="list accounts", db_id="financial", mode="execution")
+
+    observation = api.execute(
+        {
+            "id": "call_prefix",
+            "function": {
+                "name": "execute_pipeline_prefix",
+                "arguments": '{"collection":"account","pipeline":[{"$limit":1}],"prefix_length":1}',
+            },
+        },
+        state,
+    )
+
+    assert observation.ok is False
+    assert observation.llm_visible_content["ok"] is False
+    assert observation.result["reason"] == "TOOL_UNIMPLEMENTED"
+    assert observation.result["implemented"] is False
+
+
+def test_policy_flags_change_exposure_and_readiness() -> None:
+    api = SmartEGToolAPI(
+        SmartEGPolicy(
+            counterexample_gate=False,
+            relationship_probe=False,
+            prefix_execution=False,
+            revisit=False,
+        ),
+        db_handle=_Mongo(),
+    )
+    state = SmartEGState(nlq="list accounts", db_id="financial", mode="execution")
+    names = {tool["function"]["name"] for tool in api.tools_for_state(state)}
+
+    assert "mine_counterexamples" not in names
+    assert "profile_relationship_candidates" not in names
+    assert "request_revisit" not in names
+    assert "render_pipeline_prefix" not in names
+    assert "execute_pipeline_prefix" not in names
+    assert "check_prefix_checkpoint" not in names
+
+    disabled_counterexample = api.execute(
+        {"id": "call_mine", "function": {"name": "mine_counterexamples", "arguments": "{}"}},
+        state,
+    )
+    assert disabled_counterexample.ok is False
+    assert disabled_counterexample.llm_visible_content["reason"] == "tool_not_exposed"
+
+    env_state = SmartEGState(nlq="list accounts", db_id="financial")
+    env_state.evidence_ledger.add_record(
+        source_tool="list_collections",
+        tool_call_id="call_1",
+        observation_ref="agent/session.jsonl#1",
+        summary={"collections": ["account"]},
+    )
+    env_state.evidence_ledger.add_record(
+        source_tool="profile_relationship_candidates",
+        tool_call_id="call_2",
+        observation_ref="agent/session.jsonl#2",
+        summary={"tool": "profile_relationship_candidates", "candidates": []},
+    )
+
+    env_names = {tool["function"]["name"] for tool in api.tools_for_state(env_state)}
+
+    assert "sample_documents" in env_names
+    assert "submit_environment_model" in env_names
+    assert api.tool_choice_for_state(env_state) is None
+
+
+def test_list_collections_passes_current_db_id_to_db_handle() -> None:
+    class TrackingMongo:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def list_collections(self, db_id):
+            self.calls.append(db_id)
+            return ["account"]
+
+    mongo = TrackingMongo()
+    api = SmartEGToolAPI(SmartEGPolicy(), db_handle=mongo)
+    state = SmartEGState(nlq="list accounts", db_id="financial")
+
+    observation = api.execute(
+        {
+            "id": "call_collections",
+            "function": {"name": "list_collections", "arguments": "{}"},
+        },
+        state,
+    )
+
+    assert observation.ok is True
+    assert mongo.calls == ["financial"]
+
+
+def test_candidate_check_tools_are_not_exposed_as_live_tools() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(), db_handle=_Mongo())
+    state = SmartEGState(nlq="list accounts", db_id="financial")
+
+    for mode in ["environment", "intent", "planning", "execution"]:
+        state.mode = mode
+        names = {tool["function"]["name"] for tool in api.tools_for_state(state)}
+        assert "check_environment_model" not in names
+        assert "check_intent_hypothesis" not in names
+        assert "check_query_plan" not in names
+        assert "check_final_candidate" not in names

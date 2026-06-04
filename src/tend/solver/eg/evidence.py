@@ -278,10 +278,12 @@ class EvidenceLedger:
         for claim_id in list(self.claims):
             self._refresh_claim_status(claim_id)
         sources = {record.source_tool for record in self.records.values()}
+        markers = _evidence_markers(self.records.values())
         for debt in self.debts.values():
             if debt.resolved:
                 continue
-            if debt.missing_evidence and set(debt.missing_evidence).issubset(sources):
+            missing = set(debt.missing_evidence)
+            if missing and (missing.issubset(sources) or missing.issubset(markers)):
                 debt.resolved = True
 
     def _missing_for_claim(self, claim: EvidenceClaim) -> list[str]:
@@ -326,3 +328,26 @@ def _sequence_suffix(value: str) -> int:
         return int(tail)
     except ValueError:
         return 0
+
+
+def _evidence_markers(records: Any) -> set[str]:
+    markers: set[str] = set()
+    for record in records:
+        _collect_evidence_markers(getattr(record, "summary", {}), markers)
+    return markers
+
+
+def _collect_evidence_markers(payload: Any, markers: set[str]) -> None:
+    if isinstance(payload, dict):
+        literal = payload.get("literal")
+        if isinstance(literal, str):
+            markers.add(f"literal:{literal}")
+        token = payload.get("token")
+        if isinstance(token, str):
+            markers.add(f"token:{token}")
+        for value in payload.values():
+            _collect_evidence_markers(value, markers)
+        return
+    if isinstance(payload, list):
+        for item in payload:
+            _collect_evidence_markers(item, markers)

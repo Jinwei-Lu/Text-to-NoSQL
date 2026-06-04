@@ -24,11 +24,14 @@ from .strategies import SmartEGAblationSpec, resolve_ablations
 @dataclass(frozen=True, slots=True)
 class AblationPrediction:
     run_id: str
+    session_id: str
     ablation_id: str
     ablation_title: str
     solver_variant: str
     baseline_id: None
-    record_id: int | None
+    batch_index: int | None
+    work_item_id: str
+    record_id: int | str | None
     db_id: str
     MQL: str
     attempts: int
@@ -66,11 +69,14 @@ class AblationPrediction:
 @dataclass(frozen=True, slots=True)
 class AblationFailure:
     run_id: str
+    session_id: str
     ablation_id: str
     ablation_title: str
     solver_variant: str
     baseline_id: None
-    record_id: int | None
+    batch_index: int | None
+    work_item_id: str
+    record_id: int | str | None
     db_id: str
     error_code: str
     message: str
@@ -126,12 +132,15 @@ async def smart_solve_record_eg(*args: Any, **kwargs: Any) -> Any:
         prefix_execution=bool(options.get("use_prefix_execution", True)),
         revisit=bool(options.get("use_revisit", True)),
         probe_scheduler=bool(options.get("use_probe_scheduler", True)),
+        budget_profile=str(options.get("budget_profile") or "medium"),
     )
+    session_id = options.get("session_id")
     return await solve(
         wf,
         db_id=str(record.get("db_id") or ""),
         nlq=_canonical_nlq(record),
         record_id=record.get("record_id"),
+        session_id=str(session_id) if session_id else None,
         policy=policy,
     )
 
@@ -228,11 +237,15 @@ async def run_ablation_suite(
             witness_preloaded=str(record.get("db_id") or "") in preloaded_dbs,
         )
         payload = result.to_json()
-        payload["batch_index"] = batch_index
-        payload["work_item_id"] = (
-            f"ablation:{batch_index}:{spec.id}:{record.get('db_id')}:"
-            f"{record.get('record_id')}"
+        work_item_id = _work_item_id(
+            spec.id,
+            batch_index,
+            record.get("db_id"),
+            record.get("record_id"),
         )
+        payload["batch_index"] = batch_index
+        payload["work_item_id"] = work_item_id
+        payload.setdefault("session_id", _session_id(work_item_id))
         return batch_index, payload
 
     tasks = [
@@ -302,6 +315,8 @@ async def run_ablation_record(
         max_revisits=max_revisits,
         cost_budget_usd=cost_budget_usd,
         batch_index=batch_index,
+        db_id=db_id,
+        record_id=record_id,
     )
     base_log = wf.ctx.log.bind(
         component="ablation_runner",
@@ -421,19 +436,32 @@ def _runtime_options(
     max_revisits: int,
     cost_budget_usd: float,
     batch_index: int | None = None,
+    db_id: str | None = None,
+    record_id: int | str | None = None,
 ) -> dict[str, Any]:
     prefix = (
         f"ablation:{batch_index}:{spec.id}"
         if batch_index is not None
         else f"ablation:{spec.id}"
     )
-    return spec.to_runtime_options(
+    work_item_id = _work_item_id(spec.id, batch_index, db_id, record_id)
+    options = spec.to_runtime_options(
         max_tool_turns=max_tool_turns,
         max_revisits=max_revisits,
         cost_budget_usd=cost_budget_usd,
         progress_group_prefix=prefix,
-        progress_work_item_id=f"{spec.id}:{batch_index}" if batch_index is not None else spec.id,
+        progress_work_item_id=work_item_id,
     )
+    options.update(
+        {
+            "batch_index": batch_index,
+            "db_id": db_id,
+            "record_id": record_id,
+            "work_item_id": work_item_id,
+            "session_id": _session_id(work_item_id),
+        }
+    )
+    return options
 
 
 def _variant_workflow(
@@ -448,11 +476,17 @@ def _variant_workflow(
             ablation_id=spec.id,
             solver_variant=options["solver_variant"],
             batch_index=batch_index,
+            db_id=options.get("db_id"),
+            record_id=options.get("record_id"),
+            session_id=options.get("session_id"),
+            work_item_id=options.get("work_item_id"),
         ),
         extra={
             **wf.ctx.extra,
             "ablation_id": spec.id,
             "batch_index": batch_index,
+            "session_id": options.get("session_id"),
+            "work_item_id": options.get("work_item_id"),
             "solver_options": options,
         },
     )
@@ -471,14 +505,20 @@ def _prediction_from_solver_payload(
 ) -> AblationPrediction:
     feedback = list(payload.get("feedback") or [])
     mql = str(payload.get("MQL") or "")
+    db_id = str(payload.get("db_id") or "")
+    record_id = payload.get("record_id")
+    trace = _trace_fields(spec, options, db_id=db_id, record_id=record_id)
     return AblationPrediction(
         run_id=wf.ctx.settings.run_id,
+        session_id=trace["session_id"],
         ablation_id=spec.id,
         ablation_title=spec.title,
         solver_variant=str(options["solver_variant"]),
         baseline_id=None,
-        record_id=payload.get("record_id"),
-        db_id=str(payload.get("db_id") or ""),
+        batch_index=trace["batch_index"],
+        work_item_id=trace["work_item_id"],
+        record_id=record_id,
+        db_id=db_id,
         MQL=mql,
         attempts=_attempt_count(feedback, payload),
         max_tool_turns=int(options["max_tool_turns"]),
@@ -518,14 +558,20 @@ def _failure_from_solver_payload(
 ) -> AblationFailure:
     feedback = list(payload.get("feedback") or [])
     mql = str(payload.get("MQL") or "")
+    db_id = str(payload.get("db_id") or "")
+    record_id = payload.get("record_id")
+    trace = _trace_fields(spec, options, db_id=db_id, record_id=record_id)
     return AblationFailure(
         run_id=wf.ctx.settings.run_id,
+        session_id=trace["session_id"],
         ablation_id=spec.id,
         ablation_title=spec.title,
         solver_variant=str(options["solver_variant"]),
         baseline_id=None,
-        record_id=payload.get("record_id"),
-        db_id=str(payload.get("db_id") or ""),
+        batch_index=trace["batch_index"],
+        work_item_id=trace["work_item_id"],
+        record_id=record_id,
+        db_id=db_id,
         error_code=str(payload.get("error_code") or "SOLVER_FAILURE"),
         message=str(payload.get("message") or "solver returned failure"),
         attempts=_attempt_count(feedback, payload),
@@ -565,12 +611,16 @@ def _failure_from_error(
     transcript_refs: list[str],
     diagnostics_refs: list[str],
 ) -> AblationFailure:
+    trace = _trace_fields(spec, options, db_id=db_id, record_id=record_id)
     return AblationFailure(
         run_id=wf.ctx.settings.run_id,
+        session_id=trace["session_id"],
         ablation_id=spec.id,
         ablation_title=spec.title,
         solver_variant=str(options["solver_variant"]),
         baseline_id=None,
+        batch_index=trace["batch_index"],
+        work_item_id=trace["work_item_id"],
         record_id=record_id,
         db_id=db_id,
         error_code=err.anomaly.value if err.anomaly else "tend_error",
@@ -609,6 +659,13 @@ def _disclosure(
         "max_tool_turns": solver_disclosure.get("max_tool_turns", options["max_tool_turns"]),
         "max_revisits": solver_disclosure.get("max_revisits", options["max_revisits"]),
         "cost_budget_usd": solver_disclosure.get("cost_budget_usd", options["cost_budget_usd"]),
+        "budget_profile": solver_disclosure.get(
+            "budget_profile", options.get("budget_profile")
+        ),
+        "cost_budget_usd_source": options.get("cost_budget_usd_source"),
+        "cost_budget_usd_unpriced_behavior": options.get(
+            "cost_budget_usd_unpriced_behavior"
+        ),
         "no_training": solver_disclosure.get("no_training"),
         "solver_disclosure": solver_disclosure,
     }
@@ -638,11 +695,54 @@ def _str_list(value: Any) -> list[str]:
     return [str(item) for item in value if item not in (None, "")]
 
 
+def _work_item_id(
+    ablation_id: str,
+    batch_index: int | None,
+    db_id: Any,
+    record_id: Any,
+) -> str:
+    batch_part = str(batch_index) if batch_index is not None else "single"
+    db_part = _trace_part(db_id)
+    record_part = _trace_part(record_id)
+    return f"ablation:{batch_part}:{ablation_id}:{db_part}:{record_part}"
+
+
+def _session_id(work_item_id: str) -> str:
+    slug = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "-" for ch in work_item_id)
+    return f"solve-{slug}"
+
+
+def _trace_part(value: Any) -> str:
+    if value in (None, ""):
+        return "na"
+    return str(value)
+
+
+def _trace_fields(
+    spec: SmartEGAblationSpec,
+    options: dict[str, Any],
+    *,
+    db_id: str,
+    record_id: Any,
+) -> dict[str, Any]:
+    batch_index = options.get("batch_index")
+    if not isinstance(batch_index, int):
+        batch_index = None
+    work_item_id = str(
+        options.get("work_item_id") or _work_item_id(spec.id, batch_index, db_id, record_id)
+    )
+    return {
+        "session_id": str(options.get("session_id") or _session_id(work_item_id)),
+        "batch_index": batch_index,
+        "work_item_id": work_item_id,
+    }
+
+
 def _llm_refs_for(
     wf: Workflow,
     ablation_id: str,
     db_id: str,
-    record_id: int | None,
+    record_id: int | str | None,
 ) -> dict[str, list[str]]:
     events_path = wf.ctx.log.run_dir / "events.jsonl"
     transcript_refs: list[str] = []
@@ -656,7 +756,9 @@ def _llm_refs_for(
             continue
         if event.get("ablation_id") != ablation_id:
             continue
-        if event.get("db_id") != db_id or event.get("record_id") != record_id:
+        if str(event.get("db_id") or "") != db_id:
+            continue
+        if not _record_id_matches(event.get("record_id"), record_id):
             continue
         transcript_ref = event.get("transcript_ref")
         diagnostics_ref = event.get("diagnostics_ref")
@@ -665,6 +767,12 @@ def _llm_refs_for(
         if isinstance(diagnostics_ref, str) and diagnostics_ref not in diagnostics_refs:
             diagnostics_refs.append(diagnostics_ref)
     return {"transcript_refs": transcript_refs, "diagnostics_refs": diagnostics_refs}
+
+
+def _record_id_matches(event_record_id: Any, record_id: int | str | None) -> bool:
+    if record_id is None:
+        return event_record_id in (None, "")
+    return str(event_record_id) == str(record_id)
 
 
 __all__ = [

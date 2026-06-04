@@ -46,6 +46,7 @@ def _print_solve_summary(
     evaluation: EvaluationOutput | None = None,
     *,
     evaluate: bool = True,
+    skip_reason: str | None = None,
 ) -> None:
     print("\n" + "=" * 64)
     print(f"TEND solve · run {rt.settings.run_id} · "
@@ -63,7 +64,7 @@ def _print_solve_summary(
     print(f"  output : {out_path}")
     if failures:
         print(f"  failures output : {failures_path}")
-    _print_evaluation_block(evaluation, evaluate=evaluate)
+    _print_evaluation_block(evaluation, evaluate=evaluate, skip_reason=skip_reason)
     print("=" * 64)
 
 
@@ -77,6 +78,7 @@ def _print_baseline_summary(
     evaluation: EvaluationOutput | None = None,
     *,
     evaluate: bool = True,
+    skip_reason: str | None = None,
 ) -> None:
     print("\n" + "=" * 64)
     print(f"TEND baselines · run {rt.settings.run_id} · "
@@ -100,7 +102,7 @@ def _print_baseline_summary(
     print(f"  output : {out_path}")
     if failures:
         print(f"  failures output : {failures_path}")
-    _print_evaluation_block(evaluation, evaluate=evaluate)
+    _print_evaluation_block(evaluation, evaluate=evaluate, skip_reason=skip_reason)
     print("=" * 64)
 
 
@@ -115,6 +117,7 @@ def _print_ablation_summary(
     evaluation: EvaluationOutput | None = None,
     *,
     evaluate: bool = True,
+    skip_reason: str | None = None,
 ) -> None:
     print("\n" + "=" * 64)
     print(f"TEND ablation · run {rt.settings.run_id} · "
@@ -135,7 +138,7 @@ def _print_ablation_summary(
     print(f"  summary: {summary_path}")
     if failures:
         print(f"  failures output : {failures_path}")
-    _print_evaluation_block(evaluation, evaluate=evaluate)
+    _print_evaluation_block(evaluation, evaluate=evaluate, skip_reason=skip_reason)
     print("=" * 64)
 
 
@@ -143,12 +146,18 @@ def _print_evaluation_block(
     evaluation: EvaluationOutput | None,
     *,
     evaluate: bool = True,
+    skip_reason: str | None = None,
 ) -> None:
     if evaluation is None:
-        if not evaluate:
+        reason = skip_reason or ("disabled" if not evaluate else "no_predictions")
+        if reason == "disabled":
             print("  evaluation : disabled (--no-eval)")
-        else:
+        elif reason == "no_release_dataset":
+            print("  evaluation : skipped (NLQ+DB mode has no release evaluation dataset)")
+        elif reason == "no_predictions":
             print("  evaluation : skipped (no predictions)")
+        else:
+            print(f"  evaluation : skipped ({reason})")
         return
     scores = evaluation.report.get("scores", {})
     print(f"  evaluation : {evaluation.status} EX={scores.get('EX', 0.0)} "

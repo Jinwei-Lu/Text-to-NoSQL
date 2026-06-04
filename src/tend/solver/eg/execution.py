@@ -5,17 +5,7 @@ import json
 from typing import Any
 
 from ...errors import ExecutionError
-from ...execution.ast_check import parse_pipeline
-
-DISALLOWED_OPERATORS = {
-    "$accumulator",
-    "$function",
-    "$merge",
-    "$out",
-    "$rand",
-    "$sample",
-    "$where",
-}
+from ...execution.ast_check import parse_pipeline, scan_disabled
 
 
 def render_mql(collection: str, pipeline: list[dict[str, Any]]) -> str:
@@ -38,7 +28,7 @@ def parse_or_render_mql(
 
 def check_ast_filter(mql: str) -> dict[str, Any]:
     collection, pipeline = parse_pipeline(mql)
-    hits = sorted(_walk_disallowed(pipeline))
+    hits = scan_disabled(mql)
     return {
         "ok": not hits,
         "collection": collection,
@@ -54,12 +44,26 @@ def run_final_sanity_execution(
     mql: str,
 ) -> dict[str, Any]:
     if executor is None:
-        return {"ok": True, "skipped": True, "reason": "no_executor"}
+        return {"ok": False, "skipped": True, "reason": "no_executor"}
     try:
         if hasattr(executor, "norm_exec"):
             rows = executor.norm_exec(db_id, mql)
         elif hasattr(executor, "aggregate_readonly_bounded"):
             summary = executor.aggregate_readonly_bounded(db_id, mql, limit=50)
+            if isinstance(summary, dict) and _summary_failed(summary):
+                return {
+                    "ok": False,
+                    "skipped": False,
+                    "error": str(
+                        summary.get("error")
+                        or summary.get("message")
+                        or summary.get("error_class")
+                        or "bounded executor returned failure"
+                    )[:500],
+                    "error_type": str(summary.get("error_type") or "ExecutionError"),
+                    "error_class": summary.get("error_class"),
+                    "result_summary": _safe_summary(summary),
+                }
             return {
                 "ok": True,
                 "skipped": False,
@@ -67,7 +71,7 @@ def run_final_sanity_execution(
                 "sample_preview": _safe_preview(summary.get("sample", [])) if isinstance(summary, dict) else [],
             }
         else:
-            return {"ok": True, "skipped": True, "reason": "executor_has_no_norm_exec"}
+            return {"ok": False, "skipped": True, "reason": "unsupported_executor"}
     except Exception as exc:  # noqa: BLE001 - execution feedback is solver evidence
         return {
             "ok": False,
@@ -83,19 +87,32 @@ def run_final_sanity_execution(
     }
 
 
-def _walk_disallowed(value: Any) -> set[str]:
-    hits: set[str] = set()
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if str(key) in DISALLOWED_OPERATORS:
-                hits.add(str(key))
-            hits.update(_walk_disallowed(child))
-    elif isinstance(value, list):
-        for child in value:
-            hits.update(_walk_disallowed(child))
-    elif isinstance(value, str) and value in DISALLOWED_OPERATORS:
-        hits.add(value)
-    return hits
+def _summary_failed(summary: dict[str, Any]) -> bool:
+    status = summary.get("status")
+    return (
+        summary.get("ok") is False
+        or status in {"failed", "error"}
+        or bool(summary.get("error"))
+        or bool(summary.get("error_type"))
+        or bool(summary.get("error_class"))
+    )
+
+
+def _safe_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "ok",
+        "status",
+        "error",
+        "error_type",
+        "error_class",
+        "message",
+        "count",
+    }
+    return {
+        key: _clip_value(value)
+        for key, value in summary.items()
+        if key in allowed
+    }
 
 
 def _safe_preview(rows: Any) -> list[dict[str, Any]]:

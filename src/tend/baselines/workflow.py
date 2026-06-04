@@ -9,7 +9,14 @@ from typing import Any
 
 from ..errors import Anomaly, SourceError, TendError, wrap_unexpected
 from ..execution.ast_check import static_mql_feedback
-from .boundary import SolverBoundary, check_disjointness, load_solver_allow_list
+from .boundary import (
+    PUBLIC_SCHEMA_VERSION,
+    check_disjointness,
+    load_solver_allow_list,
+    public_schema_shape,
+    sanitize_public_record,
+    sanitize_public_schema,
+)
 from ..solver.inputs import (
     NlqTrack,
     _canonical_nlq,
@@ -199,15 +206,26 @@ async def run_baseline_record(
     base_log = wf.ctx.log.bind(
         component="baseline_runner", baseline_id=spec.id, batch_index=batch_index
     )
-    boundary = SolverBoundary.from_settings(wf.ctx.settings, logger=base_log)
-    safe = boundary.sanitize_test_record(record)
+    sanitized_record = sanitize_public_record(record)
+    sanitized_schema = sanitize_public_schema(schema)
+    if sanitized_record.stripped_fields:
+        base_log.info("baseline_record_fields_stripped", fields=sanitized_record.stripped_fields)
+    if sanitized_schema.stripped_fields:
+        base_log.info("baseline_schema_fields_stripped", fields=sanitized_schema.stripped_fields)
+    safe = sanitized_record.value
+    public_schema = sanitized_schema.value
     db_id = str(safe["db_id"])
     record_id = safe.get("record_id")
-    disclosure = _baseline_disclosure(wf, spec, witness_k=witness_k)
+    disclosure = _baseline_disclosure(
+        wf,
+        spec,
+        witness_k=witness_k,
+        schema_stripped_fields=sanitized_schema.stripped_fields,
+        record_stripped_fields=sanitized_record.stripped_fields,
+        schema_public_shape=public_schema_shape(public_schema),
+    )
     try:
-        # NOTE: records with a blank canonical NLQ now follow the shared solver resolution
-        # policy (falling back to colloquial/NLQ/query fields) instead of raising; baselines
-        # disclose only the canonical track, so use_colloquial=False keeps that boundary.
+        # Baselines expose only the canonical NLQ track after record sanitization.
         nlq = _canonical_nlq(safe, use_colloquial=False)
     except TendError as err:
         err.with_context(baseline_id=spec.id, db_id=db_id, record_id=record_id)
@@ -223,11 +241,11 @@ async def run_baseline_record(
             witness_k=witness_k,
             r_max=0,
         )
-    schema_summary = summarize_schema(schema)
+    schema_summary = summarize_schema(public_schema)
     witness_digest = build_witness_digest(local_data, witness_k)
     prompt_ctx = BaselinePromptContext(
         record=safe,
-        schema=schema,
+        schema=public_schema,
         witness_digest=witness_digest,
         schema_summary=schema_summary,
         nlq=nlq,
@@ -447,7 +465,13 @@ def summarize_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 def _baseline_disclosure(
-    wf: Workflow, spec: BaselineSpec, *, witness_k: int
+    wf: Workflow,
+    spec: BaselineSpec,
+    *,
+    witness_k: int,
+    schema_stripped_fields: list[str] | None = None,
+    record_stripped_fields: list[str] | None = None,
+    schema_public_shape: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     model_ids = [wf.ctx.settings.llm.model, *wf.ctx.settings.llm.agent_models.values()]
     allow_list = load_solver_allow_list(wf.ctx.settings.paths.schemas)
@@ -470,6 +494,20 @@ def _baseline_disclosure(
         "limitations": list(spec.limitations),
         "r_max": 0,  # baselines have no retry loop
         "witness_k": witness_k,
+        "public_schema_version": PUBLIC_SCHEMA_VERSION,
+        "schema_sanitizer_applied": True,
+        "record_sanitizer_applied": True,
+        "schema_stripped_fields": list(schema_stripped_fields or []),
+        "record_stripped_fields": list(record_stripped_fields or []),
+        "schema_public_shape": schema_public_shape
+        or {"format": "unknown", "collection_total": 0, "collections": []},
+        "uses_public_witness_digest": True,
+        "semantic_retry_budget": 0,
+        "retry_contract": {
+            "semantic_retry_budget": 0,
+            "format_transport_retries_are_semantic_retries": False,
+            "format_transport_retry_scope": "LLM client JSON/transport only",
+        },
     }
 
 

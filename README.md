@@ -5,7 +5,7 @@ TEND 是一个面向 MongoDB 的 Text-to-NoSQL 基准构造与评测工作区。
 这个仓库同时是研究产物和可执行流水线：
 
 - `src/tend/` 是当前活跃的构造、验证、执行、日志和求解器代码。
-- `proposals/*.md` 是当前保留的方案设计文档。`proposals/` 下的 prompt、schema、fixtures 是运行时/测试资产，不属于 Proposal 正文叙事。
+- `proposals/*.md` 是当前保留的方案设计文档。`proposals/` 下的 prompt、schema、fixtures 还包含测试资产、release/baseline 边界披露和少量归档设计资产，不应一概描述成 live runtime 配置。
 - `src/tend/baselines/` 是当前维护的受限 LLM baseline runtime，可通过 `tend baseline` 运行。
 - 顶层 `baselines/` 目录已经废弃并从项目中移除；新的 baseline 实现和实验入口统一放在 `src/tend/baselines/`。
 
@@ -38,8 +38,8 @@ TEND 关注那些很难通过机械 SQL 翻译得到的 MongoDB 查询。构造�
 | `tend.workflow` | 提供动态 workflow engine，包括结构化的 `agent`、`parallel`、`pipeline`；live LLM 并发由 `tend.llm` 客户端统一限流。 |
 | `tend.execution` | 解析 MQL，扫描禁用 operator，派生 canonical form set，加载/执行 MongoDB witness，归一化结果并计算 world signature。 |
 | `tend.publish` | 校验发布记录、schema 夹具、必需文件和测试集组成约束。 |
-| `tend.solver` | 实现 SMART 参考求解器，包括 solver 可见边界、分阶段契约、逐 stage 执行检查和类型化失败。 |
-| `tend.baselines` | 实现受限 LLM baseline 套件，包括 direct、schema-direct、SQL-pivot、plan-then-MQL、ReAct-lite 和 static self-debug。 |
+| `tend.solver` | 实现 provider-native SMART-EG 求解器，包括 NLQ+DB 输入派生、分阶段 evidence gate、最终 MQL sanity execution 和类型化失败。 |
+| `tend.baselines` | 实现受限 LLM baseline 套件，包括 direct、schema-direct、SQL-pivot、plan-then-MQL、ReAct-lite、static self-debug、public schema sanitizer 和 baseline disclosure。 |
 | `tend.observability` | 写入文件优先的 JSONL 日志、异常、Markdown LLM transcript、诊断 JSON，以及可选的 rich 进度 UI。 |
 
 更细的模块级说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
@@ -96,9 +96,11 @@ SMART-EG 是 provider-native tool-call ReAct agent，而不是结构化 LLM call
 1. Shape comprehension 通过 MongoDB 探索工具发现 collection、path、shape、dynamic key、array nesting、missing/null 分布和关系线索。
 2. Intent formalization 将 NLQ 转换为带 evidence refs 的意图假设。
 3. NoSQL planning 生成带 variant handling 和 sentinel coverage 的 MongoDB 物理计划。
-4. Query realization 渲染 MQL，检查禁用 operator，并通过 prefix execution 与 `submit_final_mql` 完成显式终止。
+4. Query realization 渲染 MQL，检查禁用 operator，可运行 bounded final sanity execution，并且只有 `submit_final_mql` 能产生成功预测。
 
-solver 边界会在构建 prompt 之前移除禁止泄露的 gold/audit 字段，例如 `MQL`、`canonical_form_set`、`shape_policy` 和 `*_ref`。solver 终止失败会写成类型化的 `solver_failure` JSONL 记录，而不是写入伪造查询。
+当前 repaired runtime 不把 prefix execution 当成生产成功机制。prefix pipeline 相关工具名仍可作为 policy/ablation 的暴露面出现，但实现会返回 `TOOL_UNIMPLEMENTED`，或在 `smart_eg_no_prefix_execution` 中返回 `tool_not_exposed`。它们应视为 Proposal 06 的归档设计/unsupported exposure；生产路径使用 `run_readonly_probe`、`check_ast_filter`、`run_final_sanity_execution` 和 `submit_final_mql`。
+
+release-record shim 只把 NLQ、`db_id` 和 `record_id` 交给 SMART-EG；release schema、gold MQL、`canonical_form_set`、`shape_policy`、audit/provenance refs 不进入 SMART-EG prompt。需要 release witness 时，runtime 会把数据预载到只读 Mongo execution/introspection 面，而不是把 gold/audit 字段作为 solver 输入。solver 终止失败会写成类型化的 `solver_failure` JSONL 记录，而不是写入伪造查询。
 
 ## 活跃 Baseline Runtime
 
@@ -115,7 +117,9 @@ solver 边界会在构建 prompt 之前移除禁止泄露的 gold/audit 字段�
 | `react_lite` | 模拟一个 ReAct thought/observation turn，再生成最终 MQL。 | 只有一轮 ReAct，observation 只来自 public schema/sample digest。 |
 | `static_self_debug` | 先 draft MQL，再用静态 parser/operator feedback 修一次。 | 只用静态反馈，不使用 MongoDB execution feedback。 |
 
-baseline prompt 只读取 release 可见信息：`nl_queries.canonical`、`db_id`、公开 MongoDB schema，以及可选的 public witness digest。它们不会把 `MQL`、`canonical_form_set`、`shape_policy`、`*_ref` 或其他 gold/audit 字段放进 prompt。运行结果会披露 `uses_gold_mql=false`、`uses_execution_feedback=false` 和 disjointness 检查信息。baseline 失败会写成 `baseline_failure`，不会伪造 MQL。
+baseline prompt 只读取 release 可见信息：`nl_queries.canonical`、`db_id`、经 `baseline_public_schema_v1` sanitizer 处理的公开 MongoDB schema，以及可选的 public witness digest。sanitizer 会去掉 `MQL`、`canonical_form_set`、`shape_policy`、`*_ref`、native provenance、structure audit、coverage/source-signal 等 private 字段，并把 schema variants 规范化到 public shape。运行结果会披露 `uses_gold_mql=false`、`uses_execution_feedback=false`、`schema_sanitizer_applied=true`、`record_sanitizer_applied=true`、stripped fields 和 disjointness 检查信息。baseline 失败会写成 `baseline_failure`，不会伪造 MQL。
+
+`proposals/schemas/solver_allow_list.json` 不是 live SMART-EG runtime config。当前 baseline runtime 会读取它来生成 release/baseline disclosure 和 disjointness 明细；SMART-EG 的工具暴露、gate 和 final execution 逻辑在 `src/tend/solver/eg/` 中编码。
 
 ## 仓库结构
 
@@ -124,11 +128,11 @@ src/tend/                    活跃 Python 包
 tests/                       runtime、validation、solver 和 contract 测试
 docs/                        活跃 runtime 的架构说明
 proposals/*.md               方案设计文档
-proposals/agent_prompts/     runtime 仍加载的 LLM prompt 资产
-proposals/schemas/           runtime/validation 使用的 JSON Schemas 与夹具
+proposals/agent_prompts/     native runtime prompt + inactive SMART proposal prompt templates
+proposals/schemas/           release validation schemas and baseline/disclosure boundary docs
 proposals/fixtures/          contract smoke fixtures，不是生产发布数据
 runs/                        本地运行输出和日志
-release/TEND-dataset/        默认生产发布目标目录
+release/tend-native-mongodb-v1/ 默认生产发布目标目录
 minidev/MINIDEV/             期望的 BIRD mini-dev 源数据根目录，如果本机存在
 ```
 
@@ -137,8 +141,9 @@ minidev/MINIDEV/             期望的 BIRD mini-dev 源数据根目录，如果
 - Python 3.11 或更高版本。
 - 执行 `construct` 时需要 BIRD mini-dev 数据位于 `minidev/MINIDEV`，也可以通过 `TEND_BIRD_ROOT` 指定自定义路径。
 - live `construct` 和 `solve` 需要 OpenAI-compatible chat-completions provider。
-- live Phase B 执行门控和 SMART 逐 stage 执行需要 MongoDB。即使 MongoDB 不可达，Phase A 仍然可以物化数据；stub 模式也可以离线跑通流水线。
+- live Phase B 执行门控、SMART-EG MongoDB 探索工具和 final sanity execution 需要 MongoDB。即使 MongoDB 不可达，Phase A 仍然可以物化数据；stub 模式也可以离线跑通流水线。
 - 推荐使用 `uv`，因为仓库包含 `uv.lock`；标准 `pip` 也可以工作。
+- `requirements.txt` 只保留当前 `src/` 和 `tests/` 直接需要的依赖；旧 SMART reproduction 的 numeric/tokenizer extras 已移到 `requirements-legacy-smart.txt`。
 
 ## 安装
 
@@ -189,6 +194,8 @@ python -m tend validate --help
 python -m tend publish --help
 python -m tend solve --help
 python -m tend baseline --help
+python -m tend ablation --help
+python -m tend evaluate --help
 ```
 
 ### 构造
@@ -260,14 +267,14 @@ python -m tend validate --dataset-dir tests/fixtures/smoke_release --smoke
 ```bash
 python -m tend publish \
   --dataset-dir runs/<run_id>/dataset \
-  --out release/TEND-dataset
+  --out release/tend-native-mongodb-v1
 ```
 
 完整验证会检查记录契约、JSON Schema、必需的 per-database 文件、`test.json`/`TEND.json` 一致性、world signature，以及测试集组成阈值，例如全 11 个 BIRD 数据库、L4 占比、L0 上限、schema-flex 占比和 structural-schema-flex 占比。
 
 ### 求解
 
-在 release 风格的数据集上运行 SMART solver：
+在 release 风格的数据集上运行 SMART-EG solver：
 
 ```bash
 python -m tend solve \
@@ -282,7 +289,20 @@ python -m tend solve \
 
 - `solver_predictions.jsonl` 存放成功预测；
 - `solver_failures.jsonl` 存放类型化终止失败；
-- 同时写入标准的 `events.jsonl`、`anomalies.jsonl` 和 LLM transcripts。
+- 自动评测启用时，solver 会把本次选中的 release 记录 materialize 到 run-local `evaluation_dataset/`，把预测和失败都写入 `solver_evaluation_inputs.jsonl`，并在 `evaluation/solver/` 下写出 proposal-05 报告；
+- 同时写入标准的 `events.jsonl`、`anomalies.jsonl`、`progress.jsonl` 和 LLM transcripts。
+
+也可以直接用 `NLQ + db_id` 运行，不读取 release record：
+
+```bash
+python -m tend solve \
+  --db-id financial \
+  --nlq "List accounts with active loans." \
+  --stub \
+  --quiet
+```
+
+这种 NLQ+DB 模式没有 release gold record，因此 CLI 会明确打印 `evaluation : skipped (NLQ+DB mode has no release evaluation dataset)`；这不是 `--no-eval`。
 
 ### Baseline
 
@@ -319,6 +339,36 @@ python -m tend baseline \
 
 `tend baseline` 使用和 `tend solve` 相同的 run-scoped observability。每个 LLM call 的事件和 diagnostics 都带 `baseline_id`、`baseline_step`、`db_id`、`record_id`、`transcript_ref` 和 `diagnostics_ref`，便于 Claude Code 直接定位 prompt 构造错误、schema validation 错误、parse 错误或 provider 异常。
 
+### Ablation
+
+SMART-EG ablation 通过 `tend ablation` 运行。当前 registry 覆盖 full SMART-EG、evidence gate、counterexample、value grounding、relationship probe、prefix-exposure toggle、revisit，以及 low/medium/high budget profile sweeps：
+
+```bash
+python -m tend ablation \
+  --dataset-dir tests/fixtures/smoke_release \
+  --db-id financial \
+  --record-id 1001 \
+  --ablations all \
+  --stub \
+  --quiet
+```
+
+输出包括 `ablation_predictions.jsonl`、`ablation_failures.jsonl`、`ablation_summary.json` 和自动 evaluation 报告。和 solve/baseline 一样，`--nlq` 的 NLQ+DB 模式会跳过自动 release evaluation，并打印 no-release-dataset skip reason。
+
+### Evaluation
+
+`tend evaluate` 对 solver、baseline、ablation 或手工 prediction JSONL 运行 proposal-05 指标：
+
+```bash
+python -m tend evaluate \
+  --dataset-dir tests/fixtures/smoke_release \
+  --predictions runs/<run_id>/solver_predictions.jsonl \
+  --kind solver \
+  --workers 8
+```
+
+评测输出包含 `per_record_metrics.jsonl`、`per_record_metrics.csv`、`report.json` 和 `report.md`。预测失败、baseline failure、ablation failure、缺失预测、parse/AST/exec 错误都会保留为类型化 zero-score rows；因此有失败也会产生 partial report，而不是丢弃整次评测。
+
 ## 输出和日志
 
 除非显式传入 `--run-id`，每次运行都会生成类似 `run-20260601-013355-a1b2` 的 run id。
@@ -333,6 +383,11 @@ runs/<run_id>/
   solver_failures.jsonl
   baseline_predictions.jsonl
   baseline_failures.jsonl
+  ablation_predictions.jsonl
+  ablation_failures.jsonl
+  *_evaluation_inputs.jsonl
+  evaluation/<kind>/report.md
+  evaluation/<kind>/report.json
   dataset/
     mongodb_schema/<db_id>.json
     mongodb_data/<db_id>.json
@@ -370,10 +425,15 @@ python -m pytest
 
 ```bash
 python -m pytest tests/test_validate.py
-python -m pytest tests/test_solver_workflow.py
+python -m pytest tests/test_smart_eg_runtime.py
+python -m pytest tests/test_smart_eg_observability.py
+python -m pytest tests/test_smart_eg_evidence.py
+python -m pytest tests/test_smart_eg_tools_mongo.py
 python -m pytest tests/test_baselines.py
+python -m pytest tests/test_ablations.py
+python -m pytest tests/test_evaluation.py
 python -m pytest tests/test_cli.py
-python -m pytest tests/test_pipeline.py
+python -m pytest tests/test_native_phase_b.py
 ```
 
 部分测试和 live 路径依赖本地 BIRD mini-dev 数据或 MongoDB。Stub-mode 测试不需要 live LLM 调用。

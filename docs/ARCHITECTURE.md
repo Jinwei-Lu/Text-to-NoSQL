@@ -11,7 +11,7 @@ migration flow has been removed from runtime, CLI, public imports, and active te
 | `config.py` | `.env` loading, paths, OpenAI-compatible provider configuration, toggles |
 | `errors.py` | Typed exception taxonomy and `Anomaly` classification |
 | `source/bird.py` | BIRD mini-dev loader: schema, workload, column enums, SQLite probes |
-| `observability/logging.py` | File-first JSONL logging, anomalies, transcripts, diagnostics |
+| `observability/_runtime.py`, `observability/_formatters.py` | File-first JSONL logging, anomalies, transcripts, diagnostics |
 | `observability/progress.py` | Live progress tree plus `progress.jsonl` snapshots |
 | `llm/client.py` | Async OpenAI-compatible client, schema repair loop, transcripts, stub mode |
 | `agents/base.py` | `Agent` lifecycle wrapper, `LLMAgent`, and registry |
@@ -27,7 +27,9 @@ migration flow has been removed from runtime, CLI, public imports, and active te
 | `workflow/engine.py` | Generic `Workflow`: `agent`, `parallel`, and `pipeline` primitives |
 | `execution/` | MQL parsing, banned-operator scan, signatures, Mongo execution, world signatures |
 | `publish/` | Release validation against record, schema, artifact, and composition contracts |
-| `solver/`, `baselines/`, `ablations/` | Evaluation-time solvers and experiment runners |
+| `solver/` | Provider-native SMART-EG runtime, NLQ+DB input derivation, MongoDB introspection tools, evidence gates, final sanity execution, and typed failures |
+| `baselines/` | Constrained LLM baseline runtime, public record/schema sanitizers, baseline disclosure, and disjointness checks |
+| `ablations/` | SMART-EG mechanism toggles plus low/medium/high budget profile sweeps |
 | `cli.py` | Runtime assembly and command dispatch |
 
 ## Construction CLI
@@ -105,14 +107,58 @@ Records include native metadata such as `native_feature_id`, `native_query_patte
 `mongo_native_constructs`, `anti_sql_transfer_level`, `provenance_refs`, and
 `migration_recipe_ref`.
 
+## Solver And Experiment Runtime
+
+SMART-EG is implemented under `src/tend/solver/eg/` as a provider-native tool-call
+loop. Release-record mode is a shim over the same NLQ+DB path: it extracts the
+selected NLQ, preloads witness data into MongoDB when needed, and then passes only
+`NLQ`, `db_id`, and `record_id` into the agent. The runtime does not load
+`proposals/schemas/solver_allow_list.json` as SMART-EG configuration, and it does
+not load the inactive SMART proposal prompt files.
+
+The successful exit path is `submit_final_mql`. The execution stage can use
+`run_readonly_probe`, `check_ast_filter`, and bounded `run_final_sanity_execution`
+before final submission. Prefix-pipeline tool names remain visible as a policy and
+ablation exposure, but current implementations return `TOOL_UNIMPLEMENTED`; when
+the `smart_eg_no_prefix_execution` ablation disables that exposure, they return
+`tool_not_exposed`. Prefix execution should therefore be described only as an
+unsupported or archival Proposal 06 design, not as a production success mechanism.
+
+`tend baseline` runs the maintained baselines under `src/tend/baselines/`. It
+sanitizes records and schemas before prompt construction, records
+`baseline_public_schema_v1`, and reports disclosure fields such as
+`uses_gold_mql=false`, `uses_execution_feedback=false`,
+`schema_sanitizer_applied=true`, `record_sanitizer_applied=true`, stripped-field
+lists, and disjointness details from `solver_allow_list.json`.
+
+`tend ablation` runs the SMART-EG ablation registry. The registry includes full
+SMART-EG, evidence-gate, counterexample, value-grounding, relationship-probe,
+prefix-exposure, revisit, and low/medium/high budget-profile variants. It emits
+both predictions and typed ablation failures, then automatic evaluation scores both
+artifact types when a release dataset is available.
+
+`tend evaluate` writes proposal-05 metrics to `per_record_metrics.jsonl`,
+`per_record_metrics.csv`, `report.json`, and `report.md`. Missing predictions and
+typed `solver_failure`, `baseline_failure`, or `ablation_failure` rows are preserved
+as zero-score per-record rows, so failures produce partial reports instead of
+silently dropping records.
+
+Automatic evaluation is skipped only when there is no release evaluation target,
+for example `solve --nlq`, `baseline --nlq`, or `ablation --nlq`. The CLI prints
+that as `NLQ+DB mode has no release evaluation dataset`, distinct from `--no-eval`
+and from `no predictions`.
+
 ## Runtime Prompts
 
-The active prompt directory `proposals/agent_prompts/` is a runtime asset directory,
-not part of the proposal narrative. It contains only prompts still loaded by runtime
-code:
+`proposals/agent_prompts/` is mixed. The active `LLMAgent` registry currently loads
+only the native construction helper prompts:
 
 - `native_migration_designer.md`
 - `native_nl_generator.md`
+
+The SMART prompt templates in that directory are retained as proposal/test assets
+until a runtime registers them again:
+
 - `smart_intent_formalizer.md`
 - `smart_nosql_planner.md`
 

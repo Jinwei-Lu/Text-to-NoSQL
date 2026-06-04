@@ -1,9 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tend.dev/schemas/solver_allow_list.json",
-  "title": "TEND solver-side allow-list",
-  "description": "Machine-readable solver boundary contract for SMART schema-less agentic stages (single LLM backbone / 4 stages; ① perception mode = concurrent probes, ②③④ cognition mode; ④ uses per-stage execution-guided decoding, no retrieval). Authoritative prose in proposals/06_solution_design.md.",
+  "title": "TEND solver-side allow-list disclosure",
+  "description": "Release/baseline disclosure and archival Proposal 06 boundary manifest. The baseline runtime reads this file for disjointness and boundary disclosure; the repaired SMART-EG runtime does not load it as live tool or policy configuration. Prefix-execution entries below describe an unsupported archival design, not a production success mechanism.",
   "schema_version": "2026-05-31",
+  "runtime_status": {
+    "smart_eg_live_config": false,
+    "baseline_disclosure_input": true,
+    "archival_proposal_06_boundary": true,
+    "note": "Current SMART-EG tool exposure and final execution gates are implemented in src/tend/solver/eg/, not configured by this JSON file."
+  },
   "disabled_operators": [
     "$sample",
     "$rand",
@@ -52,7 +58,7 @@
     "scope": "heterogeneity_planning_and_query_realization",
     "max_per_collection": "solver_disclosed_K",
     "forbidden_in_stage": "shape_comprehension",
-    "note": "≤ K docs/collection may enter any prompt; the query_realization executor runs PER-STAGE prefix execution on the solver's LOCAL replica with a bounded prefix input cap (variant-stratified, for cross-variant debug) — the K limit caps prompt-injected samples, while the execution cap prevents pathological intermediate materialization."
+    "note": "≤ K docs/collection may enter prompt-visible witness digests. The archival Proposal 06 design mentioned bounded prefix execution, but the repaired SMART-EG runtime does not implement that pipeline; final sanity execution is the supported runtime check."
   },
   "four_party_disjointness": {
     "construction_authority": "05 §05-3",
@@ -104,7 +110,7 @@
       "deepseek-v4"
     ]
   },
-  "frozen_panel_note": "frozen_panels.* is the release-pinned 4-panel manifest used for solver disjointness; non-stub evaluation fails closed if any required panel is missing or empty.",
+  "frozen_panel_note": "frozen_panels.* is the release-pinned 4-panel manifest used for solver/baseline disjointness disclosure; non-stub baseline disclosure reports missing or empty required panels as disjointness failures.",
   "stages": {
     "shape_comprehension": {
       "owner_agent": "LLM Agent · perception mode (concurrent map-reduce probes; may use a same-family small model when cost-sensitive)",
@@ -196,7 +202,7 @@
         "evaluator_gold_runtime",
         "audit/**"
       ],
-      "execution_mode": "per_stage_prefix_execution (each prefix [stage_1..stage_k] executed on a variant-stratified LOCAL sample; checkpoint at every stage boundary; §06-2-5)",
+      "execution_mode": "archival_per_stage_prefix_execution_unsupported; current repaired runtime uses check_ast_filter, run_readonly_probe, bounded run_final_sanity_execution, and submit_final_mql",
       "postprocess": ["ast_reject_disabled_operators"],
       "feedback_routing": {
         "allowed_keys": ["error_code", "stage_index", "suspect_field", "failing_variant"],
@@ -207,8 +213,8 @@
   },
   "tools": {
     "mongo_executor": {
-      "description": "Per-Stage Execution-Guided Decoding: an inline ④ execution-guidance tool (NOT a stage, NOT an agent). An MQL aggregation pipeline is an ordered stage sequence; any prefix [stage_1..stage_k] is itself a legal executable pipeline, so ④ executes each growing prefix on a variant-stratified LOCAL sample and sets a checkpoint at every stage boundary. Authoritative prose in 06 §06-2-5.",
-      "reuses": "SMART/utils/mongosh_exec.py (execute_query already runs an arbitrary query string; prefix execution only closes `])` + .toArray())",
+      "description": "Archival Proposal 06 prefix-execution design. Current SMART-EG runtime does not implement prefix-pipeline execution tools; if such tools are exposed they return TOOL_UNIMPLEMENTED, and the no-prefix ablation hides them with tool_not_exposed. Production completion is through final sanity execution plus submit_final_mql.",
+      "reuses": "archival SMART/utils/mongosh_exec.py note only; src/tend/solver/eg/ does not import that legacy reproduction helper",
       "callable_by_stages": ["query_realization"],
       "checkpoint_signals": [
         "doc_count_collapse_to_zero",
@@ -217,7 +223,7 @@
         "per_variant_failure"
       ],
       "on_checkpoint_hit": "locate by stage_index, then route via query_realization.feedback_routing to {heterogeneity_planning|intent_formalization|shape_comprehension}",
-      "execution_scope": "LOCAL replica only (never evaluator gold); variant-stratified; bounded prefix input cap prevents pathological intermediate materialization; NOT subject to the witness K prompt limit (K caps prompt-injected samples, not local execution data volume, §06-4-4.2)",
+      "execution_scope": "unsupported in repaired SMART-EG runtime; retained for release/baseline disclosure and archival boundary review, never evaluator gold",
       "no_model": true,
       "no_retrieval": true,
       "postprocess_on_rewrite": ["ast_reject_disabled_operators"]

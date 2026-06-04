@@ -66,6 +66,51 @@ def test_profile_path_values_exposes_bounded_enum_literals_without_raw_rows() ->
     assert values["redaction"]["scalar_values"] == "bounded_enum_literals"
 
 
+def test_profile_path_values_keeps_literals_and_adds_value_proof_metadata() -> None:
+    class EnumMongo(_Mongo):
+        def __init__(self):
+            super().__init__()
+            self.docs["account"] = [
+                {"_id": 1, "loan_presence_state": "present"},
+                {"_id": 2, "loan_presence_state": "absent"},
+                {"_id": 3, "loan_presence_state": "present"},
+            ]
+
+    tools = SmartEGMongoTools(EnumMongo(), "financial")
+
+    values = tools.profile_path_values(
+        {
+            "collection": "account",
+            "path": "loan_presence_state",
+            "limit": 3,
+            "value_limit": 3,
+        }
+    )
+
+    assert values["value_limit"] == 3
+    assert len(values["values"]) == 2
+    bucket = values["values"][0]
+    assert bucket["value"]["literal"] == "present"
+    assert bucket["value"]["token"].startswith("value:str:")
+    assert bucket["value"]["proof"]["literal_policy"] == "observable_short_printable"
+    assert bucket["provenance"] == {
+        "db_id": "financial",
+        "collection": "account",
+        "path": "loan_presence_state",
+    }
+
+    bounded = tools.profile_path_values(
+        {
+            "collection": "account",
+            "path": "loan_presence_state",
+            "limit": 3,
+            "value_limit": 1,
+        }
+    )
+    assert len(bounded["values"]) == 1
+    assert "literal" not in bounded["values"][0]["value"]
+
+
 def test_profile_path_values_traverses_arrays_when_brackets_are_omitted() -> None:
     class NestedArrayMongo(_Mongo):
         def __init__(self):
@@ -103,6 +148,108 @@ def test_profile_path_values_traverses_arrays_when_brackets_are_omitted() -> Non
     literals = {bucket["value"].get("literal") for bucket in values["values"]}
     assert values["value_count"] == 3
     assert literals == {"present", "empty"}
+
+
+def test_search_values_exposes_safe_literal_token_and_provenance() -> None:
+    class SearchMongo(_Mongo):
+        def __init__(self):
+            super().__init__()
+            self.docs["account"] = [
+                {"_id": 1, "status": "vip-active", "notes": "normal"},
+                {"_id": 2, "status": "inactive", "notes": "ordinary"},
+            ]
+
+    tools = SmartEGMongoTools(SearchMongo(), "financial")
+
+    result = tools.search_values("account", "vip", limit=2, value_limit=2)
+
+    assert result["request"] == {
+        "collection": "account",
+        "query_hash": result["query_hash"],
+        "limit": 2,
+        "value_limit": 2,
+    }
+    assert result["result_summary"] == {
+        "document_count": 2,
+        "match_count": 1,
+        "returned_match_count": 1,
+        "omitted_match_count": 0,
+    }
+    assert len(result["matches"]) == 1
+    match = result["matches"][0]
+    assert match["path"] == "status"
+    assert match["value"]["literal"] == "vip-active"
+    assert match["value"]["hash"].startswith("sha256:")
+    assert match["value"]["token"].startswith("value:str:")
+    assert match["value"]["proof"]["literal_policy"] == "observable_short_printable"
+    assert match["provenance"] == {
+        "db_id": "financial",
+        "collection": "account",
+        "path": "status",
+        "document_offset": 0,
+        "source": "sample_documents",
+    }
+
+
+def test_search_values_does_not_expose_long_or_nonprintable_literals() -> None:
+    long_secret = "secret-" + ("x" * 90)
+    nonprintable_secret = "alpha\x00hidden"
+
+    class SecretMongo(_Mongo):
+        def __init__(self):
+            super().__init__()
+            self.docs["account"] = [
+                {"_id": 1, "memo": long_secret},
+                {"_id": 2, "memo": nonprintable_secret},
+            ]
+
+    tools = SmartEGMongoTools(SecretMongo(), "financial")
+
+    long_result = tools.search_values("account", "secret", limit=2, value_limit=5)
+    nonprintable_result = tools.search_values("account", "alpha", limit=2, value_limit=5)
+    encoded = json.dumps([long_result, nonprintable_result], sort_keys=True)
+
+    assert long_result["match_count"] == 1
+    assert nonprintable_result["match_count"] == 1
+    for result in (long_result, nonprintable_result):
+        value = result["matches"][0]["value"]
+        assert value["type"] == "str"
+        assert value["hash"].startswith("sha256:")
+        assert value["token"].startswith("value:str:")
+        assert "literal" not in value
+        assert value["proof"]["literal_policy"] == "redacted"
+    assert long_secret not in encoded
+    assert nonprintable_secret not in encoded
+
+
+def test_search_values_summarizes_numeric_date_and_objectid_like_matches_without_literals() -> None:
+    class TypedMongo(_Mongo):
+        def __init__(self):
+            super().__init__()
+            self.docs["account"] = [
+                {
+                    "_id": "507f1f77bcf86cd799439011",
+                    "created_at": "2024-05-17",
+                    "balance": 1250,
+                }
+            ]
+
+    tools = SmartEGMongoTools(TypedMongo(), "financial")
+
+    date_result = tools.search_values("account", "2024", limit=1, value_limit=5)
+    oid_result = tools.search_values("account", "507f", limit=1, value_limit=5)
+    numeric_result = tools.search_values("account", "1250", limit=1, value_limit=5)
+
+    date_value = date_result["matches"][0]["value"]
+    oid_value = oid_result["matches"][0]["value"]
+    numeric_value = numeric_result["matches"][0]["value"]
+
+    assert "literal" not in date_value
+    assert date_value["proof"]["string_format"] == "date_like"
+    assert "literal" not in oid_value
+    assert oid_value["proof"]["string_format"] == "object_id_like"
+    assert numeric_value["proof"]["numeric_class"] == "positive"
+    assert "literal" not in numeric_value
 
 
 def test_inspect_array_shape_counts_direct_array_path() -> None:
@@ -211,6 +358,22 @@ def test_readonly_probe_accepts_collection_and_pipeline() -> None:
     )
 
     assert result["tool"] == "run_readonly_probe"
+    assert result["db_id"] == "financial"
+    assert result["request"] == {
+        "collection": "account",
+        "limit": 7,
+        "mql_hash": result["mql_hash"],
+        "source": "collection_pipeline",
+    }
+    assert result["rendered_mql"] == (
+        'db.account.aggregate([{"$match":{"loan":{"$exists":true}}},{"$project":{"loan":1}}])'
+    )
+    assert result["rendered_query"] == result["rendered_mql"]
+    assert result["result_summary"] == {
+        "collection": "account",
+        "count": 2,
+        "sample_redacted": True,
+    }
     assert result["redaction"]["raw_rows"] is False
     assert mongo.probes == [
         {

@@ -15,7 +15,9 @@ from tend.ablations.workflow import (
     _attempt_count,
     _disclosure,
     _failure_from_solver_payload,
+    _llm_refs_for,
     _prediction_from_solver_payload,
+    _runtime_options,
 )
 from tend.agents import AgentContext
 from tend.config import Settings
@@ -80,7 +82,6 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
         "smart_eg_no_relationship_probe",
         "smart_eg_no_prefix_execution",
         "smart_eg_no_revisit",
-        "smart_eg_no_probe_scheduler",
         "smart_eg_budget_low",
         "smart_eg_budget_medium",
         "smart_eg_budget_high",
@@ -109,7 +110,6 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
         "smart_eg_no_relationship_probe": "use_relationship_probe",
         "smart_eg_no_prefix_execution": "use_prefix_execution",
         "smart_eg_no_revisit": "use_revisit",
-        "smart_eg_no_probe_scheduler": "use_probe_scheduler",
     }
     for ablation_id, disabled_key in toggles.items():
         options = resolve_ablations(ablation_id)[0].to_runtime_options()
@@ -126,6 +126,7 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
         **full_options,
         "ablation_id": "smart_eg_budget_low",
         "solver_variant": "smart_eg_budget_low",
+        "budget_profile": "low",
         "max_tool_turns": 8,
         "max_revisits": 0,
         "cost_budget_usd": 0.25,
@@ -134,16 +135,39 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
         **full_options,
         "ablation_id": "smart_eg_budget_medium",
         "solver_variant": "smart_eg_budget_medium",
+        "budget_profile": "medium",
         "max_tool_turns": 24,
     }
     assert resolve_ablations("smart_eg_budget_high")[0].to_runtime_options() == {
         **full_options,
         "ablation_id": "smart_eg_budget_high",
         "solver_variant": "smart_eg_budget_high",
+        "budget_profile": "high",
         "max_tool_turns": 48,
         "max_revisits": 4,
         "cost_budget_usd": 3.0,
     }
+
+
+def test_registry_rejects_unsupported_probe_scheduler_ablation() -> None:
+    with pytest.raises(KeyError, match="smart_eg_no_probe_scheduler"):
+        resolve_ablations("smart_eg_no_probe_scheduler")
+
+
+def test_budget_variants_are_profiles_not_mechanism_isolation() -> None:
+    for profile in ("low", "medium", "high"):
+        spec = resolve_ablations(f"smart_eg_budget_{profile}")[0]
+        options = spec.to_runtime_options()
+        assert spec.title == f"{profile.title()} budget profile"
+        assert "budget profile" in spec.description
+        assert "cost budget" not in spec.description.lower()
+        assert all("cost budget" not in item.lower() for item in spec.limitations)
+        assert options["budget_profile"] == profile
+        assert options["cost_budget_usd_source"] == "provider_cost_usd_if_available"
+        assert options["cost_budget_usd_unpriced_behavior"] == "advisory_when_unpriced"
+
+    full = resolve_ablations("smart_eg_full")[0]
+    assert full.to_runtime_options()["budget_profile"] == "medium"
 
 
 def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Path) -> None:
@@ -227,15 +251,19 @@ def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Pa
     assert by_id["smart_eg_full"]["max_tool_turns"] == 12
     assert by_id["smart_eg_full"]["max_revisits"] == 1
     assert by_id["smart_eg_full"]["cost_budget_usd"] == 0.5
+    assert by_id["smart_eg_full"]["budget_profile"] == "medium"
     assert by_id["smart_eg_budget_low"]["max_tool_turns"] == 8
     assert by_id["smart_eg_budget_low"]["max_revisits"] == 0
     assert by_id["smart_eg_budget_low"]["cost_budget_usd"] == 0.25
+    assert by_id["smart_eg_budget_low"]["budget_profile"] == "low"
     assert by_id["smart_eg_budget_medium"]["max_tool_turns"] == 24
     assert by_id["smart_eg_budget_medium"]["max_revisits"] == 2
     assert by_id["smart_eg_budget_medium"]["cost_budget_usd"] == 1.0
+    assert by_id["smart_eg_budget_medium"]["budget_profile"] == "medium"
     assert by_id["smart_eg_budget_high"]["max_tool_turns"] == 48
     assert by_id["smart_eg_budget_high"]["max_revisits"] == 4
     assert by_id["smart_eg_budget_high"]["cost_budget_usd"] == 3.0
+    assert by_id["smart_eg_budget_high"]["budget_profile"] == "high"
     assert all(item["witness_preloaded"] is False for item in captured)
 
     assert progress_summary["tasks"]["started"] == progress_summary["tasks"]["ok"]
@@ -509,6 +537,9 @@ def test_disclosure_exposes_top_level_comparable_keys() -> None:
     assert d["max_tool_turns"] == 24
     assert d["max_revisits"] == 2
     assert d["cost_budget_usd"] == 1.0
+    assert d["budget_profile"] == "medium"
+    assert d["cost_budget_usd_source"] == "provider_cost_usd_if_available"
+    assert d["cost_budget_usd_unpriced_behavior"] == "advisory_when_unpriced"
     assert d["no_training"] is True
 
     # solver_disclosure still available nested
@@ -528,6 +559,9 @@ def test_disclosure_top_level_none_when_solver_disclosure_empty() -> None:
         "max_tool_turns",
         "max_revisits",
         "cost_budget_usd",
+        "budget_profile",
+        "cost_budget_usd_source",
+        "cost_budget_usd_unpriced_behavior",
         "no_training",
     ):
         assert key in d, f"top-level key '{key}' missing from disclosure"
@@ -538,6 +572,11 @@ def test_disclosure_top_level_none_when_solver_disclosure_empty() -> None:
     assert d["max_tool_turns"] == options["max_tool_turns"]
     assert d["max_revisits"] == options["max_revisits"]
     assert d["cost_budget_usd"] == options["cost_budget_usd"]
+    assert d["budget_profile"] == options["budget_profile"]
+    assert d["cost_budget_usd_source"] == options["cost_budget_usd_source"]
+    assert d["cost_budget_usd_unpriced_behavior"] == options[
+        "cost_budget_usd_unpriced_behavior"
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -602,3 +641,147 @@ def test_result_type_dispatch_routes_solver_failure(tmp_path: Path) -> None:
     assert payload["attempts"] == 2, (
         f"expected attempts=2 (1 failed + 1 final), got {payload['attempts']}"
     )
+
+
+def test_llm_refs_for_filters_by_ablation_db_and_record(tmp_path: Path) -> None:
+    settings = _settings()
+    wf, log, _ = _workflow(settings, tmp_path / "run")
+    events_path = tmp_path / "run" / "events.jsonl"
+    events = [
+        {
+            "event": "llm_response",
+            "ablation_id": "smart_eg_full",
+            "db_id": "financial",
+            "record_id": 1001,
+            "transcript_ref": "llm/match.md",
+            "diagnostics_ref": "llm/match.diagnostics.json",
+        },
+        {
+            "event": "llm_response",
+            "ablation_id": "smart_eg_full",
+            "db_id": "financial",
+            "record_id": "1001",
+            "transcript_ref": "llm/match-string-record.md",
+            "diagnostics_ref": "llm/match-string-record.diagnostics.json",
+        },
+        {
+            "event": "llm_response",
+            "ablation_id": "smart_eg_no_revisit",
+            "db_id": "financial",
+            "record_id": 1001,
+            "transcript_ref": "llm/wrong-ablation.md",
+            "diagnostics_ref": "llm/wrong-ablation.diagnostics.json",
+        },
+        {
+            "event": "llm_response",
+            "ablation_id": "smart_eg_full",
+            "db_id": "cards",
+            "record_id": 1001,
+            "transcript_ref": "llm/wrong-db.md",
+            "diagnostics_ref": "llm/wrong-db.diagnostics.json",
+        },
+        {
+            "event": "llm_response",
+            "ablation_id": "smart_eg_full",
+            "db_id": "financial",
+            "record_id": 2002,
+            "transcript_ref": "llm/wrong-record.md",
+            "diagnostics_ref": "llm/wrong-record.diagnostics.json",
+        },
+        {
+            "event": "llm_response",
+            "ablation_id": "smart_eg_full",
+            "db_id": "financial",
+            "record_id": 1001,
+            "transcript_ref": "llm/match.md",
+            "diagnostics_ref": "llm/match.diagnostics.json",
+        },
+    ]
+    try:
+        events_path.write_text(
+            "\n".join(json.dumps(event) for event in events) + "\n",
+            encoding="utf-8",
+        )
+        refs = _llm_refs_for(wf, "smart_eg_full", "financial", 1001)
+    finally:
+        log.close()
+
+    assert refs == {
+        "transcript_refs": ["llm/match.md", "llm/match-string-record.md"],
+        "diagnostics_refs": [
+            "llm/match.diagnostics.json",
+            "llm/match-string-record.diagnostics.json",
+        ],
+    }
+
+
+def test_prediction_and_failure_rows_preserve_traceability_refs_and_options(
+    tmp_path: Path,
+) -> None:
+    wf, log = _make_wf(tmp_path)
+    spec = resolve_ablations("smart_eg_budget_low")[0]
+    options = _runtime_options(
+        spec,
+        max_tool_turns=12,
+        max_revisits=1,
+        cost_budget_usd=0.5,
+        batch_index=3,
+        db_id="financial",
+        record_id=1001,
+    )
+    prediction_payload = {
+        "record_id": 1001,
+        "db_id": "financial",
+        "MQL": "db.account.aggregate([])",
+        "feedback": [],
+        "disclosure": {"budget_profile": "low"},
+    }
+    failure_payload = {
+        **prediction_payload,
+        "result_type": "solver_failure",
+        "error_code": "EXECUTION_UNRESOLVED",
+        "message": "failed",
+    }
+
+    try:
+        prediction = _prediction_from_solver_payload(
+            wf,
+            spec,
+            options,
+            prediction_payload,
+            local_data=None,
+            transcript_refs=["llm/prediction.md"],
+            diagnostics_refs=["llm/prediction.diagnostics.json"],
+        )
+        failure = _failure_from_solver_payload(
+            wf,
+            spec,
+            options,
+            failure_payload,
+            local_data=None,
+            transcript_refs=["llm/failure.md"],
+            diagnostics_refs=["llm/failure.diagnostics.json"],
+        )
+    finally:
+        log.close()
+
+    prediction_row = prediction.to_json()
+    failure_row = failure.to_json()
+    for row in (prediction_row, failure_row):
+        assert row["session_id"] == options["session_id"]
+        assert row["ablation_id"] == "smart_eg_budget_low"
+        assert row["batch_index"] == 3
+        assert row["work_item_id"] == "ablation:3:smart_eg_budget_low:financial:1001"
+        assert row["max_tool_turns"] == 8
+        assert row["max_revisits"] == 0
+        assert row["cost_budget_usd"] == 0.25
+        assert row["disclosure"]["options"]["budget_profile"] == "low"
+        assert row["disclosure"]["budget_profile"] == "low"
+        assert row["disclosure"]["cost_budget_usd_unpriced_behavior"] == (
+            "advisory_when_unpriced"
+        )
+
+    assert prediction_row["transcript_refs"] == ["llm/prediction.md"]
+    assert prediction_row["diagnostics_refs"] == ["llm/prediction.diagnostics.json"]
+    assert failure_row["transcript_refs"] == ["llm/failure.md"]
+    assert failure_row["diagnostics_refs"] == ["llm/failure.diagnostics.json"]

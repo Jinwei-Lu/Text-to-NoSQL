@@ -205,8 +205,14 @@ class SmartEgMongoTools:
                     "value": summarize_redacted_value(
                         bucket["raw_value"],
                         expose_literal=expose_literals,
+                        include_proof=True,
                     ),
                     "count": bucket["count"],
+                    "provenance": {
+                        "db_id": self.db_id,
+                        "collection": collection_name,
+                        "path": target_path,
+                    },
                 }
                 for bucket in buckets.values()
             ),
@@ -237,11 +243,12 @@ class SmartEgMongoTools:
         limit: int | None = None,
         value_limit: int | None = None,
     ) -> dict[str, Any]:
-        docs = self._sample(collection, bounded_limit(limit, default=DEFAULT_DOC_LIMIT,
-                                                      maximum=MAX_DOC_LIMIT))
+        sample_limit = bounded_limit(limit, default=DEFAULT_DOC_LIMIT, maximum=MAX_DOC_LIMIT)
+        docs = self._sample(collection, sample_limit)
         max_values = bounded_limit(value_limit, default=DEFAULT_VALUE_LIMIT,
                                    maximum=MAX_VALUE_LIMIT)
         needle = str(query).lower()
+        query_hash = stable_hash(query)
         matches: list[dict[str, Any]] = []
         match_count = 0
         for doc_index, doc in enumerate(docs):
@@ -255,19 +262,46 @@ class SmartEgMongoTools:
                             {
                                 "path": path,
                                 "document_offset": doc_index,
-                                "value": summarize_redacted_value(value),
+                                "value": summarize_redacted_value(
+                                    value,
+                                    expose_literal=True,
+                                    include_proof=True,
+                                ),
+                                "provenance": {
+                                    "db_id": self.db_id,
+                                    "collection": collection,
+                                    "path": path,
+                                    "document_offset": doc_index,
+                                    "source": "sample_documents",
+                                },
                             }
                         )
+        returned_match_count = len(matches)
         return {
             "tool": "search_values",
             "db_id": self.db_id,
             "collection": collection,
-            "query_hash": stable_hash(query),
+            "query_hash": query_hash,
+            "request": {
+                "collection": collection,
+                "query_hash": query_hash,
+                "limit": sample_limit,
+                "value_limit": max_values,
+            },
             "document_count": len(docs),
             "match_count": match_count,
+            "result_summary": {
+                "document_count": len(docs),
+                "match_count": match_count,
+                "returned_match_count": returned_match_count,
+                "omitted_match_count": max(0, match_count - returned_match_count),
+            },
             "matches": matches,
             "value_limit": max_values,
-            "redaction": {"raw_rows": False},
+            "redaction": {
+                "raw_rows": False,
+                "scalar_values": "safe_literals_with_proof",
+            },
         }
 
     def inspect_array_shape(
@@ -440,20 +474,43 @@ class SmartEgMongoTools:
         )
         disabled = _disabled_hits_in_mql(mql_text)
         if disabled:
-            raise ValueError(f"disabled operator in readonly probe: {disabled}")
+            raise ValueError(
+                f"readonly_probe_error=disabled_operator: disabled operator in readonly probe: {disabled}"
+            )
         if hasattr(self.mongo, "run_readonly_probe"):
-            result = self.mongo.run_readonly_probe(self.db_id, mql_text, limit=probe_limit)
+            raw_result = self.mongo.run_readonly_probe(self.db_id, mql_text, limit=probe_limit)
         else:
-            result = self.mongo.aggregate_readonly_bounded(
+            raw_result = self.mongo.aggregate_readonly_bounded(
                 self.db_id,
                 mql_text,
                 limit=probe_limit,
             )
-            if isinstance(result, dict) and "sample" in result:
-                result = dict(result)
-                result["redacted_sample_shape"] = redact_value(result.pop("sample"))
+        result = _redact_probe_result(raw_result)
+        collection_name = _probe_collection_name(request, result, mql_text)
+        mql_hash = stable_hash(mql_text)
+        result_summary = _probe_result_summary(result)
+        if collection_name:
+            result.setdefault("collection", collection_name)
         result["tool"] = "run_readonly_probe"
-        result.setdefault("redaction", {"raw_rows": False})
+        result["db_id"] = self.db_id
+        result["mql_hash"] = mql_hash
+        result["request"] = _probe_request_summary(
+            request,
+            mql,
+            mql_text,
+            probe_limit,
+            mql_hash,
+        )
+        result["rendered_mql"] = mql_text
+        result["rendered_query"] = mql_text
+        result["result_summary"] = result_summary
+        redaction = result.get("redaction")
+        if not isinstance(redaction, dict):
+            redaction = {}
+        redaction.setdefault("raw_rows", False)
+        if "redacted_sample_shape" in result:
+            redaction.setdefault("sample", "redacted_shape")
+        result["redaction"] = redaction
         return result
 
     def _sample(self, collection: str | Mapping[str, Any], limit: int) -> list[dict[str, Any]]:
@@ -572,6 +629,87 @@ def _format_path(path: tuple[str, ...]) -> str:
 SmartEGMongoTools = SmartEgMongoTools
 
 
+def _redact_probe_result(result: Any) -> dict[str, Any]:
+    if isinstance(result, dict):
+        out = dict(result)
+    else:
+        out = {"result": redact_value(result)}
+    if "sample" in out:
+        out["redacted_sample_shape"] = redact_value(out.pop("sample"))
+    return out
+
+
+def _probe_result_summary(result: Mapping[str, Any]) -> dict[str, Any]:
+    summary: dict[str, Any] = {}
+    collection = result.get("collection")
+    if collection:
+        summary["collection"] = str(collection)
+    count = result.get("count")
+    if isinstance(count, int) and not isinstance(count, bool):
+        summary["count"] = count
+    if "redacted_sample_shape" in result:
+        summary["sample_redacted"] = True
+    if not summary:
+        summary["keys"] = sorted(str(key) for key in result)[:8]
+    return summary
+
+
+def _probe_collection_name(
+    request: Mapping[str, Any],
+    result: Mapping[str, Any],
+    mql_text: str,
+) -> str:
+    requested = request.get("collection") if request else None
+    if requested:
+        return str(requested)
+    result_collection = result.get("collection")
+    if result_collection:
+        return str(result_collection)
+    return _collection_from_rendered_mql(mql_text)
+
+
+def _probe_request_summary(
+    request: Mapping[str, Any],
+    mql: Any,
+    mql_text: str,
+    limit: int,
+    mql_hash: str,
+) -> dict[str, Any]:
+    collection = _probe_collection_name(request, {}, mql_text)
+    summary: dict[str, Any] = {}
+    if collection:
+        summary["collection"] = collection
+    summary["limit"] = limit
+    summary["mql_hash"] = mql_hash
+    summary["source"] = _probe_request_source(request, mql)
+    return summary
+
+
+def _probe_request_source(request: Mapping[str, Any], mql: Any) -> str:
+    if not request:
+        return "raw_mql" if isinstance(mql, str) else "unknown"
+    candidate = request.get("MQL") or request.get("mql")
+    if isinstance(candidate, str) and candidate.strip().startswith("["):
+        return "collection_raw_pipeline"
+    if isinstance(candidate, str) and candidate.strip():
+        return "raw_mql"
+    if request.get("pipeline") is not None or request.get("stages") is not None:
+        return "collection_pipeline"
+    return "unknown"
+
+
+def _collection_from_rendered_mql(mql_text: str) -> str:
+    stripped = mql_text.strip()
+    if not stripped.startswith("db."):
+        return ""
+    remainder = stripped[3:]
+    for marker in (".aggregate", ".find"):
+        if marker in remainder:
+            collection = remainder.split(marker, 1)[0]
+            return collection.strip()
+    return ""
+
+
 def _disabled_hits_in_mql(mql: str) -> list[str]:
     try:
         return scan_disabled(mql)
@@ -583,7 +721,9 @@ def _probe_mql_text(request: Mapping[str, Any], mql: Any) -> str:
     if not request:
         if isinstance(mql, str) and mql.strip():
             return mql
-        raise ValueError("readonly probe requires MQL or collection and pipeline")
+        raise ValueError(
+            "readonly_probe_error=missing_query: readonly probe requires MQL or collection and pipeline"
+        )
 
     candidate = request.get("MQL") or request.get("mql")
     collection = str(request.get("collection") or "").strip()
@@ -598,9 +738,13 @@ def _probe_mql_text(request: Mapping[str, Any], mql: Any) -> str:
         return candidate
 
     if not collection:
-        raise ValueError("readonly probe collection is required when MQL is omitted")
+        raise ValueError(
+            "readonly_probe_error=missing_collection: readonly probe collection is required when MQL is omitted"
+        )
     if not isinstance(pipeline, list) or not all(isinstance(stage, dict) for stage in pipeline):
-        raise ValueError("readonly probe pipeline must be a list of stage objects")
+        raise ValueError(
+            "readonly_probe_error=invalid_pipeline: readonly probe pipeline must be a list of stage objects"
+        )
     return render_mql(collection, pipeline)
 
 
@@ -608,7 +752,11 @@ def _parse_pipeline_json(value: str) -> list[dict[str, Any]]:
     try:
         parsed = json.loads(value)
     except json.JSONDecodeError as exc:
-        raise ValueError("readonly probe raw pipeline string must be valid JSON") from exc
+        raise ValueError(
+            "readonly_probe_error=invalid_pipeline_json: readonly probe raw pipeline string must be valid JSON"
+        ) from exc
     if not isinstance(parsed, list) or not all(isinstance(stage, dict) for stage in parsed):
-        raise ValueError("readonly probe raw pipeline string must decode to stage objects")
+        raise ValueError(
+            "readonly_probe_error=invalid_pipeline: readonly probe raw pipeline string must decode to stage objects"
+        )
     return parsed

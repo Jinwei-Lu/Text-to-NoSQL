@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 import tend.cli as cli
 import tend.config as config_module
 import tend.evaluation.metrics as metrics_module
@@ -221,6 +223,134 @@ def test_evaluate_predictions_prepares_only_predicted_gold_records(tmp_path: Pat
     ]
     assert missing_event["per_record_jsonl"] == str(output.paths.per_record_jsonl)
     assert missing_event["report_json"] == str(output.paths.report_json)
+
+
+@pytest.mark.parametrize(
+    ("experiment_kind", "result_type", "system_key", "system_id"),
+    [
+        ("solver", "solver_failure", "solver_variant", "smart_solver"),
+        ("baseline", "baseline_failure", "baseline_id", "direct"),
+        ("ablation", "ablation_failure", "ablation_id", "smart_eg_no_evidence_gate"),
+    ],
+)
+def test_evaluate_predictions_preserves_typed_failure_artifacts(
+    tmp_path: Path,
+    experiment_kind: str,
+    result_type: str,
+    system_key: str,
+    system_id: str,
+) -> None:
+    dataset_dir = tmp_path / "release"
+    (dataset_dir / "mongodb_data").mkdir(parents=True)
+    record = {
+        "record_id": 41,
+        "db_id": "financial",
+        "domain_id": "finance_domain",
+        "difficulty_tier": "L4",
+        "join_depth": 2,
+        "aggregation_depth": "deep",
+        "schema_pattern": "native_dynamic_keys",
+        "schema_flex": "high",
+        "functional_sql_solvable": False,
+        "structural_sql_solvable": True,
+        "sql_infeasibility_class": "native_shape",
+        "MQL": "db.gold_one.aggregate([])",
+        "canonical_form_set": {},
+    }
+    (dataset_dir / "test.json").write_text(json.dumps([record]), encoding="utf-8")
+    (dataset_dir / "mongodb_data" / "financial.json").write_text(
+        json.dumps({"gold_one": [{"_id": 1}]}),
+        encoding="utf-8",
+    )
+    predictions = tmp_path / "predictions.jsonl"
+    predictions.write_text(
+        "\n".join([
+            json.dumps({
+                "result_type": f"{experiment_kind}_prediction",
+                system_key: "exact_gold",
+                "record_id": record["record_id"],
+                "db_id": record["db_id"],
+                "MQL": record["MQL"],
+                "batch_index": 0,
+                "work_item_id": f"{experiment_kind}:0:financial:41",
+            }),
+            json.dumps({
+                "result_type": result_type,
+                system_key: system_id,
+                "status": "failed",
+                "record_id": record["record_id"],
+                "db_id": record["db_id"],
+                "error_code": "CONTRACT_VIOLATION",
+                "message": "agent output failed semantic contract",
+                "batch_index": 1,
+                "work_item_id": f"{experiment_kind}:1:financial:41",
+            }),
+        ]) + "\n",
+        encoding="utf-8",
+    )
+    log = setup_logging(tmp_path / "run", console=False)
+    try:
+        output = evaluate_predictions(
+            dataset_dir=dataset_dir,
+            predictions_path=predictions,
+            out_dir=tmp_path / "eval",
+            experiment_kind=experiment_kind,
+            run_id=f"eval-{experiment_kind}-failure",
+            logger=log,
+            progress=None,
+            executor=_SelectiveGoldExecutor(),
+            max_workers=1,
+        )
+    finally:
+        log.close()
+
+    assert output.status == "partial"
+    assert output.report["scores"]["EX"] == 0.5
+    assert output.report["release_record_count"] == 1
+    assert output.report["record_count"] == 2
+    assert output.report["scored_row_count"] == 2
+    assert output.report["denominator"] == {
+        "scope": "dataset_records",
+        "release_record_count": 1,
+        "scored_row_count": 2,
+        "system_count": 2,
+        "selection": None,
+    }
+    assert output.report["diagnostics"]["record_failed"] == 1
+    assert output.report["diagnostics"][result_type] == 1
+    assert output.report["diagnostics"]["CONTRACT_VIOLATION"] == 1
+    rows = [
+        json.loads(line)
+        for line in output.paths.per_record_jsonl.read_text(encoding="utf-8").splitlines()
+    ]
+    failure = next(row for row in rows if row["prediction_ref"]["result_type"] == result_type)
+    assert failure["status"] == "failed"
+    assert failure["metrics"] == dict.fromkeys(EVALUATION_METRICS, 0)
+    assert failure["fingerprint"] == [0 for _ in EVALUATION_METRICS]
+    assert failure["diagnostics"] == {
+        "error_code": "CONTRACT_VIOLATION",
+        "failure_type": result_type,
+        "message": "agent output failed semantic contract",
+    }
+    assert failure["prediction_ref"] == {
+        "line": 2,
+        "work_item_id": f"{experiment_kind}:1:financial:41",
+        "batch_index": 1,
+        "result_type": result_type,
+    }
+    assert failure["slice_keys"] == {
+        "domain": "finance_domain",
+        "join_depth": "2",
+        "aggregation_depth": "deep",
+        "schema_pattern": "native_dynamic_keys",
+        "schema_flex": "high",
+        "difficulty_tier": "L4",
+        "functional_sql_solvable": "False",
+        "structural_sql_solvable": "True",
+        "sql_infeasibility_class": "native_shape",
+    }
+    assert "parse_error" not in failure["diagnostics"]
+    assert "parse_ok" not in failure["diagnostics"]
 
 
 def test_evaluate_predictions_supports_release_package_layout(tmp_path: Path) -> None:

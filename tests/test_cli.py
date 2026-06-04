@@ -26,6 +26,18 @@ def clean_cli_env(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(key, raising=False)
 
 
+def test_print_evaluation_block_distinguishes_skip_reasons(capsys: pytest.CaptureFixture[str]) -> None:
+    cli._print_evaluation_block(None, evaluate=False, skip_reason="disabled")
+    cli._print_evaluation_block(None, evaluate=True, skip_reason="no_release_dataset")
+    cli._print_evaluation_block(None, evaluate=True, skip_reason="no_predictions")
+
+    output = capsys.readouterr().out
+
+    assert "evaluation : disabled (--no-eval)" in output
+    assert "evaluation : skipped (NLQ+DB mode has no release evaluation dataset)" in output
+    assert "evaluation : skipped (no predictions)" in output
+
+
 def test_construct_default_output_is_run_dataset_unless_env_overrides(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -837,6 +849,7 @@ def test_run_solve_writes_failure_artifact_for_solver_exception(
 def test_run_solve_nlq_db_only_skips_release_loader(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     from tend.agents import AgentContext
     from tend.config import Settings
@@ -900,6 +913,9 @@ def test_run_solve_nlq_db_only_skips_release_loader(
     )
 
     assert rc == 0
+    stdout = capsys.readouterr().out
+    assert "evaluation : skipped (NLQ+DB mode has no release evaluation dataset)" in stdout
+    assert "evaluation : disabled (--no-eval)" not in stdout
     assert captured == {
         "db_id": "manual_formula",
         "nlq": "List race weekends with Finished status buckets.",
@@ -917,6 +933,7 @@ def test_run_solve_nlq_db_only_skips_release_loader(
 def test_run_baseline_nlq_db_only_skips_evaluation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     from tend.agents import AgentContext
     from tend.config import Settings
@@ -977,6 +994,9 @@ def test_run_baseline_nlq_db_only_skips_evaluation(
     )
 
     assert rc == 0
+    stdout = capsys.readouterr().out
+    assert "evaluation : skipped (NLQ+DB mode has no release evaluation dataset)" in stdout
+    assert "evaluation : disabled (--no-eval)" not in stdout
     assert captured["nlq"] == "List race weekends with Finished status buckets."
     assert captured["db_id"] == "manual_formula"
     assert captured["record_id"] == 12
@@ -989,6 +1009,7 @@ def test_run_baseline_nlq_db_only_skips_evaluation(
 def test_run_ablation_nlq_db_only_skips_evaluation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     from tend.agents import AgentContext
     from tend.config import Settings
@@ -1051,6 +1072,9 @@ def test_run_ablation_nlq_db_only_skips_evaluation(
     )
 
     assert rc == 0
+    stdout = capsys.readouterr().out
+    assert "evaluation : skipped (NLQ+DB mode has no release evaluation dataset)" in stdout
+    assert "evaluation : disabled (--no-eval)" not in stdout
     assert captured["nlq"] == "Find Modern banned card printings."
     assert captured["db_id"] == "manual_cards"
     assert captured["record_id"] == 7
@@ -1061,3 +1085,211 @@ def test_run_ablation_nlq_db_only_skips_evaluation(
     assert predictions.exists()
     first_prediction = json.loads(predictions.read_text(encoding="utf-8").splitlines()[0])
     assert first_prediction["db_id"] == "manual_cards"
+
+
+def test_run_ablation_variant_failure_does_not_fail_when_evaluation_is_ok(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tend.agents import AgentContext
+    from tend.config import Settings
+    from tend.observability import make_reporter, setup_logging
+    from tend.workflow import Workflow
+
+    dataset = tmp_path / "dataset"
+    (dataset / "mongodb_data").mkdir(parents=True)
+    (dataset / "mongodb_schema").mkdir()
+    record = {
+        "record_id": 1,
+        "db_id": "financial",
+        "MQL": "db.account.aggregate([])",
+        "nl_queries": {"canonical": "List accounts."},
+    }
+    (dataset / "test.json").write_text(json.dumps([record]), encoding="utf-8")
+    (dataset / "TEND.json").write_text(json.dumps([record]), encoding="utf-8")
+    (dataset / "mongodb_data" / "financial.json").write_text(json.dumps({"account": []}), encoding="utf-8")
+    (dataset / "mongodb_schema" / "financial.json").write_text(json.dumps({"account": {}}), encoding="utf-8")
+
+    settings = Settings.from_env(
+        run_id="ablation-variant-failure-cli-test",
+        overrides={"TEND_LLM_STUB": "1"},
+        require_bird=False,
+    )
+    settings = replace(settings, paths=replace(settings.paths, runs=tmp_path / "runs"))
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = make_reporter(settings.run_id, log, enabled=False)
+    ctx = AgentContext(settings=settings, llm=None, log=log, progress=progress, mongo=None)
+    rt = cli.Runtime(
+        settings,
+        ctx,
+        Workflow(ctx),
+        progress,
+        log,
+        None,
+        SimpleNamespace(close=lambda: None),
+    )
+
+    async def fake_run_ablation_suite(*_args, **_kwargs):
+        return [
+            {
+                "result_type": "ablation_prediction",
+                "ablation_id": "smart_eg_full",
+                "record_id": 1,
+                "db_id": "financial",
+                "MQL": "db.account.aggregate([])",
+                "status": "ok",
+            },
+            {
+                "result_type": "ablation_failure",
+                "ablation_id": "smart_eg_no_evidence_gate",
+                "record_id": 1,
+                "db_id": "financial",
+                "status": "failed",
+                "error_code": "CONTRACT_VIOLATION",
+                "message": "variant violated semantic contract",
+            },
+        ]
+
+    captured: dict[str, object] = {}
+
+    async def fake_maybe_evaluate(_rt, **kwargs):
+        captured["predictions"] = kwargs["predictions"]
+        captured["predictions_path"] = kwargs["predictions_path"]
+        return SimpleNamespace(
+            ok=True,
+            status="ok",
+            report={"scores": {"EX": 0.5, "EFM": 0.5, "EVM": 0.5}},
+            paths=SimpleNamespace(report_md=tmp_path / "report.md"),
+        )
+
+    monkeypatch.setattr(cli, "run_ablation_suite", fake_run_ablation_suite)
+    monkeypatch.setattr(cli, "_maybe_evaluate", fake_maybe_evaluate)
+
+    rc = __import__("asyncio").run(
+        cli._run_ablation(
+            rt,
+            dataset_dir=dataset,
+            ablations="smart_eg_full,smart_eg_no_evidence_gate",
+            db_id="financial",
+            record_id=None,
+            limit=1,
+            max_tool_turns=1,
+            max_revisits=0,
+            cost_budget_usd=0.1,
+            evaluate=True,
+        )
+    )
+
+    assert rc == 0
+    assert [item["result_type"] for item in captured["predictions"]] == [
+        "ablation_prediction",
+        "ablation_failure",
+    ]
+    assert captured["predictions_path"].name == "ablation_evaluation_inputs.jsonl"
+    summary = json.loads((settings.run_dir / "ablation_summary.json").read_text(encoding="utf-8"))
+    assert summary["status"] == "ok"
+    assert summary["predictions"] == 1
+    assert summary["failures"] == 1
+
+
+def test_run_ablation_all_variant_failures_are_experiment_outcomes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tend.agents import AgentContext
+    from tend.config import Settings
+    from tend.observability import make_reporter, setup_logging
+    from tend.workflow import Workflow
+
+    dataset = tmp_path / "dataset"
+    (dataset / "mongodb_data").mkdir(parents=True)
+    (dataset / "mongodb_schema").mkdir()
+    record = {
+        "record_id": 1,
+        "db_id": "financial",
+        "MQL": "db.account.aggregate([])",
+        "nl_queries": {"canonical": "List accounts."},
+    }
+    (dataset / "test.json").write_text(json.dumps([record]), encoding="utf-8")
+    (dataset / "TEND.json").write_text(json.dumps([record]), encoding="utf-8")
+    (dataset / "mongodb_data" / "financial.json").write_text(json.dumps({"account": []}), encoding="utf-8")
+    (dataset / "mongodb_schema" / "financial.json").write_text(json.dumps({"account": {}}), encoding="utf-8")
+
+    settings = Settings.from_env(
+        run_id="ablation-all-variant-failures-cli-test",
+        overrides={"TEND_LLM_STUB": "1"},
+        require_bird=False,
+    )
+    settings = replace(settings, paths=replace(settings.paths, runs=tmp_path / "runs"))
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = make_reporter(settings.run_id, log, enabled=False)
+    ctx = AgentContext(settings=settings, llm=None, log=log, progress=progress, mongo=None)
+    rt = cli.Runtime(
+        settings,
+        ctx,
+        Workflow(ctx),
+        progress,
+        log,
+        None,
+        SimpleNamespace(close=lambda: None),
+    )
+
+    async def fake_run_ablation_suite(*_args, **_kwargs):
+        return [
+            {
+                "result_type": "ablation_failure",
+                "ablation_id": "smart_eg_no_prefix_execution",
+                "record_id": 1,
+                "db_id": "financial",
+                "status": "failed",
+                "error_code": "NO_VALID_QUERY_FOUND",
+                "message": "variant stopped after gate feedback",
+            },
+        ]
+
+    captured: dict[str, object] = {}
+
+    async def fake_maybe_evaluate(_rt, **kwargs):
+        captured["predictions"] = kwargs["predictions"]
+        return SimpleNamespace(
+            ok=False,
+            status="partial",
+            report={"status": "partial", "scores": {"EX": 0.0, "EFM": 0.0, "EVM": 0.0}},
+            paths=SimpleNamespace(report_md=tmp_path / "report.md"),
+        )
+
+    monkeypatch.setattr(cli, "run_ablation_suite", fake_run_ablation_suite)
+    monkeypatch.setattr(cli, "_maybe_evaluate", fake_maybe_evaluate)
+
+    rc = __import__("asyncio").run(
+        cli._run_ablation(
+            rt,
+            dataset_dir=dataset,
+            ablations="smart_eg_no_prefix_execution",
+            db_id="financial",
+            record_id=None,
+            limit=1,
+            max_tool_turns=1,
+            max_revisits=0,
+            cost_budget_usd=0.1,
+            evaluate=True,
+        )
+    )
+
+    assert rc == 0
+    assert captured["predictions"] == [
+        {
+            "result_type": "ablation_failure",
+            "ablation_id": "smart_eg_no_prefix_execution",
+            "record_id": 1,
+            "db_id": "financial",
+            "status": "failed",
+            "error_code": "NO_VALID_QUERY_FOUND",
+            "message": "variant stopped after gate feedback",
+        }
+    ]
+    summary = json.loads((settings.run_dir / "ablation_summary.json").read_text(encoding="utf-8"))
+    assert summary["status"] == "ok"
+    assert summary["predictions"] == 0
+    assert summary["failures"] == 1
+    assert summary["evaluation"]["status"] == "partial"

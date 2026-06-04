@@ -22,7 +22,7 @@ from .execution import check_ast_filter, parse_or_render_mql, run_final_sanity_e
 from .mongo_tools import SmartEGMongoTools
 from .observability import SmartEGObserver
 from .policy import SmartEGPolicy
-from .safety import parse_path
+from .safety import parse_path, value_proof, value_token
 
 ENVIRONMENT_TOOLS = {
     "list_collections",
@@ -42,10 +42,6 @@ EVIDENCE_TOOLS = {
     "inspect_evidence_ledger",
     "inspect_evidence_debt",
     "mine_counterexamples",
-    "check_environment_model",
-    "check_intent_hypothesis",
-    "check_query_plan",
-    "check_final_candidate",
 }
 EXECUTION_TOOLS = {
     "render_pipeline",
@@ -54,6 +50,11 @@ EXECUTION_TOOLS = {
     "check_prefix_checkpoint",
     "check_ast_filter",
     "run_final_sanity_execution",
+}
+PREFIX_EXECUTION_TOOLS = {
+    "render_pipeline_prefix",
+    "execute_pipeline_prefix",
+    "check_prefix_checkpoint",
 }
 TERMINAL_TOOLS = {"submit_final_mql", "abandon_with_failure"}
 STAGE_CONTROL_TOOLS = {
@@ -88,10 +89,14 @@ class SmartEGToolAPI:
         self.executor = executor
 
     def tools_for_state(self, state: SmartEGState) -> list[dict[str, Any]]:
+        environment_tools = _environment_tool_names(self.policy)
+        evidence_tools = _evidence_tool_names(self.policy)
+        execution_tools = _execution_tool_names(self.policy)
+        control_tools = _stage_control_tool_names(self.policy)
         if state.terminal_only:
-            return [_schema(name) for name in sorted(_terminal_tool_names_for_state(state))]
+            return [_schema(name) for name in sorted(_terminal_tool_names_for_state(state, self.policy))]
         if state.mode == "environment":
-            if _environment_ready_for_submit(state):
+            if _environment_ready_for_submit(state, self.policy):
                 names = {
                     "submit_environment_model",
                     "inspect_evidence_ledger",
@@ -99,13 +104,13 @@ class SmartEGToolAPI:
                     "abandon_with_failure",
                 }
             else:
-                names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | {
+                names = environment_tools | evidence_tools | {
                     "submit_environment_model",
                     "request_mode_shift",
                     "abandon_with_failure",
                 }
         elif state.mode == "intent":
-            if _intent_ready_for_submit(state):
+            if _intent_ready_for_submit(state, self.policy):
                 names = {
                     "submit_intent_hypothesis",
                     "inspect_evidence_ledger",
@@ -113,14 +118,13 @@ class SmartEGToolAPI:
                     "abandon_with_failure",
                 }
             else:
-                names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | {
+                names = environment_tools | evidence_tools | {
                     "submit_intent_hypothesis",
-                    "request_revisit",
                     "request_mode_shift",
                     "abandon_with_failure",
-                }
+                } | (control_tools & {"request_revisit"})
         elif state.mode == "planning":
-            if _planning_ready_for_submit(state):
+            if _planning_ready_for_submit(state, self.policy):
                 names = {
                     "submit_query_plan",
                     "inspect_evidence_ledger",
@@ -128,15 +132,14 @@ class SmartEGToolAPI:
                     "abandon_with_failure",
                 }
             else:
-                names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | {
+                names = environment_tools | evidence_tools | {
                     "render_pipeline",
                     "check_ast_filter",
                     "submit_query_plan",
-                    "request_revisit",
                     "abandon_with_failure",
-                }
+                } | (control_tools & {"request_revisit"})
         else:
-            if _execution_ready_for_submit(state):
+            if _execution_ready_for_submit(state, self.policy):
                 names = {
                     "submit_final_mql",
                     "inspect_evidence_ledger",
@@ -144,26 +147,25 @@ class SmartEGToolAPI:
                     "abandon_with_failure",
                 }
             else:
-                names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | EXECUTION_TOOLS | {
+                names = environment_tools | evidence_tools | execution_tools | {
                     "submit_final_mql",
-                    "request_revisit",
                     "request_mode_shift",
                     "abandon_with_failure",
-                }
+                } | (control_tools & {"request_revisit"})
         return [_schema(name) for name in sorted(names)]
 
     def tool_choice_for_state(self, state: SmartEGState) -> dict[str, Any] | str | None:
         if state.terminal_only:
-            if _terminal_has_repair_tools(state):
+            if _terminal_has_repair_tools(state, self.policy):
                 return None
             return {"type": "function", "function": {"name": _terminal_submit_tool_for_mode(state.mode)}}
-        if state.mode == "environment" and _environment_ready_for_submit(state):
+        if state.mode == "environment" and _environment_ready_for_submit(state, self.policy):
             return {"type": "function", "function": {"name": "submit_environment_model"}}
-        if _intent_ready_for_submit(state):
+        if _intent_ready_for_submit(state, self.policy):
             return {"type": "function", "function": {"name": "submit_intent_hypothesis"}}
-        if _planning_ready_for_submit(state):
+        if _planning_ready_for_submit(state, self.policy):
             return {"type": "function", "function": {"name": "submit_query_plan"}}
-        if _execution_ready_for_submit(state):
+        if _execution_ready_for_submit(state, self.policy):
             return {"type": "function", "function": {"name": "submit_final_mql"}}
         if not self.policy.force_tool_choice:
             return None
@@ -180,9 +182,19 @@ class SmartEGToolAPI:
         name = str(function.get("name") or tool_call.get("name") or "")
         args = _parse_args(function.get("arguments"))
         call_id = str(tool_call.get("id") or "")
-        exposed = exposed_tool_names or {tool["function"]["name"] for tool in self.tools_for_state(state)}
-        if name not in exposed and name not in TERMINAL_TOOLS:
-            if state.mode == "environment" and _environment_ready_for_submit(state) and name in ENVIRONMENT_TOOLS:
+        exposed = (
+            {tool["function"]["name"] for tool in self.tools_for_state(state)}
+            if exposed_tool_names is None
+            else set(exposed_tool_names)
+        )
+        known_tools = _known_tool_names()
+        if name not in exposed:
+            if (
+                state.mode == "environment"
+                and _environment_ready_for_submit(state, self.policy)
+                and name in known_tools
+                and name in ENVIRONMENT_TOOLS
+            ):
                 return _observation(
                     name,
                     call_id,
@@ -196,8 +208,8 @@ class SmartEGToolAPI:
                         ),
                     },
                 )
-            if state.terminal_only and name in _known_tool_names():
-                allowed = _terminal_tool_names_for_state(state)
+            if state.terminal_only and name in known_tools:
+                allowed = _terminal_tool_names_for_state(state, self.policy)
                 return _observation(
                     name,
                     call_id,
@@ -211,7 +223,7 @@ class SmartEGToolAPI:
                         ),
                     },
                 )
-            if state.mode == "intent" and _intent_ready_for_submit(state) and name in _known_tool_names():
+            if state.mode == "intent" and _intent_ready_for_submit(state, self.policy) and name in known_tools:
                 return _observation(
                     name,
                     call_id,
@@ -225,7 +237,7 @@ class SmartEGToolAPI:
                         ),
                     },
                 )
-            if state.mode == "planning" and _planning_ready_for_submit(state) and name in _known_tool_names():
+            if state.mode == "planning" and _planning_ready_for_submit(state, self.policy) and name in known_tools:
                 return _observation(
                     name,
                     call_id,
@@ -239,7 +251,7 @@ class SmartEGToolAPI:
                         ),
                     },
                 )
-            if state.mode == "execution" and _execution_ready_for_submit(state) and name in _known_tool_names():
+            if state.mode == "execution" and _execution_ready_for_submit(state, self.policy) and name in known_tools:
                 return _observation(
                     name,
                     call_id,
@@ -262,6 +274,8 @@ class SmartEGToolAPI:
 
         if name == "list_collections":
             return self._list_collections(call_id, state)
+        if name in ENVIRONMENT_TOOLS and name not in _environment_tool_names(self.policy):
+            return _observation(name, call_id, False, {"reason": "tool_not_exposed"})
         if name in ENVIRONMENT_TOOLS:
             return self._mongo_observation(name, call_id, args, state)
         if name == "add_evidence_claim":
@@ -275,6 +289,8 @@ class SmartEGToolAPI:
         if name == "inspect_evidence_debt":
             state.refresh_debt_queue()
             return _observation(name, call_id, True, {"debts": [d.to_json() for d in state.debt_queue]})
+        if name == "mine_counterexamples" and not self.policy.enable_counterexamples:
+            return _observation(name, call_id, False, {"reason": "tool_not_exposed"})
         if name == "mine_counterexamples":
             hits = mine_counterexamples(
                 plan=args.get("plan") or state.query_plan,
@@ -282,6 +298,8 @@ class SmartEGToolAPI:
                 ledger=state.evidence_ledger,
             )
             return _observation(name, call_id, True, {"hits": [h.to_json() for h in hits]})
+        if name == "request_revisit" and not self.policy.revisit:
+            return _observation(name, call_id, False, {"reason": "tool_not_exposed"})
         if name == "request_revisit":
             return self._request_revisit(call_id, args, state)
         if name == "request_mode_shift":
@@ -298,6 +316,15 @@ class SmartEGToolAPI:
             return self._abandon(call_id, args, state)
         if name == "render_pipeline":
             return self._render_pipeline(call_id, args)
+        if name in PREFIX_EXECUTION_TOOLS:
+            if not self.policy.prefix_execution:
+                return _observation(name, call_id, False, {"reason": "tool_not_exposed"})
+            return _observation(
+                name,
+                call_id,
+                False,
+                {"reason": "TOOL_UNIMPLEMENTED", "implemented": False},
+            )
         if name == "check_ast_filter":
             try:
                 _, _, mql = parse_or_render_mql(
@@ -332,7 +359,12 @@ class SmartEGToolAPI:
             if self.observer:
                 self.observer.record_execution_trace({"event": "final_sanity", **result})
             return _observation(name, call_id, bool(result["ok"]), result)
-        return _observation(name, call_id, True, {"bounded": True, "implemented": False})
+        return _observation(
+            name or "unknown_tool",
+            call_id,
+            False,
+            {"reason": "TOOL_UNIMPLEMENTED", "implemented": False},
+        )
 
     def _list_collections(self, call_id: str, state: SmartEGState) -> ToolObservation:
         raw: Any = []
@@ -341,10 +373,10 @@ class SmartEGToolAPI:
             try:
                 if hasattr(self.db_handle, "list_collections"):
                     try:
-                        raw = self.db_handle.list_collections({})
+                        raw = self.db_handle.list_collections(state.db_id)
                     except TypeError:
                         try:
-                            raw = self.db_handle.list_collections(state.db_id)
+                            raw = self.db_handle.list_collections({})
                         except TypeError:
                             raw = self.db_handle.list_collections()
                 elif hasattr(self.db_handle, "list_collection_names"):
@@ -447,13 +479,16 @@ class SmartEGToolAPI:
         refs = _refs(model)
         if not isinstance(model, dict) or not model.get("candidate_collections"):
             violations.append(GateViolation("contract_invalid", "environment needs candidate_collections"))
-        if not refs or not state.evidence_ledger.has_evidence_refs(refs):
-            debts.append(state.evidence_ledger.ensure_debt(
-                milestone="environment",
+        if self.policy.evidence_gate:
+            ref_violations, ref_debts = _evidence_ref_gate(
+                state,
+                refs,
+                "environment",
                 claim_type="evidence_refs_missing",
                 missing_evidence=["list_collections"],
-            ))
-            violations.append(GateViolation("insufficient_evidence", "environment evidence refs are missing"))
+            )
+            violations.extend(ref_violations)
+            debts.extend(ref_debts)
         gate = _gate("submit_environment_model", "environment", not violations, violations, debts)
         if gate.accepted:
             state.environment = dict(model)
@@ -469,13 +504,16 @@ class SmartEGToolAPI:
             violations.append(GateViolation("stale_environment", "intent requires accepted environment"))
         if not isinstance(intent, dict) or not intent.get("task_kind"):
             violations.append(GateViolation("contract_invalid", "intent needs task_kind"))
-        if not refs or not state.evidence_ledger.has_evidence_refs(refs):
-            debts.append(state.evidence_ledger.ensure_debt(
-                milestone="intent",
+        if self.policy.evidence_gate:
+            ref_violations, ref_debts = _evidence_ref_gate(
+                state,
+                refs,
+                "intent",
                 claim_type="intent_evidence_missing",
                 missing_evidence=["profile_path_values"],
-            ))
-            violations.append(GateViolation("insufficient_evidence", "intent evidence refs are missing"))
+            )
+            violations.extend(ref_violations)
+            debts.extend(ref_debts)
         gate = _gate("submit_intent_hypothesis", "intent", not violations, violations, debts)
         if gate.accepted:
             state.intent = dict(intent)
@@ -492,13 +530,16 @@ class SmartEGToolAPI:
             violations.append(GateViolation("stale_intent", "plan requires accepted intent"))
         if not isinstance(plan, dict) or not plan.get("collection") or not plan.get("stages"):
             violations.append(GateViolation("contract_invalid", "plan needs collection and stages"))
-        if not refs or not state.evidence_ledger.has_evidence_refs(refs):
-            debts.append(state.evidence_ledger.ensure_debt(
-                milestone="plan",
+        if self.policy.evidence_gate:
+            ref_violations, ref_debts = _evidence_ref_gate(
+                state,
+                refs,
+                "plan",
                 claim_type="plan_evidence_missing",
                 missing_evidence=["discover_paths"],
-            ))
-            violations.append(GateViolation("insufficient_evidence", "plan evidence refs are missing"))
+            )
+            violations.extend(ref_violations)
+            debts.extend(ref_debts)
         if self.policy.enable_counterexamples and isinstance(plan, dict):
             for hit in mine_counterexamples(plan=plan, ledger=state.evidence_ledger):
                 challenged.extend(hit.challenged_claims)
@@ -545,18 +586,50 @@ class SmartEGToolAPI:
         violations: list[GateViolation] = []
         debts: list[EvidenceDebt] = []
         refs = _refs(args)
-        has_prior_milestones = any([state.environment, state.intent, state.query_plan])
-        if has_prior_milestones and (
-            state.query_plan is None or {"environment", "intent", "plan"} & state.stale_milestones
-        ):
-            violations.append(GateViolation("stale_milestone", "final requires fresh milestones"))
-        if has_prior_milestones and (not refs or not state.evidence_ledger.has_evidence_refs(refs)):
-            debts.append(state.evidence_ledger.ensure_debt(
-                milestone="final",
+        _resolve_debts(state, "final")
+        if state.mode != "execution":
+            violations.append(GateViolation("wrong_mode", "final submit requires execution mode"))
+        missing_milestones = [
+            name
+            for name, value in (
+                ("environment", state.environment),
+                ("intent", state.intent),
+                ("plan", state.query_plan),
+            )
+            if value is None
+        ]
+        if missing_milestones:
+            violations.append(
+                GateViolation(
+                    "missing_milestone",
+                    "final requires accepted environment, intent, and query_plan",
+                    {"missing": missing_milestones},
+                )
+            )
+        stale = sorted({"environment", "intent", "plan", "final"} & state.stale_milestones)
+        if stale:
+            violations.append(
+                GateViolation("stale_milestone", "final requires fresh milestones", {"stale": stale})
+            )
+        blocking_debts = state.evidence_ledger.blocking_debts()
+        if blocking_debts:
+            violations.append(
+                GateViolation(
+                    "blocking_evidence_debt",
+                    "final requires no blocking evidence debts",
+                    {"debt_ids": [debt.debt_id for debt in blocking_debts]},
+                )
+            )
+        if self.policy.evidence_gate:
+            ref_violations, ref_debts = _evidence_ref_gate(
+                state,
+                refs,
+                "final",
                 claim_type="final_evidence_missing",
                 missing_evidence=["run_final_sanity_execution"],
-            ))
-            violations.append(GateViolation("insufficient_evidence", "final evidence refs are missing"))
+            )
+            violations.extend(ref_violations)
+            debts.extend(ref_debts)
         collection = ""
         pipeline: list[dict[str, Any]] = []
         mql = ""
@@ -614,6 +687,7 @@ class SmartEGToolAPI:
             accepted_action="finalized",
         )
         if gate.accepted:
+            _resolve_debts(state, "final")
             state.candidates.append(QueryCandidate(candidate_id, collection, pipeline, mql, refs))
             state.best_candidate_id = candidate_id
             state.terminal = True
@@ -711,7 +785,7 @@ class SmartEGToolAPI:
         payload["gate_ref"] = gate_ref
         if self.observer:
             self.observer.agent_event("submit_attempt", {"submit_tool": name, "accepted": gate.accepted})
-        return _observation(name, call_id, True, payload, gate_ref=gate_ref)
+        return _observation(name, call_id, gate.accepted, payload, gate_ref=gate_ref)
 
     def _state_ref(self, label: str) -> str:
         if not self.observer:
@@ -734,18 +808,21 @@ def tool_schemas(*, terminal_only: bool = False) -> list[dict[str, Any]]:
     ]
 
 
-def _terminal_tool_names_for_state(state: SmartEGState) -> set[str]:
+def _terminal_tool_names_for_state(state: SmartEGState, policy: SmartEGPolicy) -> set[str]:
     names = {_terminal_submit_tool_for_mode(state.mode), "abandon_with_failure"}
     debts = state.evidence_ledger.blocking_debts()
     if debts:
         names.update({"inspect_evidence_debt", "inspect_evidence_ledger"})
         for debt in debts:
-            names.update(tool for tool in debt.suggested_tools if tool in _known_tool_names())
+            names.update(tool for tool in debt.suggested_tools if tool in _known_tool_names(policy))
     return names
 
 
-def _terminal_has_repair_tools(state: SmartEGState) -> bool:
-    return bool(_terminal_tool_names_for_state(state) - {_terminal_submit_tool_for_mode(state.mode), "abandon_with_failure"})
+def _terminal_has_repair_tools(state: SmartEGState, policy: SmartEGPolicy) -> bool:
+    return bool(
+        _terminal_tool_names_for_state(state, policy)
+        - {_terminal_submit_tool_for_mode(state.mode), "abandon_with_failure"}
+    )
 
 
 def _terminal_submit_tool_for_mode(mode: str) -> str:
@@ -1009,7 +1086,169 @@ def _dispatch_mongo_tool(
     raise ValueError(f"unknown environment tool: {name}")
 
 
-def _environment_ready_for_submit(state: SmartEGState) -> bool:
+def _environment_tool_names(policy: SmartEGPolicy) -> set[str]:
+    names = set(ENVIRONMENT_TOOLS)
+    if not policy.relationship_probe:
+        names.discard("profile_relationship_candidates")
+    return names
+
+
+def _evidence_tool_names(policy: SmartEGPolicy) -> set[str]:
+    names = set(EVIDENCE_TOOLS)
+    if not policy.enable_counterexamples:
+        names.discard("mine_counterexamples")
+    return names
+
+
+def _execution_tool_names(policy: SmartEGPolicy) -> set[str]:
+    names = set(EXECUTION_TOOLS)
+    if not policy.prefix_execution:
+        names.difference_update(PREFIX_EXECUTION_TOOLS)
+    return names
+
+
+def _stage_control_tool_names(policy: SmartEGPolicy) -> set[str]:
+    names = set(STAGE_CONTROL_TOOLS)
+    if not policy.revisit:
+        names.discard("request_revisit")
+    return names
+
+
+def _known_tool_names(policy: SmartEGPolicy | None = None) -> set[str]:
+    if policy is None:
+        return ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | EXECUTION_TOOLS | TERMINAL_TOOLS | STAGE_CONTROL_TOOLS
+    return (
+        _environment_tool_names(policy)
+        | _evidence_tool_names(policy)
+        | _execution_tool_names(policy)
+        | TERMINAL_TOOLS
+        | _stage_control_tool_names(policy)
+    )
+
+
+_MILESTONE_RELEVANT_SOURCES: dict[str, set[str]] = {
+    "environment": {
+        "list_collections",
+        "sample_documents",
+        "discover_paths",
+        "profile_path",
+        "profile_path_values",
+        "inspect_array_shape",
+        "inspect_dynamic_keys",
+        "profile_relationship_candidates",
+    },
+    "intent": {
+        "sample_documents",
+        "discover_paths",
+        "profile_path",
+        "profile_path_values",
+        "search_values",
+        "inspect_array_shape",
+        "inspect_dynamic_keys",
+        "profile_relationship_candidates",
+    },
+    "plan": {
+        "sample_documents",
+        "discover_paths",
+        "profile_path",
+        "profile_path_values",
+        "search_values",
+        "inspect_array_shape",
+        "inspect_dynamic_keys",
+        "profile_relationship_candidates",
+        "run_readonly_probe",
+        "check_ast_filter",
+    },
+    "final": {
+        "run_readonly_probe",
+        "run_final_sanity_execution",
+        "check_ast_filter",
+    },
+}
+
+
+def _evidence_ref_gate(
+    state: SmartEGState,
+    refs: list[str],
+    milestone: Milestone,
+    *,
+    claim_type: str,
+    missing_evidence: list[str],
+) -> tuple[list[GateViolation], list[EvidenceDebt]]:
+    if not refs:
+        debt = state.evidence_ledger.ensure_debt(
+            milestone=milestone,
+            claim_type=claim_type,
+            missing_evidence=missing_evidence,
+        )
+        return [
+            GateViolation(
+                "insufficient_evidence",
+                f"{milestone} evidence refs are missing",
+                {"missing_evidence": missing_evidence},
+            )
+        ], [debt]
+    missing_refs = [ref for ref in refs if ref not in state.evidence_ledger.records]
+    if missing_refs:
+        debt = state.evidence_ledger.ensure_debt(
+            milestone=milestone,
+            claim_type=claim_type,
+            missing_evidence=missing_evidence,
+        )
+        return [
+            GateViolation(
+                "insufficient_evidence",
+                f"{milestone} evidence refs do not exist",
+                {"missing_refs": missing_refs},
+            )
+        ], [debt]
+    if not _has_relevant_evidence_refs(state, refs, milestone):
+        debt = state.evidence_ledger.ensure_debt(
+            milestone=milestone,
+            claim_type=claim_type,
+            missing_evidence=missing_evidence,
+        )
+        return [
+            GateViolation(
+                "irrelevant_evidence_refs",
+                f"{milestone} evidence refs do not support this milestone",
+                {
+                    "evidence_refs": refs,
+                    "observed_sources": sorted(_evidence_sources_for_refs(state, refs)),
+                    "accepted_sources": sorted(_MILESTONE_RELEVANT_SOURCES[milestone]),
+                },
+            )
+        ], [debt]
+    return [], []
+
+
+def _has_relevant_evidence_refs(
+    state: SmartEGState,
+    refs: list[str],
+    milestone: Milestone,
+) -> bool:
+    return bool(_evidence_sources_for_refs(state, refs) & _MILESTONE_RELEVANT_SOURCES[milestone])
+
+
+def _has_relevant_evidence_source(state: SmartEGState, milestone: Milestone) -> bool:
+    refs = list(state.evidence_ledger.records)
+    return _has_relevant_evidence_refs(state, refs, milestone) if refs else False
+
+
+def _evidence_sources_for_refs(state: SmartEGState, refs: list[str]) -> set[str]:
+    sources: set[str] = set()
+    for ref in refs:
+        record = state.evidence_ledger.records.get(ref)
+        if record is None:
+            continue
+        sources.add(record.source_tool)
+        tool = record.summary.get("tool")
+        if isinstance(tool, str):
+            sources.add(tool)
+    return sources
+
+
+def _environment_ready_for_submit(state: SmartEGState, policy: SmartEGPolicy) -> bool:
     sources = {record.source_tool for record in state.evidence_ledger.records.values()}
     shape_sources = {
         "sample_documents",
@@ -1020,10 +1259,13 @@ def _environment_ready_for_submit(state: SmartEGState) -> bool:
         "inspect_dynamic_keys",
         "profile_relationship_candidates",
     }
+    if not policy.relationship_probe:
+        shape_sources.discard("profile_relationship_candidates")
     return "list_collections" in sources and bool(sources & shape_sources)
 
 
-def _intent_ready_for_submit(state: SmartEGState) -> bool:
+def _intent_ready_for_submit(state: SmartEGState, policy: SmartEGPolicy) -> bool:
+    del policy
     if state.mode != "intent":
         return False
     if state.environment is None or "environment" in state.stale_milestones:
@@ -1040,7 +1282,7 @@ def _intent_ready_for_submit(state: SmartEGState) -> bool:
     return bool(sources & intent_sources)
 
 
-def _planning_ready_for_submit(state: SmartEGState) -> bool:
+def _planning_ready_for_submit(state: SmartEGState, policy: SmartEGPolicy) -> bool:
     if state.mode != "planning":
         return False
     if state.intent is None or "intent" in state.stale_milestones:
@@ -1058,19 +1300,21 @@ def _planning_ready_for_submit(state: SmartEGState) -> bool:
         "run_readonly_probe",
         "check_ast_filter",
     }
+    if not policy.relationship_probe:
+        plan_sources.discard("profile_relationship_candidates")
     return bool(sources & plan_sources)
 
 
-def _execution_ready_for_submit(state: SmartEGState) -> bool:
+def _execution_ready_for_submit(state: SmartEGState, policy: SmartEGPolicy) -> bool:
     if state.mode != "execution":
         return False
     if state.query_plan is None or {"environment", "intent", "plan"} & state.stale_milestones:
         return False
-    return not state.evidence_ledger.blocking_debts(milestone="final")
-
-
-def _known_tool_names() -> set[str]:
-    return ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | EXECUTION_TOOLS | TERMINAL_TOOLS | STAGE_CONTROL_TOOLS
+    if state.evidence_ledger.blocking_debts():
+        return False
+    if policy.evidence_gate and not _has_relevant_evidence_source(state, "final"):
+        return False
+    return True
 
 
 def _refs(payload: Any) -> list[str]:
@@ -1110,61 +1354,87 @@ def _value_grounding_gate(
     pipeline: list[Any],
     milestone: Milestone,
 ) -> tuple[list[GateViolation], list[EvidenceDebt]]:
-    constants = _pipeline_string_constants(pipeline)
+    constants = _pipeline_value_constants(pipeline)
     if not constants:
         return [], []
-    grounded = _grounded_literals(state, refs)
-    ungrounded = [constant for constant in constants if constant not in grounded]
+    grounded = _grounded_value_markers(state, refs)
+    ungrounded = [
+        constant
+        for constant in constants
+        if not any(marker in grounded for marker in constant["markers"])
+    ]
     if not ungrounded:
         return [], []
     debt = state.evidence_ledger.ensure_debt(
         milestone=milestone,
         claim_type="value_grounding",
-        missing_evidence=[f"literal:{constant}" for constant in ungrounded[:5]],
+        missing_evidence=[
+            str(constant["missing_marker"])
+            for constant in ungrounded[:5]
+        ],
         suggested_tools=["profile_path_values", "search_values", "run_readonly_probe"],
     )
     violation = GateViolation(
         "ungrounded_value_constant",
-        "Pipeline uses string value constants not present in bounded literal evidence.",
+        "Pipeline uses value constants not present in bounded literal/token evidence.",
         {
-            "constants": ungrounded,
-            "grounded_literal_count": len(grounded),
-            "grounded_literals": sorted(grounded)[:20],
+            "constants": [constant["display"] for constant in ungrounded],
+            "missing_evidence": [
+                str(constant["missing_marker"])
+                for constant in ungrounded[:20]
+            ],
+            "grounded_value_marker_count": len(grounded),
+            "grounded_value_markers": sorted(grounded)[:20],
         },
     )
     return [violation], [debt]
 
 
-def _grounded_literals(state: SmartEGState, refs: list[str]) -> set[str]:
-    literals: set[str] = set()
+def _grounded_value_markers(state: SmartEGState, refs: list[str]) -> set[str]:
+    markers: set[str] = set()
     for ref in refs:
         record = state.evidence_ledger.records.get(ref)
         if record is None:
             continue
-        _collect_literals(record.summary, literals)
-    return literals
+        _collect_value_markers(record.summary, markers)
+    return markers
 
 
-def _collect_literals(payload: Any, out: set[str]) -> None:
+def _collect_value_markers(payload: Any, out: set[str]) -> None:
     if isinstance(payload, dict):
         literal = payload.get("literal")
         if isinstance(literal, str):
-            out.add(literal)
+            out.add(f"literal:{literal}")
+        token = payload.get("token")
+        if isinstance(token, str):
+            out.add(f"token:{token}")
         for value in payload.values():
-            _collect_literals(value, out)
+            _collect_value_markers(value, out)
         return
     if isinstance(payload, list):
         for item in payload:
-            _collect_literals(item, out)
+            _collect_value_markers(item, out)
 
 
-def _pipeline_string_constants(pipeline: list[Any]) -> list[str]:
-    constants: list[str] = []
+def _pipeline_value_constants(pipeline: list[Any]) -> list[dict[str, Any]]:
+    constants: dict[str, dict[str, Any]] = {}
+
+    def add_constant(value: Any) -> None:
+        marker = _value_constant_marker(value)
+        if marker is None:
+            return
+        constants.setdefault(marker["missing_marker"], marker)
 
     def visit(value: Any, *, in_match: bool = False, in_compare: bool = False) -> None:
         if isinstance(value, str):
             if (in_match or in_compare) and _is_groundable_string_constant(value):
-                constants.append(value)
+                add_constant(value)
+            return
+        if (
+            (in_match or in_compare)
+            and (value is None or isinstance(value, (int, float, bool)))
+        ):
+            add_constant(value)
             return
         if isinstance(value, list):
             for item in value:
@@ -1188,11 +1458,49 @@ def _pipeline_string_constants(pipeline: list[Any]) -> list[str]:
             )
 
     visit(pipeline)
-    return sorted(set(constants))
+    return [
+        constants[key]
+        for key in sorted(constants)
+    ]
 
 
 def _is_groundable_string_constant(value: str) -> bool:
     return not value.startswith("$")
+
+
+def _value_constant_marker(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, str):
+        proof = value_proof(value)
+        token_marker = f"token:{value_token(value)}"
+        if proof.get("string_format"):
+            return {
+                "display": _display_value_constant(value),
+                "markers": [token_marker],
+                "missing_marker": token_marker,
+            }
+        literal_marker = f"literal:{value}"
+        return {
+            "display": value,
+            "markers": [literal_marker, token_marker],
+            "missing_marker": literal_marker,
+        }
+    if value is None or isinstance(value, (int, float, bool)):
+        token_marker = f"token:{value_token(value)}"
+        return {
+            "display": _display_value_constant(value),
+            "markers": [token_marker],
+            "missing_marker": token_marker,
+        }
+    return None
+
+
+def _display_value_constant(value: Any) -> str:
+    if isinstance(value, str):
+        proof = value_proof(value)
+        if proof.get("string_format"):
+            return f"{proof['string_format']}:{value_token(value)}"
+        return value
+    return f"{type(value).__name__}:{value_token(value)}"
 
 
 def _output_contract_gate(

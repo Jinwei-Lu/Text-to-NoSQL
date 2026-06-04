@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import Counter
 from typing import Any, Iterable, Mapping
 
@@ -16,6 +17,11 @@ MAX_LITERAL_VALUE_BUCKETS = 12
 MAX_LITERAL_STRING_LENGTH = 80
 
 _MISSING = object()
+_DATE_LIKE_RE = re.compile(
+    r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}"
+    r"(?:[T ]\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$"
+)
+_OBJECT_ID_LIKE_RE = re.compile(r"^[0-9a-fA-F]{24}$")
 
 
 def bounded_limit(value: int | None, *, default: int, maximum: int) -> int:
@@ -64,6 +70,10 @@ def redact_scalar(value: Any) -> dict[str, Any]:
     return out
 
 
+def value_token(value: Any) -> str:
+    return f"value:{value_kind(value)}:{stable_hash(value).split(':', 1)[1]}"
+
+
 def redact_value(value: Any, *, depth: int = 0) -> Any:
     """Return a JSON-safe redacted summary of a value, preserving shape but not raw scalars."""
     if depth >= MAX_REDACT_DEPTH:
@@ -99,28 +109,74 @@ def redact_value(value: Any, *, depth: int = 0) -> Any:
     return redact_scalar(value)
 
 
-def summarize_redacted_value(value: Any, *, expose_literal: bool = False) -> dict[str, Any]:
+def summarize_redacted_value(
+    value: Any,
+    *,
+    expose_literal: bool = False,
+    include_proof: bool = False,
+) -> dict[str, Any]:
+    literal_exposed = False
     if not isinstance(value, (Mapping, list)):
         out = redact_scalar(value)
         if expose_literal:
             literal = observable_literal(value)
             if literal is not _MISSING:
                 out["literal"] = literal
+                literal_exposed = True
+        if include_proof:
+            out["token"] = value_token(value)
+            out["proof"] = value_proof(value, literal_exposed=literal_exposed)
         return out
-    return {
+    out = {
         "type": value_kind(value),
         "hash": stable_hash(value),
         "size": len(value),
     }
+    if include_proof:
+        out["token"] = value_token(value)
+        out["proof"] = value_proof(value, literal_exposed=False)
+    return out
+
+
+def value_proof(value: Any, *, literal_exposed: bool = False) -> dict[str, Any]:
+    proof: dict[str, Any] = {
+        "type": value_kind(value),
+        "hash": stable_hash(value),
+        "token": value_token(value),
+        "literal_policy": "observable_short_printable" if literal_exposed else "redacted",
+    }
+    if isinstance(value, str):
+        proof["length"] = len(value)
+        string_format = _string_format(value)
+        if string_format:
+            proof["string_format"] = string_format
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        proof["numeric_class"] = _numeric_class(value)
+    elif isinstance(value, (Mapping, list)):
+        proof["size"] = len(value)
+    return proof
 
 
 def observable_literal(value: Any) -> Any:
     if isinstance(value, str):
-        if 0 < len(value) <= MAX_LITERAL_STRING_LENGTH and value.isprintable():
+        if (
+            0 < len(value) <= MAX_LITERAL_STRING_LENGTH
+            and value.isprintable()
+            and _string_format(value) is None
+        ):
             return value
     if isinstance(value, bool) or value is None:
         return value
     return _MISSING
+
+
+def _string_format(value: str) -> str | None:
+    stripped = value.strip()
+    if _OBJECT_ID_LIKE_RE.fullmatch(stripped):
+        return "object_id_like"
+    if _DATE_LIKE_RE.fullmatch(stripped):
+        return "date_like"
+    return None
 
 
 def parse_path(path: str) -> tuple[str, ...]:

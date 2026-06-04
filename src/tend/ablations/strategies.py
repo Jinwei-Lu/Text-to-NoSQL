@@ -8,6 +8,8 @@ DEFAULT_MAX_TOOL_TURNS = 48
 MEDIUM_BUDGET_MAX_TOOL_TURNS = 24
 DEFAULT_MAX_REVISITS = 2
 DEFAULT_COST_BUDGET_USD = 1.0
+COST_BUDGET_USD_SOURCE = "provider_cost_usd_if_available"
+COST_BUDGET_USD_UNPRICED_BEHAVIOR = "advisory_when_unpriced"
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +28,7 @@ class SmartEGAblationSpec:
     max_tool_turns: int | None = None
     max_revisits: int | None = None
     cost_budget_usd: float | None = None
+    budget_profile: str = "medium"
 
     def to_runtime_options(
         self,
@@ -70,6 +73,9 @@ class SmartEGAblationSpec:
             "max_tool_turns": max(1, int(effective_tool_turns)),
             "max_revisits": max(0, int(effective_revisits)),
             "cost_budget_usd": max(0.0, float(effective_cost)),
+            "budget_profile": self.budget_profile,
+            "cost_budget_usd_source": COST_BUDGET_USD_SOURCE,
+            "cost_budget_usd_unpriced_behavior": COST_BUDGET_USD_UNPRICED_BEHAVIOR,
             "progress_group_prefix": progress_group_prefix,
             "progress_work_item_id": progress_work_item_id,
         }
@@ -144,8 +150,8 @@ _ABLATIONS: dict[str, SmartEGAblationSpec] = {
     "smart_eg_no_prefix_execution": SmartEGAblationSpec(
         id="smart_eg_no_prefix_execution",
         title="No prefix execution",
-        description="Disable prefix execution checkpoints while retaining final execution.",
-        limitations=("prefix execution disabled",),
+        description="Disable prefix-execution tool exposure while retaining final execution.",
+        limitations=("prefix execution tool exposure disabled",),
         use_prefix_execution=False,
     ),
     "smart_eg_no_revisit": SmartEGAblationSpec(
@@ -156,38 +162,55 @@ _ABLATIONS: dict[str, SmartEGAblationSpec] = {
         use_revisit=False,
         max_revisits=0,
     ),
-    "smart_eg_no_probe_scheduler": SmartEGAblationSpec(
-        id="smart_eg_no_probe_scheduler",
-        title="No probe scheduler",
-        description="Disable adaptive scheduling of high-value probes.",
-        limitations=("probe scheduler disabled",),
-        use_probe_scheduler=False,
-    ),
     "smart_eg_budget_low": SmartEGAblationSpec(
         id="smart_eg_budget_low",
-        title="Low budget",
-        description="Run SMART-EG with a constrained tool-turn, revisit, and cost budget.",
-        limitations=("low tool-turn budget", "no revisits", "low cost budget"),
+        title="Low budget profile",
+        description=(
+            "Run SMART-EG under a low tool-turn/revisit budget profile; this "
+            "is not a single-mechanism isolation ablation."
+        ),
+        limitations=(
+            "low tool-turn profile",
+            "zero revisit profile",
+            "cost ceiling applies only when provider cost_usd is reported",
+        ),
         max_tool_turns=8,
         max_revisits=0,
         cost_budget_usd=0.25,
+        budget_profile="low",
     ),
     "smart_eg_budget_medium": SmartEGAblationSpec(
         id="smart_eg_budget_medium",
-        title="Medium budget",
-        description="Run SMART-EG with the reference medium budget.",
+        title="Medium budget profile",
+        description=(
+            "Run SMART-EG under the reference tool-turn/revisit budget profile; "
+            "this is not a single-mechanism isolation ablation."
+        ),
+        limitations=(
+            "reference tool-turn profile",
+            "cost ceiling applies only when provider cost_usd is reported",
+        ),
         max_tool_turns=MEDIUM_BUDGET_MAX_TOOL_TURNS,
         max_revisits=DEFAULT_MAX_REVISITS,
         cost_budget_usd=DEFAULT_COST_BUDGET_USD,
+        budget_profile="medium",
     ),
     "smart_eg_budget_high": SmartEGAblationSpec(
         id="smart_eg_budget_high",
-        title="High budget",
-        description="Run SMART-EG with an expanded tool-turn, revisit, and cost budget.",
-        limitations=("high tool-turn budget", "high revisit budget", "high cost budget"),
+        title="High budget profile",
+        description=(
+            "Run SMART-EG under an expanded tool-turn/revisit budget profile; "
+            "this is not a single-mechanism isolation ablation."
+        ),
+        limitations=(
+            "high tool-turn profile",
+            "high revisit profile",
+            "cost ceiling applies only when provider cost_usd is reported",
+        ),
         max_tool_turns=48,
         max_revisits=4,
         cost_budget_usd=3.0,
+        budget_profile="high",
     ),
 }
 

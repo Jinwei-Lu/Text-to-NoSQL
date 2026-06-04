@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -119,7 +120,7 @@ def _workflow(tmp_path: Path, llm: _LLM) -> SimpleNamespace:
     return SimpleNamespace(ctx=ctx)
 
 
-def test_submit_final_mql_is_only_success_exit(tmp_path: Path) -> None:
+def test_direct_first_turn_submit_final_mql_is_rejected(tmp_path: Path) -> None:
     llm = _LLM(
         [
             ToolCall(
@@ -134,7 +135,13 @@ def test_submit_final_mql_is_only_success_exit(tmp_path: Path) -> None:
                     "pipeline": [{"$limit": 2}],
                     "MQL": 'db.account.aggregate([{"$limit":2}])',
                 },
-            )
+            ),
+            ToolCall(
+                id="call_2",
+                name="abandon_with_failure",
+                raw_arguments='{"message":"direct final was rejected"}',
+                arguments={"message": "direct final was rejected"},
+            ),
         ]
     )
     result = asyncio.run(
@@ -147,15 +154,114 @@ def test_submit_final_mql_is_only_success_exit(tmp_path: Path) -> None:
         )
     )
 
-    assert isinstance(result, SmartEGPrediction)
-    assert result.result_type == "solver_prediction"
+    assert isinstance(result, SmartEGFailure)
+    assert result.result_type == "solver_failure"
     assert result.record_id == 1
-    assert result.MQL.startswith("db.account.aggregate")
     assert result.agent_session_ref.startswith("agent/")
     assert Path(result.agent_session_ref).name.startswith(
         "solve_smart_eg_financial_record_1_"
     )
     assert result.evidence_ledger_ref == "evidence_ledger.jsonl"
+    agent_jsonl = _settings(tmp_path).run_dir / result.agent_session_ref.replace(".md", ".jsonl")
+    rows = [json.loads(line) for line in agent_jsonl.read_text(encoding="utf-8").splitlines()]
+    final_observation = next(
+        row
+        for row in rows
+        if row.get("event") == "tool_observation" and row.get("tool") == "submit_final_mql"
+    )
+    assert final_observation["ok"] is False
+    assert final_observation["content"]["ok"] is False
+    assert final_observation["content"]["reason"] == "tool_not_exposed"
+
+
+def test_full_staged_submit_final_mql_succeeds_with_refs_and_executor(tmp_path: Path) -> None:
+    llm = _LLM(
+        [
+            ToolCall(id="call_1", name="list_collections", raw_arguments="{}", arguments={}),
+            ToolCall(
+                id="call_2",
+                name="discover_paths",
+                raw_arguments='{"collection":"account","limit":3}',
+                arguments={"collection": "account", "limit": 3},
+            ),
+            ToolCall(
+                id="call_3",
+                name="submit_environment_model",
+                raw_arguments=(
+                    '{"candidate_collections":["account"],'
+                    '"evidence_refs":["ev-0001","ev-0002"]}'
+                ),
+                arguments={
+                    "candidate_collections": ["account"],
+                    "evidence_refs": ["ev-0001", "ev-0002"],
+                },
+            ),
+            ToolCall(
+                id="call_4",
+                name="submit_intent_hypothesis",
+                raw_arguments=(
+                    '{"task_kind":"list","target_collection":"account",'
+                    '"target_fields":["_id"],"evidence_refs":["ev-0002"]}'
+                ),
+                arguments={
+                    "task_kind": "list",
+                    "target_collection": "account",
+                    "target_fields": ["_id"],
+                    "evidence_refs": ["ev-0002"],
+                },
+            ),
+            ToolCall(
+                id="call_5",
+                name="submit_query_plan",
+                raw_arguments=(
+                    '{"collection":"account","stages":[{"$limit":2}],'
+                    '"evidence_refs":["ev-0002"]}'
+                ),
+                arguments={
+                    "collection": "account",
+                    "stages": [{"$limit": 2}],
+                    "evidence_refs": ["ev-0002"],
+                },
+            ),
+            ToolCall(
+                id="call_6",
+                name="run_readonly_probe",
+                raw_arguments='{"collection":"account","pipeline":[{"$limit":2}]}',
+                arguments={"collection": "account", "pipeline": [{"$limit": 2}]},
+            ),
+            ToolCall(
+                id="call_7",
+                name="submit_final_mql",
+                raw_arguments=(
+                    '{"collection":"account","pipeline":[{"$limit":2}],'
+                    '"MQL":"db.account.aggregate([{\\"$limit\\":2}])",'
+                    '"evidence_refs":["ev-0003"]}'
+                ),
+                arguments={
+                    "collection": "account",
+                    "pipeline": [{"$limit": 2}],
+                    "MQL": 'db.account.aggregate([{"$limit":2}])',
+                    "evidence_refs": ["ev-0003"],
+                },
+            ),
+        ]
+    )
+
+    result = asyncio.run(
+        smart_solve_nlq_db_eg(
+            _workflow(tmp_path, llm),
+            db_id="financial",
+            nlq="list accounts",
+            record_id=2,
+            policy=SmartEGPolicy(max_tool_turns=12),
+        )
+    )
+
+    assert isinstance(result, SmartEGPrediction)
+    assert result.result_type == "solver_prediction"
+    assert result.record_id == 2
+    assert result.MQL.startswith("db.account.aggregate")
+    assert result.submit_gate_refs
 
 
 def test_abandon_with_failure_is_normal_failure_exit(tmp_path: Path) -> None:
