@@ -87,6 +87,18 @@ Stage order is mandatory.
 - Use `$lookup` only after proving relationship keys with evidence. Avoid SQL table,
   join, and column language in the final MQL.
 - Use ObjectId and ISODate only when observed values prove those BSON/date types.
+
+## Semantic Plan Fidelity
+
+- Translate the NLQ into result semantics before choosing stages. Preserve requested
+  grouping dimensions, comparison axes, context fields, row limits, and sort intent.
+- Phrases such as share, ratio, rate, pool, context, concentrated, top, and compare
+  usually imply derived metrics, counts, thresholds, sort order, or final projection
+  fields. Encode those semantics explicitly instead of returning only raw paths.
+- For dynamic-key objects, use `$objectToArray` and keep both key and value meaning:
+  project the key as an answer dimension and compute counts from the value array.
+- When the NLQ asks for context, include the scalar context fields and derived
+  summary fields needed to make the comparison interpretable.
 """
 
 _RUNTIME_TOOL_DESCRIPTION_OVERRIDES = {
@@ -307,9 +319,22 @@ async def smart_solve_nlq_db_eg(
                 state.terminal_only = True
                 state.terminal_reason = convergence.reason
 
-            exposed_tools = _document_runtime_tool_schemas(api.tools_for_state(state))
-            exposed_tool_names = {tool["function"]["name"] for tool in exposed_tools}
             tool_choice = api.tool_choice_for_state(state)
+            submit_focus_tool = _submit_focus_tool(tool_choice)
+            exposed_tools = _document_runtime_tool_schemas(api.tools_for_state(state))
+            if submit_focus_tool is not None:
+                narrowed_tools = _narrow_tools_to_required_submit(exposed_tools, submit_focus_tool)
+                if len(narrowed_tools) != len(exposed_tools):
+                    observer.agent_event(
+                        "tools_narrowed_to_required_submit",
+                        {
+                            "required_next_tool": submit_focus_tool,
+                            "before": [tool["function"]["name"] for tool in exposed_tools],
+                            "after": [tool["function"]["name"] for tool in narrowed_tools],
+                        },
+                    )
+                exposed_tools = narrowed_tools
+            exposed_tool_names = {tool["function"]["name"] for tool in exposed_tools}
             turn_index = state.counters.llm_turns + 1
             observer.set_current_turn(turn_index)
             observer.agent_event(
@@ -334,7 +359,6 @@ async def smart_solve_nlq_db_eg(
                     "tokens": state.counters.tokens,
                 }
             )
-            submit_focus_tool = _submit_focus_tool(tool_choice)
             if submit_focus_tool not in exposed_tool_names:
                 submit_focus_tool = None
             submit_focus_tool = submit_focus_tool or _single_exposed_submit_tool(exposed_tool_names)
@@ -682,6 +706,18 @@ def _submit_focus_tool(tool_choice: Any) -> str | None:
     if name in SUBMIT_TOOLS:
         return str(name)
     return None
+
+
+def _narrow_tools_to_required_submit(
+    tools: list[dict[str, Any]],
+    required_tool: str,
+) -> list[dict[str, Any]]:
+    narrowed = [
+        tool for tool in tools
+        if isinstance(tool.get("function"), dict)
+        and tool["function"].get("name") == required_tool
+    ]
+    return narrowed or tools
 
 
 def _single_exposed_submit_tool(exposed_tool_names: set[str]) -> str | None:

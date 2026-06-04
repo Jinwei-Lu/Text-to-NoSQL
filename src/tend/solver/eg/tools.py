@@ -683,6 +683,7 @@ class SmartEGToolAPI:
             state.query_plan = dict(plan)
             state.mode = "execution"
             _resolve_debts(state, "plan", refs=refs, binding=plan_binding)
+            _resolve_milestone_debts(state, "plan")
         return self._submit_observation("submit_query_plan", call_id, gate, state)
 
     def _submit_final(self, call_id: str, args: dict[str, Any], state: SmartEGState) -> ToolObservation:
@@ -744,23 +745,23 @@ class SmartEGToolAPI:
                             {"debt_ids": [debt.debt_id for debt in blocking_debts]},
                         )
                     )
-                ref_violations, ref_debts = _evidence_ref_gate(
-                    state,
-                    refs,
-                    "final",
-                    claim_type="final_evidence_missing",
-                    missing_evidence=["run_final_sanity_execution"],
-                    binding=final_binding,
-                )
-                violations.extend(ref_violations)
-                debts.extend(ref_debts)
-                execution_violations, execution_debts = _final_execution_evidence_gate(
-                    state,
-                    refs,
-                    final_binding,
-                )
-                violations.extend(execution_violations)
-                debts.extend(execution_debts)
+                missing_refs = [ref for ref in refs if ref not in state.evidence_ledger.records]
+                if missing_refs:
+                    violations.append(
+                        GateViolation(
+                            "invalid_evidence_refs",
+                            "final submit cited evidence refs that do not exist",
+                            {"missing_refs": missing_refs},
+                        )
+                    )
+                elif _cites_final_execution_evidence(state, refs):
+                    execution_violations, execution_debts = _final_execution_evidence_gate(
+                        state,
+                        refs,
+                        final_binding,
+                    )
+                    violations.extend(execution_violations)
+                    debts.extend(execution_debts)
             if self.policy.value_grounding:
                 grounding_violations, grounding_debts = _value_grounding_gate(
                     state,
@@ -1011,6 +1012,9 @@ class SmartEGToolAPI:
     def _submit_observation(self, name: str, call_id: str, gate: SubmitGateResult, state: SmartEGState) -> ToolObservation:
         if not gate.accepted:
             state.counters.submit_rejections += 1
+            state.last_submit_rejection_evidence_count = len(state.evidence_ledger.records)
+        else:
+            state.last_submit_rejection_evidence_count = 0
         state.refresh_debt_queue()
         payload = gate.to_json()
         gate_ref = self.observer.record_submit_gate(payload) if self.observer else None
@@ -1530,6 +1534,14 @@ def _final_execution_evidence_gate(
     ], [debt]
 
 
+def _cites_final_execution_evidence(state: SmartEGState, refs: list[str]) -> bool:
+    return any(
+        ref in state.evidence_ledger.records
+        and state.evidence_ledger.records[ref].source_tool == "run_final_sanity_execution"
+        for ref in refs
+    )
+
+
 def _has_relevant_evidence_refs(
     state: SmartEGState,
     refs: list[str],
@@ -1596,7 +1608,10 @@ def _planning_ready_for_submit(state: SmartEGState, policy: SmartEGPolicy) -> bo
     if state.intent is None or "intent" in state.stale_milestones:
         return False
     if state.evidence_ledger.blocking_debts(milestone="plan"):
-        return False
+        if state.counters.submit_rejections == 0:
+            return False
+        if len(state.evidence_ledger.records) <= state.last_submit_rejection_evidence_count:
+            return False
     sources = {record.source_tool for record in state.evidence_ledger.records.values()}
     plan_sources = {
         "discover_paths",
@@ -1614,16 +1629,12 @@ def _planning_ready_for_submit(state: SmartEGState, policy: SmartEGPolicy) -> bo
 
 
 def _execution_ready_for_submit(state: SmartEGState, policy: SmartEGPolicy) -> bool:
+    del policy
     if state.mode != "execution":
         return False
     if state.query_plan is None or {"environment", "intent", "plan"} & state.stale_milestones:
         return False
     if state.evidence_ledger.blocking_debts():
-        return False
-    if policy.evidence_gate and not any(
-        record.source_tool == "run_final_sanity_execution"
-        for record in state.evidence_ledger.records.values()
-    ):
         return False
     return True
 
@@ -1646,6 +1657,8 @@ _VALUE_COMPARISON_OPERATORS = {
     "$regex",
     "$regexMatch",
 }
+_RANGE_COMPARISON_OPERATORS = {"$gt", "$gte", "$lt", "$lte"}
+_PRESENCE_VALUE_OPERATORS = {"$exists"}
 _STRUCTURAL_STRING_KEYS = {
     "as",
     "from",
@@ -1731,26 +1744,34 @@ def _collect_value_markers(payload: Any, out: set[str]) -> None:
 def _pipeline_value_constants(pipeline: list[Any]) -> list[dict[str, Any]]:
     constants: dict[str, dict[str, Any]] = {}
 
-    def add_constant(value: Any) -> None:
+    def add_constant(value: Any, *, operator: str | None = None) -> None:
+        if _is_structural_query_value(value, operator=operator):
+            return
         marker = _value_constant_marker(value)
         if marker is None:
             return
         constants.setdefault(marker["missing_marker"], marker)
 
-    def visit(value: Any, *, in_match: bool = False, in_compare: bool = False) -> None:
+    def visit(
+        value: Any,
+        *,
+        in_match: bool = False,
+        in_compare: bool = False,
+        operator: str | None = None,
+    ) -> None:
         if isinstance(value, str):
             if (in_match or in_compare) and _is_groundable_string_constant(value):
-                add_constant(value)
+                add_constant(value, operator=operator)
             return
         if (
             (in_match or in_compare)
             and (value is None or isinstance(value, (int, float, bool)))
         ):
-            add_constant(value)
+            add_constant(value, operator=operator)
             return
         if isinstance(value, list):
             for item in value:
-                visit(item, in_match=in_match, in_compare=in_compare)
+                visit(item, in_match=in_match, in_compare=in_compare, operator=operator)
             return
         if not isinstance(value, dict):
             return
@@ -1761,12 +1782,19 @@ def _pipeline_value_constants(pipeline: list[Any]) -> list[dict[str, Any]]:
             if key == "$literal":
                 continue
             if key == "$match":
-                visit(child, in_match=True)
+                visit(child, in_match=True, operator=key)
                 continue
+            child_is_comparison = key in _VALUE_COMPARISON_OPERATORS
+            child_operator = (
+                key
+                if child_is_comparison or key in _PRESENCE_VALUE_OPERATORS
+                else operator
+            )
             visit(
                 child,
                 in_match=in_match,
-                in_compare=in_compare or key in _VALUE_COMPARISON_OPERATORS,
+                in_compare=in_compare or child_is_comparison,
+                operator=child_operator,
             )
 
     visit(pipeline)
@@ -1778,6 +1806,20 @@ def _pipeline_value_constants(pipeline: list[Any]) -> list[dict[str, Any]]:
 
 def _is_groundable_string_constant(value: str) -> bool:
     return not value.startswith("$")
+
+
+def _is_structural_query_value(value: Any, *, operator: str | None) -> bool:
+    if value is None:
+        return True
+    if operator in _PRESENCE_VALUE_OPERATORS and isinstance(value, bool):
+        return True
+    if (
+        operator in _RANGE_COMPARISON_OPERATORS
+        and isinstance(value, (int, float))
+        and not isinstance(value, bool)
+    ):
+        return True
+    return False
 
 
 def _value_constant_marker(value: Any) -> dict[str, Any] | None:
@@ -1932,7 +1974,8 @@ def _unknown_pipeline_field_paths(
     pipeline: list[Any],
 ) -> list[dict[str, str]]:
     scalar_paths, complex_paths, all_paths = _evidence_path_sets(state, refs)
-    if not all_paths:
+    missing_paths = _missing_profile_paths(state, refs)
+    if not all_paths and not missing_paths:
         return []
     alias_sources = _alias_sources_before_last_project(pipeline)
     generated_group_paths = _generated_group_id_paths(pipeline)
@@ -1943,13 +1986,14 @@ def _unknown_pipeline_field_paths(
         resolved = _resolve_alias_ref(ref, alias_sources)
         if resolved is None:
             continue
+        has_path_evidence = _has_evidence_path(resolved, all_paths)
+        if not has_path_evidence and _is_refuted_by_missing_profile(resolved, missing_paths):
+            unknown.append({"path": ref, "resolved_path": resolved})
+            continue
         if _extends_observed_scalar_path(resolved, scalar_paths):
             unknown.append({"path": ref, "resolved_path": resolved})
             continue
-        if _under_observed_complex_path(resolved, complex_paths) and not _has_evidence_path(
-            resolved,
-            all_paths,
-        ):
+        if _under_observed_complex_path(resolved, complex_paths) and not has_path_evidence:
             unknown.append({"path": ref, "resolved_path": resolved})
     deduped: dict[str, dict[str, str]] = {}
     for item in unknown:
@@ -2099,6 +2143,44 @@ def _evidence_path_sets(
     return scalar_paths, complex_paths, all_paths
 
 
+def _missing_profile_paths(state: SmartEGState, refs: list[str]) -> set[str]:
+    paths: set[str] = set()
+    for ref in refs:
+        record = state.evidence_ledger.records.get(ref)
+        if record is None:
+            continue
+        summary = record.summary
+        if not isinstance(summary, dict):
+            continue
+        if record.source_tool != "profile_path" and summary.get("tool") != "profile_path":
+            continue
+        path = summary.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+        if _has_observed_type_counts(summary.get("type_counts")):
+            continue
+        if not _profile_summary_is_missing_only(summary):
+            continue
+        paths.add(path)
+        paths.update(_path_variants(path))
+    return paths
+
+
+def _profile_summary_is_missing_only(summary: dict[str, Any]) -> bool:
+    counters = ("present_count", "exists_count", "value_count")
+    if not any(key in summary for key in counters):
+        return False
+    for key in counters:
+        if key not in summary:
+            continue
+        try:
+            if int(summary.get(key) or 0) > 0:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
 def _collect_complex_paths(payload: Any, out: set[str]) -> None:
     _collect_type_paths(payload, set(), out, set())
 
@@ -2110,9 +2192,23 @@ def _collect_type_paths(
     all_paths: set[str],
 ) -> None:
     if isinstance(payload, dict):
+        top_level_type_counts = payload.get("top_level_type_counts")
+        if isinstance(top_level_type_counts, dict):
+            for item_path, item_type_counts in top_level_type_counts.items():
+                if not isinstance(item_path, str) or not isinstance(item_type_counts, dict):
+                    continue
+                all_paths.add(item_path)
+                if _is_complex_type_counts(item_type_counts):
+                    complex_paths.add(item_path)
+                elif _is_scalar_type_counts(item_type_counts):
+                    scalar_paths.add(item_path)
         path = payload.get("path")
         type_counts = payload.get("type_counts")
-        if isinstance(path, str) and isinstance(type_counts, dict):
+        if (
+            isinstance(path, str)
+            and isinstance(type_counts, dict)
+            and _has_observed_type_counts(type_counts)
+        ):
             all_paths.add(path)
             if _is_complex_type_counts(type_counts):
                 complex_paths.add(path)
@@ -2124,7 +2220,9 @@ def _collect_type_paths(
                 if not isinstance(item_path, str) or not isinstance(info, dict):
                     continue
                 item_type_counts = info.get("type_counts")
-                if not isinstance(item_type_counts, dict):
+                if not isinstance(item_type_counts, dict) or not _has_observed_type_counts(
+                    item_type_counts
+                ):
                     continue
                 all_paths.add(item_path)
                 if _is_complex_type_counts(item_type_counts):
@@ -2144,6 +2242,12 @@ def _is_complex_type_counts(type_counts: Any) -> bool:
         int(type_counts.get("object", 0) or 0) > 0
         or int(type_counts.get("array", 0) or 0) > 0
     )
+
+
+def _has_observed_type_counts(type_counts: Any) -> bool:
+    if not isinstance(type_counts, dict):
+        return False
+    return any(int(count or 0) > 0 for count in type_counts.values())
 
 
 def _is_scalar_type_counts(type_counts: Any) -> bool:
@@ -2196,6 +2300,10 @@ def _has_evidence_path(path: str, all_paths: set[str]) -> bool:
         _path_matches(evidence_path, path) or _path_prefix_matches(path, evidence_path)
         for evidence_path in all_paths
     )
+
+
+def _is_refuted_by_missing_profile(path: str, missing_paths: set[str]) -> bool:
+    return any(_path_prefix_matches(missing_path, path) for missing_path in missing_paths)
 
 
 def _path_prefix_matches(prefix: str, path: str) -> bool:
@@ -2441,6 +2549,13 @@ def _resolve_debts(
         if missing.issubset(sources) or missing.issubset(markers):
             if not debt.binding or any(_binding_compatible(debt.binding, _record_binding(record)) for record in records):
                 debt.resolved = True
+    state.refresh_debt_queue()
+
+
+def _resolve_milestone_debts(state: SmartEGState, milestone: str) -> None:
+    for debt in state.evidence_ledger.debts.values():
+        if debt.milestone == milestone:
+            debt.resolved = True
     state.refresh_debt_queue()
 
 

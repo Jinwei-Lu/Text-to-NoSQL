@@ -15,7 +15,7 @@ NextAction = Literal["continue", "revisit", "terminal_only", "abandon", "finaliz
 class SmartEGBudgets:
     max_tool_turns: int = 48
     max_revisits: int = 3
-    max_repeated_submit_rejections: int = 2
+    max_repeated_submit_rejections: int = 8
     max_repeated_protocol_violations: int = 2
     terminal_turn_window: int = 2
     max_tokens: int | None = None
@@ -81,6 +81,7 @@ class SmartEGState:
     best_candidate_id: str | None = None
     budgets: SmartEGBudgets = field(default_factory=SmartEGBudgets)
     counters: SmartEGCounters = field(default_factory=SmartEGCounters)
+    last_submit_rejection_evidence_count: int = 0
     stale_milestones: set[str] = field(default_factory=set)
     terminal: bool = False
     terminal_only: bool = False

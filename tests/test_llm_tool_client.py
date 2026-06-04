@@ -414,3 +414,62 @@ def test_complete_with_tools_logs_tool_choice_fallback(tmp_path, monkeypatch) ->
     ]
     assert fallback_events
     assert fallback_events[0]["requested_tool_choice"] == tool_choice
+
+
+def test_complete_with_tools_remembers_model_tool_choice_rejection(tmp_path, monkeypatch) -> None:
+    settings = _settings(tmp_path, max_retries=0)
+    log = setup_logging(settings.run_dir, console=False)
+    client = LLMClient(settings, log)
+    tool_choice = {"type": "function", "function": {"name": "list_collections"}}
+    seen_tool_choices = []
+
+    async def raw_tool_call(
+        _agent,
+        _model,
+        _messages,
+        _temperature,
+        _max_tokens,
+        _tools,
+        choice,
+        _stream,
+        _first_token_timeout_s,
+    ):
+        seen_tool_choices.append(choice)
+        if choice is not None:
+            raise LLMError(
+                "Thinking mode does not support this tool_choice",
+                context={"status_code": 400},
+            )
+        return _tool_response()
+
+    monkeypatch.setattr(client, "_raw_tool_call", raw_tool_call)
+
+    first = asyncio.run(
+        client.complete_with_tools(
+            agent="smart_eg",
+            messages=[{"role": "user", "content": "inspect db"}],
+            tools=[_tool_schema()],
+            tool_choice=tool_choice,
+        )
+    )
+    second = asyncio.run(
+        client.complete_with_tools(
+            agent="smart_eg",
+            messages=[{"role": "user", "content": "inspect db again"}],
+            tools=[_tool_schema()],
+            tool_choice=tool_choice,
+        )
+    )
+    log.close()
+
+    assert seen_tool_choices == [tool_choice, None, None]
+    assert first.tool_choice_fallback is True
+    assert second.tool_choice_fallback is False
+    events = _read_events(log.run_dir)
+    assert sum(1 for event in events if event["event"] == "llm_tool_choice_fallback") == 1
+    disabled_events = [
+        event for event in events
+        if event["event"] == "llm_tool_choice_disabled_for_model"
+    ]
+    assert len(disabled_events) == 1
+    assert disabled_events[0]["requested_tool_choice"] == tool_choice

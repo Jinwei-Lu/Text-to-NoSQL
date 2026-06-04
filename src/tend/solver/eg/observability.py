@@ -10,7 +10,6 @@ from uuid import uuid4
 
 MAX_INLINE_JSON_CHARS = 12_000
 MAX_INLINE_TEXT_CHARS = 12_000
-TOOL_NAME_PREVIEW_LIMIT = 14
 
 
 def _utcnow() -> str:
@@ -101,12 +100,6 @@ def _append_quote(lines: list[str], text: str) -> None:
     lines.append("")
 
 
-def _append_json_preview(lines: list[str], value: Any, *, max_chars: int = MAX_INLINE_JSON_CHARS) -> None:
-    rendered = json.dumps(value, indent=2, ensure_ascii=False, default=str)
-    truncated = _truncate_text(rendered, max_chars)
-    lines += ["```json", truncated, "```", ""]
-
-
 def _append_json_complete(lines: list[str], value: Any) -> None:
     lines += ["```json", json.dumps(value, indent=2, ensure_ascii=False, default=str), "```", ""]
 
@@ -141,24 +134,72 @@ def _truncate_text(text: str, max_chars: int) -> str:
     return f"{text[:max_chars]}\n... truncated {omitted} chars; see sidecar/raw event for full payload ..."
 
 
-def _tool_schema_names(tools: Any) -> list[str]:
-    if not isinstance(tools, list):
-        return []
-    names: list[str] = []
-    for item in tools:
-        if not isinstance(item, dict):
-            continue
-        function = item.get("function")
-        if isinstance(function, dict) and function.get("name"):
-            names.append(str(function["name"]))
-    return names
+def _format_cost_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if number == 0:
+        return "unknown"
+    return f"{number:.6f}".rstrip("0").rstrip(".")
 
 
-def _format_tool_names(names: list[str]) -> str:
-    if len(names) <= TOOL_NAME_PREVIEW_LIMIT:
-        return ", ".join(names)
-    head = ", ".join(names[:TOOL_NAME_PREVIEW_LIMIT])
-    return f"{head}, ... +{len(names) - TOOL_NAME_PREVIEW_LIMIT} more"
+def _assistant_message(response: dict[str, Any] | None) -> dict[str, Any]:
+    if not response:
+        return {}
+    message = response.get("assistant_message")
+    return message if isinstance(message, dict) else {}
+
+
+def _assistant_reasoning(response: dict[str, Any] | None) -> str:
+    message = _assistant_message(response)
+    reasoning = message.get("reasoning") or message.get("reasoning_content")
+    if isinstance(reasoning, str) and reasoning.strip():
+        return reasoning
+    details = message.get("reasoning_details")
+    if isinstance(details, list):
+        chunks = [
+            str(item.get("text"))
+            for item in details
+            if isinstance(item, dict) and item.get("text")
+        ]
+        if chunks:
+            return "\n".join(chunks)
+    return ""
+
+
+def _assistant_content(response: dict[str, Any] | None) -> str:
+    message = _assistant_message(response)
+    content = message.get("content") if message else None
+    if not content and response:
+        content = response.get("content") or response.get("response_text")
+    return str(content) if isinstance(content, str) and content.strip() else ""
+
+
+def _append_tool_result_payload(lines: list[str], tool_name: str, content: Any) -> None:
+    lines += ["", f"> ### Tool Result: `{tool_name}`", ">"]
+    if isinstance(content, dict):
+        scalar_rows: list[tuple[str, Any]] = []
+        for key, value in content.items():
+            if isinstance(value, (dict, list)):
+                continue
+            scalar_rows.append((str(key), value))
+            if len(scalar_rows) >= 8:
+                break
+        if scalar_rows:
+            table_lines: list[str] = []
+            _append_table(table_lines, scalar_rows)
+            for line in table_lines:
+                lines.append(f"> {line}" if line else ">")
+    lines += [">", "> **Payload**", ">"]
+    rendered = json.dumps(content, indent=2, ensure_ascii=False, default=str)
+    rendered = _truncate_text(rendered, MAX_INLINE_JSON_CHARS)
+    lines.append("> ```json")
+    for raw_line in rendered.splitlines():
+        lines.append(f"> {raw_line}" if raw_line else ">")
+    lines += ["> ```", ""]
 
 
 class SmartEGObserver:
@@ -312,12 +353,8 @@ class SmartEGObserver:
         self._write_markdown()
 
     def _write_markdown(self) -> None:
-        status = self._final_status or "running"
         lines = [
             f"# Agent Session: {self.session_id}",
-            "",
-            f"- Status: {status}",
-            f"- Updated: {_utcnow()}",
             "",
         ]
         _append_table(
@@ -327,8 +364,6 @@ class SmartEGObserver:
                 ("Task", self._session_meta.get("task")),
                 ("Model", self._session_meta.get("model")),
                 ("Started", self._session_meta.get("started")),
-                ("DB", self._session_meta.get("db_id")),
-                ("Record", self._session_meta.get("record_id")),
             ],
         )
         system_prompt = self._session_meta.get("system_prompt")
@@ -337,20 +372,14 @@ class SmartEGObserver:
             _append_quote(lines, system_prompt)
         user_message = self._session_meta.get("user_message")
         if isinstance(user_message, str):
-            lines += ["## Inputs", ""]
+            lines += ["## User Message", ""]
             _append_quote(lines, user_message)
         tools = self._session_meta.get("tools")
         if tools is not None:
             lines += ["## Tools", ""]
-            names = _tool_schema_names(tools)
-            _append_table(
-                lines,
-                [
-                    ("Count", len(names)),
-                    ("Names", _format_tool_names(names)),
-                    ("Full Schemas", self.tools_ref()),
-                ],
-            )
+            _append_json_complete(lines, tools)
+
+        lines += ["---", ""]
 
         session_events: list[dict[str, Any]] = []
         turns: dict[int, list[dict[str, Any]]] = {}
@@ -363,37 +392,21 @@ class SmartEGObserver:
             else:
                 session_events.append(event)
 
-        final_events = [event for event in session_events if event.get("event") == "final_outcome"]
         session_events = [
             event for event in session_events if event.get("event") != "final_outcome"
         ]
 
         if session_events:
-            lines += ["## Session Events", ""]
             for event in session_events:
                 self._append_event(lines, event)
 
         for turn_index in sorted(turns):
             self._append_turn(lines, turn_index, turns[turn_index])
 
-        if final_events:
-            lines += ["## Session Events", ""]
-            for event in final_events:
-                self._append_event(lines, event)
-
-        if self._final_state_summary is not None:
-            lines += ["## Final State Summary", ""]
-            lines += _json_block(self._final_state_summary)
-
         if self._final_status:
-            lines += ["## Final Outcome", ""]
+            lines += ["## Session Complete", ""]
             counters = (
                 self._final_state_summary.get("counters", {})
-                if isinstance(self._final_state_summary, dict)
-                else {}
-            )
-            evidence = (
-                self._final_state_summary.get("evidence", {})
                 if isinstance(self._final_state_summary, dict)
                 else {}
             )
@@ -402,23 +415,10 @@ class SmartEGObserver:
                 [
                     ("Finished", _utcnow()),
                     ("Outcome", self._final_status),
-                    (
-                        "Terminal Reason",
-                        self._final_state_summary.get("terminal_reason")
-                        if isinstance(self._final_state_summary, dict)
-                        else None,
-                    ),
                     ("Turns", counters.get("llm_turns") or len(turns)),
                     ("Tool Calls", _count_events(self._agent_events, "tool_call")),
-                    ("Evidence Records", evidence.get("evidence_records")),
-                    ("Submit Rejections", counters.get("submit_rejections")),
                     ("Total Tokens", counters.get("tokens")),
-                    ("Total Cost (USD)", counters.get("cost_usd")),
-                    ("Agent JSONL", self.agent_jsonl_ref()),
-                    ("Evidence Ledger", self.evidence_ref()),
-                    ("Submit Gates", self._existing_ref(self.submit_gates_path)),
-                    ("Execution Trace", self.execution_trace_ref()),
-                    ("Cost Summary", self._existing_ref(self.cost_path)),
+                    ("Total Cost (USD)", _format_cost_value(counters.get("cost_usd"))),
                 ],
             )
         lines.append("")
@@ -431,33 +431,18 @@ class SmartEGObserver:
         events: list[dict[str, Any]],
     ) -> None:
         max_turns = self._session_meta.get("max_turns")
-        mode = _turn_mode(events)
-        suffix = f" - {mode}" if mode else ""
+        displayed_max_turns = _display_max_turns(max_turns, turn_index)
         title = (
-            f"## Turn {turn_index}/{max_turns}{suffix}"
-            if max_turns
-            else f"## Turn {turn_index}{suffix}"
+            f"## Turn {turn_index}/{displayed_max_turns}"
+            if displayed_max_turns
+            else f"## Turn {turn_index}"
         )
         lines += [title, ""]
 
-        turn_start = _first_event(events, "turn_start")
-        request = _first_event(events, "llm_request")
         response = _first_event(events, "llm_response")
         tool_calls = [event for event in events if event.get("event") == "tool_call"]
         tool_results = [
             event for event in events if event.get("event") == "tool_observation"
-        ]
-        deltas = [
-            event
-            for event in events
-            if event.get("event")
-            in {
-                "evidence_added",
-                "submit_gate_checked",
-                "submit_attempt",
-                "history_compacted",
-                "error_recorded",
-            }
         ]
         handled = {
             "turn_start",
@@ -469,98 +454,35 @@ class SmartEGObserver:
             "submit_gate_checked",
             "submit_attempt",
             "history_compacted",
-            "error_recorded",
         }
         other_events = [event for event in events if event.get("event") not in handled]
 
-        lines += ["### Reasoning", ""]
-        content = response.get("content") if response else None
-        if not content and response:
-            content = response.get("response_text")
-        _append_quote(lines, str(content) if content else "(tool-only response)")
-
-        self._append_llm_call(lines, turn_start, request, response)
+        reasoning = _assistant_reasoning(response)
+        if reasoning:
+            lines += ["### Reasoning", ""]
+            _append_quote(lines, reasoning)
+        content = _assistant_content(response)
+        if content:
+            lines += ["### Content", ""]
+            _append_quote(lines, content)
         self._append_tool_calls(lines, tool_calls)
         self._append_tool_results(lines, tool_results, tool_calls)
-        self._append_turn_deltas(lines, deltas, other_events)
+        self._append_unhandled_turn_events(lines, other_events)
         self._append_turn_metrics(lines, response)
         lines += ["---", ""]
-
-    def _append_llm_call(
-        self,
-        lines: list[str],
-        turn_start: dict[str, Any] | None,
-        request: dict[str, Any] | None,
-        response: dict[str, Any] | None,
-    ) -> None:
-        lines += ["### LLM Call", ""]
-        exposed_tools = request.get("tools") if request else None
-        tool_count = len(exposed_tools) if isinstance(exposed_tools, list) else None
-        _append_table(
-            lines,
-            [
-                ("Turn Start", turn_start.get("ts") if turn_start else None),
-                ("Mode", turn_start.get("mode") if turn_start else None),
-                (
-                    "Terminal Only",
-                    turn_start.get("terminal_only") if turn_start else None,
-                ),
-                ("Tool Turn", turn_start.get("tool_turn") if turn_start else None),
-                ("Debt Count", turn_start.get("debt_count") if turn_start else None),
-                ("Request Time", request.get("ts") if request else None),
-                ("Response Time", response.get("ts") if response else None),
-                ("Call ID", response.get("call_id") if response else None),
-                ("Model", response.get("model") if response else None),
-                (
-                    "Markdown Transcript",
-                    _markdown_transcript_ref(response) if response else None,
-                ),
-                ("Diagnostics", response.get("diagnostics_ref") if response else None),
-                (
-                    "Finish Reason",
-                    response.get("finish_reason") if response else None,
-                ),
-                ("Latency (s)", response.get("latency_s") if response else None),
-                ("Tool Choice", request.get("tool_choice") if request else None),
-                ("Exposed Tool Count", tool_count),
-                (
-                    "Exposed Tools",
-                    _format_tool_names([str(item) for item in exposed_tools])
-                    if isinstance(exposed_tools, list)
-                    else None,
-                ),
-            ],
-        )
-        if request and request.get("messages") is not None:
-            lines += ["#### Provider Request Messages", ""]
-            _append_json_complete(lines, request.get("messages"))
-        if request and request.get("tool_schemas") is not None:
-            lines += ["#### Provider Tool Schemas", ""]
-            _append_json_complete(lines, request.get("tool_schemas"))
-        if response and response.get("assistant_message") is not None:
-            lines += ["#### Provider Assistant Message", ""]
-            _append_json_complete(lines, response.get("assistant_message"))
-        elif response and response.get("tool_calls") is not None:
-            lines += ["#### Normalized Assistant Tool Calls", ""]
-            _append_json_complete(lines, response.get("tool_calls"))
 
     def _append_tool_calls(
         self,
         lines: list[str],
         tool_calls: list[dict[str, Any]],
     ) -> None:
-        lines += ["### Tool Calls", ""]
         if not tool_calls:
-            _append_quote(lines, "(none)")
             return
+        lines += ["### Tool Calls", ""]
         for event in tool_calls:
             name = _tool_name(event)
             call_id = str(event.get("tool_call_id") or "unknown_call")
             lines += [f"#### {name} (`{call_id}`)", ""]
-            if event.get("raw_tool_call") is not None:
-                lines += ["##### Provider Tool Call", ""]
-                _append_json_complete(lines, event.get("raw_tool_call"))
-                lines += ["##### Parsed Arguments", ""]
             _append_json_complete(lines, _tool_arguments(event))
 
     def _append_tool_results(
@@ -569,10 +491,9 @@ class SmartEGObserver:
         tool_results: list[dict[str, Any]],
         tool_calls: list[dict[str, Any]],
     ) -> None:
-        lines += ["### Tool Results", ""]
         if not tool_results:
-            _append_quote(lines, "(none)")
             return
+        lines += ["### Tool Results", ""]
         args_by_call = {
             str(event.get("tool_call_id") or ""): _tool_arguments(event)
             for event in tool_calls
@@ -601,52 +522,16 @@ class SmartEGObserver:
                     for key, value in event.items()
                     if key not in {"ts", "event", "turn_index"}
                 }
-            _append_json_complete(lines, content)
+            _append_tool_result_payload(lines, name, content)
 
-    def _append_turn_deltas(
+    def _append_unhandled_turn_events(
         self,
         lines: list[str],
-        deltas: list[dict[str, Any]],
         other_events: list[dict[str, Any]],
     ) -> None:
-        if not deltas and not other_events:
+        if not other_events:
             return
-        lines += ["### Evidence / Gate Delta", ""]
-        evidence_ids = [
-            str(event.get("evidence_id"))
-            for event in deltas
-            if event.get("event") == "evidence_added" and event.get("evidence_id")
-        ]
-        if evidence_ids:
-            lines.append(f"- Evidence added: {', '.join(evidence_ids)}")
-        for event in deltas:
-            name = str(event.get("event"))
-            if name == "submit_gate_checked":
-                lines.append(
-                    "- Submit gate: "
-                    f"{event.get('submit_tool')} accepted={event.get('accepted')} "
-                    f"ref={event.get('gate_ref')}"
-                )
-            elif name == "submit_attempt":
-                lines.append(
-                    "- Submit attempt: "
-                    f"{event.get('submit_tool')} accepted={event.get('accepted')}"
-                )
-            elif name == "history_compacted":
-                lines.append(
-                    "- History compacted: "
-                    f"reason={event.get('reason')} "
-                    f"required_next_tool={event.get('required_next_tool')} "
-                    f"message_count={event.get('message_count')}"
-                )
-            elif name == "error_recorded":
-                lines.append(
-                    "- Error recorded: "
-                    f"code={event.get('error_code')} "
-                    f"tool={event.get('tool')} "
-                    f"ref={event.get('error_ref')} "
-                    f"message={event.get('message')}"
-                )
+        lines += ["### Context", ""]
         for event in other_events:
             lines.append(
                 f"- {event.get('ts')} `{event.get('event')}` "
@@ -661,36 +546,21 @@ class SmartEGObserver:
     ) -> None:
         usage = response.get("usage") if response and isinstance(response.get("usage"), dict) else {}
         cost = response.get("cost") if response and isinstance(response.get("cost"), dict) else {}
-        lines += ["### Metrics", ""]
-        _append_metric_table(
-            lines,
-            [
-                ("Prompt Tokens", usage.get("prompt_tokens")),
-                ("Completion Tokens", usage.get("completion_tokens")),
-                ("Total Tokens", usage.get("total_tokens")),
-                (
-                    "Cost (USD)",
+        rows = [
+            ("Prompt Tokens", usage.get("prompt_tokens")),
+            ("Completion Tokens", usage.get("completion_tokens")),
+            (
+                "Cost (USD)",
+                _format_cost_value(
                     cost.get("cost_usd")
-                    or (response.get("cost_usd") if response else None),
+                    or (response.get("cost_usd") if response else None)
                 ),
-                (
-                    "Cost Source",
-                    cost.get("cost_source")
-                    or cost.get("source")
-                    or (response.get("cost_source") if response else None),
-                ),
-                ("Latency (s)", response.get("latency_s") if response else None),
-                ("Tool Calls", response.get("tool_call_count") if response else None),
-                (
-                    "Session Tokens",
-                    response.get("cumulative_tokens") if response else None,
-                ),
-                (
-                    "Session Cost (USD)",
-                    response.get("cumulative_cost_usd") if response else None,
-                ),
-            ],
-        )
+            ),
+        ]
+        if not any(value is not None for _key, value in rows):
+            return
+        lines += ["### Metrics", ""]
+        _append_metric_table(lines, rows)
 
     def _append_event(self, lines: list[str], event: dict[str, Any]) -> None:
         name = str(event.get("event") or "event")
@@ -706,54 +576,6 @@ class SmartEGObserver:
                     ("Debt Count", event.get("debt_count")),
                 ],
             )
-            return
-        if name == "llm_request":
-            lines += ["### LLM Request", ""]
-            _append_table(
-                lines,
-                [
-                    ("Time", event.get("ts")),
-                    ("Mode", event.get("mode")),
-                    ("Tools", event.get("tools")),
-                    ("Tool Choice", event.get("tool_choice")),
-                ],
-            )
-            if event.get("messages") is not None:
-                lines += ["#### Provider Request Messages", ""]
-                _append_json_preview(lines, event.get("messages"))
-            if event.get("tool_schemas") is not None:
-                lines += ["#### Provider Tool Schemas", ""]
-                _append_json_preview(lines, event.get("tool_schemas"))
-            return
-        if name == "llm_response":
-            usage = event.get("usage") if isinstance(event.get("usage"), dict) else {}
-            cost = event.get("cost") if isinstance(event.get("cost"), dict) else {}
-            lines += ["### LLM Response", ""]
-            _append_table(
-                lines,
-                [
-                    ("Time", event.get("ts")),
-                    ("Call ID", event.get("call_id")),
-                    ("Markdown Transcript", _markdown_transcript_ref(event)),
-                    ("Diagnostics", event.get("diagnostics_ref")),
-                    ("Finish Reason", event.get("finish_reason")),
-                    ("Latency (s)", event.get("latency_s")),
-                    ("Prompt Tokens", usage.get("prompt_tokens")),
-                    ("Completion Tokens", usage.get("completion_tokens")),
-                    ("Total Tokens", usage.get("total_tokens")),
-                    ("Cost (USD)", cost.get("cost_usd") or event.get("cost_usd")),
-                    ("Cost Source", cost.get("cost_source") or cost.get("source")),
-                    ("Tool Calls", event.get("tool_call_count")),
-                ],
-            )
-            content = event.get("content") or event.get("response_text")
-            if content:
-                lines += ["#### Content", ""]
-                _append_quote(lines, str(content))
-            tool_calls = event.get("tool_calls")
-            if tool_calls:
-                lines += ["#### Tool Calls", ""]
-                lines += _json_block(tool_calls)
             return
         if name == "tool_call":
             lines += [f"### Tool Call: {_tool_name(event)}", ""]
@@ -842,14 +664,6 @@ class SmartEGObserver:
         return sum(1 for _line in path.read_text(encoding="utf-8").splitlines())
 
 
-def _turn_mode(events: list[dict[str, Any]]) -> str | None:
-    for event in events:
-        mode = event.get("mode")
-        if mode:
-            return str(mode)
-    return None
-
-
 def _first_event(events: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
     for event in events:
         if event.get("event") == name:
@@ -859,6 +673,16 @@ def _first_event(events: list[dict[str, Any]], name: str) -> dict[str, Any] | No
 
 def _count_events(events: list[dict[str, Any]], name: str) -> int:
     return sum(1 for event in events if event.get("event") == name)
+
+
+def _display_max_turns(max_turns: Any, turn_index: int) -> int | None:
+    if max_turns is None:
+        return None
+    try:
+        value = int(max_turns)
+    except (TypeError, ValueError):
+        return None
+    return max(value, turn_index)
 
 
 def _tool_signature(name: str, args: Any) -> str:
@@ -916,18 +740,6 @@ def _error_refs(event: dict[str, Any], content: Any) -> list[str]:
         elif content_refs:
             refs.append(str(content_refs))
     return list(dict.fromkeys(refs))
-
-
-def _markdown_transcript_ref(event: dict[str, Any] | None) -> str | None:
-    if not event:
-        return None
-    explicit = event.get("markdown_transcript_ref")
-    if explicit:
-        return str(explicit)
-    transcript_ref = event.get("transcript_ref")
-    if isinstance(transcript_ref, str) and transcript_ref.endswith(".md"):
-        return transcript_ref
-    return None
 
 
 class SmartEGRecorder(SmartEGObserver):

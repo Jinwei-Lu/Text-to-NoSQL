@@ -185,6 +185,21 @@ def test_recorder_keeps_live_markdown_with_llm_turn_and_tool_observation(tmp_pat
     log = setup_logging(tmp_path, console=False)
     session_id = "smart-eg-financial-manual-deadbeef"
     recorder = SmartEGRecorder(log, session_id=session_id)
+    tool_schema = {
+        "type": "function",
+        "function": {
+            "name": "list_collections",
+            "parameters": {"type": "object", "description": "x" * 13_000},
+        },
+    }
+    recorder.start_session(
+        stage="solve",
+        task="smart_eg",
+        model="deepseek-v4-flash",
+        system_prompt="# SMART-EG Solver",
+        user_message="Task input:\nNLQ: list accounts\nDatabase: financial",
+        tools=[tool_schema],
+    )
 
     recorder.agent_event(
         "llm_request",
@@ -192,15 +207,7 @@ def test_recorder_keeps_live_markdown_with_llm_turn_and_tool_observation(tmp_pat
             "turn_index": 1,
             "mode": "environment",
             "tools": ["list_collections"],
-            "tool_schemas": [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "list_collections",
-                        "parameters": {"type": "object", "description": "x" * 13_000},
-                    },
-                }
-            ],
+            "tool_schemas": [tool_schema],
             "tool_choice": "required",
             "messages": [{"role": "user", "content": "NLQ: list accounts"}],
         },
@@ -214,8 +221,12 @@ def test_recorder_keeps_live_markdown_with_llm_turn_and_tool_observation(tmp_pat
             "diagnostics_ref": "llm/smart_eg/call-1.diagnostics.json",
             "has_tool_calls": True,
             "tool_call_count": 1,
+            "usage": {"prompt_tokens": 12, "completion_tokens": 3, "total_tokens": 15},
+            "cost": {"cost_usd": 0.001, "cost_source": "api"},
             "assistant_message": {
                 "role": "assistant",
+                "reasoning_content": "I need to inspect the database first.",
+                "content": "Calling the collection listing tool.",
                 "tool_calls": [
                     {
                         "id": "tool-1",
@@ -256,26 +267,36 @@ def test_recorder_keeps_live_markdown_with_llm_turn_and_tool_observation(tmp_pat
     md = (tmp_path / "solve" / "sessions" / session_id / "agent.md").read_text(encoding="utf-8")
 
     assert "# Agent Session: smart-eg-financial-manual-deadbeef" in md
-    assert "Status: running" in md
+    assert "| Stage | solve |" in md
+    assert "| Task | smart_eg |" in md
+    assert "| Model | deepseek-v4-flash |" in md
+    assert "## System Prompt" in md
+    assert "## User Message" in md
+    assert "## Tools" in md
     assert "## Turn 1" in md
     assert "### Reasoning" in md
-    assert "### LLM Call" in md
-    assert "#### Provider Request Messages" in md
-    assert "#### Provider Tool Schemas" in md
-    assert "#### Provider Assistant Message" in md
+    assert "> I need to inspect the database first." in md
+    assert "### Content" in md
+    assert "> Calling the collection listing tool." in md
     assert "NLQ: list accounts" in md
-    assert "provider_extra" in md
-    assert "preserved" in md
     assert "truncated" not in md
     assert "x" * 500 in md
     assert "### Tool Calls" in md
     assert "### Tool Results" in md
     assert "### Metrics" in md
-    assert "llm/smart_eg/call-1.diagnostics.json" in md
-    assert "Markdown Transcript" not in md
     assert "#### list_collections (`tool-1`)" in md
     assert "#### list_collections() (`tool-1`)" in md
+    assert "### Tool Result: `list_collections`" in md
     assert '"collections": [' in md
+    assert "| Prompt Tokens | 12 |" in md
+    assert "| Completion Tokens | 3 |" in md
+    assert "| Cost (USD) | 0.001 |" in md
+    assert "Status: running" not in md
+    assert "### LLM Call" not in md
+    assert "#### Provider Request Messages" not in md
+    assert "#### Provider Tool Schemas" not in md
+    assert "#### Provider Assistant Message" not in md
+    assert "Markdown Transcript" not in md
     assert "### LLM Response" not in md
     assert "### Tool Call:" not in md
 

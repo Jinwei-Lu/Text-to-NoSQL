@@ -1,14 +1,16 @@
 """MongoDB execution: NormExec (run an MQL aggregate) and ``equiv_rec`` (result equality).
 
 A :class:`MongoExecutor` loads per-db witness data into an ephemeral working database
-(``<prefix><run_id>_<db_id>`` by default, or an existing ``<db_id>`` database when
-configured), runs MQL aggregate strings, and normalizes results for the
+(``<prefix><run_id>_<db_id>`` by default, shortened with a stable hash when MongoDB's
+database-name limit requires it, or an existing ``<db_id>`` database when configured),
+runs MQL aggregate strings, and normalizes results for the
 ≡_rec comparison used by MS gold-lock, PV, RTV and the NNC bridges. Connection is lazy so
 stub/offline runs that never execute don't require a reachable server.
 """
 from __future__ import annotations
 
 from collections import Counter
+import hashlib
 import json
 import threading
 from typing import Any
@@ -25,8 +27,49 @@ from .signature import _canon, _FLOAT_NDIGITS
 # the whole run. A timed-out aggregate raises ExecutionTimeout -> ExecutionError, which PV
 # correctly treats as a discriminating (result-changing) mutation.
 _EXEC_MAX_TIME_MS = 30_000
+_MONGO_DB_NAME_LIMIT = 63
+_MONGO_DB_HASH_CHARS = 12
+_MONGO_DB_SAFE_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "0123456789"
+    "_-"
+)
 _PUBLIC_SAMPLE_LIMIT = 100
 _PUBLIC_PROBE_LIMIT = 100
+
+
+def _scoped_db_name(*, prefix: str, run_id: str, db_id: str) -> str:
+    prefix_part = _safe_mongo_db_name_part(prefix, fallback="", trim=False)
+    run_part = _safe_mongo_db_name_part(run_id, fallback="run", trim=True)
+    db_part = _safe_mongo_db_name_part(db_id, fallback="db", trim=True)
+    candidate = f"{prefix_part}{run_part}_{db_part}"
+    if len(candidate) <= _MONGO_DB_NAME_LIMIT:
+        return candidate
+
+    digest = hashlib.sha1(f"{prefix}{run_id}_{db_id}".encode("utf-8")).hexdigest()
+    digest = digest[:_MONGO_DB_HASH_CHARS]
+    db_suffix = db_part[-min(len(db_part), 24):]
+    fixed_suffix = f"_{digest}_{db_suffix}"
+    prefix_budget = min(len(prefix_part), max(0, _MONGO_DB_NAME_LIMIT - len(fixed_suffix) - 1))
+    prefix_head = prefix_part[:prefix_budget]
+    run_budget = _MONGO_DB_NAME_LIMIT - len(prefix_head) - len(fixed_suffix)
+
+    if run_budget < 1:
+        prefix_head = ""
+        db_budget = max(1, _MONGO_DB_NAME_LIMIT - len(f"_{digest}_") - 1)
+        db_suffix = db_part[-min(len(db_part), db_budget):]
+        fixed_suffix = f"_{digest}_{db_suffix}"
+        run_budget = max(1, _MONGO_DB_NAME_LIMIT - len(fixed_suffix))
+
+    return f"{prefix_head}{run_part[:run_budget]}{fixed_suffix}"
+
+
+def _safe_mongo_db_name_part(value: str, *, fallback: str, trim: bool) -> str:
+    safe = "".join(ch if ch in _MONGO_DB_SAFE_CHARS else "_" for ch in value)
+    if trim:
+        safe = safe.strip("_")
+    return safe or fallback
 
 
 class MongoExecutor:
@@ -63,8 +106,13 @@ class MongoExecutor:
     def _db_name(self, db_id: str) -> str:
         if self._s.use_existing_mongo_dbs:
             return db_id
-        # run-scoped so concurrent runs / tests never collide on the working database
-        return f"{self._s.mongo_db_prefix}{self._s.run_id}_{db_id}"
+        # Run-scoped so concurrent runs/tests never collide. MongoDB caps database names at
+        # 63 bytes, so long user run IDs are compacted but remain deterministic.
+        return _scoped_db_name(
+            prefix=str(self._s.mongo_db_prefix),
+            run_id=str(self._s.run_id),
+            db_id=str(db_id),
+        )
 
     def count(self, db_id: str, collection: str) -> int:
         client = self._connect()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import yaml
@@ -190,3 +191,42 @@ def test_native_validation_rejects_false_dynamic_key_claim(tmp_path: Path):
 
     assert not report.ok
     assert any("claimed native constructs absent from MQL" in issue for issue in report.record_violations)
+
+
+def test_native_validation_accepts_formal_release_layout(tmp_path: Path):
+    from tend.publish.validate import validate_release
+
+    legacy_root = tmp_path / "legacy"
+    legacy_root.mkdir()
+    legacy = _write_native_dataset(legacy_root)
+    formal = tmp_path / "formal"
+    (formal / "data").mkdir(parents=True)
+    (formal / "schema" / "mongodb_schema").mkdir(parents=True)
+    (formal / "mongodb_data").mkdir()
+    for subdir in (
+        "agent_design_rationale",
+        "migration_recipe",
+        "native_feature_manifest",
+        "provenance",
+    ):
+        (formal / "metadata" / subdir).mkdir(parents=True)
+
+    shutil.copy2(legacy / "test.json", formal / "data" / "test.json")
+    shutil.copy2(legacy / "TEND.json", formal / "data" / "TEND.json")
+    shutil.copy2(legacy / "bird_db_catalog.json", formal / "data" / "bird_db_catalog.json")
+    shutil.copy2(legacy / "mongodb_schema" / "financial.json", formal / "schema" / "mongodb_schema" / "financial.json")
+    shutil.copy2(legacy / "mongodb_data" / "financial.json", formal / "mongodb_data" / "financial.json")
+    for subdir, suffix in (
+        ("agent_design_rationale", "yaml"),
+        ("migration_recipe", "yaml"),
+        ("native_feature_manifest", "yaml"),
+        ("provenance", "json"),
+    ):
+        shutil.copy2(
+            legacy / subdir / f"financial.{suffix}",
+            formal / "metadata" / subdir / f"financial.{suffix}",
+        )
+
+    report = validate_release(formal, require_all_dbs=False)
+
+    assert report.ok, report.record_violations + report.file_violations

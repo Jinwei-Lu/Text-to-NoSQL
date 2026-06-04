@@ -148,6 +148,14 @@ def test_smart_eg_live_system_prompt_teaches_batch2_runtime_contract() -> None:
         "$lookup only after proving relationship keys",
         "objectid",
         "isodate",
+        "semantic plan fidelity",
+        "grouping dimensions",
+        "context fields",
+        "derived metrics",
+        "thresholds",
+        "dynamic-key objects",
+        "$objecttoarray",
+        "answer dimension",
     ]:
         assert phrase in prompt
 

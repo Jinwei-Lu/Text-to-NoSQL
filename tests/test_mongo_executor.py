@@ -35,6 +35,27 @@ def test_mongo_executor_defaults_to_run_scoped_database_names() -> None:
     assert executor._db_name("financial") == "tend_run123_financial"
 
 
+def test_mongo_executor_shortens_long_run_scoped_database_names() -> None:
+    settings = _settings()
+    settings.run_id = "run-2026-06-04_12-19-22-codex-financial-nlq-solver-live-preflight-77c1"
+    executor = MongoExecutor(settings, CapturingLog())
+
+    db_name = executor._db_name("financial")
+    repeat = executor._db_name("financial")
+
+    other_settings = _settings()
+    other_settings.run_id = (
+        "run-2026-06-04_12-19-22-codex-financial-nlq-solver-live-preflight-77c2"
+    )
+    other = MongoExecutor(other_settings, CapturingLog())._db_name("financial")
+
+    assert len(db_name) <= 63
+    assert db_name.startswith("tend_")
+    assert db_name.endswith("_financial")
+    assert db_name == repeat
+    assert db_name != other
+
+
 def test_mongo_executor_can_reuse_existing_database_names_without_reloading_witness() -> None:
     log = CapturingLog()
     executor = MongoExecutor(_settings(use_existing=True), log)

@@ -437,6 +437,252 @@ def test_submit_plan_rejects_nested_field_below_observed_scalar_path() -> None:
     assert "frequency_array.v.loan_presence_state.with_loan" in unknown_paths
 
 
+def test_submit_plan_rejects_unobserved_child_below_top_level_object() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(counterexample_gate=False, value_grounding=False))
+    state = SmartEGState(nlq="summarize loan status", db_id="financial", mode="planning")
+    state.intent = {"task_kind": "aggregation"}
+    ref = _add_evidence(
+        state,
+        "sample_documents",
+        {
+            "tool": "sample_documents",
+            "collection": "account",
+            "top_level_type_counts": {
+                "loan": {"object": 3},
+                "district_context": {"object": 3},
+            },
+            "paths": {
+                "district_context.region": {"type_counts": {"str": 3}},
+            },
+        },
+    )
+
+    observation = api.execute(
+        _call(
+            "submit_query_plan",
+            {
+                "collection": "account",
+                "stages": [
+                    {
+                        "$group": {
+                            "_id": {
+                                "loan_status": "$loan.loan_status",
+                                "region": "$district_context.region",
+                            },
+                            "count": {"$sum": 1},
+                        }
+                    }
+                ],
+                "evidence_refs": [ref],
+            },
+        ),
+        state,
+        exposed_tool_names={"submit_query_plan"},
+    )
+
+    assert observation.result["accepted"] is False
+    assert [item["code"] for item in observation.result["violations"]] == [
+        "unknown_field_path"
+    ]
+    assert "loan.loan_status" in observation.result["violations"][0]["context"]["paths"]
+
+
+def test_revised_plan_submit_clears_stale_plan_debt() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(counterexample_gate=False, value_grounding=False))
+    state = SmartEGState(nlq="summarize loan status", db_id="financial", mode="planning")
+    state.intent = {"task_kind": "aggregation"}
+    top_ref = _add_evidence(
+        state,
+        "sample_documents",
+        {
+            "tool": "sample_documents",
+            "collection": "account",
+            "top_level_type_counts": {"loan": {"object": 3}},
+            "paths": {},
+        },
+    )
+
+    rejected = api.execute(
+        _call(
+            "submit_query_plan",
+            {
+                "collection": "account",
+                "stages": [
+                    {
+                        "$group": {
+                            "_id": {"loan_status": "$loan.loan_status"},
+                            "count": {"$sum": 1},
+                        }
+                    }
+                ],
+                "evidence_refs": [top_ref],
+            },
+        ),
+        state,
+        exposed_tool_names={"submit_query_plan"},
+    )
+
+    assert rejected.result["accepted"] is False
+    assert state.evidence_ledger.blocking_debts(milestone="plan")
+    assert api.tool_choice_for_state(state) is None
+
+    status_ref = _add_evidence(
+        state,
+        "profile_path",
+        {
+            "tool": "profile_path",
+            "collection": "account",
+            "path": "loan.contract.status_bucket",
+            "type_counts": {"str": 3},
+        },
+    )
+    assert api.tool_choice_for_state(state) == {
+        "type": "function",
+        "function": {"name": "submit_query_plan"},
+    }
+    revised = api.execute(
+        _call(
+            "submit_query_plan",
+            {
+                "collection": "account",
+                "stages": [
+                    {
+                        "$group": {
+                            "_id": {"loan_status": "$loan.contract.status_bucket"},
+                            "count": {"$sum": 1},
+                        }
+                    }
+                ],
+                "evidence_refs": [top_ref, status_ref],
+            },
+            call_id="call_revised_plan",
+        ),
+        state,
+        exposed_tool_names={"submit_query_plan"},
+    )
+
+    assert revised.ok is True
+    assert revised.result["accepted"] is True
+    assert state.mode == "execution"
+    assert state.evidence_ledger.blocking_debts(milestone="plan") == []
+
+
+def test_missing_only_profile_does_not_ground_field_path() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(counterexample_gate=False, value_grounding=False))
+    state = SmartEGState(nlq="summarize loan status", db_id="financial", mode="planning")
+    state.intent = {"task_kind": "aggregation"}
+    top_ref = _add_evidence(
+        state,
+        "sample_documents",
+        {
+            "tool": "sample_documents",
+            "collection": "account",
+            "top_level_type_counts": {"loan": {"object": 3}},
+            "paths": {},
+        },
+    )
+    missing_ref = _add_evidence(
+        state,
+        "profile_path",
+        {
+            "tool": "profile_path",
+            "collection": "account",
+            "path": "loan.status",
+            "present_count": 0,
+            "exists_count": 0,
+            "value_count": 0,
+            "type_counts": {},
+        },
+    )
+
+    observation = api.execute(
+        _call(
+            "submit_query_plan",
+            {
+                "collection": "account",
+                "stages": [
+                    {
+                        "$group": {
+                            "_id": {"loan_status": "$loan.status"},
+                            "count": {"$sum": 1},
+                        }
+                    }
+                ],
+                "evidence_refs": [top_ref, missing_ref],
+            },
+        ),
+        state,
+        exposed_tool_names={"submit_query_plan"},
+    )
+
+    assert observation.result["accepted"] is False
+    assert [item["code"] for item in observation.result["violations"]] == [
+        "unknown_field_path"
+    ]
+    assert "loan.status" in observation.result["violations"][0]["context"]["paths"]
+
+
+def test_missing_only_profile_refutes_field_path_without_parent_shape() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(counterexample_gate=False, value_grounding=False))
+    state = SmartEGState(nlq="summarize loan status", db_id="financial", mode="planning")
+    state.intent = {"task_kind": "aggregation"}
+    region_ref = _add_evidence(
+        state,
+        "profile_path",
+        {
+            "tool": "profile_path",
+            "collection": "account",
+            "path": "district_context.region",
+            "present_count": 3,
+            "exists_count": 3,
+            "value_count": 3,
+            "type_counts": {"str": 3},
+        },
+    )
+    missing_ref = _add_evidence(
+        state,
+        "profile_path",
+        {
+            "tool": "profile_path",
+            "collection": "account",
+            "path": "loan.loan_status",
+            "present_count": 0,
+            "exists_count": 0,
+            "value_count": 0,
+            "type_counts": {},
+        },
+    )
+
+    observation = api.execute(
+        _call(
+            "submit_query_plan",
+            {
+                "collection": "account",
+                "stages": [
+                    {
+                        "$group": {
+                            "_id": {
+                                "loan_status": "$loan.loan_status",
+                                "region": "$district_context.region",
+                            },
+                            "count": {"$sum": 1},
+                        }
+                    }
+                ],
+                "evidence_refs": [region_ref, missing_ref],
+            },
+        ),
+        state,
+        exposed_tool_names={"submit_query_plan"},
+    )
+
+    assert observation.result["accepted"] is False
+    assert [item["code"] for item in observation.result["violations"]] == [
+        "unknown_field_path"
+    ]
+    assert "loan.loan_status" in observation.result["violations"][0]["context"]["paths"]
+
+
 def test_submit_plan_allows_group_id_projection_paths() -> None:
     api = SmartEGToolAPI(SmartEGPolicy(counterexample_gate=False, value_grounding=False))
     state = SmartEGState(
@@ -580,14 +826,9 @@ def test_submit_final_rejects_direct_first_turn_even_if_exposed() -> None:
     assert state.terminal is False
 
 
-def test_staged_final_requires_relevant_refs_and_accepts_with_real_executor() -> None:
+def test_staged_final_auto_runs_sanity_and_rejects_missing_refs() -> None:
     api = SmartEGToolAPI(SmartEGPolicy(), executor=_Executor())
-    irrelevant_state = _staged_execution_state()
-    bad_ref = _add_evidence(
-        irrelevant_state,
-        "list_collections",
-        {"tool": "list_collections", "collections": ["account"]},
-    )
+    missing_ref_state = _staged_execution_state()
 
     bad = api.execute(
         _call(
@@ -596,10 +837,10 @@ def test_staged_final_requires_relevant_refs_and_accepts_with_real_executor() ->
                 "collection": "account",
                 "pipeline": [{"$limit": 2}],
                 "MQL": 'db.account.aggregate([{"$limit":2}])',
-                "evidence_refs": [bad_ref],
+                "evidence_refs": ["ev-missing"],
             },
         ),
-        irrelevant_state,
+        missing_ref_state,
         exposed_tool_names={"submit_final_mql"},
     )
 
@@ -607,26 +848,10 @@ def test_staged_final_requires_relevant_refs_and_accepts_with_real_executor() ->
     assert bad.llm_visible_content["ok"] is False
     assert bad.result["accepted"] is False
     assert [item["code"] for item in bad.result["violations"]] == [
-        "irrelevant_evidence_refs",
-        "final_execution_evidence_missing",
+        "invalid_evidence_refs",
     ]
 
     accepted_state = _staged_execution_state()
-    sanity = api.execute(
-        _call(
-            "run_final_sanity_execution",
-            {
-                "collection": "account",
-                "pipeline": [{"$limit": 2}],
-                "MQL": 'db.account.aggregate([{"$limit":2}])',
-            },
-            call_id="call_sanity",
-        ),
-        accepted_state,
-        exposed_tool_names={"run_final_sanity_execution"},
-    )
-    good_ref = sanity.result["evidence_id"]
-
     good = api.execute(
         _call(
             "submit_final_mql",
@@ -634,7 +859,6 @@ def test_staged_final_requires_relevant_refs_and_accepts_with_real_executor() ->
                 "collection": "account",
                 "pipeline": [{"$limit": 2}],
                 "MQL": 'db.account.aggregate([{"$limit":2}])',
-                "evidence_refs": [good_ref],
             },
         ),
         accepted_state,
@@ -1016,6 +1240,54 @@ def test_value_grounding_ignores_lookup_structural_strings_and_requires_literals
 
     assert lookup_observation.ok is True
     assert lookup_observation.result["accepted"] is True
+
+
+def test_value_grounding_ignores_presence_and_range_control_values() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(counterexample_gate=False))
+    state = SmartEGState(nlq="list loans with schedule context", db_id="financial", mode="planning")
+    state.intent = {"task_kind": "filter"}
+    ref = _add_evidence(
+        state,
+        "discover_paths",
+        {
+            "tool": "discover_paths",
+            "collection": "account",
+            "paths": {
+                "loan": {"type_counts": {"object": 2}},
+                "loan.status": {"type_counts": {"str": 2}},
+                "loan.repayment_schedule.by_due_month.*.scheduled_payment": {
+                    "type_counts": {"int": 4}
+                },
+            },
+        },
+    )
+
+    observation = api.execute(
+        _call(
+            "submit_query_plan",
+            {
+                "collection": "account",
+                "stages": [
+                    {
+                        "$match": {
+                            "loan": {"$exists": True},
+                            "loan.status": {"$ne": None},
+                            "loan.repayment_schedule.by_due_month.1996-01.scheduled_payment": {
+                                "$gte": 20
+                            },
+                        }
+                    }
+                ],
+                "evidence_refs": [ref],
+            },
+        ),
+        state,
+        exposed_tool_names={"submit_query_plan"},
+    )
+
+    assert observation.ok is True
+    assert observation.result["accepted"] is True
+    assert state.evidence_ledger.blocking_debts(milestone="plan") == []
 
 
 def test_value_grounding_requires_token_proof_for_numeric_and_objectid_constants() -> None:

@@ -14,6 +14,9 @@ class ReleaseDatasetLayout:
     mongodb_schema_dir: Path
     mongodb_data_dir: Path
     agent_design_rationale_dir: Path
+    migration_recipe_dir: Path
+    native_feature_manifest_dir: Path
+    provenance_dir: Path
 
 
 def resolve_release_dataset_layout(dataset_dir: str | Path) -> ReleaseDatasetLayout:
@@ -28,6 +31,9 @@ def resolve_release_dataset_layout(dataset_dir: str | Path) -> ReleaseDatasetLay
             mongodb_schema_dir=root / "schema" / "mongodb_schema",
             mongodb_data_dir=root / "mongodb_data",
             agent_design_rationale_dir=root / "metadata" / "agent_design_rationale",
+            migration_recipe_dir=root / "metadata" / "migration_recipe",
+            native_feature_manifest_dir=root / "metadata" / "native_feature_manifest",
+            provenance_dir=root / "metadata" / "provenance",
         )
     return ReleaseDatasetLayout(
         root=root,
@@ -37,6 +43,9 @@ def resolve_release_dataset_layout(dataset_dir: str | Path) -> ReleaseDatasetLay
         mongodb_schema_dir=root / "mongodb_schema",
         mongodb_data_dir=root / "mongodb_data",
         agent_design_rationale_dir=root / "agent_design_rationale",
+        migration_recipe_dir=root / "migration_recipe",
+        native_feature_manifest_dir=root / "native_feature_manifest",
+        provenance_dir=root / "provenance",
     )
 
 

@@ -249,13 +249,7 @@ def test_full_staged_submit_final_mql_succeeds_with_refs_and_executor(tmp_path: 
             ),
             ToolCall(
                 id="call_6",
-                name="run_readonly_probe",
-                raw_arguments='{"collection":"account","pipeline":[{"$limit":2}]}',
-                arguments={"collection": "account", "pipeline": [{"$limit": 2}]},
-            ),
-            ToolCall(
-                id="call_7",
-                name="run_final_sanity_execution",
+                name="submit_final_mql",
                 raw_arguments=(
                     '{"collection":"account","pipeline":[{"$limit":2}],'
                     '"MQL":"db.account.aggregate([{\\"$limit\\":2}])"}'
@@ -264,21 +258,6 @@ def test_full_staged_submit_final_mql_succeeds_with_refs_and_executor(tmp_path: 
                     "collection": "account",
                     "pipeline": [{"$limit": 2}],
                     "MQL": 'db.account.aggregate([{"$limit":2}])',
-                },
-            ),
-            ToolCall(
-                id="call_8",
-                name="submit_final_mql",
-                raw_arguments=(
-                    '{"collection":"account","pipeline":[{"$limit":2}],'
-                    '"MQL":"db.account.aggregate([{\\"$limit\\":2}])",'
-                    '"evidence_refs":["ev-0004"]}'
-                ),
-                arguments={
-                    "collection": "account",
-                    "pipeline": [{"$limit": 2}],
-                    "MQL": 'db.account.aggregate([{"$limit":2}])',
-                    "evidence_refs": ["ev-0004"],
                 },
             ),
         ]
@@ -567,6 +546,9 @@ def test_submit_ready_turn_compacts_provider_history(tmp_path: Path) -> None:
 
     assert roles == ["system", "user"]
     assert '"required_next_tool": "submit_environment_model"' in joined
+    assert {tool["function"]["name"] for tool in submit_request["tools"]} == {
+        "submit_environment_model"
+    }
     assert submit_request["tool_choice"] == {
         "type": "function",
         "function": {"name": "submit_environment_model"},
@@ -574,18 +556,18 @@ def test_submit_ready_turn_compacts_provider_history(tmp_path: Path) -> None:
     md = (_settings(tmp_path).run_dir / result.agent_session_ref).read_text(
         encoding="utf-8"
     )
-    assert "### LLM Call" in md
-    assert "## Inputs" in md
-    assert "#### Provider Request Messages" in md
+    assert "## User Message" in md
+    assert "## Tools" in md
+    assert "### LLM Call" not in md
+    assert "#### Provider Request Messages" not in md
     assert "required_next_tool" in md
     assert "submit_environment_model" in md
     assert "### Tool Calls" in md
     assert "### Tool Results" in md
-    assert "### Metrics" in md
-    assert "## Final Outcome" in md
+    assert "## Session Complete" in md
     assert md.count("#### list_collections()") == 1
     assert md.count('#### sample_documents(collection="account")') == 1
-    assert "### Tool Result:" not in md
+    assert "### Tool Result:" in md
 
 
 def test_submit_focus_summary_preserves_query_plan_for_final_submit() -> None:

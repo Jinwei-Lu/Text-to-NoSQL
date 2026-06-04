@@ -22,6 +22,7 @@ from ..execution import mql_signature, mql_skeleton_signature, mql_skeleton_summ
 from ..execution import ast_check
 from ..execution.ast_check import DISABLED_OPERATORS, DISABLED_SYSTEM_VARS
 from ..construction.verify import verify_native_record
+from ..release_layout import ReleaseDatasetLayout, resolve_release_dataset_layout
 
 DISABLED_TOKENS: frozenset[str] = DISABLED_OPERATORS | DISABLED_SYSTEM_VARS
 DIFFICULTIES = ("L0", "L1", "L2", "L3", "L4")
@@ -128,13 +129,17 @@ def validate_record(
         if k.endswith("_ref"):
             if not isinstance(v, str) or not v:
                 iss.append(f"[C1 r{rid}] ref field '{k}' must be a non-empty path or omitted")
-            elif refs_base is not None and not (refs_base / v).exists() \
-                    and not (Path(v)).exists():                        # C8 dereferenceable
+            elif refs_base is not None and not _record_ref_exists(refs_base, v):  # C8
                 iss.append(f"[C8 r{rid}] ref '{k}' -> '{v}' does not resolve")
     if record.get("schema_flex", "x") in (None, "", "none") and "schema_flex" in record \
             and record["schema_flex"] in (None, ""):
         iss.append(f"[C1 r{rid}] schema_flex present but empty/null (omit instead)")
     return iss
+
+
+def _record_ref_exists(refs_base: Path, value: str) -> bool:
+    ref = Path(value)
+    return ref.exists() or (refs_base / ref).exists() or (refs_base / "metadata" / ref).exists()
 
 
 def validate_record_jsonschema(record: dict[str, Any], schema_path: Path) -> list[str]:
@@ -245,9 +250,10 @@ def validate_release(
     executor: Any = None, supply_relax: bool = False, require_all_dbs: bool = True,
 ) -> ReleaseReport:
     """Validate a written release: records (C1-C9 + jsonschema), composition (H), 3-way files (C4)."""
-    out_dir = Path(out_dir)
-    test_path = out_dir / "test.json"
-    tend_path = out_dir / "TEND.json"
+    layout = resolve_release_dataset_layout(out_dir)
+    out_dir = layout.root
+    test_path = layout.test_path
+    tend_path = layout.tend_path
     file_viol: list[str] = []
     test = json.loads(test_path.read_text(encoding="utf-8"))
     if tend_path.exists():
@@ -258,11 +264,14 @@ def validate_release(
         file_viol.append("[C4] missing TEND.json")
     records = test if isinstance(test, list) else test.get("records", [])
     record_db_ids = sorted({str(r.get("db_id")) for r in records if r.get("db_id")})
-    native_mode = (out_dir / "native_feature_manifest").is_dir() or any(
+    native_mode = layout.native_feature_manifest_dir.is_dir() or any(
         "native_feature_id" in r for r in records
     )
-    native_manifests = _load_native_manifests(out_dir, record_db_ids) if native_mode else {}
-    native_provenance = _load_native_provenance(out_dir, record_db_ids) if native_mode else {}
+    native_manifests = _load_native_manifests(
+        layout.native_feature_manifest_dir,
+        record_db_ids,
+    ) if native_mode else {}
+    native_provenance = _load_native_provenance(layout.provenance_dir, record_db_ids) if native_mode else {}
 
     rec_viol: list[str] = []
     sch_viol: list[str] = []
@@ -275,7 +284,7 @@ def validate_release(
     for r in records:
         db = r.get("db_id")
         if db and db not in snapshots:
-            p = out_dir / "mongodb_data" / f"{db}.json"
+            p = layout.mongodb_data_dir / f"{db}.json"
             snapshots[db] = json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
     snapshot_signatures = {
         db: world_signature(snapshot)
@@ -306,7 +315,7 @@ def validate_release(
                     r,
                     native_manifests.get(str(db)),
                     native_provenance.get(str(db)),
-                    out_dir,
+                    layout,
                 )
             if record_schema is not None:
                 local_sch += _validate_record_jsonschema_with_schema(r, record_schema)
@@ -326,13 +335,17 @@ def validate_release(
 
     # C4 3-way per-db file presence
     for db in comp.db_ids:
-        for sub in ("mongodb_schema", "mongodb_data", "agent_design_rationale"):
-            ext = "yaml" if sub == "agent_design_rationale" else "json"
-            if not (out_dir / sub / f"{db}.{ext}").exists():
-                file_viol.append(f"[C4] missing {sub}/{db}.{ext}")
+        required_files = (
+            ("mongodb_schema", layout.mongodb_schema_dir / f"{db}.json"),
+            ("mongodb_data", layout.mongodb_data_dir / f"{db}.json"),
+            ("agent_design_rationale", layout.agent_design_rationale_dir / f"{db}.yaml"),
+        )
+        for label, path in required_files:
+            if not path.exists():
+                file_viol.append(f"[C4] missing {label}/{db}{path.suffix}")
     if native_mode:
         file_viol += _validate_native_artifacts(
-            out_dir,
+            layout,
             comp.db_ids,
             native_manifests,
             native_provenance,
@@ -340,9 +353,9 @@ def validate_release(
         rec_viol += _native_coverage_violations(records)
     if schemas_path:
         if native_mode:
-            file_viol += _validate_native_catalog_artifact(out_dir, schemas_path)
+            file_viol += _validate_native_catalog_artifact(layout, schemas_path)
         else:
-            file_viol += _validate_release_artifacts(out_dir, comp.db_ids, schemas_path)
+            file_viol += _validate_release_artifacts(layout, comp.db_ids, schemas_path)
 
     ok = not (rec_viol or sch_viol or file_viol) and comp.ok
     return ReleaseReport(ok, len(records), rec_viol, sch_viol, comp, file_viol, diversity)
@@ -490,21 +503,21 @@ def _text_signature(text: str) -> str:
 
 
 def _load_native_manifests(
-    out_dir: Path,
+    manifest_dir: Path,
     db_ids: list[str],
 ) -> dict[str, NativeFeatureManifest]:
     manifests: dict[str, NativeFeatureManifest] = {}
     for db_id in db_ids:
-        path = out_dir / "native_feature_manifest" / f"{db_id}.yaml"
+        path = manifest_dir / f"{db_id}.yaml"
         if path.exists():
             manifests[db_id] = load_native_feature_manifest(path)
     return manifests
 
 
-def _load_native_provenance(out_dir: Path, db_ids: list[str]) -> dict[str, dict[str, Any]]:
+def _load_native_provenance(provenance_dir: Path, db_ids: list[str]) -> dict[str, dict[str, Any]]:
     provenance: dict[str, dict[str, Any]] = {}
     for db_id in db_ids:
-        path = out_dir / "provenance" / f"{db_id}.json"
+        path = provenance_dir / f"{db_id}.json"
         if path.exists():
             provenance[db_id] = json.loads(path.read_text(encoding="utf-8"))
     return provenance
@@ -514,7 +527,7 @@ def _validate_native_record(
     record: dict[str, Any],
     manifest: NativeFeatureManifest | None,
     provenance: dict[str, Any] | None,
-    out_dir: Path,
+    layout: ReleaseDatasetLayout,
 ) -> list[str]:
     rid = record.get("record_id", "?")
     db_id = str(record.get("db_id") or "")
@@ -542,7 +555,7 @@ def _validate_native_record(
         issues.append(
             f"[native r{rid}] migration_recipe_ref must be {expected_recipe_ref!r}"
         )
-    elif not (out_dir / expected_recipe_ref).exists():
+    elif not (layout.migration_recipe_dir / f"{db_id}.yaml").exists():
         issues.append(f"[native r{rid}] migration recipe ref does not resolve")
 
     constructs = record.get("mongo_native_constructs") or []
@@ -563,7 +576,11 @@ def _validate_native_record(
         issues.append(f"[native r{rid}] missing provenance artifact for db_id {db_id!r}")
     else:
         allowed = _native_provenance_refs(provenance)
-        unresolved = [str(ref) for ref in provenance_refs if str(ref) not in allowed]
+        unresolved = [
+            str(ref)
+            for ref in provenance_refs
+            if not _native_provenance_ref_resolves(str(ref), allowed)
+        ]
         if unresolved:
             issues.append(f"[native r{rid}] unresolved provenance refs: {unresolved}")
 
@@ -578,21 +595,31 @@ def _native_provenance_refs(provenance: dict[str, Any]) -> set[str]:
         for value in entries.values():
             if isinstance(value, dict):
                 refs.update(str(ref) for ref in value.get("source_columns") or [])
+                refs.update(str(ref) for ref in value.get("source_tables") or [])
                 refs.update(str(ref) for ref in value.get("provenance_refs") or [])
     return refs
 
 
+def _native_provenance_ref_resolves(ref: str, allowed: set[str]) -> bool:
+    if ref in allowed:
+        return True
+    if "." in ref:
+        table, _ = ref.split(".", 1)
+        return table in allowed
+    return False
+
+
 def _validate_native_artifacts(
-    out_dir: Path,
+    layout: ReleaseDatasetLayout,
     db_ids: list[str],
     manifests: dict[str, NativeFeatureManifest],
     provenance: dict[str, dict[str, Any]],
 ) -> list[str]:
     issues: list[str] = []
     for db_id in db_ids:
-        recipe_path = out_dir / "migration_recipe" / f"{db_id}.yaml"
-        manifest_path = out_dir / "native_feature_manifest" / f"{db_id}.yaml"
-        provenance_path = out_dir / "provenance" / f"{db_id}.json"
+        recipe_path = layout.migration_recipe_dir / f"{db_id}.yaml"
+        manifest_path = layout.native_feature_manifest_dir / f"{db_id}.yaml"
+        provenance_path = layout.provenance_dir / f"{db_id}.json"
         if not recipe_path.exists():
             issues.append(f"[native] missing migration_recipe/{db_id}.yaml")
         if not manifest_path.exists():
@@ -618,7 +645,7 @@ def _native_coverage_violations(records: list[dict[str, Any]]) -> list[str]:
     return []
 
 
-def _validate_native_catalog_artifact(out_dir: Path, schemas_dir: Path) -> list[str]:
+def _validate_native_catalog_artifact(layout: ReleaseDatasetLayout, schemas_dir: Path) -> list[str]:
     """For native releases, validate only the shared catalog schema.
 
     Native ``mongodb_schema`` intentionally uses feature-manifest-oriented shapes that
@@ -632,7 +659,7 @@ def _validate_native_catalog_artifact(out_dir: Path, schemas_dir: Path) -> list[
     if not lib_path.exists():
         return []
     lib = json.loads(lib_path.read_text(encoding="utf-8"))
-    catalog_path = out_dir / "bird_db_catalog.json"
+    catalog_path = layout.catalog_path
     if not catalog_path.exists():
         return ["[C4] missing bird_db_catalog.json"]
     schema = {"$schema": lib.get("$schema"), "$defs": lib.get("$defs", {}),
@@ -646,7 +673,7 @@ def _validate_native_catalog_artifact(out_dir: Path, schemas_dir: Path) -> list[
 
 
 def _validate_release_artifacts(
-    out_dir: Path, db_ids: list[str], schemas_dir: Path
+    layout: ReleaseDatasetLayout, db_ids: list[str], schemas_dir: Path
 ) -> list[str]:
     """Validate release-level artifacts when proposal schemas are available."""
     try:
@@ -674,7 +701,7 @@ def _validate_release_artifacts(
 
     issues: list[str] = []
     if lib is not None:
-        catalog_path = out_dir / "bird_db_catalog.json"
+        catalog_path = layout.catalog_path
         if catalog_path.exists():
             issues += check(
                 lib_ref("bird_db_catalog"),
@@ -687,16 +714,18 @@ def _validate_release_artifacts(
     def check_db(db: str) -> list[str]:
         db_issues: list[str] = []
         if lib is not None:
-            for sub, ref in (("mongodb_schema", "mongodb_schema"), ("mongodb_data", "mongodb_data")):
-                path = out_dir / sub / f"{db}.json"
+            for path, ref, label in (
+                (layout.mongodb_schema_dir / f"{db}.json", "mongodb_schema", "mongodb_schema"),
+                (layout.mongodb_data_dir / f"{db}.json", "mongodb_data", "mongodb_data"),
+            ):
                 if path.exists():
                     db_issues += check(
                         lib_ref(ref),
                         json.loads(path.read_text(encoding="utf-8")),
-                        f"{sub}/{db}.json",
+                        f"{label}/{db}.json",
                     )
         if adr_schema is not None:
-            path = out_dir / "agent_design_rationale" / f"{db}.yaml"
+            path = layout.agent_design_rationale_dir / f"{db}.yaml"
             if path.exists():
                 db_issues += check(
                     adr_schema,

@@ -47,7 +47,13 @@ from .evaluation import EvaluationOutput, evaluate_predictions
 from .execution.mongo import MongoExecutor
 from .llm import LLMClient
 from .observability import make_reporter, setup_logging
-from .publish import ReleaseReport, validate_release
+from .publish import (
+    ReleaseQualityReport,
+    ReleaseReport,
+    apply_builtin_quality_repairs,
+    run_release_quality_audit,
+    validate_release,
+)
 from .release_layout import resolve_release_dataset_layout
 from .run_ids import new_run_id, run_id_with_tag
 from .source import BirdSource
@@ -133,16 +139,18 @@ async def smart_solve_record_eg(*args: Any, **kwargs: Any) -> Any:
     if not isinstance(record, dict):
         raise TypeError("smart_solve_record_eg record must be a dict")
     db_id = str(record.get("db_id") or "")
-    return await smart_solve_nlq_db_eg(
-        wf,
-        db_id=db_id,
-        nlq=_canonical_nlq(record),
-        record_id=record.get("record_id"),
-        max_tool_turns=kwargs.get("max_tool_turns", DEFAULT_MAX_TOOL_TURNS),
-        max_revisits=kwargs.get("max_revisits", DEFAULT_MAX_REVISITS),
-        cost_budget_usd=kwargs.get("cost_budget_usd", DEFAULT_COST_BUDGET_USD),
-        policy=kwargs.get("policy"),
-    )
+    solve_kwargs: dict[str, Any] = {
+        "db_id": db_id,
+        "nlq": _canonical_nlq(record),
+        "record_id": record.get("record_id"),
+        "max_tool_turns": kwargs.get("max_tool_turns", DEFAULT_MAX_TOOL_TURNS),
+        "max_revisits": kwargs.get("max_revisits", DEFAULT_MAX_REVISITS),
+        "cost_budget_usd": kwargs.get("cost_budget_usd", DEFAULT_COST_BUDGET_USD),
+        "policy": kwargs.get("policy"),
+    }
+    if isinstance(kwargs.get("options"), dict):
+        solve_kwargs["options"] = kwargs["options"]
+    return await smart_solve_nlq_db_eg(wf, **solve_kwargs)
 
 
 def _smart_eg_policy(policy_cls: Any, kwargs: dict[str, Any]) -> Any:
@@ -165,6 +173,48 @@ def _smart_eg_policy(policy_cls: Any, kwargs: dict[str, Any]) -> Any:
         revisit=bool(options.get("use_revisit", True)),
         probe_scheduler=bool(options.get("use_probe_scheduler", True)),
     )
+
+
+_SOLVER_OPTION_KEYS = {
+    "use_evidence_gate",
+    "use_counterexample",
+    "use_value_grounding",
+    "use_relationship_probe",
+    "use_prefix_execution",
+    "use_revisit",
+    "use_probe_scheduler",
+}
+
+
+def _parse_solver_options(items: list[str] | None) -> dict[str, Any]:
+    options: dict[str, Any] = {}
+    for item in items or []:
+        if "=" not in item:
+            raise ValueError("--solver-option must use KEY=VALUE")
+        key, raw_value = item.split("=", 1)
+        key = key.strip()
+        if key not in _SOLVER_OPTION_KEYS:
+            allowed = ", ".join(sorted(_SOLVER_OPTION_KEYS))
+            raise ValueError(f"unknown solver option {key!r}; allowed: {allowed}")
+        options[key] = _parse_option_value(raw_value)
+    return options
+
+
+def _parse_option_value(value: str) -> Any:
+    raw = value.strip()
+    lowered = raw.lower()
+    if lowered in {"1", "true", "yes", "on"}:
+        return True
+    if lowered in {"0", "false", "no", "off"}:
+        return False
+    try:
+        return int(raw)
+    except ValueError:
+        pass
+    try:
+        return float(raw)
+    except ValueError:
+        return raw
 
 
 def _strip_policy_kwargs(kwargs: dict[str, Any]) -> None:
@@ -643,6 +693,7 @@ async def _run_solve(
     evaluate: bool = True,
     eval_out_dir: Path | None = None,
     eval_workers: int = 8,
+    solver_options: dict[str, Any] | None = None,
 ) -> int:
     predictions: list[dict] = []
     failures: list[dict] = []
@@ -656,23 +707,28 @@ async def _run_solve(
     evaluate_outputs = evaluate and nlq is None
     evaluation_rows: list[dict] = []
     evaluation_dataset_dir: Path | None = None
+    solver_options = dict(solver_options or {})
     try:
         with rt.progress:
             rt.workflow.phase("SOLVE")
+            if solver_options:
+                rt.log.info("solver_policy_options", options=solver_options)
             if nlq is not None:
                 if not db_id:
                     raise SourceError("NLQ+DB solver mode requires --db-id")
                 record_stub = {"db_id": str(db_id), "record_id": record_id}
                 try:
-                    result = await smart_solve_nlq_db_eg(
-                        rt.workflow,
-                        db_id=str(db_id),
-                        nlq=nlq,
-                        record_id=record_id,
-                        max_tool_turns=max_tool_turns,
-                        max_revisits=max_revisits,
-                        cost_budget_usd=cost_budget_usd,
-                    )
+                    solve_kwargs: dict[str, Any] = {
+                        "db_id": str(db_id),
+                        "nlq": nlq,
+                        "record_id": record_id,
+                        "max_tool_turns": max_tool_turns,
+                        "max_revisits": max_revisits,
+                        "cost_budget_usd": cost_budget_usd,
+                    }
+                    if solver_options:
+                        solve_kwargs["options"] = solver_options
+                    result = await smart_solve_nlq_db_eg(rt.workflow, **solve_kwargs)
                     payload = result.to_json()
                     payload["batch_index"] = 0
                     payload["work_item_id"] = f"solve:0:{db_id}:{record_id}"
@@ -728,15 +784,20 @@ async def _run_solve(
                 ) -> tuple[int, dict]:
                     db = str(record.get("db_id"))
                     try:
+                        solve_kwargs = {
+                            "local_data": data,
+                            "max_tool_turns": max_tool_turns,
+                            "max_revisits": max_revisits,
+                            "cost_budget_usd": cost_budget_usd,
+                            "witness_preloaded": db in preloaded_dbs,
+                        }
+                        if solver_options:
+                            solve_kwargs["options"] = solver_options
                         result = await smart_solve_record_eg(
                             rt.workflow,
                             record,
                             schema,
-                            local_data=data,
-                            max_tool_turns=max_tool_turns,
-                            max_revisits=max_revisits,
-                            cost_budget_usd=cost_budget_usd,
-                            witness_preloaded=db in preloaded_dbs,
+                            **solve_kwargs,
                         )
                         payload = result.to_json()
                         payload["batch_index"] = batch_index
@@ -1226,6 +1287,79 @@ def _run_validate(settings: Settings, *, dataset_dir: Path, smoke: bool) -> int:
     return 0 if report is not None and report.ok and error is None else 1
 
 
+def _print_quality_summary(report: ReleaseQualityReport) -> None:
+    print("\n" + "=" * 64)
+    print(f"TEND quality-audit · {'OK' if report.ok else 'INVALID'}")
+    print(f"  dataset : {report.dataset_dir}")
+    print(f"  records : {report.records_checked}")
+    print(f"  errors  : {report.errors}")
+    print(f"  warnings: {report.warnings}")
+    if report.paths:
+        print(f"  report  : {report.paths.get('report_md')}")
+        print(f"  issues  : {report.paths.get('issues_jsonl')}")
+    if report.by_code:
+        print("  by_code :")
+        for code, count in sorted(report.by_code.items(), key=lambda item: (-item[1], item[0]))[:12]:
+            print(f"    - {code}: {count}")
+    for issue in report.issues[:VALIDATION_ISSUE_LIMIT]:
+        track = f" track={issue.track}" if issue.track else ""
+        print(
+            f"    - [{issue.severity}] {issue.code} "
+            f"db={issue.db_id} record={issue.record_id}{track}: {issue.message}"
+        )
+    if len(report.issues) > VALIDATION_ISSUE_LIMIT:
+        print(f"    - ... {len(report.issues) - VALIDATION_ISSUE_LIMIT} more")
+    print("=" * 64)
+
+
+def _run_quality_audit(
+    rt: Runtime,
+    *,
+    dataset_dir: Path,
+    out_dir: Path,
+    db_id: str | None,
+    record_id: int | None,
+    limit: int | None,
+    repeat_order_sensitive: int,
+    check_nlq: bool,
+    check_field_paths: bool,
+) -> int:
+    try:
+        report = run_release_quality_audit(
+            dataset_dir,
+            executor=rt.mongo,
+            out_dir=out_dir,
+            logger=rt.log,
+            db_id=db_id,
+            record_id=record_id,
+            limit=limit,
+            repeat_order_sensitive=repeat_order_sensitive,
+            check_nlq=check_nlq,
+            check_field_paths=check_field_paths,
+        )
+    finally:
+        _close_runtime(rt)
+    _print_quality_summary(report)
+    return 0 if report.ok else 1
+
+
+def _run_repair_release_quality(settings: Settings, *, dataset_dir: Path) -> int:
+    summary = apply_builtin_quality_repairs(dataset_dir)
+    print("\n" + "=" * 64)
+    print("TEND repair-release-quality")
+    print(f"  dataset        : {dataset_dir}")
+    print(f"  records        : {summary.records}")
+    print(f"  mql_changed    : {summary.mql_changed}")
+    print(f"  cfs_recomputed : {summary.cfs_recomputed}")
+    print(f"  nlq_changed    : {summary.nlq_changed}")
+    print(f"  sort_stabilized: {summary.sort_stabilized}")
+    print("  files:")
+    for path in summary.output_files:
+        print(f"    - {path}")
+    print("=" * 64)
+    return 0
+
+
 def _copy_release_tree(dataset_dir: Path, out_dir: Path) -> None:
     if dataset_dir.resolve() == out_dir.resolve():
         return
@@ -1360,6 +1494,34 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--smoke", action="store_true",
                    help="smoke validation: relax all-DB composition only")
 
+    q = sub.add_parser(
+        "quality-audit",
+        help="strict Mongo-backed NLQ/MQL/DB release quality audit",
+    )
+    q.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
+                   help="release dataset dir (default: release/tend-native-mongodb-v1)")
+    q.add_argument("--out", default=None,
+                   help="quality report output dir (default: runs/<run_id>/quality_audit)")
+    q.add_argument("--db-id", default=None, help="optional db_id filter")
+    q.add_argument("--record-id", type=int, default=None, help="optional record_id filter")
+    q.add_argument("--limit", type=int, default=None, help="optional record limit after filters")
+    q.add_argument("--repeat-order-sensitive", type=int, default=2,
+                   help="repeat order-sensitive gold MQL executions to catch instability")
+    q.add_argument("--no-nlq-check", action="store_true",
+                   help="skip deterministic NLQ/MQL alignment warnings")
+    q.add_argument("--no-field-check", action="store_true",
+                   help="skip stage-level field-existence probes")
+    q.add_argument("--quiet", action="store_true", help="disable the live progress UI")
+    q.add_argument("--run-id", default=None)
+
+    rq = sub.add_parser(
+        "repair-release-quality",
+        help="apply deterministic release quality repairs and refresh derived files",
+    )
+    rq.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
+                    help="release dataset dir (default: release/tend-native-mongodb-v1)")
+    rq.add_argument("--run-id", default=None)
+
     p = sub.add_parser("publish", help="validate and copy a production release")
     p.add_argument("--dataset-dir", required=True, help="candidate dataset dir")
     p.add_argument("--out", default=str(PRODUCTION_RELEASE_DIR),
@@ -1383,6 +1545,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="SMART-EG maximum milestone revisits")
     s.add_argument("--cost-budget-usd", type=float, default=DEFAULT_COST_BUDGET_USD,
                    help="SMART-EG cost budget in USD")
+    s.add_argument("--solver-option", action="append", default=[],
+                   help="SMART-EG policy option as KEY=VALUE; repeatable")
     s.add_argument("--stub", action="store_true", help="offline mode (no live LLM)")
     s.add_argument("--quiet", action="store_true", help="disable the live progress UI")
     _add_eval_args(s)
@@ -1469,6 +1633,28 @@ def main(argv: list[str] | None = None) -> int:
             dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
             smoke=args.smoke,
         )
+    if args.command == "quality-audit":
+        rt = build_solver_runtime(settings, run_kind="quality_audit")
+        return _run_quality_audit(
+            rt,
+            dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
+            out_dir=(
+                _resolve_repo_path(settings, args.out)
+                if args.out
+                else settings.run_dir / "quality_audit"
+            ),
+            db_id=args.db_id,
+            record_id=args.record_id,
+            limit=args.limit,
+            repeat_order_sensitive=max(1, args.repeat_order_sensitive),
+            check_nlq=not args.no_nlq_check,
+            check_field_paths=not args.no_field_check,
+        )
+    if args.command == "repair-release-quality":
+        return _run_repair_release_quality(
+            settings,
+            dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
+        )
     if args.command == "publish":
         return _run_publish(
             settings,
@@ -1521,6 +1707,7 @@ def main(argv: list[str] | None = None) -> int:
             evaluate=not args.no_eval,
             eval_out_dir=_resolve_repo_path(settings, args.eval_out) if args.eval_out else None,
             eval_workers=args.eval_workers,
+            solver_options=_parse_solver_options(args.solver_option),
         ))
     if args.command == "baseline":
         rt = build_solver_runtime(settings, run_kind="baseline")

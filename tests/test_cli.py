@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -666,6 +667,10 @@ def test_solve_cli_accepts_smart_eg_budget_flags_and_rejects_old_knobs(
         "3",
         "--cost-budget-usd",
         "2.5",
+        "--solver-option",
+        "use_counterexample=false",
+        "--solver-option",
+        "use_value_grounding=0",
         "--stub",
         "--quiet",
         "--run-id",
@@ -676,6 +681,10 @@ def test_solve_cli_accepts_smart_eg_budget_flags_and_rejects_old_knobs(
     assert captured["max_tool_turns"] == 17
     assert captured["max_revisits"] == 3
     assert captured["cost_budget_usd"] == 2.5
+    assert captured["solver_options"] == {
+        "use_counterexample": False,
+        "use_value_grounding": False,
+    }
     assert "r_max" not in captured
     assert "witness_k" not in captured
 
@@ -686,6 +695,37 @@ def test_solve_cli_accepts_smart_eg_budget_flags_and_rejects_old_knobs(
     with pytest.raises(SystemExit) as old_witness_k:
         cli.main(["solve", "--witness-k", "2", "--stub", "--quiet"])
     assert old_witness_k.value.code == 2
+
+
+def test_smart_solve_record_forwards_solver_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_solve_nlq_db(*args, **kwargs):
+        captured["args"] = args
+        captured.update(kwargs)
+        return SimpleNamespace(to_json=lambda: {"result_type": "solver_prediction"})
+
+    monkeypatch.setattr(cli, "smart_solve_nlq_db_eg", fake_solve_nlq_db)
+
+    result = asyncio.run(
+        cli.smart_solve_record_eg(
+            "wf",
+            {
+                "db_id": "financial",
+                "record_id": 31131,
+                "NLQ": "canonical question",
+            },
+            {},
+            max_tool_turns=13,
+            options={"use_counterexample": False, "use_value_grounding": False},
+        )
+    )
+
+    assert result.to_json()["result_type"] == "solver_prediction"
+    assert captured["db_id"] == "financial"
+    assert captured["nlq"] == "canonical question"
+    assert captured["max_tool_turns"] == 13
+    assert captured["options"] == {"use_counterexample": False, "use_value_grounding": False}
 
 
 def test_run_solve_writes_failures_separately(

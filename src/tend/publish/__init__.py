@@ -15,12 +15,19 @@ from .validate import (
     validate_record_jsonschema,
     validate_release,
 )
+from .quality import QualityIssue, ReleaseQualityReport, run_release_quality_audit
+from .repair import RepairSummary, apply_builtin_quality_repairs
 
 __all__ = [
     "validate_record",
     "validate_record_jsonschema",
     "validate_composition",
     "validate_release",
+    "run_release_quality_audit",
+    "apply_builtin_quality_repairs",
     "CompositionReport",
+    "QualityIssue",
     "ReleaseReport",
+    "ReleaseQualityReport",
+    "RepairSummary",
 ]

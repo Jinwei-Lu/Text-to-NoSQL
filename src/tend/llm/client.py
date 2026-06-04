@@ -261,6 +261,7 @@ class LLMClient:
         self._log = logger
         self._stub_fn: StubFn | None = None
         self._client: Any = None
+        self._tool_choice_unsupported_models: set[str] = set()
         self._sem = (
             asyncio.Semaphore(settings.llm.max_concurrency)
             if settings.llm.max_concurrency > 0
@@ -475,6 +476,16 @@ class LLMClient:
         model = model or self._s.llm.model_for(agent)
         temperature = self._s.llm.temperature if temperature is None else temperature
         max_tokens = max_tokens or self._s.llm.max_tokens
+        if tool_choice is not None and model in self._tool_choice_unsupported_models:
+            log.warning(
+                "llm_tool_choice_disabled_for_model",
+                agent=agent,
+                call_id=call_id,
+                model=model,
+                requested_tool_choice=tool_choice,
+                reason="previous provider rejection for this model",
+            )
+            tool_choice = None
 
         convo = list(messages)
         attempts: list[dict[str, Any]] = []
@@ -995,6 +1006,7 @@ class LLMClient:
                         transcript_ref=transcript_ref,
                         diagnostics_ref=diagnostics_ref,
                     )
+                    self._tool_choice_unsupported_models.add(model)
                     active_tool_choice = None
                     fallback_used = True
                     send_index += 1
