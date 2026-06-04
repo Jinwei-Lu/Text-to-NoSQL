@@ -16,6 +16,8 @@ from .validate import (
     validate_release,
 )
 from .quality import QualityIssue, ReleaseQualityReport, run_release_quality_audit
+from .llm_review import LLMReviewSummary, run_llm_nlq_review
+from .nlq_rewrite import LLMRewriteSummary, run_llm_nlq_rewrite
 from .repair import RepairSummary, apply_builtin_quality_repairs
 
 __all__ = [
@@ -24,10 +26,14 @@ __all__ = [
     "validate_composition",
     "validate_release",
     "run_release_quality_audit",
+    "run_llm_nlq_review",
+    "run_llm_nlq_rewrite",
     "apply_builtin_quality_repairs",
     "CompositionReport",
     "QualityIssue",
     "ReleaseReport",
     "ReleaseQualityReport",
+    "LLMReviewSummary",
+    "LLMRewriteSummary",
     "RepairSummary",
 ]

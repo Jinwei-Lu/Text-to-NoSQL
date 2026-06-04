@@ -71,6 +71,8 @@ class LLMSettings:
     # ``slow_call_warn_s`` emits a warning after a slow LLM call completes. ``<= 0`` disables.
     prompt_warn_chars: int = 24000
     slow_call_warn_s: float = 45.0
+    reasoning_effort: str | None = None
+    thinking: str | None = None
     # Per-call LLM markdown transcripts are redundant with agent session logs.
     # Keep diagnostics JSON by default; set TEND_LLM_TRANSCRIPT_MD=1 for debug markdown.
     write_markdown_transcripts: bool = False
@@ -157,6 +159,11 @@ class Settings:
             max_concurrency=int(_env(envmap, "TEND_LLM_MAX_CONCURRENCY", "16")),
             prompt_warn_chars=int(_env(envmap, "TEND_LLM_PROMPT_WARN_CHARS", "24000")),
             slow_call_warn_s=float(_env(envmap, "TEND_LLM_SLOW_WARN_S", "45")),
+            reasoning_effort=(
+                _env(envmap, "TEND_REASONING_EFFORT")
+                or _env(envmap, "TEND_LLM_REASONING_EFFORT")
+            ),
+            thinking=(_env(envmap, "TEND_THINKING") or _env(envmap, "TEND_LLM_THINKING")),
             write_markdown_transcripts=(
                 _env(envmap, "TEND_LLM_TRANSCRIPT_MD", "0") == "1"
             ),

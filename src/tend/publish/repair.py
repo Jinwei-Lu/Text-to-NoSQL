@@ -1392,7 +1392,7 @@ def _refresh_mql_grounded_nlq(
     group_text = "; group by " + ", ".join(group_keys[:8]) if group_keys else ""
     context_text = "; context source " + ", ".join(context_sources[:4]) if context_sources else ""
     refs_text = "; reference fields " + ", ".join(field_refs[:16]) if field_refs else ""
-    output_text = "; output fields " + ", ".join(output_fields[:12]) if output_fields else ""
+    output_text = "; output fields " + ", ".join(output_fields) if output_fields else ""
 
     nlq["canonical"] = (
         f"On `{collection}` for `{pattern}`, {limit_text}{sort_text}"
@@ -1415,7 +1415,7 @@ def _refresh_mql_grounded_nlq(
         colloquial_filters.append("context source " + ", ".join(context_sources[:2]))
     filter_text = " using " + " and ".join(colloquial_filters) if colloquial_filters else ""
     ref_text = " referencing " + ", ".join(field_refs[:8]) if field_refs else ""
-    field_text = " with fields " + ", ".join(output_fields[:8]) if output_fields else ""
+    field_text = " with fields " + ", ".join(output_fields) if output_fields else ""
     nlq["colloquial"] = (
         f"{colloquial_limit} from `{collection}`{colloquial_sort}{filter_text}{ref_text}{field_text}."
     )
@@ -1486,7 +1486,12 @@ def _context_sources_for_nlq(pipeline: list[dict[str, Any]]) -> list[str]:
             if not isinstance(spec, dict) or "native_context_bucket" not in spec:
                 continue
             _collect_field_refs(spec["native_context_bucket"], sources)
-    return _dedupe_keep_order(sources)
+    generated_prefixes = ("_id", "native_context_bucket")
+    return [
+        source
+        for source in _dedupe_keep_order(sources)
+        if not any(source == prefix or source.startswith(prefix + ".") for prefix in generated_prefixes)
+    ]
 
 
 def _field_refs_for_nlq(pipeline: list[dict[str, Any]]) -> list[str]:
@@ -1539,6 +1544,16 @@ def _collect_predicate_parts_for_nlq(
     for key, child in value.items():
         key_text = str(key)
         if key_text in {"$and", "$or", "$nor"} and isinstance(child, list):
+            if key_text == "$or":
+                branches: list[str] = []
+                for item in child:
+                    branch_parts: list[str] = []
+                    _collect_predicate_parts_for_nlq(item, branch_parts, parent_path=parent_path)
+                    if branch_parts:
+                        branches.append(" AND ".join(branch_parts))
+                if branches:
+                    parts.append("any(" + " OR ".join(branches) + ")")
+                continue
             for item in child:
                 _collect_predicate_parts_for_nlq(item, parts, parent_path=parent_path)
             continue
@@ -1670,31 +1685,44 @@ def _sort_parts_for_nlq(pipeline: list[dict[str, Any]]) -> list[str]:
             except (TypeError, ValueError):
                 continue
             direction_text = "descending" if direction_number < 0 else "ascending"
-            field_words = str(field).replace(".", " ")
-            if field_words != str(field):
-                parts.append(f"{field} {field_words} {direction_text}")
-            else:
-                parts.append(f"{field} {direction_text}")
+            parts.append(f"{field} {direction_text}")
     return parts
 
 
 def _output_fields_for_nlq(pipeline: list[dict[str, Any]]) -> list[str]:
-    for stage in reversed(pipeline):
+    id_fields = ["_id"]
+    output_fields: list[str] | None = None
+    for stage in pipeline:
         project = stage.get("$project") if isinstance(stage, dict) else None
         if isinstance(project, dict):
-            fields = []
-            if project.get("_id", 1) not in (0, False):
-                fields.append("_id")
+            fields: list[str] = []
+            next_id_fields: list[str] = []
+            if "_id" in project:
+                if project.get("_id") not in (0, False):
+                    next_id_fields = list(id_fields) if project.get("_id") in (1, True) else ["_id"]
+            else:
+                next_id_fields = list(id_fields)
+            fields.extend(next_id_fields)
             fields.extend(
                 str(key)
                 for key, value in project.items()
                 if key != "_id" and value not in (0, False)
             )
-            return fields
+            output_fields = _dedupe_keep_order(fields)
+            id_fields = next_id_fields
+            continue
         group = stage.get("$group") if isinstance(stage, dict) else None
         if isinstance(group, dict):
-            return [str(key) for key in group]
-    return []
+            id_fields = _group_id_fields_for_nlq(group.get("_id"))
+            output_fields = _dedupe_keep_order(id_fields + [str(key) for key in group if key != "_id"])
+            continue
+    return output_fields or []
+
+
+def _group_id_fields_for_nlq(group_id: Any) -> list[str]:
+    if isinstance(group_id, dict):
+        return [f"_id.{key}" for key in group_id]
+    return ["_id"]
 
 
 def _format_nlq_number(value: float) -> str:

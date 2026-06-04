@@ -51,6 +51,8 @@ from .publish import (
     ReleaseQualityReport,
     ReleaseReport,
     apply_builtin_quality_repairs,
+    run_llm_nlq_review,
+    run_llm_nlq_rewrite,
     run_release_quality_audit,
     validate_release,
 )
@@ -1360,6 +1362,136 @@ def _run_repair_release_quality(settings: Settings, *, dataset_dir: Path) -> int
     return 0
 
 
+def _record_id_set(raw_values: list[str] | None, path: Path | None) -> set[int] | None:
+    values: list[str] = []
+    for raw in raw_values or []:
+        values.extend(part.strip() for part in raw.split(",") if part.strip())
+    if path is not None:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            values.extend(part.strip() for part in stripped.split(",") if part.strip())
+    if not values:
+        return None
+    return {int(value) for value in values}
+
+
+def _run_llm_nlq_review(
+    rt: Runtime,
+    *,
+    dataset_dir: Path,
+    out_dir: Path,
+    db_id: str | None,
+    record_ids: set[int] | None,
+    limit: int | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    thinking: str | None,
+    first_token_timeout_s: float,
+    call_timeout_s: float,
+    workers: int,
+    apply: bool,
+) -> int:
+    try:
+        summary = asyncio.run(
+            run_llm_nlq_review(
+                dataset_dir,
+                llm=rt.ctx.llm,
+                logger=rt.log,
+                out_dir=out_dir,
+                db_id=db_id,
+                record_ids=record_ids,
+                limit=limit,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                thinking=thinking,
+                first_token_timeout_s=first_token_timeout_s,
+                call_timeout_s=call_timeout_s,
+                workers=workers,
+                apply=apply,
+            )
+        )
+    finally:
+        _close_runtime(rt)
+    print("\n" + "=" * 64)
+    print("TEND llm-nlq-review")
+    print(f"  dataset              : {dataset_dir}")
+    print(f"  records              : {summary.records}")
+    print(f"  calls_ok             : {summary.calls_ok}")
+    print(f"  calls_failed         : {summary.calls_failed}")
+    print(f"  canonical_mismatches : {summary.canonical_mismatches}")
+    print(f"  colloquial_mismatches: {summary.colloquial_mismatches}")
+    print(f"  applied_updates      : {summary.applied_updates}")
+    print("  files:")
+    for path in summary.paths.values():
+        print(f"    - {path}")
+    print("=" * 64)
+    return 0 if summary.calls_failed == 0 else 1
+
+
+def _run_llm_nlq_rewrite(
+    rt: Runtime,
+    *,
+    dataset_dir: Path,
+    out_dir: Path,
+    db_id: str | None,
+    record_ids: set[int] | None,
+    limit: int | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    thinking: str | None,
+    first_token_timeout_s: float,
+    workers: int,
+    apply: bool,
+    allow_partial_apply: bool,
+    style_repair_retries: int,
+    resume: bool,
+) -> int:
+    try:
+        summary = asyncio.run(
+            run_llm_nlq_rewrite(
+                dataset_dir,
+                llm=rt.ctx.llm,
+                logger=rt.log,
+                out_dir=out_dir,
+                db_id=db_id,
+                record_ids=record_ids,
+                limit=limit,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                thinking=thinking,
+                first_token_timeout_s=first_token_timeout_s,
+                workers=workers,
+                apply=apply,
+                allow_partial_apply=allow_partial_apply,
+                style_repair_retries=style_repair_retries,
+                resume=resume,
+            )
+        )
+    finally:
+        _close_runtime(rt)
+    print("\n" + "=" * 64)
+    print("TEND llm-nlq-rewrite")
+    print(f"  dataset                 : {dataset_dir}")
+    print(f"  records                 : {summary.records}")
+    print(f"  calls_ok                : {summary.calls_ok}")
+    print(f"  calls_failed            : {summary.calls_failed}")
+    print(f"  invalid_rewrites        : {summary.invalid_rewrites}")
+    print(f"  applied_updates         : {summary.applied_updates}")
+    print(f"  anti_template_violations: {summary.anti_template_violations}")
+    print("  files:")
+    for path in summary.paths.values():
+        print(f"    - {path}")
+    print("=" * 64)
+    return 0 if (
+        summary.calls_failed == 0
+        and summary.invalid_rewrites == 0
+        and (not apply or summary.applied_updates > 0)
+        and summary.anti_template_violations == 0
+    ) else 1
+
+
 def _copy_release_tree(dataset_dir: Path, out_dir: Path) -> None:
     if dataset_dir.resolve() == out_dir.resolve():
         return
@@ -1522,6 +1654,72 @@ def main(argv: list[str] | None = None) -> int:
                     help="release dataset dir (default: release/tend-native-mongodb-v1)")
     rq.add_argument("--run-id", default=None)
 
+    lr = sub.add_parser(
+        "llm-nlq-review",
+        help="LLM JSON-mode review and optional repair of release NLQ/MQL alignment",
+    )
+    lr.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
+                    help="release dataset dir (default: release/tend-native-mongodb-v1)")
+    lr.add_argument("--out", default=None,
+                    help="review output dir (default: runs/<run_id>/llm_nlq_review)")
+    lr.add_argument("--db-id", default=None, help="optional db_id filter")
+    lr.add_argument("--record-id", action="append", default=[],
+                    help="record id or comma-separated record ids; repeatable")
+    lr.add_argument("--record-ids-file", default=None,
+                    help="newline/comma-separated record ids to review")
+    lr.add_argument("--limit", type=int, default=None, help="optional record limit after filters")
+    lr.add_argument("--model", default=None,
+                    help="review model override, e.g. deepseek-v4-pro")
+    lr.add_argument("--reasoning-effort", default=None,
+                    help="provider reasoning_effort override, e.g. max")
+    lr.add_argument("--thinking", default="enabled",
+                    help="DeepSeek thinking type via extra_body, default enabled")
+    lr.add_argument("--first-token-timeout", type=float, default=6.0,
+                    help="streaming first-token timeout in seconds")
+    lr.add_argument("--workers", type=int, default=500,
+                    help="parallel LLM review calls")
+    lr.add_argument("--apply", action="store_true",
+                    help="write LLM-confirmed replacement NLQ back into release files")
+    lr.add_argument("--quiet", action="store_true", help="disable the live progress UI")
+    lr.add_argument("--run-id", default=None)
+
+    rw = sub.add_parser(
+        "llm-nlq-rewrite",
+        help="LLM JSON-mode anti-template rewrite of release NLQs",
+    )
+    rw.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
+                    help="release dataset dir (default: release/tend-native-mongodb-v1)")
+    rw.add_argument("--out", default=None,
+                    help="rewrite output dir (default: runs/<run_id>/llm_nlq_rewrite)")
+    rw.add_argument("--db-id", default=None, help="optional db_id filter")
+    rw.add_argument("--record-id", action="append", default=[],
+                    help="record id or comma-separated record ids; repeatable")
+    rw.add_argument("--record-ids-file", default=None,
+                    help="newline/comma-separated record ids to rewrite")
+    rw.add_argument("--limit", type=int, default=None, help="optional record limit after filters")
+    rw.add_argument("--model", default="deepseek-v4-flash",
+                    help="rewrite model override, default deepseek-v4-flash")
+    rw.add_argument("--reasoning-effort", default="max",
+                    help="provider reasoning_effort override, default max")
+    rw.add_argument("--thinking", default="enabled",
+                    help="DeepSeek thinking type via extra_body, default enabled")
+    rw.add_argument("--first-token-timeout", type=float, default=6.0,
+                    help="streaming first-token timeout in seconds")
+    rw.add_argument("--call-timeout", type=float, default=900.0,
+                    help="outer timeout for each LLM rewrite call in seconds; <=0 disables")
+    rw.add_argument("--workers", type=int, default=2500,
+                    help="parallel LLM rewrite calls")
+    rw.add_argument("--apply", action="store_true",
+                    help="write valid rewritten NLQs back into release files")
+    rw.add_argument("--allow-partial-apply", action="store_true",
+                    help="apply successful rows even when some selected rewrites fail validation")
+    rw.add_argument("--style-repair-retries", type=int, default=1,
+                    help="extra LLM calls per record to fix local anti-template validation failures")
+    rw.add_argument("--no-resume", action="store_true",
+                    help="ignore any existing rewrite_results.jsonl in --out")
+    rw.add_argument("--quiet", action="store_true", help="disable the live progress UI")
+    rw.add_argument("--run-id", default=None)
+
     p = sub.add_parser("publish", help="validate and copy a production release")
     p.add_argument("--dataset-dir", required=True, help="candidate dataset dir")
     p.add_argument("--out", default=str(PRODUCTION_RELEASE_DIR),
@@ -1618,13 +1816,22 @@ def main(argv: list[str] | None = None) -> int:
         overrides["TEND_LLM_STUB"] = "1"
     if getattr(args, "quiet", False):
         overrides["TEND_QUIET"] = "1"
+    if args.command in {"llm-nlq-review", "llm-nlq-rewrite"}:
+        overrides["TEND_LLM_MAX_CONCURRENCY"] = str(max(1, int(args.workers)))
     run_id_tag = getattr(args, "run_id", None)
     run_id = run_id_with_tag(run_id_tag) if run_id_tag else new_run_id()
     settings = Settings.from_env(
         run_id=run_id,
         overrides=overrides,
         require_bird=args.command == "construct",
-        require_llm=args.command in {"construct", "solve", "baseline", "ablation"},
+        require_llm=args.command in {
+            "construct",
+            "solve",
+            "baseline",
+            "ablation",
+            "llm-nlq-review",
+            "llm-nlq-rewrite",
+        },
     )
 
     if args.command == "validate":
@@ -1654,6 +1861,60 @@ def main(argv: list[str] | None = None) -> int:
         return _run_repair_release_quality(
             settings,
             dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
+        )
+    if args.command == "llm-nlq-review":
+        rt = build_solver_runtime(settings, run_kind="llm_nlq_review")
+        return _run_llm_nlq_review(
+            rt,
+            dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
+            out_dir=(
+                _resolve_repo_path(settings, args.out)
+                if args.out
+                else settings.run_dir / "llm_nlq_review"
+            ),
+            db_id=args.db_id,
+            record_ids=_record_id_set(
+                args.record_id,
+                _resolve_repo_path(settings, args.record_ids_file)
+                if args.record_ids_file
+                else None,
+            ),
+            limit=args.limit,
+            model=args.model,
+            reasoning_effort=args.reasoning_effort,
+            thinking=args.thinking,
+            first_token_timeout_s=max(0.0, args.first_token_timeout),
+            call_timeout_s=max(0.0, args.call_timeout),
+            workers=max(1, args.workers),
+            apply=args.apply,
+        )
+    if args.command == "llm-nlq-rewrite":
+        rt = build_solver_runtime(settings, run_kind="llm_nlq_rewrite")
+        return _run_llm_nlq_rewrite(
+            rt,
+            dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
+            out_dir=(
+                _resolve_repo_path(settings, args.out)
+                if args.out
+                else settings.run_dir / "llm_nlq_rewrite"
+            ),
+            db_id=args.db_id,
+            record_ids=_record_id_set(
+                args.record_id,
+                _resolve_repo_path(settings, args.record_ids_file)
+                if args.record_ids_file
+                else None,
+            ),
+            limit=args.limit,
+            model=args.model,
+            reasoning_effort=args.reasoning_effort,
+            thinking=args.thinking,
+            first_token_timeout_s=max(0.0, args.first_token_timeout),
+            workers=max(1, args.workers),
+            apply=args.apply,
+            allow_partial_apply=args.allow_partial_apply,
+            style_repair_retries=max(0, args.style_repair_retries),
+            resume=not args.no_resume,
         )
     if args.command == "publish":
         return _run_publish(

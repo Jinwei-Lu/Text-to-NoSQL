@@ -8,6 +8,7 @@ gold results, and NLQ text that hides answer-changing constraints.
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,6 +76,9 @@ _TOP_WORDS = frozenset({
     "heaviest",
 })
 _STATE_WORDS = frozenset({"present", "missing", "null", "empty"})
+_OUTPUT_SHAPE_PRESERVING_OPS = frozenset({"$limit", "$match", "$skip", "$sort"})
+_FIELD_TOKEN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.$]*$")
+_FIELD_SPLIT_RE = re.compile(r"\s*,\s*|\s+\band\b\s+", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -512,6 +516,8 @@ def _nlq_alignment_issues(
     issues: list[QualityIssue] = []
     normalized = _normalize_text(text)
 
+    issues.extend(_nlq_output_field_issues(record, track=track, text=text, pipeline=pipeline))
+
     sort_specs = _semantic_desc_sort_specs(pipeline)
     limit = _first_limit(pipeline)
     if sort_specs and limit is not None and not _nlq_mentions_sort(normalized, sort_specs):
@@ -558,6 +564,174 @@ def _nlq_alignment_issues(
                 evidence={"threshold": number, "nlq": text},
             ))
     return issues
+
+
+def _nlq_output_field_issues(
+    record: dict[str, Any],
+    *,
+    track: str,
+    text: str,
+    pipeline: list[dict[str, Any]],
+) -> list[QualityIssue]:
+    output_fields = _final_mql_output_fields(pipeline)
+    declared = _declared_nlq_output_fields(track, text)
+    if output_fields is None or declared is None:
+        return []
+
+    expected_fields, source = output_fields
+    declared_fields, clause = declared
+    missing = sorted(expected_fields - declared_fields)
+    if not missing:
+        return []
+
+    return [_issue(
+        ERROR,
+        "NLQ_OUTPUT_FIELDS_MISSING",
+        record,
+        "NLQ output field clause does not fully declare the final MQL output shape",
+        track=track,
+        evidence={
+            "missing_fields": missing,
+            "mql_output_fields": sorted(expected_fields),
+            "declared_fields": sorted(declared_fields),
+            "declared_clause": clause,
+            **source,
+        },
+    )]
+
+
+def _final_mql_output_fields(
+    pipeline: list[dict[str, Any]],
+) -> tuple[set[str], dict[str, Any]] | None:
+    for index in range(len(pipeline) - 1, -1, -1):
+        stage = pipeline[index]
+        if not isinstance(stage, dict) or not stage:
+            return None
+        op = _stage_op(stage)
+        if op in _OUTPUT_SHAPE_PRESERVING_OPS:
+            continue
+        if op == "$project":
+            fields = _project_output_fields(
+                stage.get("$project"),
+                _id_fields_before_stage(pipeline, index),
+            )
+        elif op == "$group":
+            fields = _group_output_fields(stage.get("$group"))
+        else:
+            return None
+        if not fields:
+            return None
+        return fields, {"stage_index": index + 1, "stage_op": op}
+    return None
+
+
+def _project_output_fields(body: Any, id_fields: set[str] | None = None) -> set[str]:
+    if not isinstance(body, dict):
+        return set()
+    prior_id_fields = set(id_fields or {"_id"})
+    fields = {
+        str(key)
+        for key, value in body.items()
+        if str(key) != "_id" and not _project_excludes_field(value)
+    }
+    if not fields:
+        return set()
+    if not _project_excludes_field(body.get("_id", 1)):
+        if "_id" in body and body.get("_id") not in (1, True):
+            fields.add("_id")
+        else:
+            fields.update(prior_id_fields)
+    return fields
+
+
+def _group_output_fields(body: Any) -> set[str]:
+    if not isinstance(body, dict):
+        return set()
+    fields = {str(key) for key in body if str(key) != "_id"}
+    fields.update(_group_id_fields(body.get("_id")))
+    return fields
+
+
+def _id_fields_before_stage(pipeline: list[dict[str, Any]], stage_index: int) -> set[str]:
+    id_fields = {"_id"}
+    for stage in pipeline[:stage_index]:
+        if not isinstance(stage, dict) or not stage:
+            continue
+        op = _stage_op(stage)
+        if op == "$project":
+            body = stage.get("$project")
+            if not isinstance(body, dict):
+                continue
+            if "_id" in body:
+                if _project_excludes_field(body.get("_id")):
+                    id_fields = set()
+                elif body.get("_id") not in (1, True):
+                    id_fields = {"_id"}
+            elif _project_has_inclusions(body):
+                # Inclusion projections retain _id only if it still exists in the input.
+                id_fields = set(id_fields)
+        elif op == "$group":
+            body = stage.get("$group")
+            if isinstance(body, dict):
+                id_fields = _group_id_fields(body.get("_id"))
+        elif op in {"$replaceRoot", "$replaceWith"}:
+            id_fields = {"_id"}
+    return id_fields
+
+
+def _project_has_inclusions(body: dict[str, Any]) -> bool:
+    return any(str(key) != "_id" and not _project_excludes_field(value)
+               for key, value in body.items())
+
+
+def _group_id_fields(group_id: Any) -> set[str]:
+    if isinstance(group_id, dict):
+        return {f"_id.{key}" for key in group_id}
+    return {"_id"}
+
+
+def _project_excludes_field(value: Any) -> bool:
+    return value is False or value == 0
+
+
+def _declared_nlq_output_fields(track: str, text: str) -> tuple[set[str], str] | None:
+    if track == "canonical":
+        marker = "output fields"
+    elif track == "colloquial":
+        marker = "with fields"
+    else:
+        return None
+
+    lower = text.lower()
+    start = lower.rfind(marker)
+    if start < 0:
+        return None
+
+    clause = text[start + len(marker):].strip().lstrip(":")
+    if ";" in clause:
+        clause = clause.split(";", 1)[0].strip()
+    clause = clause.strip()
+    if not clause:
+        return None
+
+    fields: set[str] = set()
+    for raw_token in _FIELD_SPLIT_RE.split(clause):
+        token = _clean_declared_field_token(raw_token)
+        if not token:
+            continue
+        if not _FIELD_TOKEN_RE.fullmatch(token):
+            return None
+        fields.add(token)
+    if not fields:
+        return None
+    return fields, clause
+
+
+def _clean_declared_field_token(value: str) -> str:
+    token = value.strip().strip("`'\"")
+    while token and token[-1] in ".:":
+        token = token[:-1].rstrip()
+    return token.strip().strip("`'\"")
 
 
 def _nlq_tracks(record: dict[str, Any]) -> dict[str, str]:

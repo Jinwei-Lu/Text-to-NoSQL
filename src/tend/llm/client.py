@@ -294,6 +294,11 @@ class LLMClient:
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        response_format: dict[str, Any] | None = None,
+        reasoning_effort: str | None = None,
+        thinking: str | None = None,
+        stream: bool = False,
+        first_token_timeout_s: float = 6.0,
         json_repair_retries: int = 2,
     ) -> LLMResult:
         """Run one logical completion, returning a validated :class:`LLMResult`.
@@ -306,17 +311,27 @@ class LLMClient:
         model = model or self._s.llm.model_for(agent)
         temperature = self._s.llm.temperature if temperature is None else temperature
         max_tokens = max_tokens or self._s.llm.max_tokens
+        reasoning_effort = reasoning_effort or self._s.llm.reasoning_effort
+        thinking = thinking or self._s.llm.thinking
         expect_json = (schema is not None) if expect_json is None else expect_json
 
         convo = list(messages)
         attempts: list[dict[str, Any]] = []
         t0 = time.monotonic()
+        provider_kwargs = self._provider_request_options(
+            response_format=response_format,
+            reasoning_effort=reasoning_effort,
+            thinking=thinking,
+        )
         request_config = {
             "temperature": temperature,
             "max_tokens": max_tokens,
             "expect_json": expect_json,
             "schema": schema,
             "json_repair_retries": json_repair_retries,
+            "provider_kwargs": provider_kwargs,
+            "stream": stream,
+            "first_token_timeout_s": first_token_timeout_s,
         }
         try:
             prompt_chars = sum(
@@ -358,6 +373,9 @@ class LLMClient:
                     convo,
                     temperature,
                     max_tokens,
+                    provider_kwargs,
+                    stream,
+                    first_token_timeout_s,
                     attempts,
                     log,
                     transcript_ref=start_ref,
@@ -860,7 +878,9 @@ class LLMClient:
 
     async def _send_with_transport_retries(
         self, agent: str, call_id: str, model: str, convo: list[Message],
-        temperature: float, max_tokens: int, attempts: list[dict[str, Any]],
+        temperature: float, max_tokens: int, provider_kwargs: dict[str, Any],
+        stream: bool, first_token_timeout_s: float,
+        attempts: list[dict[str, Any]],
         log: RunLogger,
         *,
         transcript_ref: str,
@@ -871,7 +891,14 @@ class LLMClient:
             t0 = time.monotonic()
             try:
                 text, finish, usage, raw = await self._raw_call(
-                    agent, model, convo, temperature, max_tokens
+                    agent,
+                    model,
+                    convo,
+                    temperature,
+                    max_tokens,
+                    provider_kwargs,
+                    stream,
+                    first_token_timeout_s,
                 )
                 provider_metadata = _provider_metadata(raw, finish)
                 attempts.append({
@@ -879,6 +906,9 @@ class LLMClient:
                     "usage": usage, "latency_s": round(time.monotonic() - t0, 3),
                     "response": text,
                     "response_preview": text[:500],
+                    "provider_kwargs": provider_kwargs,
+                    "stream": stream,
+                    "first_token_timeout_s": first_token_timeout_s,
                     "provider_metadata": provider_metadata,
                     "raw_response": _json_safe(raw),
                 })
@@ -890,6 +920,8 @@ class LLMClient:
                     "attempt": attempt, "kind": "send_error",
                     "latency_s": round(time.monotonic() - t0, 3),
                     "error": err.to_record(),
+                    "stream": stream,
+                    "first_token_timeout_s": first_token_timeout_s,
                 })
                 if not err.retryable or attempt >= self._s.llm.max_retries:
                     raise
@@ -1032,17 +1064,32 @@ class LLMClient:
 
     async def _raw_call(
         self, agent: str, model: str, convo: list[Message],
-        temperature: float, max_tokens: int,
+        temperature: float, max_tokens: int, provider_kwargs: dict[str, Any],
+        stream: bool, first_token_timeout_s: float,
     ) -> tuple[str, str | None, dict[str, int], Any]:
         if self._s.stub:
             return self._stub_call(agent, convo)
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": convo,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            **provider_kwargs,
+        }
+        if stream:
+            kwargs["stream"] = True
+            kwargs["stream_options"] = {"include_usage": True}
         async with (self._sem or nullcontext()):
             try:
-                resp = await self._client.chat.completions.create(
-                    model=model, messages=convo, temperature=temperature,
-                    max_tokens=max_tokens,
-                )
+                resp = await self._client.chat.completions.create(**kwargs)
             except Exception as exc:  # noqa: BLE001 - mapped to typed anomalies below
+                raise self._map_provider_error(exc) from exc
+        if stream:
+            try:
+                return await self._collect_completion_stream(resp, first_token_timeout_s)
+            except LLMError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - streaming iterator faults are provider faults
                 raise self._map_provider_error(exc) from exc
         choice = resp.choices[0]
         text = choice.message.content or ""
@@ -1057,6 +1104,93 @@ class LLMClient:
         if reasoning:
             usage["reasoning_preview"] = str(reasoning)[:1200]
         return text, choice.finish_reason, usage, resp
+
+    async def _collect_completion_stream(
+        self,
+        stream_resp: Any,
+        first_token_timeout_s: float,
+    ) -> tuple[str, str | None, dict[str, int], Any]:
+        iterator = stream_resp.__aiter__()
+        text_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        chunk_count = 0
+        chunk_samples: list[Any] = []
+        finish: str | None = None
+        usage: dict[str, int] = {}
+        first_token_seen = False
+        deadline = (
+            time.monotonic() + first_token_timeout_s
+            if first_token_timeout_s > 0
+            else None
+        )
+
+        while True:
+            try:
+                if not first_token_seen and deadline is not None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError
+                    chunk = await asyncio.wait_for(anext(iterator), timeout=remaining)
+                else:
+                    chunk = await anext(iterator)
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError as exc:
+                raise LLMTimeoutError(
+                    "provider stream first token timeout",
+                    context={"first_token_timeout_s": first_token_timeout_s},
+                ) from exc
+
+            chunk_count += 1
+            safe_chunk = _json_safe(chunk)
+            if chunk_count <= 3:
+                chunk_samples.append(safe_chunk)
+            elif len(chunk_samples) < 6:
+                chunk_samples.append(safe_chunk)
+            else:
+                chunk_samples[-3:] = chunk_samples[-2:] + [safe_chunk]
+            chunk_usage = self._usage_dict(self._get(chunk, "usage"))
+            if chunk_usage:
+                usage = chunk_usage
+            for choice in self._get(chunk, "choices", []) or []:
+                finish = self._get(choice, "finish_reason") or finish
+                delta = self._get(choice, "delta", {}) or {}
+                reasoning = self._get(delta, "reasoning_content")
+                content = self._get(delta, "content")
+                if reasoning:
+                    first_token_seen = True
+                    reasoning_parts.append(str(reasoning))
+                if content:
+                    first_token_seen = True
+                    text_parts.append(str(content))
+
+        if not first_token_seen:
+            raise EmptyResponseError(
+                "provider stream ended before first token",
+                context={"first_token_timeout_s": first_token_timeout_s},
+            )
+        if reasoning_parts:
+            usage["reasoning_preview"] = "".join(reasoning_parts)[:1200]
+        return "".join(text_parts), finish, usage, {
+            "stream_chunk_count": chunk_count,
+            "stream_chunk_samples": chunk_samples,
+        }
+
+    @staticmethod
+    def _provider_request_options(
+        *,
+        response_format: dict[str, Any] | None,
+        reasoning_effort: str | None,
+        thinking: str | None,
+    ) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {}
+        if response_format is not None:
+            kwargs["response_format"] = response_format
+        if reasoning_effort:
+            kwargs["reasoning_effort"] = str(reasoning_effort)
+        if thinking:
+            kwargs["extra_body"] = {"thinking": {"type": str(thinking)}}
+        return kwargs
 
     async def _raw_tool_call(
         self,
@@ -1090,7 +1224,12 @@ class LLMClient:
             except Exception as exc:  # noqa: BLE001 - mapped to typed anomalies below
                 raise self._map_provider_error(exc) from exc
         if stream:
-            return await self._collect_tool_stream(resp, first_token_timeout_s)
+            try:
+                return await self._collect_tool_stream(resp, first_token_timeout_s)
+            except LLMError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - streaming iterator faults are provider faults
+                raise self._map_provider_error(exc) from exc
         choice = resp.choices[0]
         message = choice.message
         text = getattr(message, "content", None) or ""

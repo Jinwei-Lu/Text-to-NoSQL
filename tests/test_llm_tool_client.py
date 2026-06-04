@@ -9,7 +9,7 @@ import pytest
 
 from tend.config import LLMSettings, Paths, Settings
 from tend.errors import LLMError, RateLimitError
-from tend.llm import LLMClient
+from tend.llm import LLMClient, LLMResult
 from tend.llm.types import ToolCall, ToolLLMResult
 from tend.observability import setup_logging
 
@@ -118,6 +118,27 @@ def _delta_chunk(*, tool_calls: list[Any] | None = None, finish_reason: str | No
     )
 
 
+def _completion_chunk(
+    *,
+    content: str | None = None,
+    reasoning_content: str | None = None,
+    finish_reason: str | None = None,
+    usage: Any = None,
+) -> Any:
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                delta=SimpleNamespace(
+                    content=content,
+                    reasoning_content=reasoning_content,
+                ),
+                finish_reason=finish_reason,
+            )
+        ],
+        usage=usage,
+    )
+
+
 def test_complete_with_tools_returns_native_tool_calls(tmp_path) -> None:
     settings = _settings(tmp_path)
     log = setup_logging(settings.run_dir, console=False)
@@ -163,6 +184,97 @@ def test_complete_with_tools_returns_native_tool_calls(tmp_path) -> None:
     assert result.transcript_ref.startswith("llm/smart_eg/")
     assert result.transcript_ref.endswith(".diagnostics.json")
     assert not (log.run_dir / result.transcript_ref.replace(".diagnostics.json", ".md")).exists()
+
+
+def test_complete_passes_json_mode_reasoning_and_thinking_options(tmp_path) -> None:
+    settings = _settings(tmp_path, stub=False)
+    log = setup_logging(settings.run_dir, console=False)
+    client = LLMClient(settings, log)
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content='{"ok": true}', reasoning_content="hidden"),
+                finish_reason="stop",
+            )
+        ],
+        usage=SimpleNamespace(prompt_tokens=3, completion_tokens=4, total_tokens=7),
+    )
+    fake = _FakeOpenAI([response])
+    fake.completions = SimpleNamespace(calls=[])
+
+    async def create(**kwargs: Any) -> Any:
+        fake.completions.calls.append(kwargs)
+        return response
+
+    fake.chat = SimpleNamespace(completions=SimpleNamespace(create=create))
+    client._client = fake  # noqa: SLF001 - test injects provider transport
+
+    result = asyncio.run(
+        client.complete(
+            agent="nlq_mql_review",
+            messages=[
+                {"role": "system", "content": "Return only JSON."},
+                {"role": "user", "content": "json please"},
+            ],
+            expect_json=True,
+            response_format={"type": "json_object"},
+            reasoning_effort="max",
+            thinking="enabled",
+        )
+    )
+
+    assert isinstance(result, LLMResult)
+    assert result.data == {"ok": True}
+    call = fake.completions.calls[0]
+    assert call["response_format"] == {"type": "json_object"}
+    assert call["reasoning_effort"] == "max"
+    assert call["extra_body"] == {"thinking": {"type": "enabled"}}
+    diagnostics = json.loads((log.run_dir / result.diagnostics_ref).read_text(encoding="utf-8"))
+    assert diagnostics["provider_kwargs"] == {
+        "response_format": {"type": "json_object"},
+        "reasoning_effort": "max",
+        "extra_body": {"thinking": {"type": "enabled"}},
+    }
+
+
+def test_complete_streaming_uses_first_token_timeout_and_collects_json(tmp_path) -> None:
+    settings = _settings(tmp_path, stub=False)
+    log = setup_logging(settings.run_dir, console=False)
+    client = LLMClient(settings, log)
+    usage = SimpleNamespace(prompt_tokens=5, completion_tokens=6, total_tokens=11)
+    fake = _FakeOpenAI([
+        _completion_chunk(),
+        _completion_chunk(reasoning_content="thinking "),
+        _completion_chunk(content='{"ok"'),
+        _completion_chunk(content=": true}", finish_reason="stop", usage=usage),
+    ])
+    client._client = fake  # noqa: SLF001 - test injects provider transport
+
+    result = asyncio.run(
+        client.complete(
+            agent="nlq_mql_review",
+            messages=[
+                {"role": "system", "content": "Return only JSON."},
+                {"role": "user", "content": "json please"},
+            ],
+            expect_json=True,
+            response_format={"type": "json_object"},
+            reasoning_effort="max",
+            thinking="enabled",
+            stream=True,
+            first_token_timeout_s=6.0,
+        )
+    )
+
+    assert result.data == {"ok": True}
+    call = fake.completions.calls[0]
+    assert call["stream"] is True
+    assert call["stream_options"] == {"include_usage": True}
+    assert call["response_format"] == {"type": "json_object"}
+    diagnostics = json.loads((log.run_dir / result.diagnostics_ref).read_text(encoding="utf-8"))
+    assert diagnostics["stream"] is True
+    assert diagnostics["first_token_timeout_s"] == 6.0
+    assert diagnostics["attempts"][0]["usage"]["reasoning_preview"] == "thinking "
 
 
 def test_complete_with_tools_markdown_renders_full_request_and_tool_context(tmp_path) -> None:
