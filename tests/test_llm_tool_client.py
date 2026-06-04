@@ -171,7 +171,7 @@ def test_complete_with_tools_markdown_renders_full_request_and_tool_context(tmp_
         settings.run_dir,
         console=False,
         write_llm_markdown_transcripts=True,
-    )
+    ).bind(agent_session_ref="agent/smart_eg/session.md", db_id="financial")
     client = LLMClient(settings, log)
     tool_choice = {"type": "function", "function": {"name": "list_collections"}}
 
@@ -193,9 +193,23 @@ def test_complete_with_tools_markdown_renders_full_request_and_tool_context(tmp_
     )
     log.close()
 
-    transcript_md = (log.run_dir / result.transcript_ref).read_text(encoding="utf-8")
+    assert result.transcript_ref == "agent/smart_eg/session.md"
+    assert result.diagnostics_ref.startswith("agent/smart_eg/diagnostics/smart_eg/")
+    assert result.diagnostics_ref.endswith(".diagnostics.json")
     diagnostics = json.loads((log.run_dir / result.diagnostics_ref).read_text(encoding="utf-8"))
+    transcript_md = (
+        log.run_dir / diagnostics["markdown_transcript_ref"]
+    ).read_text(encoding="utf-8")
 
+    assert diagnostics["transcript_ref"] == "agent/smart_eg/session.md"
+    assert diagnostics["diagnostics_ref"] == result.diagnostics_ref
+    assert diagnostics["agent_session_ref"] == "agent/smart_eg/session.md"
+    assert diagnostics["db_id"] == "financial"
+    assert diagnostics["markdown_transcript_enabled"] is True
+    assert diagnostics["markdown_transcript_ref"].startswith(
+        "agent/smart_eg/diagnostics/smart_eg/"
+    )
+    assert diagnostics["markdown_transcript_ref"].endswith(".debug.md")
     assert diagnostics["tools"] == [_tool_schema()]
     assert diagnostics["tool_choice"] == tool_choice
     assert diagnostics["tool_calls"] == [_tool_call_dict()]

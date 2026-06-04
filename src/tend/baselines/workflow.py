@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import traceback
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +61,9 @@ class BaselinePrediction:
     MQL: str
     disclosure: dict[str, Any]
     steps: list[BaselineStepTrace]
+    agent_session_ref: str = ""
+    transcript_refs: list[str] = field(default_factory=list)
+    diagnostics_refs: list[str] = field(default_factory=list)
     witness_k: int = 0
     r_max: int = 0
     input_mode: str = "release"
@@ -84,6 +89,9 @@ class BaselineFailure:
     error_code: str
     message: str
     disclosure: dict[str, Any]
+    agent_session_ref: str = ""
+    transcript_refs: list[str] = field(default_factory=list)
+    diagnostics_refs: list[str] = field(default_factory=list)
     witness_k: int = 0
     r_max: int = 0
     input_mode: str = "release"
@@ -99,6 +107,235 @@ class BaselineFailure:
         payload = asdict(self)
         payload["steps"] = [asdict(step) for step in self.steps]
         return payload
+
+
+class _BaselineSessionRecorder:
+    """One markdown session transcript for a baseline record."""
+
+    def __init__(
+        self,
+        *,
+        run_dir: Path,
+        spec: BaselineSpec,
+        record: dict[str, Any],
+        db_id: str,
+        record_id: Any,
+        input_mode: str,
+        nlq_track: str,
+        witness_k: int,
+        batch_index: int | None,
+        disclosure: dict[str, Any],
+        schema_summary: dict[str, Any],
+        witness_digest: dict[str, Any],
+    ) -> None:
+        self.run_dir = run_dir
+        self.spec = spec
+        self.record = record
+        self.db_id = db_id
+        self.record_id = record_id
+        self.input_mode = input_mode
+        self.nlq_track = nlq_track
+        self.witness_k = witness_k
+        self.batch_index = batch_index
+        self.disclosure = disclosure
+        self.schema_summary = schema_summary
+        self.witness_digest = witness_digest
+        self.started_at = _utc_now()
+        self.session_id = self._build_session_id()
+        self.agent_session_ref = f"baseline/sessions/{self.session_id}/agent.md"
+        self.transcript_refs: list[str] = []
+        self.diagnostics_refs: list[str] = []
+        self.steps: list[dict[str, Any]] = []
+        self.static_feedback: list[dict[str, Any]] = []
+        self.errors: list[dict[str, Any]] = []
+        self.final_outcome: dict[str, Any] = {}
+
+    @property
+    def last_transcript_ref(self) -> str | None:
+        return self.transcript_refs[-1] if self.transcript_refs else None
+
+    @property
+    def last_diagnostics_ref(self) -> str | None:
+        return self.diagnostics_refs[-1] if self.diagnostics_refs else None
+
+    def add_step_success(
+        self,
+        *,
+        step: Any,
+        messages: list[dict[str, Any]],
+        result: Any,
+        output: dict[str, Any],
+    ) -> None:
+        self._remember_refs(result.transcript_ref, result.diagnostics_ref)
+        self.steps.append(
+            {
+                "step_id": step.id,
+                "agent": step.agent,
+                "title": step.title,
+                "status": "ok",
+                "model": result.model,
+                "messages": messages,
+                "model_output": result.text,
+                "parsed_output": output,
+                "transcript_ref": result.transcript_ref,
+                "diagnostics_ref": result.diagnostics_ref,
+                "llm_attempts": result.attempts,
+                "transport_retries": max(0, result.attempts - 1),
+                "json_repair_retries": BASELINE_JSON_REPAIR_RETRIES,
+            }
+        )
+
+    def add_step_error(
+        self,
+        *,
+        step: Any,
+        messages: list[dict[str, Any]],
+        error: Exception,
+    ) -> None:
+        transcript_ref = _error_context_value(error, "transcript_ref")
+        diagnostics_ref = _error_context_value(error, "diagnostics_ref")
+        self._remember_refs(transcript_ref, diagnostics_ref)
+        error_record = _error_record(error)
+        self.steps.append(
+            {
+                "step_id": step.id,
+                "agent": step.agent,
+                "title": step.title,
+                "status": "failed",
+                "messages": messages,
+                "model_output": error_record.get("model_output")
+                or "Unavailable; see diagnostics_ref.",
+                "parsed_output": None,
+                "transcript_ref": transcript_ref,
+                "diagnostics_ref": diagnostics_ref,
+                "error": error_record,
+            }
+        )
+
+    def add_static_feedback(self, label: str, feedback: list[dict[str, Any]]) -> None:
+        self.static_feedback.append({"label": label, "feedback": feedback})
+
+    def add_error(self, error_code: str, message: str, **fields: Any) -> None:
+        self.errors.append({"error_code": error_code, "message": message, **fields})
+
+    def finish(self, **fields: Any) -> None:
+        self.final_outcome = fields
+
+    def write(self) -> None:
+        path = self.run_dir / self.agent_session_ref
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self.render(), encoding="utf-8")
+
+    def _build_session_id(self) -> str:
+        record_part = "no_record" if self.record_id is None else str(self.record_id)
+        batch_part = "single" if self.batch_index is None else f"batch_{self.batch_index:04d}"
+        ts_part = _slug(self.started_at.replace("+00:00", "Z"))
+        return "_".join(
+            _slug(part)
+            for part in (batch_part, self.spec.id, self.db_id, record_part, ts_part)
+            if part
+        )
+
+    def _remember_refs(
+        self,
+        transcript_ref: str | None,
+        diagnostics_ref: str | None,
+    ) -> None:
+        if transcript_ref and transcript_ref not in self.transcript_refs:
+            self.transcript_refs.append(transcript_ref)
+        if diagnostics_ref and diagnostics_ref not in self.diagnostics_refs:
+            self.diagnostics_refs.append(diagnostics_ref)
+
+    def render(self) -> str:
+        lines: list[str] = [
+            f"# Baseline Session: {self.spec.title}",
+            "",
+            "## Metadata",
+            "- Stage: BASELINE",
+            "- Task: baseline_record",
+            f"- Model: {self.disclosure.get('backbone', 'unknown')}",
+            f"- Started: {self.started_at}",
+            f"- Input Mode: {self.input_mode}",
+            f"- NLQ Track: {self.nlq_track}",
+            f"- Witness K: {self.witness_k}",
+            "",
+            "## Record Metadata",
+            f"- Baseline ID: {self.spec.id}",
+            f"- Baseline Title: {self.spec.title}",
+            f"- DB ID: {self.db_id}",
+            f"- Record ID: {self.record_id}",
+            f"- Batch Index: {self.batch_index}",
+            "",
+            "## Public Input Summary",
+            _json_block(
+                {
+                    "record": self.record,
+                    "schema_summary": self.schema_summary,
+                    "witness_digest": self.witness_digest,
+                    "schema_public_shape": self.disclosure.get("schema_public_shape"),
+                    "stripped_fields": {
+                        "record": self.disclosure.get("record_stripped_fields", []),
+                        "schema": self.disclosure.get("schema_stripped_fields", []),
+                        "local_data": self.disclosure.get("local_data_stripped_fields", []),
+                    },
+                }
+            ),
+            "",
+            "## Steps",
+        ]
+        if not self.steps:
+            lines.append("No model steps completed.")
+        for index, step in enumerate(self.steps, start=1):
+            lines.extend(
+                [
+                    "",
+                    f"### Step {index}: {step['title']}",
+                    f"- Step ID: {step['step_id']}",
+                    f"- Agent: {step['agent']}",
+                    f"- Status: {step['status']}",
+                    f"- Model: {step.get('model', 'unknown')}",
+                    "### Messages",
+                    _json_block(step.get("messages", [])),
+                    "### Model Output",
+                    _json_block(step.get("model_output")),
+                    "### Parsed Output",
+                    _json_block(step.get("parsed_output")),
+                    "### Diagnostics",
+                    _json_block(
+                        {
+                            "transcript_ref": step.get("transcript_ref"),
+                            "diagnostics_ref": step.get("diagnostics_ref"),
+                            "llm_attempts": step.get("llm_attempts"),
+                            "transport_retries": step.get("transport_retries"),
+                            "json_repair_retries": step.get("json_repair_retries"),
+                            "error": step.get("error"),
+                        }
+                    ),
+                ]
+            )
+        lines.extend(
+            [
+                "",
+                "## Static Feedback",
+                _json_block(self.static_feedback),
+                "",
+                "## Errors",
+                _json_block(self.errors),
+                "",
+                "## Diagnostics Refs",
+                _json_block(
+                    {
+                        "transcript_refs": self.transcript_refs,
+                        "diagnostics_refs": self.diagnostics_refs,
+                    }
+                ),
+                "",
+                "## Final Outcome",
+                _json_block(self.final_outcome),
+                "",
+            ]
+        )
+        return "\n".join(lines)
 
 
 async def run_baseline_suite(
@@ -259,6 +496,25 @@ async def run_baseline_record(
         local_data_stripped_fields=sanitized_local_data.stripped_fields,
         schema_public_shape=public_schema_shape(public_schema),
     )
+    schema_summary = summarize_schema(public_schema)
+    witness_digest = build_witness_digest(
+        sanitized_local_data.value if local_data is not None else None,
+        witness_k,
+    )
+    session = _BaselineSessionRecorder(
+        run_dir=wf.ctx.log.run_dir,
+        spec=spec,
+        record=safe,
+        db_id=db_id,
+        record_id=record_id,
+        input_mode=input_mode,
+        nlq_track=actual_nlq_track,
+        witness_k=witness_k,
+        batch_index=batch_index,
+        disclosure=disclosure,
+        schema_summary=schema_summary,
+        witness_digest=witness_digest,
+    )
     nlq_hash = ""
     try:
         # Baselines expose only the canonical NLQ track after record sanitization.
@@ -266,15 +522,27 @@ async def run_baseline_record(
         nlq_hash = _hash_nlq(nlq)
     except TendError as err:
         err.with_context(baseline_id=spec.id, db_id=db_id, record_id=record_id)
-        base_log.anomaly(err)
+        error_code = err.anomaly.value if err.anomaly else "prompt_error"
+        session.add_error(error_code, err.message, error=_error_record(err))
+        session.finish(
+            result_type="baseline_failure",
+            status="failed",
+            error_code=error_code,
+            message=err.message,
+        )
+        session.write()
+        base_log.anomaly(err, **_session_ref_fields(session))
         return BaselineFailure(
             baseline_id=spec.id,
             baseline_title=spec.title,
             record_id=record_id,
             db_id=db_id,
-            error_code=err.anomaly.value if err.anomaly else "prompt_error",
+            error_code=error_code,
             message=err.message,
             disclosure=disclosure,
+            agent_session_ref=session.agent_session_ref,
+            transcript_refs=list(session.transcript_refs),
+            diagnostics_refs=list(session.diagnostics_refs),
             witness_k=witness_k,
             r_max=0,
             input_mode=input_mode,
@@ -282,11 +550,6 @@ async def run_baseline_record(
             nlq_hash=nlq_hash,
             evaluation_skip_reason=evaluation_skip_reason,
         )
-    schema_summary = summarize_schema(public_schema)
-    witness_digest = build_witness_digest(
-        sanitized_local_data.value if local_data is not None else None,
-        witness_k,
-    )
     prompt_ctx = BaselinePromptContext(
         record=safe,
         schema=public_schema,
@@ -321,7 +584,8 @@ async def run_baseline_record(
         extra={**wf.ctx.extra, "batch_index": batch_index},
     )
     log = ctx.log.bind(component="baseline_runner", baseline_id=spec.id,
-                       batch_index=batch_index)
+                       batch_index=batch_index,
+                       agent_session_ref=session.agent_session_ref)
     log.info(
         "baseline_record_start",
         title=spec.title,
@@ -338,8 +602,16 @@ async def run_baseline_record(
             if spec.id == "static_self_debug" and step.id == "repair":
                 static_feedback = static_mql_feedback(_extract_mql(state))
                 state["static_feedback"] = static_feedback
+                session.add_static_feedback("pre_repair", static_feedback)
             output, trace = await _run_step(
-                ctx, spec, step, prompt_ctx, state, group, batch_index=batch_index
+                ctx,
+                spec,
+                step,
+                prompt_ctx,
+                state,
+                group,
+                batch_index=batch_index,
+                session=session,
             )
             traces.append(trace)
             state.update(output)
@@ -347,12 +619,28 @@ async def run_baseline_record(
         mql = _extract_mql(state)
         final_feedback = static_mql_feedback(mql)
         static_feedback = static_feedback or final_feedback
+        session.add_static_feedback("final", final_feedback)
         if any(item["severity"] == "error" for item in final_feedback):
+            session.add_error(
+                "STATIC_INVALID_MQL",
+                "baseline produced statically invalid MQL",
+                feedback=final_feedback,
+            )
+            session.finish(
+                result_type="baseline_failure",
+                status="failed",
+                error_code="STATIC_INVALID_MQL",
+                message="baseline produced statically invalid MQL",
+                static_feedback=final_feedback,
+                mql_preview=mql[:240],
+            )
+            session.write()
             log.anomaly(
                 kind=Anomaly.PARSE_ERROR,
                 message="baseline produced statically invalid MQL",
                 baseline_id=spec.id,
                 feedback=final_feedback,
+                **_session_ref_fields(session),
             )
             return BaselineFailure(
                 baseline_id=spec.id,
@@ -362,6 +650,9 @@ async def run_baseline_record(
                 error_code="STATIC_INVALID_MQL",
                 message="baseline produced statically invalid MQL",
                 disclosure=disclosure,
+                agent_session_ref=session.agent_session_ref,
+                transcript_refs=list(session.transcript_refs),
+                diagnostics_refs=list(session.diagnostics_refs),
                 witness_k=witness_k,
                 r_max=0,
                 input_mode=input_mode,
@@ -377,7 +668,17 @@ async def run_baseline_record(
             status="ok",
             mql_preview=mql[:240],
             steps=len(traces),
+            transcript_refs=list(session.transcript_refs),
+            diagnostics_refs=list(session.diagnostics_refs),
         )
+        session.finish(
+            result_type="baseline_prediction",
+            status="ok",
+            MQL=mql,
+            static_feedback=final_feedback,
+            steps=len(traces),
+        )
+        session.write()
         return BaselinePrediction(
             baseline_id=spec.id,
             baseline_title=spec.title,
@@ -385,6 +686,9 @@ async def run_baseline_record(
             db_id=db_id,
             MQL=mql,
             disclosure=disclosure,
+            agent_session_ref=session.agent_session_ref,
+            transcript_refs=list(session.transcript_refs),
+            diagnostics_refs=list(session.diagnostics_refs),
             witness_k=witness_k,
             r_max=0,
             input_mode=input_mode,
@@ -396,16 +700,35 @@ async def run_baseline_record(
         )
     except TendError as err:
         err.with_context(baseline_id=spec.id, db_id=db_id, record_id=record_id)
+        error_code = err.anomaly.value if err.anomaly else "tend_error"
+        session.add_error(
+            error_code,
+            err.message,
+            error=_error_record(err),
+            transcript_ref=session.last_transcript_ref,
+            diagnostics_ref=session.last_diagnostics_ref,
+        )
+        session.finish(
+            result_type="baseline_failure",
+            status="failed",
+            error_code=error_code,
+            message=err.message,
+            static_feedback=final_feedback or static_feedback,
+        )
+        session.write()
         if not err.logged:
-            log.anomaly(err)
+            log.anomaly(err, **_session_ref_fields(session))
         return BaselineFailure(
             baseline_id=spec.id,
             baseline_title=spec.title,
             record_id=record_id,
             db_id=db_id,
-            error_code=err.anomaly.value if err.anomaly else "tend_error",
+            error_code=error_code,
             message=err.message,
             disclosure=disclosure,
+            agent_session_ref=session.agent_session_ref,
+            transcript_refs=list(session.transcript_refs),
+            diagnostics_refs=list(session.diagnostics_refs),
             witness_k=witness_k,
             r_max=0,
             input_mode=input_mode,
@@ -423,7 +746,22 @@ async def run_baseline_record(
             record_id=record_id,
             traceback="".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
         )
-        log.anomaly(err)
+        session.add_error(
+            "internal",
+            err.message,
+            error=_error_record(err),
+            transcript_ref=session.last_transcript_ref,
+            diagnostics_ref=session.last_diagnostics_ref,
+        )
+        session.finish(
+            result_type="baseline_failure",
+            status="failed",
+            error_code="internal",
+            message=err.message,
+            static_feedback=final_feedback or static_feedback,
+        )
+        session.write()
+        log.anomaly(err, **_session_ref_fields(session))
         return BaselineFailure(
             baseline_id=spec.id,
             baseline_title=spec.title,
@@ -432,6 +770,9 @@ async def run_baseline_record(
             error_code="internal",
             message=err.message,
             disclosure=disclosure,
+            agent_session_ref=session.agent_session_ref,
+            transcript_refs=list(session.transcript_refs),
+            diagnostics_refs=list(session.diagnostics_refs),
             witness_k=witness_k,
             r_max=0,
             input_mode=input_mode,
@@ -452,6 +793,7 @@ async def _run_step(
     group: str,
     *,
     batch_index: int | None = None,
+    session: _BaselineSessionRecorder | None = None,
 ) -> tuple[dict[str, Any], BaselineStepTrace]:
     prefix = (
         f"baseline:{batch_index}:{spec.id}"
@@ -464,9 +806,17 @@ async def _run_step(
     )
     if ctx.progress:
         ctx.progress.start_task(task_id, step.title, group=group)
-    log = ctx.log.bind(agent=step.agent, baseline_id=spec.id, baseline_step=step.id,
-                       batch_index=batch_index)
+    log_fields = {
+        "agent": step.agent,
+        "baseline_id": spec.id,
+        "baseline_step": step.id,
+        "batch_index": batch_index,
+    }
+    if session is not None:
+        log_fields["agent_session_ref"] = session.agent_session_ref
+    log = ctx.log.bind(**log_fields)
     log.info("baseline_step_start", title=step.title)
+    messages: list[dict[str, Any]] = []
     try:
         messages = step.build_messages(prompt_ctx, state)
         result = await ctx.llm.complete(
@@ -486,6 +836,13 @@ async def _run_step(
             transport_retries=max(0, result.attempts - 1),
             json_repair_retries=BASELINE_JSON_REPAIR_RETRIES,
         )
+        if session is not None:
+            session.add_step_success(
+                step=step,
+                messages=messages,
+                result=result,
+                output=output,
+            )
         if ctx.progress:
             ctx.progress.finish_task(task_id, ok=True)
         return output, BaselineStepTrace(
@@ -499,7 +856,9 @@ async def _run_step(
             transport_retries=max(0, result.attempts - 1),
             json_repair_retries=BASELINE_JSON_REPAIR_RETRIES,
         )
-    except Exception:
+    except Exception as exc:
+        if session is not None:
+            session.add_step_error(step=step, messages=messages, error=exc)
         if ctx.progress:
             ctx.progress.finish_task(task_id, ok=False)
         raise
@@ -590,3 +949,50 @@ def _extract_mql(state: dict[str, Any]) -> str:
 
 def _hash_nlq(nlq: str) -> str:
     return "sha256:" + hashlib.sha256(nlq.encode("utf-8")).hexdigest()
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def _slug(value: Any) -> str:
+    text = str(value)
+    cleaned = [char.lower() if char.isalnum() else "_" for char in text]
+    slug = "_".join(part for part in "".join(cleaned).split("_") if part)
+    return slug[:96] or "unknown"
+
+
+def _json_block(value: Any) -> str:
+    return "```json\n" + json.dumps(
+        value,
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+        default=str,
+    ) + "\n```"
+
+
+def _error_context_value(error: Exception, key: str) -> str | None:
+    if isinstance(error, TendError):
+        value = error.context.get(key)
+        return str(value) if value else None
+    return None
+
+
+def _error_record(error: Exception) -> dict[str, Any]:
+    if isinstance(error, TendError):
+        return error.to_record()
+    return {
+        "error_type": type(error).__name__,
+        "message": str(error),
+        "anomaly": Anomaly.INTERNAL.value,
+    }
+
+
+def _session_ref_fields(session: _BaselineSessionRecorder) -> dict[str, Any]:
+    fields: dict[str, Any] = {"agent_session_ref": session.agent_session_ref}
+    if session.last_transcript_ref:
+        fields["transcript_ref"] = session.last_transcript_ref
+    if session.last_diagnostics_ref:
+        fields["diagnostics_ref"] = session.last_diagnostics_ref
+    return fields

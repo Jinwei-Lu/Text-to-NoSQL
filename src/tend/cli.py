@@ -46,9 +46,10 @@ from .errors import Anomaly, SourceError, TendError, wrap_unexpected
 from .evaluation import EvaluationOutput, evaluate_predictions
 from .execution.mongo import MongoExecutor
 from .llm import LLMClient
-from .observability import make_reporter, new_run_id, setup_logging
+from .observability import make_reporter, setup_logging
 from .publish import ReleaseReport, validate_release
 from .release_layout import resolve_release_dataset_layout
+from .run_ids import new_run_id, run_id_with_tag
 from .source import BirdSource
 from .source.census import run_census
 from .stubs import stub_fn
@@ -475,6 +476,10 @@ def _evaluation_skip_reason(
     return None
 
 
+def _stage_dir(rt: Runtime, stage: str) -> Path:
+    return rt.settings.run_dir / stage
+
+
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
     """Write ``rows`` one JSON object per line, creating parents; no-op when empty."""
     if not rows:
@@ -644,9 +649,10 @@ async def _run_solve(
     failed: TendError | None = None
     evaluation: EvaluationOutput | None = None
     summary: dict = {}
-    out_path = rt.settings.run_dir / "solver_predictions.jsonl"
-    failures_path = rt.settings.run_dir / "solver_failures.jsonl"
-    eval_input_path = rt.settings.run_dir / "solver_evaluation_inputs.jsonl"
+    solve_dir = _stage_dir(rt, "solve")
+    out_path = solve_dir / "solver_predictions.jsonl"
+    failures_path = solve_dir / "solver_failures.jsonl"
+    eval_input_path = solve_dir / "solver_evaluation_inputs.jsonl"
     evaluate_outputs = evaluate and nlq is None
     evaluation_rows: list[dict] = []
     evaluation_dataset_dir: Path | None = None
@@ -695,7 +701,7 @@ async def _run_solve(
                     evaluation_dataset_dir = _materialize_evaluation_dataset_subset(
                         dataset_dir,
                         [record for record, _schema, _data in inputs],
-                        rt.settings.run_dir / "evaluation_dataset",
+                        solve_dir / "evaluation_dataset",
                     )
                     rt.log.info(
                         "evaluation_dataset_subset_materialized",
@@ -857,9 +863,10 @@ async def _run_baseline(
     failed: TendError | None = None
     evaluation: EvaluationOutput | None = None
     summary: dict = {}
-    out_path = rt.settings.run_dir / "baseline_predictions.jsonl"
-    failures_path = rt.settings.run_dir / "baseline_failures.jsonl"
-    eval_input_path = rt.settings.run_dir / "baseline_evaluation_inputs.jsonl"
+    baseline_dir = _stage_dir(rt, "baseline")
+    out_path = baseline_dir / "baseline_predictions.jsonl"
+    failures_path = baseline_dir / "baseline_failures.jsonl"
+    eval_input_path = baseline_dir / "baseline_evaluation_inputs.jsonl"
     evaluate_outputs = evaluate and nlq is None
     evaluation_rows: list[dict] = []
     evaluation_dataset_dir: Path | None = None
@@ -877,7 +884,7 @@ async def _run_baseline(
                     evaluation_dataset_dir = _materialize_evaluation_dataset_subset(
                         dataset_dir,
                         selected_records,
-                        rt.settings.run_dir / "evaluation_dataset",
+                        baseline_dir / "evaluation_dataset",
                     )
                     rt.log.info(
                         "evaluation_dataset_subset_materialized",
@@ -987,10 +994,11 @@ async def _run_ablation(
     failed: TendError | None = None
     evaluation: EvaluationOutput | None = None
     summary: dict = {}
-    out_path = rt.settings.run_dir / "ablation_predictions.jsonl"
-    failures_path = rt.settings.run_dir / "ablation_failures.jsonl"
-    eval_input_path = rt.settings.run_dir / "ablation_evaluation_inputs.jsonl"
-    summary_path = rt.settings.run_dir / "ablation_summary.json"
+    ablation_dir = _stage_dir(rt, "ablation")
+    out_path = ablation_dir / "ablation_predictions.jsonl"
+    failures_path = ablation_dir / "ablation_failures.jsonl"
+    eval_input_path = ablation_dir / "ablation_evaluation_inputs.jsonl"
+    summary_path = ablation_dir / "ablation_summary.json"
     evaluate_outputs = evaluate and nlq is None
     evaluation_rows: list[dict] = []
     evaluation_dataset_dir: Path | None = None
@@ -1008,7 +1016,7 @@ async def _run_ablation(
                     evaluation_dataset_dir = _materialize_evaluation_dataset_subset(
                         dataset_dir,
                         selected_records,
-                        rt.settings.run_dir / "evaluation_dataset",
+                        ablation_dir / "evaluation_dataset",
                     )
                     rt.log.info(
                         "evaluation_dataset_subset_materialized",
@@ -1305,7 +1313,7 @@ async def _run_evaluate(
         print(f"  anomalies   : {summary.get('anomaly_total', 0)} "
               f"{summary.get('anomalies_by_kind', {})}")
         _print_evaluation_block(evaluation)
-        print(f"  logs        : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl | progress.jsonl | llm/")
+        print(f"  logs        : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl | progress.jsonl")
         print("=" * 64)
         _close_runtime(rt)
     return 1 if failed_run else 0
@@ -1446,7 +1454,8 @@ def main(argv: list[str] | None = None) -> int:
         overrides["TEND_LLM_STUB"] = "1"
     if getattr(args, "quiet", False):
         overrides["TEND_QUIET"] = "1"
-    run_id = getattr(args, "run_id", None) or new_run_id()
+    run_id_tag = getattr(args, "run_id", None)
+    run_id = run_id_with_tag(run_id_tag) if run_id_tag else new_run_id()
     settings = Settings.from_env(
         run_id=run_id,
         overrides=overrides,

@@ -99,19 +99,98 @@ def test_llm_markdown_transcripts_are_optional_debug_artifacts(tmp_path: Path) -
     )
     log.close()
 
-    assert transcript_ref == "llm/solver/call-debug.md"
+    assert transcript_ref == "llm/solver/call-debug.diagnostics.json"
     assert (tmp_path / "run" / transcript_ref).exists()
     assert (tmp_path / "run" / "llm/solver/call-debug.diagnostics.json").exists()
-    transcript_md = (tmp_path / "run" / transcript_ref).read_text(encoding="utf-8")
     diagnostics = json.loads(
         (tmp_path / "run" / "llm/solver/call-debug.diagnostics.json").read_text(
             encoding="utf-8"
         )
     )
+    transcript_md = (
+        tmp_path / "run" / diagnostics["markdown_transcript_ref"]
+    ).read_text(encoding="utf-8")
     assert "## Messages" in transcript_md
     assert "> solve" in transcript_md
     assert diagnostics["markdown_transcript_enabled"] is True
-    assert diagnostics["markdown_transcript_ref"] == transcript_ref
+    assert diagnostics["transcript_ref"] == transcript_ref
+    assert diagnostics["diagnostics_ref"] == transcript_ref
+    assert diagnostics["markdown_transcript_ref"] == "llm/solver/call-debug.debug.md"
+
+
+def test_save_transcript_prefers_bound_agent_session_ref(tmp_path: Path) -> None:
+    log = setup_logging(
+        tmp_path / "run",
+        console=False,
+        write_llm_markdown_transcripts=True,
+    )
+    bound = log.bind(
+        stage="solver",
+        db_id="financial",
+        record_id=17,
+        agent_session_ref="agent/solver/session.md",
+    )
+
+    transcript_ref = bound.save_transcript(
+        "solver",
+        "call-session",
+        {"messages": [{"role": "user", "content": "solve"}], "response": "{}"},
+    )
+    log.close()
+
+    diagnostics_ref = "agent/solver/diagnostics/solver/call-session.diagnostics.json"
+    assert transcript_ref == "agent/solver/session.md"
+    diagnostics = json.loads((tmp_path / "run" / diagnostics_ref).read_text(encoding="utf-8"))
+    assert diagnostics["transcript_ref"] == "agent/solver/session.md"
+    assert diagnostics["diagnostics_ref"] == diagnostics_ref
+    assert diagnostics["agent_session_ref"] == "agent/solver/session.md"
+    assert diagnostics["stage"] == "solver"
+    assert diagnostics["db_id"] == "financial"
+    assert diagnostics["record_id"] == 17
+    assert diagnostics["markdown_transcript_enabled"] is True
+    assert (
+        diagnostics["markdown_transcript_ref"]
+        == "agent/solver/diagnostics/solver/call-session.debug.md"
+    )
+    assert (tmp_path / "run" / diagnostics["markdown_transcript_ref"]).exists()
+
+
+def test_llm_result_preserves_session_transcript_and_diagnostics_ref(
+    tmp_path: Path,
+) -> None:
+    log = setup_logging(
+        tmp_path / "run",
+        console=False,
+        write_llm_markdown_transcripts=True,
+    )
+    bound = log.bind(
+        stage="solver",
+        db_id="financial",
+        record_id=17,
+        agent_session_ref="agent/solver/session.md",
+    )
+    client = LLMClient(_stub_settings(tmp_path), log)
+
+    async def run() -> tuple[str, str]:
+        result = await client.complete(
+            agent="solver",
+            logger=bound,
+            messages=[{"role": "user", "content": "solve"}],
+            expect_json=False,
+        )
+        return result.transcript_ref, result.diagnostics_ref
+
+    transcript_ref, diagnostics_ref = asyncio.run(run())
+    log.close()
+
+    assert transcript_ref == "agent/solver/session.md"
+    assert diagnostics_ref.startswith("agent/solver/diagnostics/solver/")
+    assert diagnostics_ref.endswith(".diagnostics.json")
+    diagnostics = json.loads((tmp_path / "run" / diagnostics_ref).read_text(encoding="utf-8"))
+    assert diagnostics["transcript_ref"] == "agent/solver/session.md"
+    assert diagnostics["diagnostics_ref"] == diagnostics_ref
+    assert diagnostics["agent_session_ref"] == "agent/solver/session.md"
+    assert diagnostics["markdown_transcript_ref"].endswith(".md")
 
 
 def test_llm_prompt_anomalies_are_written_with_transcripts(tmp_path: Path, monkeypatch) -> None:
@@ -227,11 +306,16 @@ def test_failed_llm_markdown_expands_attempt_details(tmp_path: Path, monkeypatch
     log.close()
 
     anomaly = _read_jsonl(tmp_path / "run" / "anomalies.jsonl")[0]
-    transcript_md = (tmp_path / "run" / anomaly["transcript_ref"]).read_text(
+    diagnostics = json.loads((tmp_path / "run" / anomaly["diagnostics_ref"]).read_text(
+        encoding="utf-8"
+    ))
+    transcript_md = (tmp_path / "run" / diagnostics["markdown_transcript_ref"]).read_text(
         encoding="utf-8"
     )
-    assert anomaly["transcript_ref"].endswith(".md")
+    assert anomaly["transcript_ref"] == anomaly["diagnostics_ref"]
+    assert anomaly["transcript_ref"].endswith(".diagnostics.json")
     assert anomaly["anomaly"] == Anomaly.PARSE_ERROR.value
+    assert diagnostics["markdown_transcript_ref"].endswith(".md")
     assert "## Attempt Details" in transcript_md
     assert "#### Response" in transcript_md
     assert "> not-json" in transcript_md

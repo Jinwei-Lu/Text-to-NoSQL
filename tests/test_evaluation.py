@@ -391,6 +391,168 @@ def test_evaluate_predictions_preserves_typed_failure_artifacts(
     assert "parse_ok" not in failure["diagnostics"]
 
 
+@pytest.mark.parametrize(
+    ("experiment_kind", "system_key", "system_id"),
+    [
+        ("solver", "solver_variant", "smart_solver"),
+        ("baseline", "baseline_id", "direct"),
+        ("ablation", "ablation_id", "smart_eg_full"),
+    ],
+)
+def test_evaluate_predictions_preserves_top_level_provenance_refs(
+    tmp_path: Path,
+    experiment_kind: str,
+    system_key: str,
+    system_id: str,
+) -> None:
+    dataset_dir = tmp_path / "release"
+    (dataset_dir / "mongodb_data").mkdir(parents=True)
+    record = {
+        "record_id": 71,
+        "db_id": "financial",
+        "MQL": "db.gold_one.aggregate([])",
+        "canonical_form_set": {},
+    }
+    (dataset_dir / "test.json").write_text(json.dumps([record]), encoding="utf-8")
+    (dataset_dir / "mongodb_data" / "financial.json").write_text(
+        json.dumps({"gold_one": [{"_id": 1}]}),
+        encoding="utf-8",
+    )
+    top_level_refs = {
+        "agent_session_ref": "agent_sessions/scored.md",
+        "transcript_refs": ["llm/scored-a.md", "llm/scored-b.md"],
+        "diagnostics_refs": ["llm/scored-a.diagnostics.json"],
+        "evidence_ledger_ref": "evidence/scored-ledger.jsonl",
+        "execution_trace_ref": "traces/scored-execution.jsonl",
+        "error_refs": ["errors/scored-error.json"],
+    }
+    predictions = tmp_path / "predictions.jsonl"
+    predictions.write_text(
+        json.dumps({
+            "result_type": f"{experiment_kind}_prediction",
+            system_key: system_id,
+            "record_id": record["record_id"],
+            "db_id": record["db_id"],
+            "MQL": record["MQL"],
+            "work_item_id": f"{experiment_kind}:0:financial:71",
+            "batch_index": 0,
+            **top_level_refs,
+            "steps": [
+                {
+                    "transcript_ref": "legacy/ignored-step.md",
+                    "diagnostics_ref": "legacy/ignored-step.diagnostics.json",
+                }
+            ],
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    log = setup_logging(tmp_path / "run", console=False)
+    try:
+        output = evaluate_predictions(
+            dataset_dir=dataset_dir,
+            predictions_path=predictions,
+            out_dir=tmp_path / "eval",
+            experiment_kind=experiment_kind,
+            run_id=f"eval-{experiment_kind}-provenance",
+            logger=log,
+            progress=None,
+            executor=_SelectiveGoldExecutor(),
+            max_workers=1,
+        )
+    finally:
+        log.close()
+
+    rows = [
+        json.loads(line)
+        for line in output.paths.per_record_jsonl.read_text(encoding="utf-8").splitlines()
+    ]
+    row = rows[0]
+    for key, value in top_level_refs.items():
+        assert row["prediction_ref"][key] == value
+
+    report_item = output.report["diagnostic_artifact_refs"]["items"][0]
+    system_item = output.report["systems"][system_id]["diagnostic_artifact_refs"]["items"][0]
+    for key, value in top_level_refs.items():
+        assert report_item[key] == value
+        assert system_item[key] == value
+
+
+def test_baseline_evaluation_falls_back_to_legacy_step_artifact_refs(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "release"
+    (dataset_dir / "mongodb_data").mkdir(parents=True)
+    record = {
+        "record_id": 72,
+        "db_id": "financial",
+        "MQL": "db.gold_one.aggregate([])",
+        "canonical_form_set": {},
+    }
+    (dataset_dir / "test.json").write_text(json.dumps([record]), encoding="utf-8")
+    (dataset_dir / "mongodb_data" / "financial.json").write_text(
+        json.dumps({"gold_one": [{"_id": 1}]}),
+        encoding="utf-8",
+    )
+    predictions = tmp_path / "baseline_predictions.jsonl"
+    predictions.write_text(
+        json.dumps({
+            "result_type": "baseline_prediction",
+            "baseline_id": "legacy_direct",
+            "record_id": record["record_id"],
+            "db_id": record["db_id"],
+            "MQL": record["MQL"],
+            "work_item_id": "baseline:0:financial:72",
+            "batch_index": 0,
+            "steps": [
+                {
+                    "transcript_ref": "legacy/step-1.md",
+                    "diagnostics_ref": "legacy/step-1.diagnostics.json",
+                },
+                {
+                    "transcript_ref": "legacy/step-2.md",
+                    "diagnostics_ref": "legacy/step-2.diagnostics.json",
+                },
+            ],
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    log = setup_logging(tmp_path / "run", console=False)
+    try:
+        output = evaluate_predictions(
+            dataset_dir=dataset_dir,
+            predictions_path=predictions,
+            out_dir=tmp_path / "eval",
+            experiment_kind="baseline",
+            run_id="eval-baseline-legacy-steps",
+            logger=log,
+            progress=None,
+            executor=_SelectiveGoldExecutor(),
+            max_workers=1,
+        )
+    finally:
+        log.close()
+
+    expected_transcripts = ["legacy/step-1.md", "legacy/step-2.md"]
+    expected_diagnostics = [
+        "legacy/step-1.diagnostics.json",
+        "legacy/step-2.diagnostics.json",
+    ]
+    rows = [
+        json.loads(line)
+        for line in output.paths.per_record_jsonl.read_text(encoding="utf-8").splitlines()
+    ]
+    assert rows[0]["prediction_ref"]["transcript_refs"] == expected_transcripts
+    assert rows[0]["prediction_ref"]["diagnostics_refs"] == expected_diagnostics
+    report_item = output.report["diagnostic_artifact_refs"]["items"][0]
+    system_item = (
+        output.report["systems"]["legacy_direct"]["diagnostic_artifact_refs"]["items"][0]
+    )
+    assert report_item["transcript_refs"] == expected_transcripts
+    assert report_item["diagnostics_refs"] == expected_diagnostics
+    assert system_item["transcript_refs"] == expected_transcripts
+    assert system_item["diagnostics_refs"] == expected_diagnostics
+
+
 def test_evaluate_predictions_supports_release_package_layout(tmp_path: Path) -> None:
     dataset_dir = tmp_path / "release" / "tend-native-mongodb-v1"
     (dataset_dir / "data").mkdir(parents=True)

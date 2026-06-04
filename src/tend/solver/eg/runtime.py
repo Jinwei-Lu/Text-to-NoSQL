@@ -254,15 +254,21 @@ async def smart_solve_nlq_db_eg(
         raise TypeError("smart_solve_nlq_db_eg requires run_dir or wf.ctx.log.run_dir")
 
     policy = policy or SmartEGPolicy()
+    resolved_session_id = session_id or build_session_id(
+        stage="solve",
+        task="smart_eg",
+        db_id=db_id,
+        record_id=record_id,
+    )
     observer = SmartEGObserver(
         run_dir,
-        session_id=session_id
-        or build_session_id(
-            stage="solve",
-            task="smart_eg",
-            db_id=db_id,
-            record_id=record_id,
-        ),
+        session_id=resolved_session_id,
+    )
+    session_logger = _session_logger(
+        ctx,
+        observer,
+        db_id=db_id,
+        record_id=record_id,
     )
     state = SmartEGState(
         nlq=nlq,
@@ -363,15 +369,17 @@ async def smart_solve_nlq_db_eg(
                 },
             )
             try:
-                response = await _complete_with_tools(
-                    llm,
-                    messages=provider_messages,
-                    tools=exposed_tools,
-                    tool_choice=tool_choice,
-                    agent="smart_eg",
-                    stream=policy.stream,
-                    first_token_timeout_s=policy.first_token_timeout_s,
-                )
+                request_kwargs: dict[str, Any] = {
+                    "messages": provider_messages,
+                    "tools": exposed_tools,
+                    "tool_choice": tool_choice,
+                    "agent": "smart_eg",
+                    "stream": policy.stream,
+                    "first_token_timeout_s": policy.first_token_timeout_s,
+                }
+                if session_logger is not None:
+                    request_kwargs["logger"] = session_logger
+                response = await _complete_with_tools(llm, **request_kwargs)
             except Exception as exc:  # noqa: BLE001 - return typed provider failure
                 observer.record_error(
                     {
@@ -380,6 +388,7 @@ async def smart_solve_nlq_db_eg(
                         "error_type": type(exc).__name__,
                     }
                 )
+                observer.consume_error_refs()
                 state.result = SmartEGFailure(
                     result_type="solver_failure",
                     db_id=state.db_id,
@@ -434,6 +443,7 @@ async def smart_solve_nlq_db_eg(
                         "mode": state.mode,
                     }
                 )
+                observer.consume_error_refs()
                 history.add_user(
                     "Protocol violation: call one exposed SMART-EG tool. "
                     "Natural-language answers cannot submit or fail the solver."
@@ -452,6 +462,13 @@ async def smart_solve_nlq_db_eg(
                     },
                 )
                 observation = api.execute(call, state, exposed_tool_names=exposed_tool_names)
+                error_refs = observer.consume_error_refs()
+                if error_refs:
+                    observation.result = {**observation.result, "error_refs": error_refs}
+                    observation.llm_visible_content = {
+                        **observation.llm_visible_content,
+                        "error_refs": error_refs,
+                    }
                 if _counts_against_tool_budget(observation):
                     state.counters.tool_turns += 1
                 history.add_tool_result(
@@ -467,6 +484,7 @@ async def smart_solve_nlq_db_eg(
                         "tool": observation.name,
                         "ok": observation.ok,
                         "gate_ref": observation.gate_ref,
+                        "error_refs": error_refs or None,
                         "content": observation.llm_visible_content,
                     },
                 )
@@ -483,6 +501,7 @@ async def smart_solve_nlq_db_eg(
         observer.set_current_turn(None)
         if state.result is None:
             state.result = _budget_failure(state, observer, "terminal_without_result")
+        _normalize_result_refs(state.result, observer)
         observer.record_execution_trace(
             {
                 "event": "final_state",
@@ -540,6 +559,53 @@ async def smart_solve_record_eg(
         record_id=record.get("record_id"),
         policy=policy,
     )
+
+
+def _session_logger(
+    ctx: Any | None,
+    observer: SmartEGObserver,
+    *,
+    db_id: str,
+    record_id: str | int | None,
+) -> Any | None:
+    logger = getattr(ctx, "log", None) if ctx is not None else None
+    bind = getattr(logger, "bind", None)
+    if not callable(bind):
+        return None
+    fields: dict[str, Any] = {
+        "agent_session_ref": observer.agent_ref(),
+        "session_id": observer.session_id,
+        "db_id": db_id,
+        "record_id": record_id,
+    }
+    extra = getattr(ctx, "extra", None) if ctx is not None else None
+    if isinstance(extra, dict):
+        for key in ("ablation_id", "batch_index", "work_item_id"):
+            value = extra.get(key)
+            if value is not None:
+                fields[key] = value
+        solver_options = extra.get("solver_options")
+        if isinstance(solver_options, dict):
+            solver_variant = solver_options.get("solver_variant")
+            if solver_variant is not None:
+                fields["solver_variant"] = solver_variant
+        solver_variant = extra.get("solver_variant")
+        if solver_variant is not None:
+            fields["solver_variant"] = solver_variant
+    return bind(**fields)
+
+
+def _normalize_result_refs(result: Any, observer: SmartEGObserver) -> None:
+    for attr, value in (
+        ("agent_session_ref", observer.agent_ref()),
+        ("evidence_ledger_ref", observer.evidence_ref()),
+        ("execution_trace_ref", observer.execution_trace_ref()),
+        ("transcript_refs", observer.transcript_refs()),
+        ("diagnostics_refs", observer.diagnostics_refs()),
+        ("error_refs", observer.error_refs()),
+    ):
+        if hasattr(result, attr):
+            setattr(result, attr, value)
 
 
 async def _complete_with_tools(llm: Any, **kwargs: Any) -> dict[str, Any]:

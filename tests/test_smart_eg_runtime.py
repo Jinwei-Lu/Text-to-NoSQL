@@ -36,6 +36,11 @@ class _Mongo:
         return {"collection": "account", "count": min(2, limit), "sample": [{"_id": 1}]}
 
 
+class _FailingMongo(_Mongo):
+    def list_collections(self, _db_id):
+        raise RuntimeError("catalog unavailable")
+
+
 class _LLM:
     def __init__(self, calls: list[ToolCall | None]) -> None:
         self.calls = list(calls)
@@ -105,7 +110,13 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
-def _workflow(tmp_path: Path, llm: _LLM) -> SimpleNamespace:
+def _workflow(
+    tmp_path: Path,
+    llm: _LLM,
+    *,
+    mongo: _Mongo | None = None,
+    extra: dict | None = None,
+) -> SimpleNamespace:
     settings = _settings(tmp_path)
     log = setup_logging(settings.run_dir, console=False)
     ctx = SimpleNamespace(
@@ -113,9 +124,9 @@ def _workflow(tmp_path: Path, llm: _LLM) -> SimpleNamespace:
         llm=llm,
         log=log,
         progress=_Progress(),
-        mongo=_Mongo(),
+        mongo=mongo or _Mongo(),
         source=None,
-        extra={},
+        extra=extra or {},
     )
     return SimpleNamespace(ctx=ctx)
 
@@ -157,12 +168,15 @@ def test_direct_first_turn_submit_final_mql_is_rejected(tmp_path: Path) -> None:
     assert isinstance(result, SmartEGFailure)
     assert result.result_type == "solver_failure"
     assert result.record_id == 1
-    assert result.agent_session_ref.startswith("agent/")
-    assert Path(result.agent_session_ref).name.startswith(
-        "solve_smart_eg_financial_record_1_"
-    )
-    assert result.evidence_ledger_ref == "evidence_ledger.jsonl"
-    agent_jsonl = _settings(tmp_path).run_dir / result.agent_session_ref.replace(".md", ".jsonl")
+    assert result.agent_session_ref.startswith("solve/sessions/")
+    assert result.agent_session_ref.endswith("/agent.md")
+    assert result.transcript_refs == [result.agent_session_ref]
+    assert result.diagnostics_refs
+    session_ref = Path(result.agent_session_ref).parent.as_posix()
+    assert Path(session_ref).name.startswith("solve_smart_eg_financial_record_1_")
+    assert result.evidence_ledger_ref == f"{session_ref}/evidence_ledger.jsonl"
+    run_dir = _settings(tmp_path).run_dir
+    agent_jsonl = run_dir / session_ref / "agent.jsonl"
     rows = [json.loads(line) for line in agent_jsonl.read_text(encoding="utf-8").splitlines()]
     final_observation = next(
         row
@@ -172,6 +186,16 @@ def test_direct_first_turn_submit_final_mql_is_rejected(tmp_path: Path) -> None:
     assert final_observation["ok"] is False
     assert final_observation["content"]["ok"] is False
     assert final_observation["content"]["reason"] == "tool_not_exposed"
+    assert not (run_dir / "agent").exists()
+    for root_sidecar in [
+        "evidence_ledger.jsonl",
+        "submit_gates.jsonl",
+        "cost_summary.jsonl",
+        "errors.jsonl",
+        "execution_trace.jsonl",
+        "progress.jsonl",
+    ]:
+        assert not (run_dir / root_sidecar).exists()
 
 
 def test_full_staged_submit_final_mql_succeeds_with_refs_and_executor(tmp_path: Path) -> None:
@@ -302,7 +326,108 @@ def test_abandon_with_failure_is_normal_failure_exit(tmp_path: Path) -> None:
     assert result.result_type == "solver_failure"
     assert result.record_id == 9
     assert result.error_code == "NO_VALID_QUERY_FOUND"
-    assert result.agent_session_ref.startswith("agent/")
+    assert result.agent_session_ref.startswith("solve/sessions/")
+    assert result.agent_session_ref.endswith("/agent.md")
+    run_dir = _settings(tmp_path).run_dir
+    assert (run_dir / result.evidence_ledger_ref).exists()
+
+
+def test_complete_with_tools_receives_session_bound_logger_context(tmp_path: Path) -> None:
+    llm = _LLM(
+        [
+            ToolCall(
+                id="call_1",
+                name="abandon_with_failure",
+                raw_arguments='{"message":"done"}',
+                arguments={"message": "done"},
+            )
+        ]
+    )
+    wf = _workflow(
+        tmp_path,
+        llm,
+        extra={
+            "ablation_id": "smart_eg_no_revisit",
+            "batch_index": 3,
+            "work_item_id": "ablation:3:smart_eg_no_revisit:financial:14",
+            "solver_options": {"solver_variant": "smart-eg/no-revisit"},
+        },
+    )
+
+    result = asyncio.run(
+        smart_solve_nlq_db_eg(
+            wf,
+            db_id="financial",
+            nlq="logger context",
+            record_id=14,
+            session_id="session-bound-test",
+            policy=SmartEGPolicy(max_tool_turns=4),
+        )
+    )
+
+    request = llm.requests[0]
+    logger_context_value = request["logger"].context
+    logger_context = (
+        logger_context_value() if callable(logger_context_value) else logger_context_value
+    )
+
+    assert isinstance(result, SmartEGFailure)
+    assert logger_context["agent_session_ref"] == "solve/sessions/session-bound-test/agent.md"
+    assert logger_context["session_id"] == "session-bound-test"
+    assert logger_context["db_id"] == "financial"
+    assert logger_context["record_id"] == 14
+    assert logger_context["ablation_id"] == "smart_eg_no_revisit"
+    assert logger_context["batch_index"] == 3
+    assert logger_context["work_item_id"] == "ablation:3:smart_eg_no_revisit:financial:14"
+    assert logger_context["solver_variant"] == "smart-eg/no-revisit"
+
+
+def test_tool_error_refs_are_propagated_to_observation_and_markdown(tmp_path: Path) -> None:
+    llm = _LLM(
+        [
+            ToolCall(id="call_1", name="list_collections", raw_arguments="{}", arguments={}),
+            ToolCall(
+                id="call_2",
+                name="abandon_with_failure",
+                raw_arguments='{"message":"catalog unavailable"}',
+                arguments={"message": "catalog unavailable"},
+            ),
+        ]
+    )
+
+    result = asyncio.run(
+        smart_solve_nlq_db_eg(
+            _workflow(tmp_path, llm, mongo=_FailingMongo()),
+            db_id="financial",
+            nlq="list accounts",
+            record_id=15,
+            policy=SmartEGPolicy(max_tool_turns=4),
+        )
+    )
+
+    assert isinstance(result, SmartEGFailure)
+    run_dir = _settings(tmp_path).run_dir
+    session_ref = Path(result.agent_session_ref).parent.as_posix()
+    rows = [
+        json.loads(line)
+        for line in (run_dir / session_ref / "agent.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    observation = next(
+        row
+        for row in rows
+        if row.get("event") == "tool_observation" and row.get("tool") == "list_collections"
+    )
+    error_refs = observation["error_refs"]
+
+    assert error_refs == observation["content"]["error_refs"]
+    assert result.error_refs == error_refs
+    assert error_refs[0].startswith(f"{session_ref}/errors.jsonl#")
+    assert (run_dir / error_refs[0].split("#", 1)[0]).exists()
+    assert not (run_dir / "errors.jsonl").exists()
+    md = (run_dir / result.agent_session_ref).read_text(encoding="utf-8")
+    assert "Error Refs" in md
+    assert error_refs[0] in md
+    assert "catalog unavailable" in md
 
 
 def test_natural_language_response_never_counts_as_success(tmp_path: Path) -> None:
@@ -450,12 +575,14 @@ def test_submit_ready_turn_compacts_provider_history(tmp_path: Path) -> None:
         encoding="utf-8"
     )
     assert "### LLM Call" in md
+    assert "## Inputs" in md
     assert "#### Provider Request Messages" in md
     assert "required_next_tool" in md
     assert "submit_environment_model" in md
     assert "### Tool Calls" in md
     assert "### Tool Results" in md
     assert "### Metrics" in md
+    assert "## Final Outcome" in md
     assert md.count("#### list_collections()") == 1
     assert md.count('#### sample_documents(collection="account")') == 1
     assert "### Tool Result:" not in md

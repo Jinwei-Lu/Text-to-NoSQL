@@ -223,6 +223,7 @@ def render_llm_transcript_markdown(payload: dict[str, Any]) -> str:
             ("Phase", payload.get("phase") or payload.get("stage")),
             ("Database", payload.get("db_id")),
             ("Record", payload.get("record_id")),
+            ("Agent Session", payload.get("agent_session_ref")),
             ("Diagnostics", diagnostics_ref),
         ],
     )

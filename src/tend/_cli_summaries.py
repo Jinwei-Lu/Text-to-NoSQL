@@ -17,6 +17,37 @@ def _count_by(items: list[dict], key: str) -> dict[str, int]:
     return counts
 
 
+def _print_log_refs(rt) -> None:
+    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl | progress.jsonl")
+
+
+def _print_primary_session_refs(*groups: list[dict]) -> None:
+    refs: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group:
+            for ref in _item_primary_session_refs(item):
+                if ref not in seen:
+                    refs.append(ref)
+                    seen.add(ref)
+    if not refs:
+        return
+    suffix = "" if len(refs) <= 5 else f" | ... {len(refs) - 5} more"
+    print(f"  session refs : {' | '.join(refs[:5])}{suffix}")
+
+
+def _item_primary_session_refs(item: dict) -> list[str]:
+    refs: list[str] = []
+    single = item.get("agent_session_ref") or item.get("session_ref")
+    if isinstance(single, str) and single:
+        refs.append(single)
+    for key in ("agent_session_refs", "session_refs"):
+        value = item.get(key)
+        if isinstance(value, list):
+            refs.extend(ref for ref in value if isinstance(ref, str) and ref)
+    return refs
+
+
 def _print_summary(rt, artifacts, records, summary, out_dir) -> None:
     print("\n" + "=" * 64)
     print(f"TEND construct · run {rt.settings.run_id} · "
@@ -31,7 +62,7 @@ def _print_summary(rt, artifacts, records, summary, out_dir) -> None:
         print(f"    #{r['record_id']} {r['db_id']} {r['difficulty']} "
               f"{r.get('sql_infeasibility_class')}")
     print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
-    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl | progress.jsonl | llm/")
+    _print_log_refs(rt)
     print(f"  output : {out_dir}")
     print("=" * 64)
 
@@ -60,7 +91,8 @@ def _print_solve_summary(
         print(f"    #{item.get('record_id')} {item.get('db_id')} "
               f"{item.get('error_code')}: {str(item.get('message', ''))[:96]}")
     print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
-    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl | progress.jsonl | llm/")
+    _print_log_refs(rt)
+    _print_primary_session_refs(predictions, failures)
     print(f"  output : {out_path}")
     print(f"  failures output : {failures_path}")
     _print_evaluation_block(evaluation, evaluate=evaluate, skip_reason=skip_reason)
@@ -97,7 +129,8 @@ def _print_baseline_summary(
         print(f"    failure {item.get('baseline_id')} #{item.get('record_id')} "
               f"{item.get('error_code')}: {str(item.get('message', ''))[:80]}")
     print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
-    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl | progress.jsonl | llm/")
+    _print_log_refs(rt)
+    _print_primary_session_refs(predictions, failures)
     print(f"  output : {out_path}")
     print(f"  failures output : {failures_path}")
     _print_evaluation_block(evaluation, evaluate=evaluate, skip_reason=skip_reason)
@@ -131,7 +164,8 @@ def _print_ablation_summary(
         print(f"    failure {item.get('ablation_id')} #{item.get('record_id')} "
               f"{item.get('error_code')}: {str(item.get('message', ''))[:80]}")
     print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
-    print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl | progress.jsonl | llm/")
+    _print_log_refs(rt)
+    _print_primary_session_refs(predictions, failures)
     print(f"  output : {out_path}")
     print(f"  summary: {summary_path}")
     print(f"  failures output : {failures_path}")

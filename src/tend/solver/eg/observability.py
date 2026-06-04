@@ -168,23 +168,26 @@ class SmartEGObserver:
         self.run_dir = Path(run_dir)
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.session_id = session_id or build_session_id(stage="solve", task="smart_eg")
-        self.agent_dir = self.run_dir / "agent"
-        self.agent_dir.mkdir(parents=True, exist_ok=True)
-        self.agent_jsonl = self.agent_dir / f"{self.session_id}.jsonl"
-        self.agent_md = self.agent_dir / f"{self.session_id}.md"
-        self.tools_json = self.agent_dir / f"{self.session_id}.tools.json"
-        self.evidence_path = self.run_dir / "evidence_ledger.jsonl"
-        self.submit_gates_path = self.run_dir / "submit_gates.jsonl"
-        self.cost_path = self.run_dir / "cost_summary.jsonl"
-        self.errors_path = self.run_dir / "errors.jsonl"
-        self.execution_trace_path = self.run_dir / "execution_trace.jsonl"
-        self.progress_path = self.run_dir / "progress.jsonl"
+        self.session_dir = self.run_dir / "solve" / "sessions" / self.session_id
+        self.session_dir.mkdir(parents=True, exist_ok=True)
+        self.agent_jsonl = self.session_dir / "agent.jsonl"
+        self.agent_md = self.session_dir / "agent.md"
+        self.tools_json = self.session_dir / "tools.json"
+        self.evidence_path = self.session_dir / "evidence_ledger.jsonl"
+        self.submit_gates_path = self.session_dir / "submit_gates.jsonl"
+        self.cost_path = self.session_dir / "cost_summary.jsonl"
+        self.errors_path = self.session_dir / "errors.jsonl"
+        self.execution_trace_path = self.session_dir / "execution_trace.jsonl"
+        self.progress_path = self.session_dir / "progress.jsonl"
         self._agent_events: list[dict[str, Any]] = []
         self._line_counts: dict[Path, int] = {}
         self._session_meta: dict[str, Any] = {}
         self._final_status: str | None = None
         self._final_state_summary: dict[str, Any] | None = None
         self._current_turn_index: int | None = None
+        self._pending_error_refs: list[str] = []
+        self._llm_diagnostics_refs: list[str] = []
+        self._error_refs: list[str] = []
 
     def start_session(self, **metadata: Any) -> None:
         metadata.setdefault("started", _utcnow())
@@ -203,20 +206,28 @@ class SmartEGObserver:
         self._current_turn_index = turn_index
 
     def agent_ref(self) -> str:
-        return f"agent/{self.session_id}.md"
+        return self._ref(self.agent_md)
 
     def agent_jsonl_ref(self, line_no: int | None = None) -> str:
-        ref = f"agent/{self.session_id}.jsonl"
-        return f"{ref}#{line_no}" if line_no is not None else ref
+        return self._ref(self.agent_jsonl, line_no)
 
     def tools_ref(self) -> str:
-        return f"agent/{self.session_id}.tools.json"
+        return self._ref(self.tools_json)
+
+    def transcript_refs(self) -> list[str]:
+        return [self.agent_ref()]
+
+    def diagnostics_refs(self) -> list[str]:
+        return list(self._llm_diagnostics_refs)
+
+    def error_refs(self) -> list[str]:
+        return list(self._error_refs)
 
     def evidence_ref(self) -> str:
-        return "evidence_ledger.jsonl"
+        return self._ref(self.evidence_path)
 
     def execution_trace_ref(self) -> str:
-        return "execution_trace.jsonl"
+        return self._ref(self.execution_trace_path)
 
     def agent_event(self, event: str, payload: dict[str, Any] | None = None) -> str:
         fields = dict(payload or {})
@@ -225,6 +236,10 @@ class SmartEGObserver:
         record = {"ts": _utcnow(), "event": event, **fields}
         line_no = self._append_jsonl(self.agent_jsonl, record)
         self._agent_events.append(record)
+        if event == "llm_response":
+            diagnostics_ref = fields.get("diagnostics_ref")
+            if isinstance(diagnostics_ref, str) and diagnostics_ref:
+                self._remember_unique(self._llm_diagnostics_refs, diagnostics_ref)
         self._write_markdown()
         return self.agent_jsonl_ref(line_no)
 
@@ -232,12 +247,12 @@ class SmartEGObserver:
         record = {"ts": _utcnow(), "event": "evidence_recorded", **dict(payload)}
         line_no = self._append_jsonl(self.evidence_path, record)
         self.agent_event("evidence_added", {"evidence_id": record.get("evidence_id")})
-        return f"evidence_ledger.jsonl#{line_no}"
+        return self._ref(self.evidence_path, line_no)
 
     def record_submit_gate(self, payload: dict[str, Any]) -> str:
         record = {"ts": _utcnow(), **dict(payload)}
         line_no = self._append_jsonl(self.submit_gates_path, record)
-        ref = f"submit_gates.jsonl#{line_no}"
+        ref = self._ref(self.submit_gates_path, line_no)
         self.agent_event(
             "submit_gate_checked",
             {
@@ -255,26 +270,45 @@ class SmartEGObserver:
             **dict(payload),
         }
         line_no = self._append_jsonl(self.cost_path, record)
-        return f"cost_summary.jsonl#{line_no}"
+        return self._ref(self.cost_path, line_no)
 
     def record_error(self, payload: dict[str, Any]) -> str:
         record = {"ts": _utcnow(), **dict(payload)}
         line_no = self._append_jsonl(self.errors_path, record)
-        return f"errors.jsonl#{line_no}"
+        ref = self._ref(self.errors_path, line_no)
+        self._pending_error_refs.append(ref)
+        self._remember_unique(self._error_refs, ref)
+        self.agent_event(
+            "error_recorded",
+            {
+                "error_ref": ref,
+                "error_code": record.get("error_code"),
+                "tool": record.get("tool"),
+                "message": record.get("message"),
+                "error_type": record.get("error_type"),
+            },
+        )
+        return ref
+
+    def consume_error_refs(self) -> list[str]:
+        refs = list(self._pending_error_refs)
+        self._pending_error_refs.clear()
+        return refs
 
     def record_execution_trace(self, payload: dict[str, Any]) -> str:
         record = {"ts": _utcnow(), **dict(payload)}
         line_no = self._append_jsonl(self.execution_trace_path, record)
-        return f"execution_trace.jsonl#{line_no}"
+        return self._ref(self.execution_trace_path, line_no)
 
     def record_progress(self, payload: dict[str, Any]) -> str:
         record = {"ts": _utcnow(), "solver_id": "smart-eg", **dict(payload)}
         line_no = self._append_jsonl(self.progress_path, record)
-        return f"progress.jsonl#{line_no}"
+        return self._ref(self.progress_path, line_no)
 
     def finalize_markdown(self, *, final_status: str, state_summary: dict[str, Any]) -> None:
         self._final_status = final_status
         self._final_state_summary = dict(state_summary)
+        self.evidence_path.touch(exist_ok=True)
         self._write_markdown()
 
     def _write_markdown(self) -> None:
@@ -303,7 +337,7 @@ class SmartEGObserver:
             _append_quote(lines, system_prompt)
         user_message = self._session_meta.get("user_message")
         if isinstance(user_message, str):
-            lines += ["## User Message", ""]
+            lines += ["## Inputs", ""]
             _append_quote(lines, user_message)
         tools = self._session_meta.get("tools")
         if tools is not None:
@@ -352,7 +386,7 @@ class SmartEGObserver:
             lines += _json_block(self._final_state_summary)
 
         if self._final_status:
-            lines += ["## Session Complete", ""]
+            lines += ["## Final Outcome", ""]
             counters = (
                 self._final_state_summary.get("counters", {})
                 if isinstance(self._final_state_summary, dict)
@@ -382,9 +416,9 @@ class SmartEGObserver:
                     ("Total Cost (USD)", counters.get("cost_usd")),
                     ("Agent JSONL", self.agent_jsonl_ref()),
                     ("Evidence Ledger", self.evidence_ref()),
-                    ("Submit Gates", "submit_gates.jsonl"),
+                    ("Submit Gates", self._existing_ref(self.submit_gates_path)),
                     ("Execution Trace", self.execution_trace_ref()),
-                    ("Cost Summary", "cost_summary.jsonl"),
+                    ("Cost Summary", self._existing_ref(self.cost_path)),
                 ],
             )
         lines.append("")
@@ -422,6 +456,7 @@ class SmartEGObserver:
                 "submit_gate_checked",
                 "submit_attempt",
                 "history_compacted",
+                "error_recorded",
             }
         ]
         handled = {
@@ -434,6 +469,7 @@ class SmartEGObserver:
             "submit_gate_checked",
             "submit_attempt",
             "history_compacted",
+            "error_recorded",
         }
         other_events = [event for event in events if event.get("event") not in handled]
 
@@ -547,6 +583,7 @@ class SmartEGObserver:
             signature = _tool_signature(name, args_by_call.get(call_id, {}))
             content = event.get("content")
             evidence_ids = _evidence_ids(content)
+            error_refs = _error_refs(event, content)
             lines += [f"#### {signature} (`{call_id}`)", ""]
             _append_table(
                 lines,
@@ -555,6 +592,7 @@ class SmartEGObserver:
                     ("OK", event.get("ok")),
                     ("Gate", event.get("gate_ref")),
                     ("Evidence", ", ".join(evidence_ids) if evidence_ids else None),
+                    ("Error Refs", ", ".join(error_refs) if error_refs else None),
                 ],
             )
             if content is None:
@@ -600,6 +638,14 @@ class SmartEGObserver:
                     f"reason={event.get('reason')} "
                     f"required_next_tool={event.get('required_next_tool')} "
                     f"message_count={event.get('message_count')}"
+                )
+            elif name == "error_recorded":
+                lines.append(
+                    "- Error recorded: "
+                    f"code={event.get('error_code')} "
+                    f"tool={event.get('tool')} "
+                    f"ref={event.get('error_ref')} "
+                    f"message={event.get('message')}"
                 )
         for event in other_events:
             lines.append(
@@ -722,6 +768,8 @@ class SmartEGObserver:
             return
         if name == "tool_observation":
             lines += [f"### Tool Result: {_tool_name(event)}", ""]
+            content = event.get("content")
+            error_refs = _error_refs(event, content)
             _append_table(
                 lines,
                 [
@@ -729,9 +777,9 @@ class SmartEGObserver:
                     ("Tool Call ID", event.get("tool_call_id")),
                     ("OK", event.get("ok")),
                     ("Gate", event.get("gate_ref")),
+                    ("Error Refs", ", ".join(error_refs) if error_refs else None),
                 ],
             )
-            content = event.get("content")
             if content is None:
                 content = {
                     key: value
@@ -739,6 +787,20 @@ class SmartEGObserver:
                     if key not in {"ts", "event"}
                 }
             lines += _json_block(content)
+            return
+        if name == "error_recorded":
+            lines += ["### Error Recorded", ""]
+            _append_table(
+                lines,
+                [
+                    ("Time", event.get("ts")),
+                    ("Code", event.get("error_code")),
+                    ("Tool", event.get("tool")),
+                    ("Error Type", event.get("error_type")),
+                    ("Error Ref", event.get("error_ref")),
+                    ("Message", event.get("message")),
+                ],
+            )
             return
         lines.append(
             f"- {event.get('ts')} `{name}` "
@@ -760,6 +822,18 @@ class SmartEGObserver:
             fp.write(json.dumps(safe, ensure_ascii=False, default=str) + "\n")
         self._line_counts[path] = line_no
         return line_no
+
+    def _ref(self, path: Path, line_no: int | None = None) -> str:
+        ref = path.relative_to(self.run_dir).as_posix()
+        return f"{ref}#{line_no}" if line_no is not None else ref
+
+    def _existing_ref(self, path: Path) -> str | None:
+        return self._ref(path) if path.exists() else None
+
+    @staticmethod
+    def _remember_unique(items: list[str], value: str) -> None:
+        if value not in items:
+            items.append(value)
 
     @staticmethod
     def _count_existing_lines(path: Path) -> int:
@@ -828,6 +902,22 @@ def _evidence_ids(value: Any) -> list[str]:
     return list(dict.fromkeys(ids))
 
 
+def _error_refs(event: dict[str, Any], content: Any) -> list[str]:
+    refs: list[str] = []
+    event_refs = event.get("error_refs")
+    if isinstance(event_refs, list):
+        refs.extend(str(item) for item in event_refs if item)
+    elif event_refs:
+        refs.append(str(event_refs))
+    if isinstance(content, dict):
+        content_refs = content.get("error_refs")
+        if isinstance(content_refs, list):
+            refs.extend(str(item) for item in content_refs if item)
+        elif content_refs:
+            refs.append(str(content_refs))
+    return list(dict.fromkeys(refs))
+
+
 def _markdown_transcript_ref(event: dict[str, Any] | None) -> str | None:
     if not event:
         return None
@@ -865,15 +955,15 @@ class SmartEGRecorder(SmartEGObserver):
 
     def write_submit_gate(self, payload: dict[str, Any]) -> str:
         self.record_submit_gate(payload)
-        return "submit_gates.jsonl"
+        return self._ref(self.submit_gates_path)
 
     def write_cost_summary(self, payload: dict[str, Any]) -> str:
         self.record_cost(payload)
-        return "cost_summary.jsonl"
+        return self._ref(self.cost_path)
 
     def write_error(self, payload: dict[str, Any]) -> str:
         self.record_error(payload)
-        return "errors.jsonl"
+        return self._ref(self.errors_path)
 
     def final_markdown(self, text: str) -> None:
         self.finalize_markdown(final_status=text, state_summary={})

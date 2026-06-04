@@ -61,6 +61,7 @@ DIAGNOSTIC_REF_KEYS: tuple[str, ...] = (
     "agent_session_ref",
     "evidence_ledger_ref",
     "execution_trace_ref",
+    "error_refs",
     "last_candidate_ref",
     "unresolved_debts",
 )
@@ -954,7 +955,38 @@ def _prediction_ref(prediction: dict[str, Any]) -> dict[str, Any]:
     diagnostics_ref = prediction.get("diagnostics_ref")
     if "diagnostics_refs" not in ref and isinstance(diagnostics_ref, str) and diagnostics_ref:
         ref["diagnostics_refs"] = [diagnostics_ref]
+    if _is_baseline_row(prediction):
+        step_transcripts, step_diagnostics = _legacy_step_refs(prediction)
+        if "transcript_refs" not in ref and step_transcripts:
+            ref["transcript_refs"] = step_transcripts
+        if "diagnostics_refs" not in ref and step_diagnostics:
+            ref["diagnostics_refs"] = step_diagnostics
     return ref
+
+
+def _is_baseline_row(prediction: dict[str, Any]) -> bool:
+    result_type = prediction.get("result_type")
+    if isinstance(result_type, str) and result_type.startswith("baseline_"):
+        return True
+    return _ref_value_present(prediction.get("baseline_id"))
+
+
+def _legacy_step_refs(prediction: dict[str, Any]) -> tuple[list[str], list[str]]:
+    steps = prediction.get("steps")
+    if not isinstance(steps, list):
+        return [], []
+    transcripts: list[str] = []
+    diagnostics: list[str] = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        transcript_ref = step.get("transcript_ref")
+        if isinstance(transcript_ref, str) and transcript_ref:
+            transcripts.append(transcript_ref)
+        diagnostics_ref = step.get("diagnostics_ref")
+        if isinstance(diagnostics_ref, str) and diagnostics_ref:
+            diagnostics.append(diagnostics_ref)
+    return transcripts, diagnostics
 
 
 def _ref_value_present(value: Any) -> bool:

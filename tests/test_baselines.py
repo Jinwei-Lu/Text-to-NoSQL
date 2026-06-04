@@ -137,11 +137,13 @@ def test_baseline_suite_stub_logs_markdown_transcripts(tmp_path: Path) -> None:
     finally:
         log.close()
 
+    run_dir = tmp_path / "run"
     assert len(outputs) == 6
     assert {item["baseline_id"] for item in outputs} == set(BASELINE_IDS)
     assert all(item["status"] == "ok" for item in outputs)
     assert all(item["disclosure"]["uses_gold_mql"] is False for item in outputs)
     assert all("disjointness_ok" in item["disclosure"] for item in outputs)
+    assert len({item["agent_session_ref"] for item in outputs}) == 6
     for item in outputs:
         assert item["disclosure"]["json_repair_retries"] == 0
         assert item["disclosure"]["retry_contract"]["json_repair_retries"] == 0
@@ -156,21 +158,30 @@ def test_baseline_suite_stub_logs_markdown_transcripts(tmp_path: Path) -> None:
             assert step["json_repair_retries"] == 0
             assert step["llm_attempts"] == 1
             assert step["transport_retries"] == 0
+        session_text = _assert_baseline_session_markdown(run_dir, item)
+        assert "Record ID: 1001" in session_text
+        assert "loan_to_credit_ratio" in session_text
 
-    run_dir = tmp_path / "run"
     events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
     llm_ok = [event for event in events if event["event"] == "llm_call_ok"]
     assert len(llm_ok) == 10
+    session_refs = {item["agent_session_ref"] for item in outputs}
     for event in llm_ok:
         assert event["baseline_id"]
         assert event["baseline_step"]
+        assert event["agent_session_ref"] in session_refs
         transcript_ref = event["transcript_ref"]
         diagnostics_ref = event["diagnostics_ref"]
-        assert transcript_ref.endswith(".diagnostics.json")
+        assert transcript_ref.endswith(".md")
+        assert transcript_ref == event["agent_session_ref"]
         assert diagnostics_ref.endswith(".diagnostics.json")
+        assert diagnostics_ref.startswith("baseline/sessions/")
+        assert "/diagnostics/" in diagnostics_ref
         diagnostics = json.loads((run_dir / diagnostics_ref).read_text(encoding="utf-8"))
         assert diagnostics["markdown_transcript_enabled"] is False
         assert not (run_dir / diagnostics_ref.replace(".diagnostics.json", ".md")).exists()
+        assert diagnostics["agent_session_ref"] == event["agent_session_ref"]
+        assert diagnostics["transcript_ref"] == event["agent_session_ref"]
         assert diagnostics["baseline_id"] == event["baseline_id"]
         assert diagnostics["baseline_step"] == event["baseline_step"]
         prompt_text = "\n".join(message["content"] for message in diagnostics["messages"])
@@ -339,19 +350,35 @@ def test_baseline_invalid_json_fails_without_repair_retry(tmp_path: Path) -> Non
     assert payload["disclosure"]["json_repair_retries"] == 0
     assert payload["disclosure"]["retry_contract"]["json_repair_retries"] == 0
     assert payload["steps"] == []
+    assert payload["agent_session_ref"].endswith(".md")
+    assert len(payload["transcript_refs"]) == 1
+    assert len(payload["diagnostics_refs"]) == 1
 
     run_dir = tmp_path / "run"
-    diagnostics_paths = sorted((run_dir / "llm").glob("**/*.diagnostics.json"))
-    assert len(diagnostics_paths) == 1
-    diagnostics = json.loads(diagnostics_paths[0].read_text(encoding="utf-8"))
+    assert payload["diagnostics_refs"][0].startswith("baseline/sessions/")
+    assert "/diagnostics/" in payload["diagnostics_refs"][0]
+    diagnostics_path = run_dir / payload["diagnostics_refs"][0]
+    assert diagnostics_path.exists()
+    diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
     assert diagnostics["failed"] is True
     assert diagnostics["json_repair_retries"] == 0
     assert len(diagnostics["attempts"]) == 1
     assert diagnostics["attempts"][0]["validation_error"]["anomaly"] == "parse_error"
     assert len(diagnostics["messages"]) == 2
+    session_text = (run_dir / payload["agent_session_ref"]).read_text(encoding="utf-8")
+    assert "## Errors" in session_text
+    assert "parse_error" in session_text
+    assert payload["diagnostics_refs"][0] in session_text
 
     events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
     assert not [event for event in events if event["event"] == "llm_repair_retry"]
+    anomalies = [event for event in events if event["event"] == "anomaly"]
+    assert any(
+        event["anomaly"] == "parse_error"
+        and event.get("agent_session_ref") == payload["agent_session_ref"]
+        and event.get("diagnostics_ref") == payload["diagnostics_refs"][0]
+        for event in anomalies
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +426,36 @@ def _assert_no_private_sentinel(payload: Any, *sentinels: str) -> None:
     text = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
     for sentinel in sentinels:
         assert sentinel not in text
+
+
+def _assert_baseline_session_markdown(run_dir: Path, payload: dict[str, Any]) -> str:
+    assert payload["agent_session_ref"].endswith(".md")
+    assert payload["agent_session_ref"].startswith("baseline/sessions/")
+    assert payload["transcript_refs"] == [payload["agent_session_ref"]]
+    assert all(
+        step["transcript_ref"] == payload["agent_session_ref"]
+        for step in payload.get("steps", [])
+    )
+    assert payload["diagnostics_refs"] == [
+        step["diagnostics_ref"] for step in payload.get("steps", [])
+    ]
+    session_path = run_dir / payload["agent_session_ref"]
+    assert session_path.exists()
+    session_text = session_path.read_text(encoding="utf-8")
+    assert session_text.startswith("# Baseline Session")
+    assert "Stage: BASELINE" in session_text
+    assert f"Baseline ID: {payload['baseline_id']}" in session_text
+    assert f"DB ID: {payload['db_id']}" in session_text
+    assert "## Public Input Summary" in session_text
+    assert "## Steps" in session_text
+    assert "### Messages" in session_text
+    assert "### Model Output" in session_text
+    assert "### Parsed Output" in session_text
+    assert "### Diagnostics" in session_text
+    assert "## Static Feedback" in session_text
+    assert "## Final Outcome" in session_text
+    assert ".diagnostics.json" in session_text
+    return session_text
 
 
 def test_public_schema_sanitizer_strips_release_financial_audit_fields() -> None:
@@ -684,9 +741,10 @@ def test_prompt_builders_do_not_render_private_schema_or_record_sentinels(
     finally:
         log.close()
 
-    assert result.to_json()["status"] == "ok"
+    payload = result.to_json()
+    assert payload["status"] == "ok"
     run_dir = tmp_path / "run"
-    diagnostics_paths = sorted((run_dir / "llm").glob("**/*.diagnostics.json"))
+    diagnostics_paths = [run_dir / ref for ref in payload["diagnostics_refs"]]
     assert diagnostics_paths
     rendered = "\n".join(
         _all_message_text(json.loads(path.read_text(encoding="utf-8"))["messages"])
@@ -778,7 +836,7 @@ def test_prompt_witness_digest_does_not_render_local_data_forbidden_sentinels(
     ]
 
     run_dir = tmp_path / "run"
-    diagnostics_paths = sorted((run_dir / "llm").glob("**/*.diagnostics.json"))
+    diagnostics_paths = [run_dir / ref for ref in payload["diagnostics_refs"]]
     assert len(diagnostics_paths) == 2
     rendered = "\n".join(
         _all_message_text(json.loads(path.read_text(encoding="utf-8"))["messages"])
@@ -955,6 +1013,19 @@ def test_failure_row_preserves_disclosure_and_public_safe_step_context(
     assert payload["steps"]
     assert payload["steps"][0]["transcript_ref"]
     assert payload["steps"][0]["diagnostics_ref"]
+    run_dir = tmp_path / "run"
+    session_text = _assert_baseline_session_markdown(run_dir, payload)
+    assert "## Errors" in session_text
+    assert "FORCED_STATIC" in session_text
+    events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
+    static_anomaly = next(
+        event for event in events
+        if event["event"] == "anomaly"
+        and event.get("message") == "baseline produced statically invalid MQL"
+    )
+    assert static_anomaly["agent_session_ref"] == payload["agent_session_ref"]
+    assert static_anomaly["transcript_ref"] == payload["transcript_refs"][-1]
+    assert static_anomaly["diagnostics_ref"] == payload["diagnostics_refs"][-1]
     _assert_no_private_sentinel(
         payload,
         "SECRET_FAILURE_RECORD_MQL",

@@ -1009,6 +1009,7 @@ def test_prediction_and_failure_rows_preserve_traceability_refs_and_options(
         "result_type": "solver_failure",
         "error_code": "EXECUTION_UNRESOLVED",
         "message": "failed",
+        "error_refs": ["solve/sessions/session/errors.jsonl#1"],
     }
 
     try:
@@ -1071,3 +1072,4 @@ def test_prediction_and_failure_rows_preserve_traceability_refs_and_options(
     assert prediction_row["diagnostics_refs"] == ["llm/prediction.diagnostics.json"]
     assert failure_row["transcript_refs"] == ["llm/failure.md"]
     assert failure_row["diagnostics_refs"] == ["llm/failure.diagnostics.json"]
+    assert failure_row["error_refs"] == ["solve/sessions/session/errors.jsonl#1"]

@@ -176,6 +176,9 @@ class SmartEGPrediction:
     evidence_ledger_ref: str
     agent_session_ref: str
     submit_gate_refs: list[str]
+    transcript_refs: list[str] = field(default_factory=list)
+    diagnostics_refs: list[str] = field(default_factory=list)
+    error_refs: list[str] = field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -201,6 +204,9 @@ class SmartEGFailure:
     evidence_ledger_ref: str
     execution_trace_ref: str
     agent_session_ref: str
+    transcript_refs: list[str] = field(default_factory=list)
+    diagnostics_refs: list[str] = field(default_factory=list)
+    error_refs: list[str] = field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)

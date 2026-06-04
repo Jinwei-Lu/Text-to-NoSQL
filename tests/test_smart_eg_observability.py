@@ -19,9 +19,18 @@ class _Mongo:
         return [{"_id": 1}, {"_id": 2}][:limit]
 
 
-def test_recorder_writes_agent_evidence_gate_cost_and_error_artifacts(tmp_path) -> None:
+def test_recorder_writes_session_scoped_artifacts(tmp_path) -> None:
     log = setup_logging(tmp_path, console=False)
-    recorder = SmartEGRecorder(log, session_id="smart-eg-financial-manual-deadbeef")
+    session_id = "smart-eg-financial-manual-deadbeef"
+    recorder = SmartEGRecorder(log, session_id=session_id)
+    session_ref = f"solve/sessions/{session_id}"
+    session_dir = tmp_path / session_ref
+    recorder.start_session(
+        stage="solve",
+        task="smart_eg",
+        db_id="financial",
+        tools=[{"type": "function", "function": {"name": "list_collections"}}],
+    )
 
     recorder.agent_event("turn_start", mode="environment", tool_turn=0)
     evidence_ref = recorder.write_evidence(
@@ -35,21 +44,40 @@ def test_recorder_writes_agent_evidence_gate_cost_and_error_artifacts(tmp_path) 
     gate_ref = recorder.write_submit_gate(
         {"submit_tool": "submit_final_mql", "accepted": True, "milestone": "final"}
     )
-    recorder.write_cost_summary({"source": "unavailable", "total_tokens": 0})
-    recorder.write_error({"error_code": "NO_VALID_QUERY_FOUND", "message": "x"})
+    cost_ref = recorder.write_cost_summary({"source": "unavailable", "total_tokens": 0})
+    error_ref = recorder.write_error({"error_code": "NO_VALID_QUERY_FOUND", "message": "x"})
+    progress_ref = recorder.record_progress({"phase": "turn"})
     recorder.final_markdown("done")
 
-    assert evidence_ref == "evidence_ledger.jsonl"
-    assert gate_ref == "submit_gates.jsonl"
-    assert (tmp_path / "agent" / "smart-eg-financial-manual-deadbeef.jsonl").exists()
-    assert (tmp_path / "agent" / "smart-eg-financial-manual-deadbeef.md").exists()
-    assert (tmp_path / "evidence_ledger.jsonl").exists()
-    assert (tmp_path / "submit_gates.jsonl").exists()
-    assert (tmp_path / "cost_summary.jsonl").exists()
-    assert (tmp_path / "errors.jsonl").exists()
+    assert recorder.agent_ref() == f"{session_ref}/agent.md"
+    assert recorder.agent_jsonl_ref() == f"{session_ref}/agent.jsonl"
+    assert recorder.tools_ref() == f"{session_ref}/tools.json"
+    assert evidence_ref == f"{session_ref}/evidence_ledger.jsonl"
+    assert gate_ref == f"{session_ref}/submit_gates.jsonl"
+    assert cost_ref == f"{session_ref}/cost_summary.jsonl"
+    assert error_ref == f"{session_ref}/errors.jsonl"
+    assert progress_ref == f"{session_ref}/progress.jsonl#1"
+    assert (session_dir / "agent.jsonl").exists()
+    assert (session_dir / "agent.md").exists()
+    assert (session_dir / "tools.json").exists()
+    assert (session_dir / "evidence_ledger.jsonl").exists()
+    assert (session_dir / "submit_gates.jsonl").exists()
+    assert (session_dir / "cost_summary.jsonl").exists()
+    assert (session_dir / "errors.jsonl").exists()
+    assert (session_dir / "progress.jsonl").exists()
+    assert not (tmp_path / "agent").exists()
+    for root_sidecar in [
+        "evidence_ledger.jsonl",
+        "submit_gates.jsonl",
+        "cost_summary.jsonl",
+        "errors.jsonl",
+        "execution_trace.jsonl",
+        "progress.jsonl",
+    ]:
+        assert not (tmp_path / root_sidecar).exists()
     rows = [
         json.loads(line)
-        for line in (tmp_path / "agent" / "smart-eg-financial-manual-deadbeef.jsonl")
+        for line in (session_dir / "agent.jsonl")
         .read_text(encoding="utf-8")
         .splitlines()
     ]
@@ -155,7 +183,8 @@ def test_history_does_not_append_runtime_state_to_provider_prompt() -> None:
 
 def test_recorder_keeps_live_markdown_with_llm_turn_and_tool_observation(tmp_path) -> None:
     log = setup_logging(tmp_path, console=False)
-    recorder = SmartEGRecorder(log, session_id="smart-eg-financial-manual-deadbeef")
+    session_id = "smart-eg-financial-manual-deadbeef"
+    recorder = SmartEGRecorder(log, session_id=session_id)
 
     recorder.agent_event(
         "llm_request",
@@ -224,9 +253,7 @@ def test_recorder_keeps_live_markdown_with_llm_turn_and_tool_observation(tmp_pat
         },
     )
 
-    md = (tmp_path / "agent" / "smart-eg-financial-manual-deadbeef.md").read_text(
-        encoding="utf-8"
-    )
+    md = (tmp_path / "solve" / "sessions" / session_id / "agent.md").read_text(encoding="utf-8")
 
     assert "# Agent Session: smart-eg-financial-manual-deadbeef" in md
     assert "Status: running" in md
@@ -251,6 +278,57 @@ def test_recorder_keeps_live_markdown_with_llm_turn_and_tool_observation(tmp_pat
     assert '"collections": [' in md
     assert "### LLM Response" not in md
     assert "### Tool Call:" not in md
+
+
+def test_record_error_refs_are_visible_in_turn_markdown(tmp_path) -> None:
+    log = setup_logging(tmp_path, console=False)
+    session_id = "smart-eg-financial-manual-deadbeef"
+    recorder = SmartEGRecorder(log, session_id=session_id)
+    session_ref = f"solve/sessions/{session_id}"
+    recorder.set_current_turn(1)
+    recorder.agent_event(
+        "tool_call",
+        {
+            "turn_index": 1,
+            "tool_call_id": "tool-1",
+            "tool": "list_collections",
+            "arguments": {},
+        },
+    )
+
+    error_ref = recorder.record_error(
+        {
+            "error_code": "TOOL_EXECUTION_FAILED",
+            "tool": "list_collections",
+            "message": "catalog unavailable",
+        }
+    )
+    recorder.agent_event(
+        "tool_observation",
+        {
+            "turn_index": 1,
+            "tool_call_id": "tool-1",
+            "tool": "list_collections",
+            "ok": False,
+            "error_refs": [error_ref],
+            "content": {
+                "ok": False,
+                "tool": "list_collections",
+                "reason": "tool_execution_failed",
+                "error_refs": [error_ref],
+            },
+        },
+    )
+
+    md = (tmp_path / session_ref / "agent.md").read_text(encoding="utf-8")
+
+    assert error_ref == f"{session_ref}/errors.jsonl#1"
+    assert (tmp_path / session_ref / "errors.jsonl").exists()
+    assert not (tmp_path / "errors.jsonl").exists()
+    assert "## Turn 1" in md
+    assert "Error Refs" in md
+    assert error_ref in md
+    assert "catalog unavailable" in md
 
 
 def test_mode_based_tool_exposure_and_terminal_only_allowlist() -> None:

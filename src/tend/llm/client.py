@@ -3,8 +3,10 @@
 Responsibilities (and *only* these — agent semantics live in tend/agents):
   1. Send chat completions to the configured provider (DeepSeek by default).
   2. Persist full structured call diagnostics (every attempt: messages, raw response,
-     usage, timing) as ``llm/<agent>/<call_id>.diagnostics.json``. Optional debug
-     markdown transcripts can be enabled at the logger layer.
+     usage, timing) as session-local JSON sidecars when an agent session is bound,
+     falling back to ``llm/<agent>/<call_id>.diagnostics.json`` only for legacy
+     calls without a canonical session. Optional debug markdown transcripts can be
+     enabled at the logger layer.
   3. Classify every failure into a typed LLMError with an :class:`Anomaly` kind.
   4. Retry transport faults (rate-limit/timeout/empty/truncated) with backoff, and run a
      bounded JSON/schema *repair* loop (feed the validation error back to the model).
@@ -68,11 +70,11 @@ class LLMResult:
     latency_s: float
     attempts: int
     transcript_ref: str                         # primary call artifact ref under run dir
+    diagnostics_ref: str = ""                   # structured sidecar ref under run dir
 
-    @property
-    def diagnostics_ref(self) -> str:
-        """Structured sidecar path for the transcript, relative to the run dir."""
-        return _diagnostics_ref_from_transcript(self.transcript_ref)
+    def __post_init__(self) -> None:
+        if not self.diagnostics_ref:
+            self.diagnostics_ref = _diagnostics_ref_from_transcript(self.transcript_ref)
 
     @property
     def data(self) -> dict[str, Any]:
@@ -87,6 +89,19 @@ def _diagnostics_ref_from_transcript(transcript_ref: str) -> str:
     if transcript_ref.endswith(".md"):
         return f"{transcript_ref[:-3]}.diagnostics.json"
     return transcript_ref
+
+
+def _llm_diagnostics_ref(
+    log: RunLogger,
+    agent: str,
+    call_id: str,
+    *,
+    transcript_ref: str | None = None,
+) -> str:
+    ref_for_call = getattr(log, "llm_diagnostics_ref", None)
+    if callable(ref_for_call):
+        return str(ref_for_call(agent, call_id, transcript_ref=transcript_ref))
+    return f"llm/{agent}/{call_id}.diagnostics.json"
 
 
 def _strip_code_fence(text: str) -> str:
@@ -314,7 +329,9 @@ class LLMClient:
                 "attempts": attempts,
                 "started": True,
             })
-            start_diagnostics_ref = _diagnostics_ref_from_transcript(start_ref)
+            start_diagnostics_ref = _llm_diagnostics_ref(
+                log, agent, call_id, transcript_ref=start_ref
+            )
             log.info("llm_call_start", agent=agent, call_id=call_id, model=model,
                      message_count=len(convo),
                      prompt_chars=prompt_chars,
@@ -379,7 +396,7 @@ class LLMClient:
                 "model": model, **request_config, "messages": convo, "attempts": attempts,
                 "failed": True, "error": err.to_record(),
             })
-            diagnostics_ref = _diagnostics_ref_from_transcript(ref)
+            diagnostics_ref = _llm_diagnostics_ref(log, agent, call_id, transcript_ref=ref)
             err.with_context(
                 agent=agent,
                 call_id=call_id,
@@ -416,7 +433,9 @@ class LLMClient:
                     "call_id": call_id,
                     "model": model,
                     "transcript_ref": ref,
-                    "diagnostics_ref": _diagnostics_ref_from_transcript(ref),
+                    "diagnostics_ref": _llm_diagnostics_ref(
+                        log, agent, call_id, transcript_ref=ref
+                    ),
                     "exception_type": type(exc).__name__,
                     "exception_message": str(exc),
                     "traceback": tb,
@@ -425,7 +444,7 @@ class LLMClient:
             log.anomaly(
                 err,
                 transcript_ref=ref,
-                diagnostics_ref=_diagnostics_ref_from_transcript(ref),
+                diagnostics_ref=_llm_diagnostics_ref(log, agent, call_id, transcript_ref=ref),
                 call_id=call_id,
             )
             raise err from exc
@@ -480,7 +499,9 @@ class LLMClient:
                 "attempts": attempts,
                 "started": True,
             })
-            start_diagnostics_ref = _diagnostics_ref_from_transcript(start_ref)
+            start_diagnostics_ref = _llm_diagnostics_ref(
+                log, agent, call_id, transcript_ref=start_ref
+            )
             log.info(
                 "llm_call_start",
                 agent=agent,
@@ -548,7 +569,7 @@ class LLMClient:
                 "failed": True,
                 "error": err.to_record(),
             })
-            diagnostics_ref = _diagnostics_ref_from_transcript(ref)
+            diagnostics_ref = _llm_diagnostics_ref(log, agent, call_id, transcript_ref=ref)
             err.with_context(
                 agent=agent,
                 call_id=call_id,
@@ -585,7 +606,9 @@ class LLMClient:
                     "call_id": call_id,
                     "model": model,
                     "transcript_ref": ref,
-                    "diagnostics_ref": _diagnostics_ref_from_transcript(ref),
+                    "diagnostics_ref": _llm_diagnostics_ref(
+                        log, agent, call_id, transcript_ref=ref
+                    ),
                     "exception_type": type(exc).__name__,
                     "exception_message": str(exc),
                     "traceback": tb,
@@ -594,7 +617,7 @@ class LLMClient:
             log.anomaly(
                 err,
                 transcript_ref=ref,
-                diagnostics_ref=_diagnostics_ref_from_transcript(ref),
+                diagnostics_ref=_llm_diagnostics_ref(log, agent, call_id, transcript_ref=ref),
                 call_id=call_id,
             )
             raise err from exc
@@ -1379,7 +1402,7 @@ class LLMClient:
             "parsed_ok": parsed is not None,
             "provider_metadata": provider_metadata,
         })
-        diagnostics_ref = _diagnostics_ref_from_transcript(ref)
+        diagnostics_ref = _llm_diagnostics_ref(log, agent, call_id, transcript_ref=ref)
         if self._s.llm.slow_call_warn_s > 0 and latency >= self._s.llm.slow_call_warn_s:
             log.warning(
                 "llm_slow_call",
@@ -1399,7 +1422,7 @@ class LLMClient:
         return LLMResult(
             agent=agent, call_id=call_id, model=model, text=text, parsed=parsed,
             finish_reason=finish, usage=usage, latency_s=latency,
-            attempts=len(attempts), transcript_ref=ref,
+            attempts=len(attempts), transcript_ref=ref, diagnostics_ref=diagnostics_ref,
         )
 
     def _finish_tools(
@@ -1446,7 +1469,7 @@ class LLMClient:
             "raw_response": _json_safe(raw),
             "cost_source": cost_source,
         })
-        diagnostics_ref = _diagnostics_ref_from_transcript(ref)
+        diagnostics_ref = _llm_diagnostics_ref(log, agent, call_id, transcript_ref=ref)
         if self._s.llm.slow_call_warn_s > 0 and latency >= self._s.llm.slow_call_warn_s:
             log.warning(
                 "llm_slow_call",

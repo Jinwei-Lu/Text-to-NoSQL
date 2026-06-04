@@ -62,6 +62,7 @@ class AblationPrediction:
     submit_gate_refs: list[str] = field(default_factory=list)
     transcript_refs: list[str] = field(default_factory=list)
     diagnostics_refs: list[str] = field(default_factory=list)
+    error_refs: list[str] = field(default_factory=list)
     events_path: str = "events.jsonl"
     anomalies_path: str = "anomalies.jsonl"
     result_type: str = "ablation_prediction"
@@ -111,6 +112,7 @@ class AblationFailure:
     agent_session_ref: str | None = None
     transcript_refs: list[str] = field(default_factory=list)
     diagnostics_refs: list[str] = field(default_factory=list)
+    error_refs: list[str] = field(default_factory=list)
     events_path: str = "events.jsonl"
     anomalies_path: str = "anomalies.jsonl"
     result_type: str = "ablation_failure"
@@ -702,6 +704,7 @@ def _prediction_from_solver_payload(
         submit_gate_refs=_str_list(payload.get("submit_gate_refs")),
         transcript_refs=transcript_refs,
         diagnostics_refs=diagnostics_refs,
+        error_refs=_str_list(payload.get("error_refs")),
     )
 
 
@@ -761,6 +764,7 @@ def _failure_from_solver_payload(
         agent_session_ref=_optional_str(payload.get("agent_session_ref")),
         transcript_refs=transcript_refs,
         diagnostics_refs=diagnostics_refs,
+        error_refs=_str_list(payload.get("error_refs")),
     )
 
 

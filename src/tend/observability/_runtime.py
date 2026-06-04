@@ -34,6 +34,34 @@ def _diagnostics_ref_from_transcript(transcript_ref: str) -> str:
     return transcript_ref
 
 
+def _llm_artifact_ref(
+    agent: str,
+    call_id: str,
+    *,
+    agent_session_ref: str | None = None,
+    suffix: str = ".diagnostics.json",
+) -> str:
+    if agent_session_ref:
+        session_ref = agent_session_ref.split("#", 1)[0]
+        session_parent = Path(session_ref).parent
+        return (session_parent / "diagnostics" / agent / f"{call_id}{suffix}").as_posix()
+    return f"llm/{agent}/{call_id}{suffix}"
+
+
+def _llm_diagnostics_ref(
+    agent: str,
+    call_id: str,
+    *,
+    agent_session_ref: str | None = None,
+) -> str:
+    return _llm_artifact_ref(
+        agent,
+        call_id,
+        agent_session_ref=agent_session_ref,
+        suffix=".diagnostics.json",
+    )
+
+
 def _normalize_anomaly_kind(kind: Anomaly | str) -> tuple[str, str | None]:
     if isinstance(kind, Anomaly):
         return kind.value, None
@@ -85,6 +113,7 @@ class _Run:
         self.subscribers: list[AnomalyCallback] = []
         self.event_subscribers: list[EventCallback] = []
         self.counts: dict[str, int] = {}
+        self.llm_diagnostics_by_transcript_ref: dict[str, str] = {}
         self._console = structlog.get_logger("tend") if console else None
         self._lock = threading.Lock()
 
@@ -165,7 +194,23 @@ class RunLogger:
         base.setdefault("message", "unspecified anomaly")
         transcript_ref = fields.get("transcript_ref") or base.get("transcript_ref")
         if transcript_ref and not fields.get("diagnostics_ref") and not base.get("diagnostics_ref"):
-            diagnostics_ref = _diagnostics_ref_from_transcript(str(transcript_ref))
+            call_id = fields.get("call_id") or base.get("call_id")
+            agent = fields.get("agent") or base.get("agent") or self._ctx.get("agent")
+            if agent and call_id:
+                diagnostics_ref = _llm_diagnostics_ref(
+                    str(agent),
+                    str(call_id),
+                    agent_session_ref=(
+                        fields.get("agent_session_ref")
+                        or base.get("agent_session_ref")
+                        or self._ctx.get("agent_session_ref")
+                    ),
+                )
+            else:
+                diagnostics_ref = self._run.llm_diagnostics_by_transcript_ref.get(
+                    str(transcript_ref),
+                    _diagnostics_ref_from_transcript(str(transcript_ref)),
+                )
             fields["diagnostics_ref"] = diagnostics_ref
             context = base.get("context")
             if (
@@ -197,21 +242,32 @@ class RunLogger:
 
     def save_transcript(self, agent: str, call_id: str, transcript: dict[str, Any]) -> str:
         """Persist an LLM call and return the primary call artifact path."""
-        out_dir = self._run.llm_dir / agent
-        out_dir.mkdir(parents=True, exist_ok=True)
-        md_path = out_dir / f"{call_id}.md"
-        diagnostics_path = out_dir / f"{call_id}.diagnostics.json"
-        diagnostics_ref = str(diagnostics_path.relative_to(self._run.run_dir))
-        markdown_ref = str(md_path.relative_to(self._run.run_dir))
-        transcript_ref = (
-            markdown_ref if self._run.write_llm_markdown_transcripts else diagnostics_ref
+        raw_agent_session_ref = (
+            self._ctx.get("agent_session_ref") or transcript.get("agent_session_ref")
         )
+        agent_session_ref = str(raw_agent_session_ref) if raw_agent_session_ref else None
+        diagnostics_ref = _llm_diagnostics_ref(
+            agent,
+            call_id,
+            agent_session_ref=agent_session_ref,
+        )
+        markdown_ref = _llm_artifact_ref(
+            agent,
+            call_id,
+            agent_session_ref=agent_session_ref,
+            suffix=".debug.md",
+        )
+        diagnostics_path = self._run.run_dir / diagnostics_ref
+        diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path = self._run.run_dir / markdown_ref
+        transcript_ref = agent_session_ref or diagnostics_ref
         payload = {
             "ts": _utcnow(),
             "agent": agent,
             "call_id": call_id,
             **self._ctx,
             **transcript,
+            "agent_session_ref": agent_session_ref,
             "transcript_ref": transcript_ref,
             "diagnostics_ref": diagnostics_ref,
             "markdown_transcript_ref": (
@@ -220,9 +276,29 @@ class RunLogger:
             "markdown_transcript_enabled": self._run.write_llm_markdown_transcripts,
         }
         diagnostics_path.write_text(_json_dumps(payload, indent=2), encoding="utf-8")
+        with self._run._lock:
+            self._run.llm_diagnostics_by_transcript_ref[transcript_ref] = diagnostics_ref
         if self._run.write_llm_markdown_transcripts:
             md_path.write_text(render_llm_transcript_markdown(payload), encoding="utf-8")
         return transcript_ref
+
+    def llm_diagnostics_ref(
+        self,
+        agent: str,
+        call_id: str,
+        *,
+        transcript_ref: str | None = None,
+    ) -> str:
+        if transcript_ref:
+            with self._run._lock:
+                mapped = self._run.llm_diagnostics_by_transcript_ref.get(transcript_ref)
+            if mapped:
+                return mapped
+        return _llm_diagnostics_ref(
+            agent,
+            call_id,
+            agent_session_ref=self._ctx.get("agent_session_ref"),
+        )
 
     def subscribe_anomaly(self, callback: AnomalyCallback) -> None:
         self._run.subscribers.append(callback)

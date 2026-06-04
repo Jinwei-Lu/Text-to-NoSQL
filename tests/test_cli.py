@@ -72,12 +72,51 @@ def test_print_evaluation_block_uses_ablation_per_system_headline(
     assert "evaluation : partial EX=0.5" not in output
 
 
+def test_solve_summary_prints_primary_session_refs_without_llm_as_main_log(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    rt = SimpleNamespace(
+        settings=SimpleNamespace(
+            run_id="run-2026-06-04_12-00-00-abcd",
+            stub=True,
+            llm=SimpleNamespace(model="stub"),
+            run_dir=tmp_path,
+        )
+    )
+
+    cli._print_solve_summary(
+        rt,
+        [
+            {
+                "record_id": 1,
+                "db_id": "financial",
+                "MQL": "db.account.aggregate([])",
+                "agent_session_ref": "agent/solve-smart-eg-session.md",
+                "transcript_ref": "llm/smart_eg/call.md",
+            }
+        ],
+        [],
+        {},
+        tmp_path / "solve" / "solver_predictions.jsonl",
+        tmp_path / "solve" / "solver_failures.jsonl",
+        evaluate=False,
+        skip_reason="disabled",
+    )
+
+    output = capsys.readouterr().out
+
+    assert f"logs   : {tmp_path}/events.jsonl | anomalies.jsonl | progress.jsonl" in output
+    assert "session refs : agent/solve-smart-eg-session.md" in output
+    assert "llm/" not in output
+
+
 def test_construct_default_output_is_run_dataset_unless_env_overrides(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     repo = config_module._find_repo_root()
-    captured: list[Path] = []
+    captured: list[tuple[str, Path]] = []
 
     def fake_build_runtime(settings):
         return SimpleNamespace(
@@ -86,7 +125,7 @@ def test_construct_default_output_is_run_dataset_unless_env_overrides(
         )
 
     async def fake_run_construct(rt, _db_ids, _phase, _records, **_kwargs):
-        captured.append(rt.settings.paths.dataset_out)
+        captured.append((rt.settings.run_id, rt.settings.paths.dataset_out))
         return 0
 
     monkeypatch.setattr(cli, "build_runtime", fake_build_runtime)
@@ -99,7 +138,10 @@ def test_construct_default_output_is_run_dataset_unless_env_overrides(
         "--run-id",
         "cli-default",
     ]) == 0
-    assert captured[-1] == repo / "runs" / "cli-default" / "dataset"
+    run_id, dataset_out = captured[-1]
+    assert run_id != "cli-default"
+    assert "cli-default" in run_id
+    assert dataset_out == repo / "runs" / run_id / "dataset"
 
     override = tmp_path / "custom-dataset"
     monkeypatch.setenv("TEND_DATASET_OUT", str(override))
@@ -110,7 +152,10 @@ def test_construct_default_output_is_run_dataset_unless_env_overrides(
         "--run-id",
         "cli-override",
     ]) == 0
-    assert captured[-1] == override
+    run_id, dataset_out = captured[-1]
+    assert run_id != "cli-override"
+    assert "cli-override" in run_id
+    assert dataset_out == override
 
 
 def test_construct_is_native_only_and_rejects_legacy_mode_flag(
@@ -706,14 +751,16 @@ def test_run_solve_writes_failures_separately(
     )
 
     assert rc == 1
-    predictions = settings.run_dir / "solver_predictions.jsonl"
+    predictions = settings.run_dir / "solve" / "solver_predictions.jsonl"
     assert predictions.exists()
     assert predictions.read_text(encoding="utf-8") == ""
-    failures = settings.run_dir / "solver_failures.jsonl"
+    failures = settings.run_dir / "solve" / "solver_failures.jsonl"
     assert failures.exists()
     payload = json.loads(failures.read_text(encoding="utf-8").splitlines()[0])
     assert payload["result_type"] == "solver_failure"
     assert payload["error_code"] == "SOLVER_EXHAUSTED"
+    assert not (settings.run_dir / "solver_predictions.jsonl").exists()
+    assert not (settings.run_dir / "solver_failures.jsonl").exists()
 
 
 def test_run_baseline_evaluates_against_selected_dataset_subset(
@@ -810,6 +857,9 @@ def test_run_baseline_evaluates_against_selected_dataset_subset(
     selected = json.loads((captured["dataset_dir"] / "test.json").read_text(encoding="utf-8"))
     assert [row["record_id"] for row in selected] == [1]
     assert captured["dataset_dir"] != dataset
+    assert captured["dataset_dir"] == settings.run_dir / "baseline" / "evaluation_dataset"
+    assert not (settings.run_dir / "evaluation_dataset").exists()
+    assert captured["predictions_path"].parent == settings.run_dir / "baseline"
     assert captured["predictions_path"].name == "baseline_evaluation_inputs.jsonl"
 
 
@@ -876,7 +926,7 @@ def test_run_solve_writes_failure_artifact_for_solver_exception(
     )
 
     assert rc == 1
-    failures = settings.run_dir / "solver_failures.jsonl"
+    failures = settings.run_dir / "solve" / "solver_failures.jsonl"
     assert failures.exists()
     payload = json.loads(failures.read_text(encoding="utf-8").splitlines()[0])
     assert payload["result_type"] == "solver_failure"
@@ -964,13 +1014,15 @@ def test_run_solve_nlq_db_only_skips_release_loader(
         "max_revisits": 1,
         "cost_budget_usd": 0.25,
     }
-    predictions = settings.run_dir / "solver_predictions.jsonl"
+    predictions = settings.run_dir / "solve" / "solver_predictions.jsonl"
     assert predictions.exists()
     first_prediction = json.loads(predictions.read_text(encoding="utf-8").splitlines()[0])
     assert first_prediction["db_id"] == "manual_formula"
-    failures = settings.run_dir / "solver_failures.jsonl"
+    failures = settings.run_dir / "solve" / "solver_failures.jsonl"
     assert failures.exists()
     assert failures.read_text(encoding="utf-8") == ""
+    assert not (settings.run_dir / "solver_predictions.jsonl").exists()
+    assert not (settings.run_dir / "solver_failures.jsonl").exists()
 
 
 def test_run_baseline_nlq_db_only_skips_evaluation(
@@ -1044,14 +1096,16 @@ def test_run_baseline_nlq_db_only_skips_evaluation(
     assert captured["nlq"] == "List race weekends with Finished status buckets."
     assert captured["db_id"] == "manual_formula"
     assert captured["record_id"] == 12
-    predictions = settings.run_dir / "baseline_predictions.jsonl"
+    predictions = settings.run_dir / "baseline" / "baseline_predictions.jsonl"
     assert predictions.exists()
     first_prediction = json.loads(predictions.read_text(encoding="utf-8").splitlines()[0])
     assert first_prediction["db_id"] == "manual_formula"
     assert first_prediction["evaluation_skip_reason"] == "no_release_dataset"
-    failures = settings.run_dir / "baseline_failures.jsonl"
+    failures = settings.run_dir / "baseline" / "baseline_failures.jsonl"
     assert failures.exists()
     assert failures.read_text(encoding="utf-8") == ""
+    assert not (settings.run_dir / "baseline_predictions.jsonl").exists()
+    assert not (settings.run_dir / "baseline_failures.jsonl").exists()
 
 
 def test_run_ablation_nlq_db_only_skips_evaluation(
@@ -1131,14 +1185,16 @@ def test_run_ablation_nlq_db_only_skips_evaluation(
     assert captured["max_revisits"] == 1
     assert captured["cost_budget_usd"] == 0.75
     assert captured["workers"] == 1
-    predictions = settings.run_dir / "ablation_predictions.jsonl"
+    predictions = settings.run_dir / "ablation" / "ablation_predictions.jsonl"
     assert predictions.exists()
     first_prediction = json.loads(predictions.read_text(encoding="utf-8").splitlines()[0])
     assert first_prediction["db_id"] == "manual_cards"
     assert first_prediction["evaluation_skip_reason"] == "no_release_dataset"
-    failures = settings.run_dir / "ablation_failures.jsonl"
+    failures = settings.run_dir / "ablation" / "ablation_failures.jsonl"
     assert failures.exists()
     assert failures.read_text(encoding="utf-8") == ""
+    assert not (settings.run_dir / "ablation_predictions.jsonl").exists()
+    assert not (settings.run_dir / "ablation_failures.jsonl").exists()
 
 
 def test_run_ablation_variant_failure_does_not_fail_when_evaluation_is_ok(
@@ -1239,8 +1295,11 @@ def test_run_ablation_variant_failure_does_not_fail_when_evaluation_is_ok(
         "ablation_prediction",
         "ablation_failure",
     ]
+    assert captured["predictions_path"].parent == settings.run_dir / "ablation"
     assert captured["predictions_path"].name == "ablation_evaluation_inputs.jsonl"
-    summary = json.loads((settings.run_dir / "ablation_summary.json").read_text(encoding="utf-8"))
+    summary = json.loads(
+        (settings.run_dir / "ablation" / "ablation_summary.json").read_text(encoding="utf-8")
+    )
     assert summary["status"] == "ok"
     assert summary["experiment_status"] == "ok"
     assert summary["outcome_status"] == "partial_variant_failures"
@@ -1346,7 +1405,9 @@ def test_run_ablation_all_variant_failures_are_experiment_outcomes(
             "message": "variant stopped after gate feedback",
         }
     ]
-    summary = json.loads((settings.run_dir / "ablation_summary.json").read_text(encoding="utf-8"))
+    summary = json.loads(
+        (settings.run_dir / "ablation" / "ablation_summary.json").read_text(encoding="utf-8")
+    )
     assert summary["status"] == "ok"
     assert summary["experiment_status"] == "ok"
     assert summary["outcome_status"] == "all_variants_failed"
