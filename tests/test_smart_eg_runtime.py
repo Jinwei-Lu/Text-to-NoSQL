@@ -9,7 +9,12 @@ from tend.llm.types import ToolCall, ToolLLMResult
 from tend.observability import setup_logging
 from tend.solver.eg import SmartEGPolicy, smart_solve_nlq_db_eg
 from tend.solver.eg.contracts import SmartEGFailure, SmartEGPrediction
-from tend.solver.eg.runtime import SYSTEM_PROMPT
+from tend.solver.eg.runtime import (
+    SYSTEM_PROMPT,
+    _compact_evidence_summary,
+    _single_exposed_submit_tool,
+    _submit_focus_summary,
+)
 from tend.solver.eg.tools import tool_schemas
 
 
@@ -50,7 +55,7 @@ class _LLM:
                 cost={"source": "unavailable"},
                 latency_s=0.01,
                 attempts=1,
-                transcript_ref="llm/smart_eg/call.md",
+                transcript_ref="llm/smart_eg/call.diagnostics.json",
                 diagnostics_ref="llm/smart_eg/call.diagnostics.json",
                 provider_metadata={},
             )
@@ -75,7 +80,7 @@ class _LLM:
             cost={"source": "unavailable"},
             latency_s=0.01,
             attempts=1,
-            transcript_ref="llm/smart_eg/call.md",
+            transcript_ref="llm/smart_eg/call.diagnostics.json",
             diagnostics_ref="llm/smart_eg/call.diagnostics.json",
             provider_metadata={},
         )
@@ -147,6 +152,9 @@ def test_submit_final_mql_is_only_success_exit(tmp_path: Path) -> None:
     assert result.record_id == 1
     assert result.MQL.startswith("db.account.aggregate")
     assert result.agent_session_ref.startswith("agent/")
+    assert Path(result.agent_session_ref).name.startswith(
+        "solve_smart_eg_financial_record_1_"
+    )
     assert result.evidence_ledger_ref == "evidence_ledger.jsonl"
 
 
@@ -230,6 +238,176 @@ def test_terminal_only_mode_exposes_current_stage_submit_tools(tmp_path: Path) -
         "type": "function",
         "function": {"name": "submit_environment_model"},
     }
+
+
+def test_terminal_only_known_wrong_tool_does_not_consume_tool_budget(tmp_path: Path) -> None:
+    llm = _LLM(
+        [
+            ToolCall(
+                id="call_1",
+                name="sample_documents",
+                raw_arguments='{"collection":"account"}',
+                arguments={"collection": "account"},
+            ),
+            ToolCall(
+                id="call_2",
+                name="abandon_with_failure",
+                raw_arguments='{"message":"provider ignored narrowed tools"}',
+                arguments={"message": "provider ignored narrowed tools"},
+            ),
+        ]
+    )
+    result = asyncio.run(
+        smart_solve_nlq_db_eg(
+            _workflow(tmp_path, llm),
+            db_id="financial",
+            nlq="terminal",
+            policy=SmartEGPolicy(max_tool_turns=1),
+        )
+    )
+
+    assert isinstance(result, SmartEGFailure)
+    assert result.error_code == "NO_VALID_QUERY_FOUND"
+    assert len(llm.requests) == 2
+
+
+def test_submit_ready_turn_compacts_provider_history(tmp_path: Path) -> None:
+    llm = _LLM(
+        [
+            ToolCall(
+                id="call_1",
+                name="list_collections",
+                raw_arguments="{}",
+                arguments={},
+            ),
+            ToolCall(
+                id="call_2",
+                name="sample_documents",
+                raw_arguments='{"collection":"account"}',
+                arguments={"collection": "account"},
+            ),
+            ToolCall(
+                id="call_3",
+                name="submit_environment_model",
+                raw_arguments=(
+                    '{"candidate_collections":["account"],'
+                    '"evidence_refs":["ev-0001","ev-0002"]}'
+                ),
+                arguments={
+                    "candidate_collections": ["account"],
+                    "evidence_refs": ["ev-0001", "ev-0002"],
+                },
+            ),
+            ToolCall(
+                id="call_4",
+                name="abandon_with_failure",
+                raw_arguments='{"message":"stop after compact check"}',
+                arguments={"message": "stop after compact check"},
+            ),
+        ]
+    )
+
+    result = asyncio.run(
+        smart_solve_nlq_db_eg(
+            _workflow(tmp_path, llm),
+            db_id="financial",
+            nlq="list accounts",
+            record_id=3,
+            policy=SmartEGPolicy(max_tool_turns=8),
+        )
+    )
+
+    submit_request = llm.requests[2]
+    roles = [message["role"] for message in submit_request["messages"]]
+    joined = "\n".join(str(message.get("content", "")) for message in submit_request["messages"])
+
+    assert roles == ["system", "user"]
+    assert '"required_next_tool": "submit_environment_model"' in joined
+    assert submit_request["tool_choice"] == {
+        "type": "function",
+        "function": {"name": "submit_environment_model"},
+    }
+    md = (_settings(tmp_path).run_dir / result.agent_session_ref).read_text(
+        encoding="utf-8"
+    )
+    assert "### LLM Call" in md
+    assert "### Tool Calls" in md
+    assert "### Tool Results" in md
+    assert "### Metrics" in md
+    assert md.count("#### list_collections()") == 1
+    assert md.count('#### sample_documents(collection="account")') == 1
+    assert "### Tool Result:" not in md
+
+
+def test_submit_focus_summary_preserves_query_plan_for_final_submit() -> None:
+    state = SimpleNamespace(
+        nlq="list accounts",
+        db_id="financial",
+        record_id=7,
+        mode="execution",
+        terminal_only=False,
+        terminal_reason=None,
+        stale_milestones=set(),
+        environment={"candidate_collections": ["account"]},
+        intent={"task_kind": "aggregation"},
+        query_plan={"collection": "account", "stages": [{"$limit": 1}]},
+        evidence_ledger=SimpleNamespace(
+            summary=lambda: {"evidence_records": 2, "blocking_debts": 0},
+            records={},
+            blocking_debts=lambda: [],
+        ),
+        counters=SimpleNamespace(to_json=lambda: {"llm_turns": 3, "tool_turns": 2}),
+    )
+
+    summary = _submit_focus_summary(state, "submit_final_mql")
+
+    assert summary["required_next_tool"] == "submit_final_mql"
+    assert summary["query_plan"] == {"collection": "account", "stages": [{"$limit": 1}]}
+
+
+def test_submit_focus_summary_bounds_large_evidence_maps() -> None:
+    summary = _compact_evidence_summary(
+        {
+            "tool": "sample_documents",
+            "collection": "account",
+            "path_count": 200,
+            "paths": {f"path_{idx}": {"value_count": idx} for idx in range(100)},
+            "dynamic_key_candidates": [{"path": f"path_{idx}"} for idx in range(100)],
+            "array_paths": [f"arr_{idx}" for idx in range(20)],
+        }
+    )
+
+    assert summary["tool"] == "sample_documents"
+    assert summary["path_count"] == 200
+    assert len(summary["array_paths"]) == 12
+    assert "paths" not in summary
+    assert "dynamic_key_candidates" not in summary
+
+
+def test_submit_focus_detection_ignores_broad_exploration_tool_sets() -> None:
+    assert (
+        _single_exposed_submit_tool(
+            {
+                "submit_query_plan",
+                "sample_documents",
+                "run_readonly_probe",
+                "inspect_evidence_ledger",
+                "abandon_with_failure",
+            }
+        )
+        is None
+    )
+    assert (
+        _single_exposed_submit_tool(
+            {
+                "submit_query_plan",
+                "inspect_evidence_ledger",
+                "inspect_evidence_debt",
+                "abandon_with_failure",
+            }
+        )
+        == "submit_query_plan"
+    )
 
 
 def test_prompt_and_tool_schemas_guide_stage_progression() -> None:

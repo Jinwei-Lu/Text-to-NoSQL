@@ -6,6 +6,7 @@ from typing import Any
 
 from .contracts import (
     GateViolation,
+    Milestone,
     QueryCandidate,
     SmartEGFailure,
     SmartEGPrediction,
@@ -21,6 +22,7 @@ from .execution import check_ast_filter, parse_or_render_mql, run_final_sanity_e
 from .mongo_tools import SmartEGMongoTools
 from .observability import SmartEGObserver
 from .policy import SmartEGPolicy
+from .safety import parse_path
 
 ENVIRONMENT_TOOLS = {
     "list_collections",
@@ -103,32 +105,66 @@ class SmartEGToolAPI:
                     "abandon_with_failure",
                 }
         elif state.mode == "intent":
-            names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | {
-                "submit_intent_hypothesis",
-                "request_revisit",
-                "request_mode_shift",
-                "abandon_with_failure",
-            }
+            if _intent_ready_for_submit(state):
+                names = {
+                    "submit_intent_hypothesis",
+                    "inspect_evidence_ledger",
+                    "inspect_evidence_debt",
+                    "abandon_with_failure",
+                }
+            else:
+                names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | {
+                    "submit_intent_hypothesis",
+                    "request_revisit",
+                    "request_mode_shift",
+                    "abandon_with_failure",
+                }
         elif state.mode == "planning":
-            names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | {
-                "render_pipeline",
-                "check_ast_filter",
-                "submit_query_plan",
-                "request_revisit",
-                "abandon_with_failure",
-            }
+            if _planning_ready_for_submit(state):
+                names = {
+                    "submit_query_plan",
+                    "inspect_evidence_ledger",
+                    "inspect_evidence_debt",
+                    "abandon_with_failure",
+                }
+            else:
+                names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | {
+                    "render_pipeline",
+                    "check_ast_filter",
+                    "submit_query_plan",
+                    "request_revisit",
+                    "abandon_with_failure",
+                }
         else:
-            names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | EXECUTION_TOOLS | {
-                "submit_final_mql",
-                "request_revisit",
-                "request_mode_shift",
-                "abandon_with_failure",
-            }
+            if _execution_ready_for_submit(state):
+                names = {
+                    "submit_final_mql",
+                    "inspect_evidence_ledger",
+                    "inspect_evidence_debt",
+                    "abandon_with_failure",
+                }
+            else:
+                names = ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | EXECUTION_TOOLS | {
+                    "submit_final_mql",
+                    "request_revisit",
+                    "request_mode_shift",
+                    "abandon_with_failure",
+                }
         return [_schema(name) for name in sorted(names)]
 
     def tool_choice_for_state(self, state: SmartEGState) -> dict[str, Any] | str | None:
         if state.terminal_only:
+            if _terminal_has_repair_tools(state):
+                return None
             return {"type": "function", "function": {"name": _terminal_submit_tool_for_mode(state.mode)}}
+        if state.mode == "environment" and _environment_ready_for_submit(state):
+            return {"type": "function", "function": {"name": "submit_environment_model"}}
+        if _intent_ready_for_submit(state):
+            return {"type": "function", "function": {"name": "submit_intent_hypothesis"}}
+        if _planning_ready_for_submit(state):
+            return {"type": "function", "function": {"name": "submit_query_plan"}}
+        if _execution_ready_for_submit(state):
+            return {"type": "function", "function": {"name": "submit_final_mql"}}
         if not self.policy.force_tool_choice:
             return None
         return "required"
@@ -172,6 +208,48 @@ class SmartEGToolAPI:
                         "message": (
                             "The runtime is in terminal-only mode; call the current stage submit "
                             "tool or abandon_with_failure."
+                        ),
+                    },
+                )
+            if state.mode == "intent" and _intent_ready_for_submit(state) and name in _known_tool_names():
+                return _observation(
+                    name,
+                    call_id,
+                    False,
+                    {
+                        "reason": "intent_ready_to_submit",
+                        "required_tool": "submit_intent_hypothesis",
+                        "message": (
+                            "Intent has enough bounded evidence and no blocking debt. "
+                            "Do not run more probes; call submit_intent_hypothesis next."
+                        ),
+                    },
+                )
+            if state.mode == "planning" and _planning_ready_for_submit(state) and name in _known_tool_names():
+                return _observation(
+                    name,
+                    call_id,
+                    False,
+                    {
+                        "reason": "planning_ready_to_submit",
+                        "required_tool": "submit_query_plan",
+                        "message": (
+                            "Planning has enough bounded evidence and no blocking debt. "
+                            "Do not run more probes; call submit_query_plan next."
+                        ),
+                    },
+                )
+            if state.mode == "execution" and _execution_ready_for_submit(state) and name in _known_tool_names():
+                return _observation(
+                    name,
+                    call_id,
+                    False,
+                    {
+                        "reason": "execution_ready_to_submit",
+                        "required_tool": "submit_final_mql",
+                        "message": (
+                            "Execution has an accepted query plan and no blocking debt. "
+                            "Do not run more probes; call submit_final_mql next."
                         ),
                     },
                 )
@@ -284,20 +362,14 @@ class SmartEGToolAPI:
         summary: dict[str, Any] = {"collections": collections}
         if error is not None:
             summary["error"] = error
-        observation_ref = self.observer.agent_event(
-            "tool_observation",
-            {"tool": "list_collections"},
-        ) if self.observer else ""
         record = state.evidence_ledger.add_record(
             source_tool="list_collections",
             tool_call_id=call_id,
-            observation_ref=observation_ref,
+            observation_ref="",
             summary=summary,
             supports_claims=[],
             redaction={"raw_rows": False},
         )
-        if self.observer:
-            self.observer.record_evidence(record.to_json())
         return _observation(
             "list_collections",
             call_id,
@@ -334,20 +406,14 @@ class SmartEGToolAPI:
                 False,
                 {"reason": "tool_execution_failed", "message": str(exc)[:500]},
             )
-        observation_ref = self.observer.agent_event(
-            "tool_observation",
-            {"tool": name},
-        ) if self.observer else ""
         record = state.evidence_ledger.add_record(
             source_tool=name,
             tool_call_id=call_id,
-            observation_ref=observation_ref,
+            observation_ref="",
             summary=summary,
             supports_claims=[],
             redaction=summary.get("redaction", {"raw_rows": False}),
         )
-        if self.observer:
-            self.observer.record_evidence(record.to_json())
         return _observation(
             name,
             call_id,
@@ -442,6 +508,32 @@ class SmartEGToolAPI:
                     missing_evidence=hit.suggested_tools,
                 ))
                 violations.append(GateViolation(hit.code, hit.message, hit.context))
+        if self.policy.value_grounding and isinstance(plan, dict):
+            grounding_violations, grounding_debts = _value_grounding_gate(
+                state,
+                refs,
+                plan.get("stages") or [],
+                "plan",
+            )
+            violations.extend(grounding_violations)
+            debts.extend(grounding_debts)
+        if isinstance(plan, dict):
+            output_violations, output_debts = _output_contract_gate(
+                state,
+                refs,
+                plan.get("stages") or [],
+                "plan",
+            )
+            violations.extend(output_violations)
+            debts.extend(output_debts)
+            field_violations, field_debts = _field_path_contract_gate(
+                state,
+                refs,
+                plan.get("stages") or [],
+                "plan",
+            )
+            violations.extend(field_violations)
+            debts.extend(field_debts)
         gate = _gate("submit_query_plan", "plan", not violations, violations, debts, challenged, candidate_id="plan")
         if gate.accepted:
             state.query_plan = dict(plan)
@@ -477,6 +569,31 @@ class SmartEGToolAPI:
             ast = check_ast_filter(mql)
             if not ast["ok"]:
                 violations.append(GateViolation("boundary_rejected", "disallowed operators", ast))
+            if self.policy.value_grounding:
+                grounding_violations, grounding_debts = _value_grounding_gate(
+                    state,
+                    refs,
+                    pipeline,
+                    "final",
+                )
+                violations.extend(grounding_violations)
+                debts.extend(grounding_debts)
+            output_violations, output_debts = _output_contract_gate(
+                state,
+                refs,
+                pipeline,
+                "final",
+            )
+            violations.extend(output_violations)
+            debts.extend(output_debts)
+            field_violations, field_debts = _field_path_contract_gate(
+                state,
+                refs,
+                pipeline,
+                "final",
+            )
+            violations.extend(field_violations)
+            debts.extend(field_debts)
             if self.policy.enable_final_sanity_execution and not violations:
                 sanity = run_final_sanity_execution(executor=self.executor, db_id=state.db_id, mql=mql)
                 state.execution_trace.final_sanity_runs.append(sanity)
@@ -618,7 +735,17 @@ def tool_schemas(*, terminal_only: bool = False) -> list[dict[str, Any]]:
 
 
 def _terminal_tool_names_for_state(state: SmartEGState) -> set[str]:
-    return {_terminal_submit_tool_for_mode(state.mode), "abandon_with_failure"}
+    names = {_terminal_submit_tool_for_mode(state.mode), "abandon_with_failure"}
+    debts = state.evidence_ledger.blocking_debts()
+    if debts:
+        names.update({"inspect_evidence_debt", "inspect_evidence_ledger"})
+        for debt in debts:
+            names.update(tool for tool in debt.suggested_tools if tool in _known_tool_names())
+    return names
+
+
+def _terminal_has_repair_tools(state: SmartEGState) -> bool:
+    return bool(_terminal_tool_names_for_state(state) - {_terminal_submit_tool_for_mode(state.mode), "abandon_with_failure"})
 
 
 def _terminal_submit_tool_for_mode(mode: str) -> str:
@@ -896,6 +1023,52 @@ def _environment_ready_for_submit(state: SmartEGState) -> bool:
     return "list_collections" in sources and bool(sources & shape_sources)
 
 
+def _intent_ready_for_submit(state: SmartEGState) -> bool:
+    if state.mode != "intent":
+        return False
+    if state.environment is None or "environment" in state.stale_milestones:
+        return False
+    if state.evidence_ledger.blocking_debts(milestone="intent"):
+        return False
+    sources = {record.source_tool for record in state.evidence_ledger.records.values()}
+    intent_sources = {
+        "discover_paths",
+        "profile_path",
+        "profile_path_values",
+        "search_values",
+    }
+    return bool(sources & intent_sources)
+
+
+def _planning_ready_for_submit(state: SmartEGState) -> bool:
+    if state.mode != "planning":
+        return False
+    if state.intent is None or "intent" in state.stale_milestones:
+        return False
+    if state.evidence_ledger.blocking_debts(milestone="plan"):
+        return False
+    sources = {record.source_tool for record in state.evidence_ledger.records.values()}
+    plan_sources = {
+        "discover_paths",
+        "profile_path",
+        "profile_path_values",
+        "inspect_array_shape",
+        "inspect_dynamic_keys",
+        "profile_relationship_candidates",
+        "run_readonly_probe",
+        "check_ast_filter",
+    }
+    return bool(sources & plan_sources)
+
+
+def _execution_ready_for_submit(state: SmartEGState) -> bool:
+    if state.mode != "execution":
+        return False
+    if state.query_plan is None or {"environment", "intent", "plan"} & state.stale_milestones:
+        return False
+    return not state.evidence_ledger.blocking_debts(milestone="final")
+
+
 def _known_tool_names() -> set[str]:
     return ENVIRONMENT_TOOLS | EVIDENCE_TOOLS | EXECUTION_TOOLS | TERMINAL_TOOLS | STAGE_CONTROL_TOOLS
 
@@ -904,6 +1077,520 @@ def _refs(payload: Any) -> list[str]:
     if not isinstance(payload, dict):
         return []
     return [str(item) for item in payload.get("evidence_refs") or []]
+
+
+_VALUE_COMPARISON_OPERATORS = {
+    "$eq",
+    "$ne",
+    "$gt",
+    "$gte",
+    "$lt",
+    "$lte",
+    "$in",
+    "$nin",
+    "$regex",
+    "$regexMatch",
+}
+_STRUCTURAL_STRING_KEYS = {
+    "as",
+    "from",
+    "localField",
+    "foreignField",
+    "path",
+    "input",
+    "format",
+    "timezone",
+    "includeArrayIndex",
+}
+
+
+def _value_grounding_gate(
+    state: SmartEGState,
+    refs: list[str],
+    pipeline: list[Any],
+    milestone: Milestone,
+) -> tuple[list[GateViolation], list[EvidenceDebt]]:
+    constants = _pipeline_string_constants(pipeline)
+    if not constants:
+        return [], []
+    grounded = _grounded_literals(state, refs)
+    ungrounded = [constant for constant in constants if constant not in grounded]
+    if not ungrounded:
+        return [], []
+    debt = state.evidence_ledger.ensure_debt(
+        milestone=milestone,
+        claim_type="value_grounding",
+        missing_evidence=[f"literal:{constant}" for constant in ungrounded[:5]],
+        suggested_tools=["profile_path_values", "search_values", "run_readonly_probe"],
+    )
+    violation = GateViolation(
+        "ungrounded_value_constant",
+        "Pipeline uses string value constants not present in bounded literal evidence.",
+        {
+            "constants": ungrounded,
+            "grounded_literal_count": len(grounded),
+            "grounded_literals": sorted(grounded)[:20],
+        },
+    )
+    return [violation], [debt]
+
+
+def _grounded_literals(state: SmartEGState, refs: list[str]) -> set[str]:
+    literals: set[str] = set()
+    for ref in refs:
+        record = state.evidence_ledger.records.get(ref)
+        if record is None:
+            continue
+        _collect_literals(record.summary, literals)
+    return literals
+
+
+def _collect_literals(payload: Any, out: set[str]) -> None:
+    if isinstance(payload, dict):
+        literal = payload.get("literal")
+        if isinstance(literal, str):
+            out.add(literal)
+        for value in payload.values():
+            _collect_literals(value, out)
+        return
+    if isinstance(payload, list):
+        for item in payload:
+            _collect_literals(item, out)
+
+
+def _pipeline_string_constants(pipeline: list[Any]) -> list[str]:
+    constants: list[str] = []
+
+    def visit(value: Any, *, in_match: bool = False, in_compare: bool = False) -> None:
+        if isinstance(value, str):
+            if (in_match or in_compare) and _is_groundable_string_constant(value):
+                constants.append(value)
+            return
+        if isinstance(value, list):
+            for item in value:
+                visit(item, in_match=in_match, in_compare=in_compare)
+            return
+        if not isinstance(value, dict):
+            return
+        for raw_key, child in value.items():
+            key = str(raw_key)
+            if key in _STRUCTURAL_STRING_KEYS and isinstance(child, str):
+                continue
+            if key == "$literal":
+                continue
+            if key == "$match":
+                visit(child, in_match=True)
+                continue
+            visit(
+                child,
+                in_match=in_match,
+                in_compare=in_compare or key in _VALUE_COMPARISON_OPERATORS,
+            )
+
+    visit(pipeline)
+    return sorted(set(constants))
+
+
+def _is_groundable_string_constant(value: str) -> bool:
+    return not value.startswith("$")
+
+
+def _output_contract_gate(
+    state: SmartEGState,
+    refs: list[str],
+    pipeline: list[Any],
+    milestone: Milestone,
+) -> tuple[list[GateViolation], list[EvidenceDebt]]:
+    raw_outputs = _raw_complex_projection_outputs(state, refs, pipeline)
+    if not raw_outputs:
+        return [], []
+    debt = state.evidence_ledger.ensure_debt(
+        milestone=milestone,
+        claim_type="output_contract",
+        missing_evidence=[f"scalarize:{item['output']}" for item in raw_outputs[:5]],
+        suggested_tools=["profile_path", "run_readonly_probe"],
+    )
+    violation = GateViolation(
+        "raw_complex_output",
+        (
+            "Final projection exposes object/array context fields. Project scalar identifiers, "
+            "counts, shares, or named scalar context fields instead of raw nested values."
+        ),
+        {"raw_outputs": raw_outputs},
+    )
+    return [violation], [debt]
+
+
+def _raw_complex_projection_outputs(
+    state: SmartEGState,
+    refs: list[str],
+    pipeline: list[Any],
+) -> list[dict[str, str]]:
+    project = _last_project(pipeline)
+    if project is None:
+        return []
+    complex_paths = _complex_evidence_paths(state, refs)
+    alias_sources = _alias_sources_before_last_project(pipeline)
+    raw: list[dict[str, str]] = []
+    for output, expression in project.items():
+        source_info = _direct_projection_source(str(output), expression)
+        if source_info is None:
+            continue
+        source, is_passthrough = source_info
+        if is_passthrough and source in alias_sources:
+            source = alias_sources[source][0]
+        if source in complex_paths or (is_passthrough and str(output) in complex_paths):
+            raw.append({"output": str(output), "source_path": source})
+    return raw
+
+
+def _last_project(pipeline: list[Any]) -> dict[str, Any] | None:
+    index = _last_project_index(pipeline)
+    if index is None:
+        return None
+    project = pipeline[index].get("$project") if isinstance(pipeline[index], dict) else None
+    return project if isinstance(project, dict) else None
+
+
+def _last_project_index(pipeline: list[Any]) -> int | None:
+    for index in range(len(pipeline) - 1, -1, -1):
+        stage = pipeline[index]
+        if not isinstance(stage, dict):
+            continue
+        project = stage.get("$project")
+        if isinstance(project, dict):
+            return index
+    return None
+
+
+def _direct_projection_source(output: str, expression: Any) -> tuple[str, bool] | None:
+    if expression in (1, True):
+        return output, True
+    if isinstance(expression, str) and expression.startswith("$"):
+        return expression.lstrip("$"), False
+    return None
+
+
+def _field_path_contract_gate(
+    state: SmartEGState,
+    refs: list[str],
+    pipeline: list[Any],
+    milestone: Milestone,
+) -> tuple[list[GateViolation], list[EvidenceDebt]]:
+    unknown = _unknown_pipeline_field_paths(state, refs, pipeline)
+    if not unknown:
+        return [], []
+    debt = state.evidence_ledger.ensure_debt(
+        milestone=milestone,
+        claim_type="field_path_contract",
+        missing_evidence=[f"field_path:{item['path']}" for item in unknown[:5]],
+        suggested_tools=["profile_path", "discover_paths", "run_readonly_probe"],
+    )
+    violation = GateViolation(
+        "unknown_field_path",
+        "Pipeline references nested field paths not supported by observed scalar/object evidence.",
+        {"paths": [item["path"] for item in unknown], "resolved_paths": unknown},
+    )
+    return [violation], [debt]
+
+
+def _unknown_pipeline_field_paths(
+    state: SmartEGState,
+    refs: list[str],
+    pipeline: list[Any],
+) -> list[dict[str, str]]:
+    scalar_paths, complex_paths, all_paths = _evidence_path_sets(state, refs)
+    if not all_paths:
+        return []
+    alias_sources = _alias_sources_before_last_project(pipeline)
+    generated_group_paths = _generated_group_id_paths(pipeline)
+    unknown: list[dict[str, str]] = []
+    for ref in _pipeline_field_refs(pipeline):
+        if _is_generated_group_ref(ref, generated_group_paths):
+            continue
+        resolved = _resolve_alias_ref(ref, alias_sources)
+        if resolved is None:
+            continue
+        if _extends_observed_scalar_path(resolved, scalar_paths):
+            unknown.append({"path": ref, "resolved_path": resolved})
+            continue
+        if _under_observed_complex_path(resolved, complex_paths) and not _has_evidence_path(
+            resolved,
+            all_paths,
+        ):
+            unknown.append({"path": ref, "resolved_path": resolved})
+    deduped: dict[str, dict[str, str]] = {}
+    for item in unknown:
+        deduped.setdefault(item["path"], item)
+    return list(deduped.values())
+
+
+def _pipeline_field_refs(pipeline: list[Any]) -> list[str]:
+    refs: list[str] = []
+
+    def visit(value: Any, *, key: str | None = None) -> None:
+        if isinstance(value, str):
+            if key in _STRUCTURAL_STRING_KEYS:
+                return
+            if value.startswith("$") and not value.startswith("$$"):
+                refs.append(value.lstrip("$"))
+            return
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+            return
+        if not isinstance(value, dict):
+            return
+        for raw_key, child in value.items():
+            visit(child, key=str(raw_key))
+
+    visit(pipeline)
+    return refs
+
+
+def _generated_group_id_paths(pipeline: list[Any]) -> set[str]:
+    paths: set[str] = set()
+    for stage in pipeline:
+        if not isinstance(stage, dict):
+            continue
+        group = stage.get("$group")
+        if not isinstance(group, dict):
+            continue
+        group_id = group.get("_id")
+        if isinstance(group_id, dict):
+            for key in group_id:
+                paths.add(f"_id.{key}")
+    return paths
+
+
+def _is_generated_group_ref(ref: str, generated_group_paths: set[str]) -> bool:
+    return any(ref == path or ref.startswith(f"{path}.") for path in generated_group_paths)
+
+
+def _alias_sources_before_last_project(pipeline: list[Any]) -> dict[str, tuple[str, str]]:
+    end = _last_project_index(pipeline)
+    if end is None:
+        end = len(pipeline)
+    aliases: dict[str, tuple[str, str]] = {}
+    for stage in pipeline[:end]:
+        if not isinstance(stage, dict):
+            continue
+        for operator in ("$addFields", "$set"):
+            assignments = stage.get(operator)
+            if isinstance(assignments, dict):
+                _update_alias_sources(aliases, assignments)
+        project = stage.get("$project")
+        if isinstance(project, dict):
+            for output, expression in project.items():
+                name = str(output)
+                source = _expression_source(expression)
+                if source is not None:
+                    aliases[name] = source
+                elif expression in (0, False):
+                    aliases.pop(name, None)
+                elif expression not in (1, True):
+                    aliases.pop(name, None)
+    return aliases
+
+
+def _update_alias_sources(
+    aliases: dict[str, tuple[str, str]],
+    assignments: dict[Any, Any],
+) -> None:
+    for output, expression in assignments.items():
+        name = str(output)
+        source = _expression_source(expression)
+        if source is None:
+            aliases.pop(name, None)
+        else:
+            aliases[name] = source
+
+
+def _expression_source(expression: Any) -> tuple[str, str] | None:
+    if isinstance(expression, str) and expression.startswith("$") and not expression.startswith("$$"):
+        return expression.lstrip("$"), "direct"
+    if isinstance(expression, dict) and len(expression) == 1:
+        value = expression.get("$objectToArray")
+        if isinstance(value, str) and value.startswith("$"):
+            return value.lstrip("$"), "object_to_array"
+    return None
+
+
+def _resolve_alias_ref(ref: str, aliases: dict[str, tuple[str, str]]) -> str | None:
+    parts = ref.split(".")
+    if not parts:
+        return ref
+    alias = aliases.get(parts[0])
+    if alias is None:
+        return ref
+    source, transform = alias
+    rest = parts[1:]
+    if transform == "object_to_array":
+        if not rest:
+            return source
+        if rest[0] == "k":
+            return None
+        if rest[0] == "v":
+            if len(rest) == 1:
+                return f"{source}.*"
+            return ".".join([source, "*[]", *rest[1:]])
+    if not rest:
+        return source
+    return ".".join([source, *rest])
+
+
+def _complex_evidence_paths(state: SmartEGState, refs: list[str]) -> set[str]:
+    return _evidence_path_sets(state, refs)[1]
+
+
+def _evidence_path_sets(
+    state: SmartEGState,
+    refs: list[str],
+) -> tuple[set[str], set[str], set[str]]:
+    scalar_paths: set[str] = set()
+    complex_paths: set[str] = set()
+    all_paths: set[str] = set()
+    paths: set[str] = set()
+    records = [
+        state.evidence_ledger.records[ref]
+        for ref in refs
+        if ref in state.evidence_ledger.records
+    ]
+    for record in records:
+        _collect_type_paths(record.summary, scalar_paths, complex_paths, all_paths)
+    for path in list(scalar_paths):
+        scalar_paths.update(_path_variants(path))
+    for path in list(complex_paths):
+        complex_paths.update(_path_variants(path))
+    for path in list(all_paths):
+        all_paths.update(_path_variants(path))
+    return scalar_paths, complex_paths, all_paths
+
+
+def _collect_complex_paths(payload: Any, out: set[str]) -> None:
+    _collect_type_paths(payload, set(), out, set())
+
+
+def _collect_type_paths(
+    payload: Any,
+    scalar_paths: set[str],
+    complex_paths: set[str],
+    all_paths: set[str],
+) -> None:
+    if isinstance(payload, dict):
+        path = payload.get("path")
+        type_counts = payload.get("type_counts")
+        if isinstance(path, str) and isinstance(type_counts, dict):
+            all_paths.add(path)
+            if _is_complex_type_counts(type_counts):
+                complex_paths.add(path)
+            elif _is_scalar_type_counts(type_counts):
+                scalar_paths.add(path)
+        paths = payload.get("paths")
+        if isinstance(paths, dict):
+            for item_path, info in paths.items():
+                if not isinstance(item_path, str) or not isinstance(info, dict):
+                    continue
+                item_type_counts = info.get("type_counts")
+                if not isinstance(item_type_counts, dict):
+                    continue
+                all_paths.add(item_path)
+                if _is_complex_type_counts(item_type_counts):
+                    complex_paths.add(item_path)
+                elif _is_scalar_type_counts(item_type_counts):
+                    scalar_paths.add(item_path)
+        for value in payload.values():
+            _collect_type_paths(value, scalar_paths, complex_paths, all_paths)
+        return
+    if isinstance(payload, list):
+        for item in payload:
+            _collect_type_paths(item, scalar_paths, complex_paths, all_paths)
+
+
+def _is_complex_type_counts(type_counts: Any) -> bool:
+    return isinstance(type_counts, dict) and (
+        int(type_counts.get("object", 0) or 0) > 0
+        or int(type_counts.get("array", 0) or 0) > 0
+    )
+
+
+def _is_scalar_type_counts(type_counts: Any) -> bool:
+    if not isinstance(type_counts, dict):
+        return False
+    scalar_count = 0
+    for kind, count in type_counts.items():
+        if kind in {"object", "array", "null"}:
+            continue
+        scalar_count += int(count or 0)
+    return scalar_count > 0
+
+
+def _path_variants(path: str) -> set[str]:
+    parts = list(parse_path(path))
+    variants = {_format_parsed_path(parts)}
+    for index, part in enumerate(parts[:-1]):
+        if part == "[]" or parts[index + 1] != "[]" or index == 0:
+            continue
+        wildcarded = list(parts)
+        wildcarded[index] = "*"
+        variants.add(_format_parsed_path(wildcarded))
+    return variants
+
+
+def _format_parsed_path(parts: list[str]) -> str:
+    out = ""
+    for part in parts:
+        if part == "[]":
+            out += "[]"
+        else:
+            out = part if not out else f"{out}.{part}"
+    return out
+
+
+def _extends_observed_scalar_path(path: str, scalar_paths: set[str]) -> bool:
+    return any(
+        len(parse_path(path)) > len(parse_path(scalar_path))
+        and _path_prefix_matches(scalar_path, path)
+        for scalar_path in scalar_paths
+    )
+
+
+def _under_observed_complex_path(path: str, complex_paths: set[str]) -> bool:
+    return any(_path_prefix_matches(complex_path, path) for complex_path in complex_paths)
+
+
+def _has_evidence_path(path: str, all_paths: set[str]) -> bool:
+    return any(
+        _path_matches(evidence_path, path) or _path_prefix_matches(path, evidence_path)
+        for evidence_path in all_paths
+    )
+
+
+def _path_prefix_matches(prefix: str, path: str) -> bool:
+    prefix_parts = parse_path(prefix)
+    path_parts = parse_path(path)
+    if len(prefix_parts) > len(path_parts):
+        return False
+    return _path_parts_match(prefix_parts, path_parts[: len(prefix_parts)])
+
+
+def _path_matches(pattern: str, path: str) -> bool:
+    pattern_parts = parse_path(pattern)
+    path_parts = parse_path(path)
+    if len(pattern_parts) != len(path_parts):
+        return False
+    return _path_parts_match(pattern_parts, path_parts)
+
+
+def _path_parts_match(pattern_parts: tuple[str, ...], path_parts: tuple[str, ...]) -> bool:
+    for expected, actual in zip(pattern_parts, path_parts, strict=True):
+        if expected == "*":
+            if actual == "[]":
+                return False
+            continue
+        if expected != actual:
+            return False
+    return True
 
 
 def _gate(

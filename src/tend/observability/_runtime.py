@@ -2,28 +2,30 @@
 from __future__ import annotations
 
 import threading
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
-from uuid import uuid4
 
 import structlog
 
 from ..errors import Anomaly, TendError
+from ..run_ids import new_run_id
 from ._formatters import _json_dumps, render_llm_transcript_markdown
 
 AnomalyCallback = Callable[[dict[str, Any]], None]
 EventCallback = Callable[[dict[str, Any]], None]
 
 
-def new_run_id(prefix: str = "run") -> str:
-    """Timestamped, collision-resistant run id, e.g. ``run-20260601-013355-a1b2``."""
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    return f"{prefix}-{ts}-{uuid4().hex[:4]}"
-
-
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def _env_bool(key: str, default: bool = False) -> bool:
+    raw = os.environ.get(key)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _diagnostics_ref_from_transcript(transcript_ref: str) -> str:
@@ -67,12 +69,19 @@ class _JsonlSink:
 class _Run:
     """Shared run state referenced by all context-bound loggers."""
 
-    def __init__(self, run_dir: Path, console: bool) -> None:
+    def __init__(
+        self,
+        run_dir: Path,
+        console: bool,
+        *,
+        write_llm_markdown_transcripts: bool,
+    ) -> None:
         self.run_dir = run_dir
         run_dir.mkdir(parents=True, exist_ok=True)
         self.events = _JsonlSink(run_dir / "events.jsonl")
         self.anomalies = _JsonlSink(run_dir / "anomalies.jsonl")
         self.llm_dir = run_dir / "llm"
+        self.write_llm_markdown_transcripts = write_llm_markdown_transcripts
         self.subscribers: list[AnomalyCallback] = []
         self.event_subscribers: list[EventCallback] = []
         self.counts: dict[str, int] = {}
@@ -187,24 +196,33 @@ class RunLogger:
         return record
 
     def save_transcript(self, agent: str, call_id: str, transcript: dict[str, Any]) -> str:
-        """Persist an LLM call and return the markdown transcript path."""
+        """Persist an LLM call and return the primary call artifact path."""
         out_dir = self._run.llm_dir / agent
         out_dir.mkdir(parents=True, exist_ok=True)
         md_path = out_dir / f"{call_id}.md"
         diagnostics_path = out_dir / f"{call_id}.diagnostics.json"
         diagnostics_ref = str(diagnostics_path.relative_to(self._run.run_dir))
+        markdown_ref = str(md_path.relative_to(self._run.run_dir))
+        transcript_ref = (
+            markdown_ref if self._run.write_llm_markdown_transcripts else diagnostics_ref
+        )
         payload = {
             "ts": _utcnow(),
             "agent": agent,
             "call_id": call_id,
             **self._ctx,
             **transcript,
-            "transcript_ref": str(md_path.relative_to(self._run.run_dir)),
+            "transcript_ref": transcript_ref,
             "diagnostics_ref": diagnostics_ref,
+            "markdown_transcript_ref": (
+                markdown_ref if self._run.write_llm_markdown_transcripts else None
+            ),
+            "markdown_transcript_enabled": self._run.write_llm_markdown_transcripts,
         }
         diagnostics_path.write_text(_json_dumps(payload, indent=2), encoding="utf-8")
-        md_path.write_text(render_llm_transcript_markdown(payload), encoding="utf-8")
-        return str(md_path.relative_to(self._run.run_dir))
+        if self._run.write_llm_markdown_transcripts:
+            md_path.write_text(render_llm_transcript_markdown(payload), encoding="utf-8")
+        return transcript_ref
 
     def subscribe_anomaly(self, callback: AnomalyCallback) -> None:
         self._run.subscribers.append(callback)
@@ -221,7 +239,13 @@ class RunLogger:
         self._run.anomalies.close()
 
 
-def setup_logging(run_dir: Path, *, console: bool = False, level: str = "info") -> RunLogger:
+def setup_logging(
+    run_dir: Path,
+    *,
+    console: bool = False,
+    level: str = "info",
+    write_llm_markdown_transcripts: bool | None = None,
+) -> RunLogger:
     """Configure structlog and open the run sinks."""
     structlog.configure(
         processors=[
@@ -235,4 +259,15 @@ def setup_logging(run_dir: Path, *, console: bool = False, level: str = "info") 
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,
     )
-    return RunLogger(_Run(run_dir, console=console))
+    write_md = (
+        _env_bool("TEND_LLM_TRANSCRIPT_MD", False)
+        if write_llm_markdown_transcripts is None
+        else write_llm_markdown_transcripts
+    )
+    return RunLogger(
+        _Run(
+            run_dir,
+            console=console,
+            write_llm_markdown_transcripts=write_md,
+        )
+    )

@@ -12,6 +12,7 @@ from .safety import (
     DEFAULT_DOC_LIMIT,
     DEFAULT_VALUE_LIMIT,
     MAX_DOC_LIMIT,
+    MAX_LITERAL_VALUE_BUCKETS,
     MAX_VALUE_LIMIT,
     bounded_limit,
     extract_path_values,
@@ -194,11 +195,21 @@ class SmartEgMongoTools:
             key = stable_hash(value)
             bucket = buckets.setdefault(
                 key,
-                {"value": summarize_redacted_value(value), "count": 0},
+                {"raw_value": value, "count": 0},
             )
             bucket["count"] += 1
+        expose_literals = len(buckets) <= min(max_values, MAX_LITERAL_VALUE_BUCKETS)
         ordered = sorted(
-            buckets.values(),
+            (
+                {
+                    "value": summarize_redacted_value(
+                        bucket["raw_value"],
+                        expose_literal=expose_literals,
+                    ),
+                    "count": bucket["count"],
+                }
+                for bucket in buckets.values()
+            ),
             key=lambda item: (-int(item["count"]), str(item["value"].get("hash", ""))),
         )
         return {
@@ -212,7 +223,10 @@ class SmartEgMongoTools:
             "unique_value_count": len(buckets),
             "values": ordered[:max_values],
             "value_limit": max_values,
-            "redaction": {"raw_rows": False, "scalar_values": "hash_only"},
+            "redaction": {
+                "raw_rows": False,
+                "scalar_values": "bounded_enum_literals" if expose_literals else "hash_only",
+            },
         }
 
     def search_values(
@@ -269,7 +283,7 @@ class SmartEgMongoTools:
         for doc in docs:
             arrays.extend(
                 value
-                for value in flatten_extracted_values(extract_path_values(doc, path))
+                for value in extract_path_values(doc, path)
                 if isinstance(value, list)
             )
         lengths = [len(array) for array in arrays]

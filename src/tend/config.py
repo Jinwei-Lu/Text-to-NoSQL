@@ -14,6 +14,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .errors import ConfigError
+from .run_ids import new_run_id
 
 
 def _find_repo_root(start: Path | None = None) -> Path:
@@ -70,6 +71,9 @@ class LLMSettings:
     # ``slow_call_warn_s`` emits a warning after a slow LLM call completes. ``<= 0`` disables.
     prompt_warn_chars: int = 24000
     slow_call_warn_s: float = 45.0
+    # Per-call LLM markdown transcripts are redundant with agent session logs.
+    # Keep diagnostics JSON by default; set TEND_LLM_TRANSCRIPT_MD=1 for debug markdown.
+    write_markdown_transcripts: bool = False
     #: per-agent model overrides (agent_id -> model); empty = use ``model`` for all
     agent_models: dict[str, str] = field(default_factory=dict)
 
@@ -102,17 +106,18 @@ class Settings:
     stub: bool = False               # offline: deterministic fake LLM, no live calls
     quiet: bool = False              # suppress the live progress UI (CI / logs only)
     seed: int = 0
-    run_id: str = "dev"
+    run_id: str = field(default_factory=new_run_id)
 
     @classmethod
     def from_env(
         cls,
         *,
-        run_id: str = "dev",
+        run_id: str | None = None,
         overrides: dict[str, str] | None = None,
         require_bird: bool = True,
         require_llm: bool = True,
     ) -> "Settings":
+        run_id = run_id or new_run_id()
         root = _find_repo_root()
         envmap = load_dotenv(root / ".env")
         if overrides:
@@ -152,6 +157,9 @@ class Settings:
             max_concurrency=int(_env(envmap, "TEND_LLM_MAX_CONCURRENCY", "16")),
             prompt_warn_chars=int(_env(envmap, "TEND_LLM_PROMPT_WARN_CHARS", "24000")),
             slow_call_warn_s=float(_env(envmap, "TEND_LLM_SLOW_WARN_S", "45")),
+            write_markdown_transcripts=(
+                _env(envmap, "TEND_LLM_TRANSCRIPT_MD", "0") == "1"
+            ),
         )
         paths = Paths(
             repo_root=root,

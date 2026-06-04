@@ -12,6 +12,8 @@ DEFAULT_VALUE_LIMIT = 12
 MAX_VALUE_LIMIT = 50
 MAX_REDACT_DEPTH = 5
 MAX_REDACT_ITEMS = 8
+MAX_LITERAL_VALUE_BUCKETS = 12
+MAX_LITERAL_STRING_LENGTH = 80
 
 _MISSING = object()
 
@@ -97,12 +99,28 @@ def redact_value(value: Any, *, depth: int = 0) -> Any:
     return redact_scalar(value)
 
 
-def summarize_redacted_value(value: Any) -> dict[str, Any]:
-    return redact_scalar(value) if not isinstance(value, (Mapping, list)) else {
+def summarize_redacted_value(value: Any, *, expose_literal: bool = False) -> dict[str, Any]:
+    if not isinstance(value, (Mapping, list)):
+        out = redact_scalar(value)
+        if expose_literal:
+            literal = observable_literal(value)
+            if literal is not _MISSING:
+                out["literal"] = literal
+        return out
+    return {
         "type": value_kind(value),
         "hash": stable_hash(value),
         "size": len(value),
     }
+
+
+def observable_literal(value: Any) -> Any:
+    if isinstance(value, str):
+        if 0 < len(value) <= MAX_LITERAL_STRING_LENGTH and value.isprintable():
+            return value
+    if isinstance(value, bool) or value is None:
+        return value
+    return _MISSING
 
 
 def parse_path(path: str) -> tuple[str, ...]:
@@ -149,6 +167,17 @@ def _extract_one(value: Any, parts: tuple[str, ...]) -> Any:
         out = []
         for item in value.values():
             child = _extract_one(item, tail)
+            if child is _MISSING:
+                continue
+            if isinstance(child, list):
+                out.extend(child)
+            else:
+                out.append(child)
+        return out if out else _MISSING
+    if isinstance(value, list):
+        out = []
+        for item in value:
+            child = _extract_one(item, parts)
             if child is _MISSING:
                 continue
             if isinstance(child, list):

@@ -93,17 +93,9 @@ class SmartEGHistory:
         return True
 
     def build_messages(self, state_summary: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-        if state_summary is None:
-            return list(self.messages)
+        del state_summary
         self._require_no_pending()
-        return [
-            *self.messages,
-            {
-                "role": "user",
-                "content": "Runtime state:\n"
-                + json.dumps(state_summary, ensure_ascii=False, sort_keys=True, default=str),
-            },
-        ]
+        return list(self.messages)
 
     def _require_no_pending(self) -> None:
         if self._pending_tool_calls:

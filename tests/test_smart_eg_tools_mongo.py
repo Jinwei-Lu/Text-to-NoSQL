@@ -44,6 +44,78 @@ def test_environment_tools_return_bounded_redacted_summaries() -> None:
     assert values["redaction"]["raw_rows"] is False
 
 
+def test_profile_path_values_exposes_bounded_enum_literals_without_raw_rows() -> None:
+    class EnumMongo(_Mongo):
+        def __init__(self):
+            super().__init__()
+            self.docs["account"] = [
+                {"_id": 1, "loan_presence_state": "present"},
+                {"_id": 2, "loan_presence_state": "absent"},
+                {"_id": 3, "loan_presence_state": "present"},
+            ]
+
+    tools = SmartEGMongoTools(EnumMongo(), "financial")
+
+    values = tools.profile_path_values(
+        {"collection": "account", "path": "loan_presence_state", "limit": 3}
+    )
+
+    literals = {bucket["value"].get("literal") for bucket in values["values"]}
+    assert literals == {"present", "absent"}
+    assert values["redaction"]["raw_rows"] is False
+    assert values["redaction"]["scalar_values"] == "bounded_enum_literals"
+
+
+def test_profile_path_values_traverses_arrays_when_brackets_are_omitted() -> None:
+    class NestedArrayMongo(_Mongo):
+        def __init__(self):
+            super().__init__()
+            self.docs["account"] = [
+                {
+                    "_id": 1,
+                    "accounts_by_frequency": {
+                        "POPLATEK_MESICNE": [
+                            {"loan_presence_state": "present"},
+                            {"loan_presence_state": "empty"},
+                        ]
+                    },
+                },
+                {
+                    "_id": 2,
+                    "accounts_by_frequency": {
+                        "POPLATEK_MESICNE": [
+                            {"loan_presence_state": "present"},
+                        ]
+                    },
+                },
+            ]
+
+    tools = SmartEGMongoTools(NestedArrayMongo(), "financial")
+
+    values = tools.profile_path_values(
+        {
+            "collection": "account",
+            "path": "accounts_by_frequency.POPLATEK_MESICNE.loan_presence_state",
+            "limit": 2,
+        }
+    )
+
+    literals = {bucket["value"].get("literal") for bucket in values["values"]}
+    assert values["value_count"] == 3
+    assert literals == {"present", "empty"}
+
+
+def test_inspect_array_shape_counts_direct_array_path() -> None:
+    tools = SmartEGMongoTools(_Mongo(), "financial")
+
+    shape = tools.inspect_array_shape("account", "tags", limit=2)
+
+    assert shape["array_count"] == 2
+    assert shape["min_length"] == 0
+    assert shape["max_length"] == 1
+    assert shape["element_type_counts"] == {"str": 1}
+
+
 def test_sample_documents_returns_compact_shape_summary_for_deep_documents() -> None:
     class DeepMongo(_Mongo):
         def __init__(self):

@@ -78,7 +78,11 @@ class Runtime:
 def build_runtime(settings: Settings) -> Runtime:
     settings.paths.ensure()
     run_dir = settings.run_dir
-    log = setup_logging(run_dir, console=False)
+    log = setup_logging(
+        run_dir,
+        console=False,
+        write_llm_markdown_transcripts=settings.llm.write_markdown_transcripts,
+    )
     log.info("run_start", run_id=settings.run_id, stub=settings.stub,
              model=settings.llm.model)
     progress = make_reporter(settings.run_id, log, enabled=not settings.quiet)
@@ -93,7 +97,11 @@ def build_runtime(settings: Settings) -> Runtime:
 
 
 def build_solver_runtime(settings: Settings, *, run_kind: str = "solver") -> Runtime:
-    log = setup_logging(settings.run_dir, console=False)
+    log = setup_logging(
+        settings.run_dir,
+        console=False,
+        write_llm_markdown_transcripts=settings.llm.write_markdown_transcripts,
+    )
     log.info(f"{run_kind}_run_start", run_id=settings.run_id, stub=settings.stub,
              model=settings.llm.model)
     progress = make_reporter(settings.run_id, log, enabled=not settings.quiet)

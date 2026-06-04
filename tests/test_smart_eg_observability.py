@@ -6,7 +6,7 @@ import pytest
 
 from tend.observability import setup_logging
 from tend.solver.eg import SmartEGHistory, SmartEGPolicy, SmartEGState, SmartEGToolAPI
-from tend.solver.eg.observability import SmartEGRecorder
+from tend.solver.eg.observability import SmartEGRecorder, build_session_id
 
 
 class _Mongo:
@@ -55,6 +55,17 @@ def test_recorder_writes_agent_evidence_gate_cost_and_error_artifacts(tmp_path) 
     assert rows[0]["event"] == "turn_start"
 
 
+def test_default_session_id_includes_stage_task_database_and_record() -> None:
+    session_id = build_session_id(
+        stage="solve",
+        task="smart_eg",
+        db_id="financial",
+        record_id=31131,
+    )
+
+    assert session_id.startswith("solve_smart_eg_financial_record_31131_")
+
+
 def test_history_enforces_assistant_tool_pairs_and_compacts_safely() -> None:
     history = SmartEGHistory(system_prompt="system")
     history.add_user("start")
@@ -80,7 +91,11 @@ def test_history_enforces_assistant_tool_pairs_and_compacts_safely() -> None:
                 "role": "assistant",
                 "content": None,
                 "tool_calls": [
-                    {"id": f"later_{idx}", "type": "function", "function": {"name": "inspect_evidence_ledger"}}
+                    {
+                        "id": f"later_{idx}",
+                        "type": "function",
+                        "function": {"name": "inspect_evidence_ledger"},
+                    }
                 ],
             }
         )
@@ -116,6 +131,81 @@ def test_history_truncates_large_tool_results_before_provider_prompt() -> None:
     assert "truncated_for_prompt" in tool_message["content"]
     assert "ev_1" in tool_message["content"]
     assert history.validate_provider_invariants() is True
+
+
+def test_history_does_not_append_runtime_state_to_provider_prompt() -> None:
+    history = SmartEGHistory(system_prompt="system")
+    history.add_user("NLQ: list accounts\nDB: financial\nRecord: 1")
+
+    messages = history.build_messages(
+        {
+            "mode": "environment",
+            "budgets": {"max_tool_turns": 48},
+            "counters": {"llm_turns": 0},
+        }
+    )
+    joined = "\n".join(str(message.get("content", "")) for message in messages)
+
+    assert messages == history.messages
+    assert "Runtime state" not in joined
+    assert "budgets" not in joined
+    assert "counters" not in joined
+
+
+def test_recorder_keeps_live_markdown_with_llm_turn_and_tool_observation(tmp_path) -> None:
+    log = setup_logging(tmp_path, console=False)
+    recorder = SmartEGRecorder(log, session_id="smart-eg-financial-manual-deadbeef")
+
+    recorder.agent_event(
+        "llm_response",
+        {
+            "turn_index": 1,
+            "call_id": "call-1",
+            "transcript_ref": "llm/smart_eg/call-1.diagnostics.json",
+            "diagnostics_ref": "llm/smart_eg/call-1.diagnostics.json",
+            "has_tool_calls": True,
+            "tool_call_count": 1,
+        },
+    )
+    recorder.agent_event(
+        "tool_call",
+        {
+            "turn_index": 1,
+            "tool_call_id": "tool-1",
+            "tool": "list_collections",
+            "arguments": {},
+        },
+    )
+    recorder.agent_event(
+        "tool_observation",
+        {
+            "turn_index": 1,
+            "tool_call_id": "tool-1",
+            "tool": "list_collections",
+            "ok": True,
+            "content": {"ok": True, "tool": "list_collections", "collections": ["account"]},
+        },
+    )
+
+    md = (tmp_path / "agent" / "smart-eg-financial-manual-deadbeef.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "# Agent Session: smart-eg-financial-manual-deadbeef" in md
+    assert "Status: running" in md
+    assert "## Turn 1" in md
+    assert "### Reasoning" in md
+    assert "### LLM Call" in md
+    assert "### Tool Calls" in md
+    assert "### Tool Results" in md
+    assert "### Metrics" in md
+    assert "llm/smart_eg/call-1.diagnostics.json" in md
+    assert "Markdown Transcript" not in md
+    assert "#### list_collections (`tool-1`)" in md
+    assert "#### list_collections() (`tool-1`)" in md
+    assert '"collections": [' in md
+    assert "### LLM Response" not in md
+    assert "### Tool Call:" not in md
 
 
 def test_mode_based_tool_exposure_and_terminal_only_allowlist() -> None:
@@ -154,6 +244,30 @@ def test_mode_based_tool_exposure_and_terminal_only_allowlist() -> None:
 
     forced_api = SmartEGToolAPI(SmartEGPolicy(force_tool_choice=True))
     assert forced_api.tool_choice_for_state(state) == api.tool_choice_for_state(state)
+
+
+def test_terminal_only_with_blocking_debt_exposes_debt_repair_tools() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy())
+    state = SmartEGState(nlq="compare loan-account share", db_id="financial")
+    state.mode = "planning"
+    state.terminal_only = True
+    state.evidence_ledger.ensure_debt(
+        milestone="plan",
+        claim_type="value_grounding",
+        missing_evidence=["literal:present"],
+        suggested_tools=["profile_path_values", "search_values", "run_readonly_probe"],
+    )
+
+    terminal_tools = {tool["function"]["name"] for tool in api.tools_for_state(state)}
+
+    assert "submit_query_plan" in terminal_tools
+    assert "abandon_with_failure" in terminal_tools
+    assert "inspect_evidence_debt" in terminal_tools
+    assert "profile_path_values" in terminal_tools
+    assert "search_values" in terminal_tools
+    assert "run_readonly_probe" in terminal_tools
+    assert "sample_documents" not in terminal_tools
+    assert api.tool_choice_for_state(state) is None
 
 
 def test_environment_mode_narrows_to_submit_after_sufficient_evidence() -> None:
@@ -214,6 +328,71 @@ def test_environment_ready_probe_request_becomes_submit_required_feedback() -> N
     assert state.counters.protocol_violations == 0
 
 
+def test_intent_ready_narrows_to_submit_without_protocol_penalty() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(), db_handle=_Mongo())
+    state = SmartEGState(nlq="list accounts", db_id="financial", mode="intent")
+    state.environment = {"candidate_collections": ["account"]}
+    state.evidence_ledger.add_record(
+        source_tool="profile_path_values",
+        tool_call_id="call_1",
+        observation_ref="agent/session.jsonl#1",
+        summary={"collection": "account", "path": "frequency"},
+    )
+    exposed_names = {tool["function"]["name"] for tool in api.tools_for_state(state)}
+
+    assert exposed_names == {
+        "submit_intent_hypothesis",
+        "inspect_evidence_ledger",
+        "inspect_evidence_debt",
+        "abandon_with_failure",
+    }
+    assert api.tool_choice_for_state(state) == {
+        "type": "function",
+        "function": {"name": "submit_intent_hypothesis"},
+    }
+
+    observation = api.execute(
+        {
+            "id": "call_2",
+            "function": {
+                "name": "profile_path_values",
+                "arguments": '{"collection":"account","path":"x"}',
+            },
+        },
+        state,
+        exposed_tool_names=exposed_names,
+    )
+
+    assert observation.ok is False
+    assert observation.llm_visible_content["reason"] == "intent_ready_to_submit"
+    assert observation.llm_visible_content["required_tool"] == "submit_intent_hypothesis"
+    assert state.counters.protocol_violations == 0
+
+
+def test_tool_choice_never_names_tool_outside_current_exposure() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(), db_handle=_Mongo())
+    state = SmartEGState(nlq="list accounts", db_id="financial", mode="intent")
+    state.environment = {"candidate_collections": ["account"]}
+    state.evidence_ledger.add_record(
+        source_tool="list_collections",
+        tool_call_id="call_1",
+        observation_ref="agent/session.jsonl#1",
+        summary={"collections": ["account"]},
+    )
+    state.evidence_ledger.add_record(
+        source_tool="sample_documents",
+        tool_call_id="call_2",
+        observation_ref="agent/session.jsonl#2",
+        summary={"collection": "account", "path_count": 4},
+    )
+
+    exposed_names = {tool["function"]["name"] for tool in api.tools_for_state(state)}
+    tool_choice = api.tool_choice_for_state(state)
+
+    if isinstance(tool_choice, dict):
+        assert tool_choice["function"]["name"] in exposed_names
+
+
 def test_planning_ready_narrows_to_submit_without_protocol_penalty() -> None:
     api = SmartEGToolAPI(SmartEGPolicy(), db_handle=_Mongo())
     state = SmartEGState(nlq="list accounts", db_id="financial", mode="planning")
@@ -226,7 +405,12 @@ def test_planning_ready_narrows_to_submit_without_protocol_penalty() -> None:
     )
     exposed_names = {tool["function"]["name"] for tool in api.tools_for_state(state)}
 
-    assert exposed_names == {"submit_query_plan", "inspect_evidence_ledger", "inspect_evidence_debt", "abandon_with_failure"}
+    assert exposed_names == {
+        "submit_query_plan",
+        "inspect_evidence_ledger",
+        "inspect_evidence_debt",
+        "abandon_with_failure",
+    }
     assert api.tool_choice_for_state(state) == {
         "type": "function",
         "function": {"name": "submit_query_plan"},
@@ -235,7 +419,10 @@ def test_planning_ready_narrows_to_submit_without_protocol_penalty() -> None:
     observation = api.execute(
         {
             "id": "call_2",
-            "function": {"name": "run_readonly_probe", "arguments": '{"collection":"account","pipeline":[]}'},
+            "function": {
+                "name": "run_readonly_probe",
+                "arguments": '{"collection":"account","pipeline":[]}',
+            },
         },
         state,
         exposed_tool_names=exposed_names,
@@ -244,6 +431,65 @@ def test_planning_ready_narrows_to_submit_without_protocol_penalty() -> None:
     assert observation.ok is False
     assert observation.llm_visible_content["reason"] == "planning_ready_to_submit"
     assert observation.llm_visible_content["required_tool"] == "submit_query_plan"
+    assert state.counters.protocol_violations == 0
+
+
+def test_planning_ready_accepts_readonly_probe_as_plan_evidence() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(), db_handle=_Mongo())
+    state = SmartEGState(nlq="list accounts", db_id="financial", mode="planning")
+    state.intent = {"task_kind": "aggregation"}
+    state.evidence_ledger.add_record(
+        source_tool="run_readonly_probe",
+        tool_call_id="call_1",
+        observation_ref="agent/session.jsonl#1",
+        summary={"ok": True},
+    )
+
+    exposed_names = {tool["function"]["name"] for tool in api.tools_for_state(state)}
+
+    assert exposed_names == {
+        "submit_query_plan",
+        "inspect_evidence_ledger",
+        "inspect_evidence_debt",
+        "abandon_with_failure",
+    }
+
+
+def test_execution_ready_narrows_to_final_submit_without_protocol_penalty() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(), db_handle=_Mongo())
+    state = SmartEGState(nlq="list accounts", db_id="financial", mode="execution")
+    state.environment = {"candidate_collections": ["account"]}
+    state.intent = {"task_kind": "aggregation"}
+    state.query_plan = {"collection": "account", "stages": [{"$limit": 1}]}
+
+    exposed_names = {tool["function"]["name"] for tool in api.tools_for_state(state)}
+
+    assert exposed_names == {
+        "submit_final_mql",
+        "inspect_evidence_ledger",
+        "inspect_evidence_debt",
+        "abandon_with_failure",
+    }
+    assert api.tool_choice_for_state(state) == {
+        "type": "function",
+        "function": {"name": "submit_final_mql"},
+    }
+
+    observation = api.execute(
+        {
+            "id": "call_1",
+            "function": {
+                "name": "run_readonly_probe",
+                "arguments": '{"collection":"account","pipeline":[]}',
+            },
+        },
+        state,
+        exposed_tool_names=exposed_names,
+    )
+
+    assert observation.ok is False
+    assert observation.llm_visible_content["reason"] == "execution_ready_to_submit"
+    assert observation.llm_visible_content["required_tool"] == "submit_final_mql"
     assert state.counters.protocol_violations == 0
 
 

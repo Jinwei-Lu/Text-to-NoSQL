@@ -4,26 +4,58 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from .contracts import SmartEGBudgets, SmartEGFailure, SmartEGState
+from .contracts import SmartEGBudgets, SmartEGFailure, SmartEGState, ToolObservation
 from .history import SmartEGHistory
-from .observability import SmartEGObserver
+from .observability import SmartEGObserver, build_session_id
 from .policy import SmartEGConvergenceChecker, SmartEGPolicy
 from .tools import SmartEGToolAPI, tool_schemas
 from ..inputs import _canonical_nlq
 
-SYSTEM_PROMPT = (
-    "You are SMART-EG, a provider-native ReAct solver for NLQ plus an interactive "
-    "MongoDB database. Use only exposed tool calls, not natural-language final answers. "
-    "Proceed in stages: first explore the database with list_collections and compact "
-    "Mongo tools, then call submit_environment_model with candidate_collections and "
-    "evidence_refs, then submit_intent_hypothesis, then submit_query_plan, then validate "
-    "and finish with submit_final_mql. Successful completion is only submit_final_mql. "
-    "Normal failure is only abandon_with_failure. read_documents and run_query are not "
-    "available tools; use sample_documents, discover_paths, profile_path_values, "
-    "run_readonly_probe, and the submit_* tools instead. Keep exploration bounded: prefer "
-    "one or two targeted tool calls per turn, use evidence_id values returned by tools in "
-    "evidence_refs, and stop exploring once the current stage has enough evidence."
-)
+SYSTEM_PROMPT = """# SMART-EG Solver
+
+You solve one NLQ against one interactive MongoDB database using provider-native tool
+calls. Do not answer in natural language. Every productive step is a tool call.
+
+## Stage Contract
+
+1. Environment: inspect the database with `list_collections` and compact Mongo tools,
+   then call `submit_environment_model` with `candidate_collections` and
+   `evidence_refs`.
+2. Intent: ground the NLQ in observed paths or values, then call
+   `submit_intent_hypothesis`.
+3. Planning: build a MongoDB aggregation plan, then call `submit_query_plan`.
+4. Execution: validate or sanity-check the candidate query, then call
+   `submit_final_mql`.
+
+## Tool Boundary
+
+- Use only tools exposed in the current turn.
+- `read_documents` and `run_query` are not available tools.
+- Use `sample_documents`, `discover_paths`, `profile_path_values`,
+  `run_readonly_probe`, and the `submit_*` tools instead.
+- Use `evidence_id` values returned by tools in later `evidence_refs`.
+
+## Exit Contract
+
+- Successful completion is only `submit_final_mql`.
+- Normal failure is only `abandon_with_failure`.
+- Keep exploration bounded: prefer one or two targeted tool calls per turn and stop
+  probing once the current stage has enough evidence.
+"""
+
+SUBMIT_FOCUS_HISTORY_MAX_MESSAGES = 2
+RECENT_EVIDENCE_RECORD_LIMIT = 12
+SUBMIT_TOOLS = {
+    "submit_environment_model",
+    "submit_intent_hypothesis",
+    "submit_query_plan",
+    "submit_final_mql",
+}
+SUBMIT_FOCUS_ALLOWED_TOOLS = SUBMIT_TOOLS | {
+    "abandon_with_failure",
+    "inspect_evidence_debt",
+    "inspect_evidence_ledger",
+}
 
 
 async def smart_solve_nlq_db_eg(
@@ -45,6 +77,7 @@ async def smart_solve_nlq_db_eg(
     positional shim is accepted for future integration with the existing Workflow object.
     """
 
+    ctx = None
     if wf is not None:
         ctx = wf.ctx
         llm = llm or getattr(ctx, "llm", None)
@@ -60,7 +93,16 @@ async def smart_solve_nlq_db_eg(
         raise TypeError("smart_solve_nlq_db_eg requires run_dir or wf.ctx.log.run_dir")
 
     policy = policy or SmartEGPolicy()
-    observer = SmartEGObserver(run_dir, session_id=session_id)
+    observer = SmartEGObserver(
+        run_dir,
+        session_id=session_id
+        or build_session_id(
+            stage="solve",
+            task="smart_eg",
+            db_id=db_id,
+            record_id=record_id,
+        ),
+    )
     state = SmartEGState(
         nlq=nlq,
         db_id=db_id,
@@ -68,8 +110,20 @@ async def smart_solve_nlq_db_eg(
         budgets=policy.budgets,
         session_id=observer.session_id,
     )
+    initial_user_message = _initial_user_message(nlq=nlq, db_id=db_id, record_id=record_id)
     history = SmartEGHistory(system_prompt=SYSTEM_PROMPT)
-    history.add_user(f"NLQ: {nlq}\nDB: {db_id}\nRecord: {record_id}")
+    history.add_user(initial_user_message)
+    observer.start_session(
+        stage="solve",
+        task="smart_eg",
+        model=_model_name(ctx),
+        db_id=db_id,
+        record_id=record_id,
+        system_prompt=SYSTEM_PROMPT,
+        user_message=initial_user_message,
+        tools=tool_schemas(),
+        max_turns=policy.budgets.max_tool_turns,
+    )
     api = SmartEGToolAPI(policy, observer=observer, db_handle=db_handle, executor=executor)
     checker = SmartEGConvergenceChecker(policy)
 
@@ -88,9 +142,12 @@ async def smart_solve_nlq_db_eg(
             exposed_tools = api.tools_for_state(state)
             exposed_tool_names = {tool["function"]["name"] for tool in exposed_tools}
             tool_choice = api.tool_choice_for_state(state)
+            turn_index = state.counters.llm_turns + 1
+            observer.set_current_turn(turn_index)
             observer.agent_event(
                 "turn_start",
                 {
+                    "turn_index": turn_index,
                     "mode": state.mode,
                     "terminal_only": state.terminal_only,
                     "tool_turn": state.counters.tool_turns,
@@ -109,9 +166,28 @@ async def smart_solve_nlq_db_eg(
                     "tokens": state.counters.tokens,
                 }
             )
+            submit_focus_tool = _submit_focus_tool(tool_choice)
+            if submit_focus_tool not in exposed_tool_names:
+                submit_focus_tool = None
+            submit_focus_tool = submit_focus_tool or _single_exposed_submit_tool(exposed_tool_names)
+            if submit_focus_tool is not None and history.compact(
+                max_messages=SUBMIT_FOCUS_HISTORY_MAX_MESSAGES,
+                state_summary=_submit_focus_summary(state, submit_focus_tool),
+            ):
+                observer.agent_event(
+                    "history_compacted",
+                    {
+                        "turn_index": turn_index,
+                        "mode": state.mode,
+                        "reason": "submit_focus",
+                        "required_next_tool": submit_focus_tool,
+                        "message_count": len(history.messages),
+                    },
+                )
             observer.agent_event(
                 "llm_request",
                 {
+                    "turn_index": turn_index,
                     "mode": state.mode,
                     "tools": [tool["function"]["name"] for tool in exposed_tools],
                     "tool_choice": tool_choice,
@@ -120,7 +196,11 @@ async def smart_solve_nlq_db_eg(
             try:
                 response = await _complete_with_tools(
                     llm,
-                    messages=history.build_messages(state.summary()),
+                    messages=_messages_for_turn(
+                        history,
+                        state,
+                        required_next_tool=submit_focus_tool,
+                    ),
                     tools=exposed_tools,
                     tool_choice=tool_choice,
                     agent="smart_eg",
@@ -159,6 +239,19 @@ async def smart_solve_nlq_db_eg(
             observer.agent_event(
                 "llm_response",
                 {
+                    "turn_index": turn_index,
+                    "call_id": response.get("call_id"),
+                    "model": response.get("model"),
+                    "transcript_ref": response.get("transcript_ref"),
+                    "diagnostics_ref": response.get("diagnostics_ref"),
+                    "finish_reason": response.get("finish_reason"),
+                    "latency_s": response.get("latency_s"),
+                    "usage": response.get("usage"),
+                    "cost": response.get("cost"),
+                    "cumulative_tokens": state.counters.tokens,
+                    "cumulative_cost_usd": state.counters.cost_usd,
+                    "content": response.get("content") or response.get("response_text"),
+                    "tool_calls": list(response.get("tool_calls") or []),
                     "has_tool_calls": bool(response.get("tool_calls")),
                     "tool_call_count": len(response.get("tool_calls") or []),
                 },
@@ -185,26 +278,32 @@ async def smart_solve_nlq_db_eg(
                 observer.agent_event(
                     "tool_call",
                     {
+                        "turn_index": turn_index,
                         "tool_call_id": call.get("id"),
                         "tool": (call.get("function") or {}).get("name"),
+                        "arguments": _tool_arguments(call),
                     },
                 )
                 observation = api.execute(call, state, exposed_tool_names=exposed_tool_names)
-                state.counters.tool_turns += 1
+                if _counts_against_tool_budget(observation):
+                    state.counters.tool_turns += 1
                 history.add_tool_result(
                     observation.tool_call_id,
                     observation.name,
                     observation.llm_visible_content,
                 )
-                observer.agent_event(
+                observation_ref = observer.agent_event(
                     "tool_observation",
                     {
+                        "turn_index": turn_index,
                         "tool_call_id": observation.tool_call_id,
                         "tool": observation.name,
                         "ok": observation.ok,
                         "gate_ref": observation.gate_ref,
+                        "content": observation.llm_visible_content,
                     },
                 )
+                _record_observation_evidence(state, observer, observation, observation_ref)
                 if state.terminal:
                     break
 
@@ -214,10 +313,15 @@ async def smart_solve_nlq_db_eg(
                     state_summary=state.summary(),
                 )
 
+        observer.set_current_turn(None)
         if state.result is None:
             state.result = _budget_failure(state, observer, "terminal_without_result")
         observer.record_execution_trace(
-            {"event": "final_state", "state": state.summary(), "result_type": state.result.result_type}
+            {
+                "event": "final_state",
+                "state": state.summary(),
+                "result_type": state.result.result_type,
+            }
         )
         observer.agent_event(
             "final_outcome",
@@ -281,12 +385,25 @@ async def _complete_with_tools(llm: Any, **kwargs: Any) -> dict[str, Any]:
     if inspect.isawaitable(result):
         result = await result
     if hasattr(result, "assistant_message") and hasattr(result, "tool_calls"):
+        assistant = getattr(result, "assistant_message", {}) or {}
+        content = assistant.get("content") if isinstance(assistant, dict) else None
+        if content is None:
+            content = getattr(result, "text", "")
         return {
             "role": "assistant",
-            "content": getattr(result, "content", None),
+            "content": content,
             "tool_calls": [call_to_json(call) for call in result.tool_calls],
             "usage": getattr(result, "usage", {}),
             "cost": getattr(result, "cost", {}),
+            "call_id": getattr(result, "call_id", None),
+            "model": getattr(result, "model", None),
+            "finish_reason": getattr(result, "finish_reason", None),
+            "latency_s": getattr(result, "latency_s", None),
+            "attempts": getattr(result, "attempts", None),
+            "transcript_ref": getattr(result, "transcript_ref", None),
+            "diagnostics_ref": getattr(result, "diagnostics_ref", None),
+            "response_text": getattr(result, "text", ""),
+            "provider_metadata": getattr(result, "provider_metadata", {}),
         }
     if not isinstance(result, dict):
         raise TypeError("complete_with_tools must return an assistant message dict")
@@ -310,6 +427,160 @@ def json_dumps(value: Any) -> str:
     import json
 
     return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def _initial_user_message(*, nlq: str, db_id: str, record_id: str | int | None) -> str:
+    record = "not provided" if record_id is None else str(record_id)
+    return f"Task input:\nNLQ: {nlq}\nDatabase: {db_id}\nRecord ID: {record}"
+
+
+def _submit_focus_tool(tool_choice: Any) -> str | None:
+    if not isinstance(tool_choice, dict):
+        return None
+    function = tool_choice.get("function")
+    if not isinstance(function, dict):
+        return None
+    name = function.get("name")
+    if name in SUBMIT_TOOLS:
+        return str(name)
+    return None
+
+
+def _single_exposed_submit_tool(exposed_tool_names: set[str]) -> str | None:
+    if not exposed_tool_names.issubset(SUBMIT_FOCUS_ALLOWED_TOOLS):
+        return None
+    submit_names = sorted(name for name in exposed_tool_names if name in SUBMIT_TOOLS)
+    if len(submit_names) == 1:
+        return submit_names[0]
+    return None
+
+
+def _submit_focus_summary(state: Any, required_tool: str) -> dict[str, Any]:
+    ledger = state.evidence_ledger
+    return {
+        "instruction": (
+            "The current milestone has enough evidence. The next assistant message "
+            "must call required_next_tool. Do not call exploration, probe, or "
+            "inspection tools unless required_next_tool is one of those tools."
+        ),
+        "required_next_tool": required_tool,
+        "nlq": state.nlq,
+        "db_id": state.db_id,
+        "record_id": state.record_id,
+        "mode": state.mode,
+        "terminal_only": state.terminal_only,
+        "terminal_reason": state.terminal_reason,
+        "stale_milestones": sorted(state.stale_milestones),
+        "environment": state.environment,
+        "intent": state.intent,
+        "query_plan": state.query_plan,
+        "blocking_debts": [_jsonable(debt) for debt in ledger.blocking_debts()],
+        "evidence_summary": ledger.summary(),
+        "recent_evidence": _recent_evidence(ledger),
+    }
+
+
+def _recent_evidence(ledger: Any) -> list[dict[str, Any]]:
+    records = list(getattr(ledger, "records", {}).values())[-RECENT_EVIDENCE_RECORD_LIMIT:]
+    return [
+        {
+            "evidence_id": getattr(record, "evidence_id", None),
+            "source_tool": getattr(record, "source_tool", None),
+            "summary": _compact_evidence_summary(getattr(record, "summary", None)),
+        }
+        for record in records
+    ]
+
+
+def _compact_evidence_summary(summary: Any) -> Any:
+    if not isinstance(summary, dict):
+        return summary
+    compact: dict[str, Any] = {}
+    for key in (
+        "tool",
+        "db_id",
+        "collection",
+        "path",
+        "sample_count",
+        "path_count",
+        "returned_path_count",
+        "omitted_path_count",
+        "result_count",
+        "count",
+        "limit",
+        "ok",
+        "error_type",
+    ):
+        if key in summary:
+            compact[key] = summary[key]
+    for key in ("top_level_keys", "array_paths", "object_paths"):
+        value = summary.get(key)
+        if isinstance(value, list):
+            compact[key] = value[:12]
+    type_counts = summary.get("top_level_type_counts")
+    if isinstance(type_counts, dict):
+        compact["top_level_type_counts"] = {
+            str(key): value for key, value in list(type_counts.items())[:12]
+        }
+    values = summary.get("values") or summary.get("value_samples")
+    if isinstance(values, list):
+        compact["value_samples"] = values[:12]
+    if not compact:
+        compact["summary_keys"] = sorted(str(key) for key in summary)[:20]
+    return compact
+
+
+def _jsonable(value: Any) -> Any:
+    if hasattr(value, "to_json"):
+        return value.to_json()
+    if isinstance(value, dict):
+        return value
+    return str(value)
+
+
+def _model_name(ctx: Any | None) -> str | None:
+    settings = getattr(ctx, "settings", None)
+    llm_settings = getattr(settings, "llm", None)
+    if llm_settings is None:
+        return None
+    model_for = getattr(llm_settings, "model_for", None)
+    if callable(model_for):
+        return str(model_for("smart_eg"))
+    model = getattr(llm_settings, "model", None)
+    return str(model) if model is not None else None
+
+
+def _tool_arguments(call: dict[str, Any]) -> Any:
+    import json
+
+    function = call.get("function") if isinstance(call.get("function"), dict) else {}
+    raw = function.get("arguments") or call.get("arguments") or {}
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw or "{}")
+        except json.JSONDecodeError:
+            return raw
+    return raw
+
+
+def _messages_for_turn(
+    history: SmartEGHistory,
+    state: Any,
+    *,
+    required_next_tool: str | None,
+) -> list[dict[str, Any]]:
+    if required_next_tool is None:
+        return history.build_messages()
+    base = history.build_messages()
+    system = [message for message in base[:1] if message.get("role") == "system"]
+    return [
+        *system,
+        {
+            "role": "user",
+            "content": "Submit-ready context:\n"
+            + json_dumps(_submit_focus_summary(state, required_next_tool)),
+        },
+    ]
 
 
 def _assistant_message(response: dict[str, Any]) -> dict[str, Any]:
@@ -337,6 +608,31 @@ def _record_usage(response: dict[str, Any], state: SmartEGState, observer: Smart
             "cost_source": cost.get("cost_source") or response.get("cost_source") or "unavailable",
         }
     )
+
+
+def _record_observation_evidence(
+    state: SmartEGState,
+    observer: SmartEGObserver,
+    observation: ToolObservation,
+    observation_ref: str,
+) -> None:
+    for evidence_id in observation.evidence_ids:
+        record = state.evidence_ledger.records.get(evidence_id)
+        if record is None:
+            continue
+        record.observation_ref = observation_ref
+        observer.record_evidence(record.to_json())
+
+
+def _counts_against_tool_budget(observation: ToolObservation) -> bool:
+    reason = observation.llm_visible_content.get("reason")
+    return reason not in {
+        "environment_ready_to_submit",
+        "intent_ready_to_submit",
+        "planning_ready_to_submit",
+        "execution_ready_to_submit",
+        "terminal_only",
+    }
 
 
 def _budget_failure(
@@ -376,8 +672,14 @@ def _policy_from_options(
     cost_budget_usd: float | None,
 ) -> SmartEGPolicy:
     return SmartEGPolicy(
-        max_tool_turns=int(max_tool_turns if max_tool_turns is not None else options.get("max_tool_turns", 48)),
-        max_revisits=int(max_revisits if max_revisits is not None else options.get("max_revisits", 4)),
+        max_tool_turns=int(
+            max_tool_turns
+            if max_tool_turns is not None
+            else options.get("max_tool_turns", 48)
+        ),
+        max_revisits=int(
+            max_revisits if max_revisits is not None else options.get("max_revisits", 4)
+        ),
         cost_budget_usd=(
             float(cost_budget_usd)
             if cost_budget_usd is not None
