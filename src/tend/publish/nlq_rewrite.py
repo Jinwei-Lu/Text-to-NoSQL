@@ -13,6 +13,7 @@ from ..execution.ast_check import parse_pipeline
 from ..llm import LLMClient
 from ..observability import RunLogger
 from ..release_layout import resolve_release_dataset_layout
+from .quality import _nlq_alignment_issues
 from .repair import (
     _context_sources_for_nlq,
     _dynamic_sources_for_nlq,
@@ -104,6 +105,16 @@ Hard requirements:
 - Preserve the collection, limit, sort priority, filters, constants, numeric
   thresholds, boolean logic, dynamic-key or nested-array behavior, group keys,
   result shape, and output fields when those semantics exist.
+- When a descending sort is paired with a limit, both NLQs must explicitly use a
+  top/ranked/highest/most/maximum-style phrase and must name the descending sort
+  metric with recognizable tokens. For synthetic metrics, include the readable
+  words from the field name, such as "native dynamic key count", "above threshold",
+  "observed", or "loan account share". If needed, include the exact field path in
+  parentheses, such as "(ranked by native dynamic key count descending)". Replace
+  dots and underscores with spaces so validators can see tokens such as "score",
+  "native", "dynamic", "key", and "count". Do not rely on "first" alone.
+- Include every numeric threshold and every answer-changing string constant
+  verbatim somewhere in each NLQ.
 - Write natural benchmark questions, not audit checklists.
 - The canonical_nlq should be precise and formal, but still natural English.
 - The colloquial_nlq should sound like a realistic user request, while keeping
@@ -191,7 +202,7 @@ async def run_llm_nlq_rewrite(
     if not resume and results_path.exists():
         results_path.unlink()
     selected_key_set = selected_keys
-    row_by_key = _load_existing_rows(results_path, selected_key_set) if resume else {}
+    row_by_key = _load_existing_rows(results_path) if resume else {}
     pending = [
         record
         for record in selected
@@ -281,15 +292,20 @@ async def run_llm_nlq_rewrite(
 
     rows = _sorted_rows(row_by_key.values())
     _write_jsonl(results_path, rows)
+    selected_rows = [
+        row_by_key[key]
+        for key in sorted(selected_key_set, key=lambda item: (item[0], str(item[1])))
+        if key in row_by_key
+    ]
 
-    calls_failed = sum(1 for row in rows if row.get("status") == "error")
-    invalid_rewrites = sum(1 for row in rows if row.get("status") == "invalid")
+    calls_failed = sum(1 for row in selected_rows if row.get("status") == "error")
+    invalid_rewrites = sum(1 for row in selected_rows if row.get("status") == "invalid")
     applied_rows: list[dict[str, Any]] = []
     apply_allowed = apply and (allow_partial_apply or (calls_failed == 0 and invalid_rewrites == 0))
     if apply_allowed:
         applied_rows = _apply_rewrite_rows(
             records,
-            rows,
+            selected_rows,
             selected_keys=selected_keys,
         )
         if applied_rows:
@@ -303,7 +319,7 @@ async def run_llm_nlq_rewrite(
     )
     summary_dict = {
         "records": len(selected),
-        "calls_ok": sum(1 for row in rows if row.get("status") == "ok"),
+        "calls_ok": sum(1 for row in selected_rows if row.get("status") == "ok"),
         "calls_failed": calls_failed,
         "invalid_rewrites": invalid_rewrites,
         "applied_updates": len(applied_rows),
@@ -424,7 +440,7 @@ def _sorted_rows(rows: Any) -> list[dict[str, Any]]:
 
 def _load_existing_rows(
     path: Path,
-    selected_keys: set[tuple[str, Any]],
+    selected_keys: set[tuple[str, Any]] | None = None,
 ) -> dict[tuple[str, Any], dict[str, Any]]:
     if not path.exists():
         return {}
@@ -439,7 +455,7 @@ def _load_existing_rows(
         if not isinstance(row, dict):
             continue
         key = _row_key(row)
-        if key in selected_keys:
+        if selected_keys is None or key in selected_keys:
             rows[key] = row
     return rows
 
@@ -500,6 +516,11 @@ def _rewrite_validation_errors(record: dict[str, Any], rewrite: dict[str, Any]) 
     if str(rewrite.get("db_id") or "") != expected_db_id:
         errors.append(f"db_id mismatch: expected {expected_db_id}, got {rewrite.get('db_id')}")
     old_nlq = record.get("nl_queries") if isinstance(record.get("nl_queries"), dict) else {}
+    pipeline: list[dict[str, Any]] | None = None
+    try:
+        _collection, pipeline = parse_pipeline(str(record.get("MQL") or ""))
+    except Exception as exc:  # noqa: BLE001 - parse failures are handled by release validation too
+        errors.append(f"MQL parse failed during rewrite validation: {type(exc).__name__}: {exc}")
     seen: set[str] = set()
     for track, key in (("canonical", "canonical_nlq"), ("colloquial", "colloquial_nlq")):
         text = str(rewrite.get(key) or "").strip()
@@ -512,6 +533,12 @@ def _rewrite_validation_errors(record: dict[str, Any], rewrite: dict[str, Any]) 
         seen.add(text)
         for violation in anti_template_violations_for_text(text):
             errors.append(f"{track} template artifact: {violation}")
+        if pipeline is not None:
+            for issue in _nlq_alignment_issues(record, track=track, text=text, pipeline=pipeline):
+                evidence = _compact_alignment_evidence(issue.evidence)
+                errors.append(
+                    f"{track} semantic audit {issue.code}: {issue.message}; evidence={evidence}"
+                )
     preservation = rewrite.get("semantic_preservation")
     if isinstance(preservation, dict):
         for key in (
@@ -524,6 +551,21 @@ def _rewrite_validation_errors(record: dict[str, Any], rewrite: dict[str, Any]) 
             if preservation.get(key) is not True:
                 errors.append(f"semantic_preservation.{key} is not true")
     return errors
+
+
+def _compact_alignment_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key in (
+        "constant",
+        "threshold",
+        "sort_specs",
+        "limit",
+        "missing_fields",
+        "mql_output_fields",
+    ):
+        if key in evidence:
+            compact[key] = evidence[key]
+    return compact
 
 
 def anti_template_violations_for_text(text: str) -> list[str]:
@@ -550,6 +592,15 @@ def _style_repair_prompt(validation_errors: list[str]) -> str:
         + json.dumps(validation_errors, ensure_ascii=False)
         + "\nAvoid labels such as 'Output fields:' or 'with fields'. Use natural "
         "phrasing such as 'The answer should include ...' or 'Include ... in the result'. "
+        "If the defect is NLQ_HIDDEN_TOP_BY, use a top/ranked/highest/most phrase "
+        "and explicitly name the descending sort metric tokens from the evidence. "
+        "Copy the sort_specs field path into a natural parenthetical when needed, "
+        "but replace dots and underscores with spaces, for example "
+        "'ranked by native dynamic key count descending' or "
+        "'fixtures score for, highest first'. "
+        "If the defect is a hidden threshold or constant, include that exact number "
+        "or string literal verbatim in the NLQ. Do not use 'first' by itself for "
+        "a limited sorted result. "
         "Return only the corrected JSON object."
     )
 

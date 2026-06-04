@@ -106,6 +106,7 @@ async def run_llm_nlq_review(
     reasoning_effort: str | None = None,
     thinking: str | None = "enabled",
     first_token_timeout_s: float = 6.0,
+    call_timeout_s: float = 900.0,
     workers: int = 8,
     apply: bool = False,
 ) -> LLMReviewSummary:
@@ -129,7 +130,7 @@ async def run_llm_nlq_review(
                 record_id=record.get("record_id"),
             )
             messages = _messages_for_record(record)
-            result = await llm.complete(
+            completion = llm.complete(
                 agent="nlq_mql_review",
                 logger=log,
                 messages=messages,
@@ -142,6 +143,10 @@ async def run_llm_nlq_review(
                 first_token_timeout_s=first_token_timeout_s,
                 json_repair_retries=1,
             )
+            if call_timeout_s > 0:
+                result = await asyncio.wait_for(completion, timeout=call_timeout_s)
+            else:
+                result = await completion
             return {
                 "status": "ok",
                 "db_id": record.get("db_id"),

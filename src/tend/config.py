@@ -73,9 +73,9 @@ class LLMSettings:
     slow_call_warn_s: float = 45.0
     reasoning_effort: str | None = None
     thinking: str | None = None
-    # Per-call LLM markdown transcripts are redundant with agent session logs.
-    # Keep diagnostics JSON by default; set TEND_LLM_TRANSCRIPT_MD=1 for debug markdown.
-    write_markdown_transcripts: bool = False
+    # DynaDB-style per-call markdown transcripts are the default human log surface.
+    # Set TEND_LLM_TRANSCRIPT_MD=0 only for diagnostics-JSON-only CI runs.
+    write_markdown_transcripts: bool = True
     #: per-agent model overrides (agent_id -> model); empty = use ``model`` for all
     agent_models: dict[str, str] = field(default_factory=dict)
 
@@ -165,7 +165,7 @@ class Settings:
             ),
             thinking=(_env(envmap, "TEND_THINKING") or _env(envmap, "TEND_LLM_THINKING")),
             write_markdown_transcripts=(
-                _env(envmap, "TEND_LLM_TRANSCRIPT_MD", "0") == "1"
+                _env(envmap, "TEND_LLM_TRANSCRIPT_MD", "1") == "1"
             ),
         )
         paths = Paths(

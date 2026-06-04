@@ -182,8 +182,10 @@ def test_complete_with_tools_returns_native_tool_calls(tmp_path) -> None:
     assert result.assistant_message["tool_calls"][0]["function"]["name"] == "list_collections"
     assert result.cost["source"] in {"unavailable", "estimated", "api", "error"}
     assert result.transcript_ref.startswith("llm/smart_eg/")
-    assert result.transcript_ref.endswith(".diagnostics.json")
-    assert not (log.run_dir / result.transcript_ref.replace(".diagnostics.json", ".md")).exists()
+    assert result.transcript_ref.endswith(".md")
+    assert result.diagnostics_ref.endswith(".diagnostics.json")
+    assert (log.run_dir / result.transcript_ref).exists()
+    assert (log.run_dir / result.diagnostics_ref).exists()
 
 
 def test_complete_passes_json_mode_reasoning_and_thinking_options(tmp_path) -> None:

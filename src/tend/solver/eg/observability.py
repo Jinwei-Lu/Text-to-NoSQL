@@ -205,10 +205,17 @@ def _append_tool_result_payload(lines: list[str], tool_name: str, content: Any) 
 class SmartEGObserver:
     """Append-only artifact writer for one SMART-EG agent session."""
 
-    def __init__(self, run_dir: Path, *, session_id: str | None = None) -> None:
+    def __init__(
+        self,
+        run_dir: Path,
+        *,
+        session_id: str | None = None,
+        run_logger: Any | None = None,
+    ) -> None:
         self.run_dir = Path(run_dir)
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.session_id = session_id or build_session_id(stage="solve", task="smart_eg")
+        self.run_logger = run_logger
         self.session_dir = self.run_dir / "solve" / "sessions" / self.session_id
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.agent_jsonl = self.session_dir / "agent.jsonl"
@@ -276,13 +283,15 @@ class SmartEGObserver:
             fields["turn_index"] = self._current_turn_index
         record = {"ts": _utcnow(), "event": event, **fields}
         line_no = self._append_jsonl(self.agent_jsonl, record)
+        ref = self.agent_jsonl_ref(line_no)
         self._agent_events.append(record)
         if event == "llm_response":
             diagnostics_ref = fields.get("diagnostics_ref")
             if isinstance(diagnostics_ref, str) and diagnostics_ref:
                 self._remember_unique(self._llm_diagnostics_refs, diagnostics_ref)
         self._write_markdown()
-        return self.agent_jsonl_ref(line_no)
+        self._emit_run_event(event, fields, artifact_ref=ref)
+        return ref
 
     def record_evidence(self, payload: dict[str, Any]) -> str:
         record = {"ts": _utcnow(), "event": "evidence_recorded", **dict(payload)}
@@ -311,7 +320,9 @@ class SmartEGObserver:
             **dict(payload),
         }
         line_no = self._append_jsonl(self.cost_path, record)
-        return self._ref(self.cost_path, line_no)
+        ref = self._ref(self.cost_path, line_no)
+        self._emit_run_event("session_cost_recorded", record, artifact_ref=ref)
+        return ref
 
     def record_error(self, payload: dict[str, Any]) -> str:
         record = {"ts": _utcnow(), **dict(payload)}
@@ -329,6 +340,15 @@ class SmartEGObserver:
                 "error_type": record.get("error_type"),
             },
         )
+        logger_record_error = getattr(self.run_logger, "record_error", None)
+        if callable(logger_record_error):
+            logger_record_error(
+                "smart_eg_error_recorded",
+                agent_session_ref=self.agent_ref(),
+                session_id=self.session_id,
+                session_error_ref=ref,
+                **record,
+            )
         return ref
 
     def consume_error_refs(self) -> list[str]:
@@ -344,7 +364,9 @@ class SmartEGObserver:
     def record_progress(self, payload: dict[str, Any]) -> str:
         record = {"ts": _utcnow(), "solver_id": "smart-eg", **dict(payload)}
         line_no = self._append_jsonl(self.progress_path, record)
-        return self._ref(self.progress_path, line_no)
+        ref = self._ref(self.progress_path, line_no)
+        self._emit_run_event("smart_eg_progress", record, artifact_ref=ref)
+        return ref
 
     def finalize_markdown(self, *, final_status: str, state_summary: dict[str, Any]) -> None:
         self._final_status = final_status
@@ -663,6 +685,44 @@ class SmartEGObserver:
             return 0
         return sum(1 for _line in path.read_text(encoding="utf-8").splitlines())
 
+    def _emit_run_event(
+        self,
+        event: str,
+        fields: dict[str, Any],
+        *,
+        artifact_ref: str,
+    ) -> None:
+        logger_info = getattr(self.run_logger, "info", None)
+        if not callable(logger_info):
+            return
+        omitted_keys = {
+            "messages",
+            "tool_schemas",
+            "raw_tool_call",
+            "assistant_message",
+            "content",
+        }
+        compact = {
+            key: value
+            for key, value in fields.items()
+            if key not in omitted_keys and value is not None
+        }
+        if "messages" in fields:
+            messages = fields.get("messages")
+            compact["message_count"] = len(messages) if isinstance(messages, list) else None
+        if "tool_schemas" in fields:
+            tool_schemas = fields.get("tool_schemas")
+            compact["tool_schema_count"] = (
+                len(tool_schemas) if isinstance(tool_schemas, list) else None
+            )
+        logger_info(
+            f"smart_eg_{event}",
+            session_id=self.session_id,
+            agent_session_ref=self.agent_ref(),
+            agent_jsonl_ref=artifact_ref,
+            **compact,
+        )
+
 
 def _first_event(events: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
     for event in events:
@@ -751,7 +811,7 @@ class SmartEGRecorder(SmartEGObserver):
 
     def __init__(self, logger: Any, *, session_id: str | None = None) -> None:
         run_dir = getattr(logger, "run_dir", logger)
-        super().__init__(Path(run_dir), session_id=session_id)
+        super().__init__(Path(run_dir), session_id=session_id, run_logger=logger)
 
     def agent_event(
         self,

@@ -51,6 +51,7 @@ from .publish import (
     ReleaseQualityReport,
     ReleaseReport,
     apply_builtin_quality_repairs,
+    run_llm_gold_query_review,
     run_llm_nlq_review,
     run_llm_nlq_rewrite,
     run_release_quality_audit,
@@ -1377,6 +1378,83 @@ def _record_id_set(raw_values: list[str] | None, path: Path | None) -> set[int] 
     return {int(value) for value in values}
 
 
+def _run_llm_gold_query_review(
+    rt: Runtime,
+    *,
+    dataset_dir: Path,
+    out_dir: Path,
+    db_id: str | None,
+    record_ids: set[int] | None,
+    limit: int | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    thinking: str | None,
+    first_token_timeout_s: float,
+    call_timeout_s: float,
+    workers: int,
+    apply: bool,
+    allow_nlq_only_apply: bool,
+    auto_apply_min_confidence: float,
+    quality_repair_retries: int,
+    candidate_repair_retries: int,
+    retry_invalid: bool,
+    resume: bool,
+    include_current_exec: bool,
+) -> int:
+    try:
+        summary = asyncio.run(
+            run_llm_gold_query_review(
+                dataset_dir,
+                llm=rt.ctx.llm,
+                logger=rt.log,
+                executor=rt.mongo,
+                out_dir=out_dir,
+                db_id=db_id,
+                record_ids=record_ids,
+                limit=limit,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                thinking=thinking,
+                first_token_timeout_s=first_token_timeout_s,
+                call_timeout_s=call_timeout_s,
+                workers=workers,
+                apply=apply,
+                allow_nlq_only_apply=allow_nlq_only_apply,
+                auto_apply_min_confidence=auto_apply_min_confidence,
+                quality_repair_retries=quality_repair_retries,
+                candidate_repair_retries=candidate_repair_retries,
+                retry_invalid=retry_invalid,
+                resume=resume,
+                include_current_exec=include_current_exec,
+            )
+        )
+    finally:
+        _close_runtime(rt)
+    print("\n" + "=" * 64)
+    print("TEND llm-gold-query-review")
+    print(f"  dataset              : {dataset_dir}")
+    print(f"  records              : {summary.records}")
+    print(f"  calls_ok             : {summary.calls_ok}")
+    print(f"  calls_failed         : {summary.calls_failed}")
+    print(f"  invalid_reviews      : {summary.invalid_reviews}")
+    print(f"  gold_valid           : {summary.gold_valid}")
+    print(f"  not_gold             : {summary.not_gold}")
+    print(f"  candidate_mqls       : {summary.candidate_mqls}")
+    print(f"  candidate_exec_ok    : {summary.candidate_exec_ok}")
+    print(f"  candidate_exec_failed: {summary.candidate_exec_failed}")
+    print(f"  manual_required      : {summary.manual_required}")
+    print(f"  applied_updates      : {summary.applied_updates}")
+    print("  files:")
+    for path in summary.paths.values():
+        print(f"    - {path}")
+    print("=" * 64)
+    return 0 if (
+        summary.calls_failed == 0
+        and summary.invalid_reviews == 0
+        and (not apply or summary.manual_required == 0)
+    ) else 1
+
+
 def _run_llm_nlq_review(
     rt: Runtime,
     *,
@@ -1654,6 +1732,51 @@ def main(argv: list[str] | None = None) -> int:
                     help="release dataset dir (default: release/tend-native-mongodb-v1)")
     rq.add_argument("--run-id", default=None)
 
+    gr = sub.add_parser(
+        "llm-gold-query-review",
+        help="LLM NLQ-first review and safe repair of release gold MQL queries",
+    )
+    gr.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
+                    help="release dataset dir (default: release/tend-native-mongodb-v1)")
+    gr.add_argument("--out", default=None,
+                    help="review output dir (default: runs/<run_id>/llm_gold_query_review)")
+    gr.add_argument("--db-id", default=None, help="optional db_id filter")
+    gr.add_argument("--record-id", action="append", default=[],
+                    help="record id or comma-separated record ids; repeatable")
+    gr.add_argument("--record-ids-file", default=None,
+                    help="newline/comma-separated record ids to review")
+    gr.add_argument("--limit", type=int, default=None, help="optional record limit after filters")
+    gr.add_argument("--model", default="deepseek-v4-flash",
+                    help="review model override, default deepseek-v4-flash")
+    gr.add_argument("--reasoning-effort", default="max",
+                    help="provider reasoning_effort override, default max")
+    gr.add_argument("--thinking", default="enabled",
+                    help="DeepSeek thinking type via extra_body, default enabled")
+    gr.add_argument("--first-token-timeout", type=float, default=6.0,
+                    help="streaming first-token timeout in seconds")
+    gr.add_argument("--call-timeout", type=float, default=900.0,
+                    help="outer timeout for each LLM review call in seconds; <=0 disables")
+    gr.add_argument("--workers", type=int, default=2500,
+                    help="parallel LLM review calls")
+    gr.add_argument("--apply", action="store_true",
+                    help="write safe executable repairs back into release files")
+    gr.add_argument("--allow-nlq-only-apply", action="store_true",
+                    help="allow NLQ-only repairs; default blocks them because current MQL is suspect")
+    gr.add_argument("--auto-apply-min-confidence", type=float, default=0.82,
+                    help="minimum LLM confidence for automatic apply")
+    gr.add_argument("--quality-repair-retries", type=int, default=1,
+                    help="extra LLM calls per record to fix local gold-quality validation failures")
+    gr.add_argument("--candidate-repair-retries", type=int, default=0,
+                    help="extra LLM passes that repair rows using candidate validation feedback")
+    gr.add_argument("--retry-invalid", action="store_true",
+                    help="with resume, retry rows whose previous status was invalid")
+    gr.add_argument("--no-current-exec", action="store_true",
+                    help="skip current MQL execution summaries in prompts")
+    gr.add_argument("--no-resume", action="store_true",
+                    help="ignore any existing gold_review_results.jsonl in --out")
+    gr.add_argument("--quiet", action="store_true", help="disable the live progress UI")
+    gr.add_argument("--run-id", default=None)
+
     lr = sub.add_parser(
         "llm-nlq-review",
         help="LLM JSON-mode review and optional repair of release NLQ/MQL alignment",
@@ -1676,6 +1799,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="DeepSeek thinking type via extra_body, default enabled")
     lr.add_argument("--first-token-timeout", type=float, default=6.0,
                     help="streaming first-token timeout in seconds")
+    lr.add_argument("--call-timeout", type=float, default=900.0,
+                    help="outer timeout for each LLM review call in seconds; <=0 disables")
     lr.add_argument("--workers", type=int, default=500,
                     help="parallel LLM review calls")
     lr.add_argument("--apply", action="store_true",
@@ -1816,7 +1941,7 @@ def main(argv: list[str] | None = None) -> int:
         overrides["TEND_LLM_STUB"] = "1"
     if getattr(args, "quiet", False):
         overrides["TEND_QUIET"] = "1"
-    if args.command in {"llm-nlq-review", "llm-nlq-rewrite"}:
+    if args.command in {"llm-gold-query-review", "llm-nlq-review", "llm-nlq-rewrite"}:
         overrides["TEND_LLM_MAX_CONCURRENCY"] = str(max(1, int(args.workers)))
     run_id_tag = getattr(args, "run_id", None)
     run_id = run_id_with_tag(run_id_tag) if run_id_tag else new_run_id()
@@ -1829,6 +1954,7 @@ def main(argv: list[str] | None = None) -> int:
             "solve",
             "baseline",
             "ablation",
+            "llm-gold-query-review",
             "llm-nlq-review",
             "llm-nlq-rewrite",
         },
@@ -1861,6 +1987,39 @@ def main(argv: list[str] | None = None) -> int:
         return _run_repair_release_quality(
             settings,
             dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
+        )
+    if args.command == "llm-gold-query-review":
+        rt = build_solver_runtime(settings, run_kind="llm_gold_query_review")
+        return _run_llm_gold_query_review(
+            rt,
+            dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
+            out_dir=(
+                _resolve_repo_path(settings, args.out)
+                if args.out
+                else settings.run_dir / "llm_gold_query_review"
+            ),
+            db_id=args.db_id,
+            record_ids=_record_id_set(
+                args.record_id,
+                _resolve_repo_path(settings, args.record_ids_file)
+                if args.record_ids_file
+                else None,
+            ),
+            limit=args.limit,
+            model=args.model,
+            reasoning_effort=args.reasoning_effort,
+            thinking=args.thinking,
+            first_token_timeout_s=max(0.0, args.first_token_timeout),
+            call_timeout_s=max(0.0, args.call_timeout),
+            workers=max(1, args.workers),
+            apply=args.apply,
+            allow_nlq_only_apply=args.allow_nlq_only_apply,
+            auto_apply_min_confidence=max(0.0, min(1.0, args.auto_apply_min_confidence)),
+            quality_repair_retries=max(0, args.quality_repair_retries),
+            candidate_repair_retries=max(0, args.candidate_repair_retries),
+            retry_invalid=args.retry_invalid,
+            resume=not args.no_resume,
+            include_current_exec=not args.no_current_exec,
         )
     if args.command == "llm-nlq-review":
         rt = build_solver_runtime(settings, run_kind="llm_nlq_review")

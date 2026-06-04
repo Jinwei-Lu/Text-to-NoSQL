@@ -5,8 +5,8 @@ Responsibilities (and *only* these — agent semantics live in tend/agents):
   2. Persist full structured call diagnostics (every attempt: messages, raw response,
      usage, timing) as session-local JSON sidecars when an agent session is bound,
      falling back to ``llm/<agent>/<call_id>.diagnostics.json`` only for legacy
-     calls without a canonical session. Optional debug markdown transcripts can be
-     enabled at the logger layer.
+     calls without a canonical session. DynaDB-style markdown call logs are the
+     default human-readable view; diagnostics JSON remains the machine-readable sidecar.
   3. Classify every failure into a typed LLMError with an :class:`Anomaly` kind.
   4. Retry transport faults (rate-limit/timeout/empty/truncated) with backoff, and run a
      bounded JSON/schema *repair* loop (feed the validation error back to the model).

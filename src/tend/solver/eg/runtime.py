@@ -275,6 +275,7 @@ async def smart_solve_nlq_db_eg(
     observer = SmartEGObserver(
         run_dir,
         session_id=resolved_session_id,
+        run_logger=getattr(ctx, "log", None) if ctx is not None else None,
     )
     session_logger = _session_logger(
         ctx,
@@ -304,6 +305,18 @@ async def smart_solve_nlq_db_eg(
         tools=_tool_schemas(policy=policy),
         max_turns=policy.budgets.max_tool_turns,
     )
+    if session_logger is not None and hasattr(session_logger, "open_agent_session"):
+        session_logger.open_agent_session(
+            stage="solve",
+            task="smart_eg",
+            session_id=observer.session_id,
+            model=_model_name(ctx),
+            system_prompt=system_prompt,
+            user_message=initial_user_message,
+            tools=_tool_schemas(policy=policy),
+            session_ref=observer.agent_ref(),
+            write_header=False,
+        )
     api = SmartEGToolAPI(policy, observer=observer, db_handle=db_handle, executor=executor)
     checker = SmartEGConvergenceChecker(policy)
 
@@ -544,6 +557,18 @@ async def smart_solve_nlq_db_eg(
             final_status=state.result.result_type,
             state_summary=state.summary(),
         )
+        if session_logger is not None and hasattr(session_logger, "close_agent_session"):
+            session_logger.close_agent_session(
+                turns=state.counters.llm_turns,
+                tool_calls_made=state.counters.tool_turns,
+                total_tokens=state.counters.tokens,
+                total_cost=state.counters.cost_usd,
+                total_cost_source="api" if state.counters.cost_usd else "unavailable",
+                completed=state.result.result_type != "solver_failure",
+                reason=state.terminal_reason,
+                outcome=state.result.result_type,
+                write_footer=False,
+            )
         return state.result
     finally:
         observer.close()
@@ -879,7 +904,12 @@ def _record_usage(response: dict[str, Any], state: SmartEGState, observer: Smart
             "completion_tokens": usage.get("completion_tokens"),
             "total_tokens": total_tokens,
             "cost_usd": cost_usd,
-            "cost_source": cost.get("cost_source") or response.get("cost_source") or "unavailable",
+            "cost_source": (
+                cost.get("cost_source")
+                or cost.get("source")
+                or response.get("cost_source")
+                or "unavailable"
+            ),
         }
     )
 

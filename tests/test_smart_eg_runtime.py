@@ -190,12 +190,12 @@ def test_direct_first_turn_submit_final_mql_is_rejected(tmp_path: Path) -> None:
     for root_sidecar in [
         "evidence_ledger.jsonl",
         "submit_gates.jsonl",
-        "cost_summary.jsonl",
-        "errors.jsonl",
         "execution_trace.jsonl",
         "progress.jsonl",
     ]:
         assert not (run_dir / root_sidecar).exists()
+    assert (run_dir / "cost_summary.jsonl").exists()
+    assert (run_dir / "errors.jsonl").exists()
 
 
 def test_full_staged_submit_final_mql_succeeds_with_refs_and_executor(tmp_path: Path) -> None:
@@ -402,7 +402,7 @@ def test_tool_error_refs_are_propagated_to_observation_and_markdown(tmp_path: Pa
     assert result.error_refs == error_refs
     assert error_refs[0].startswith(f"{session_ref}/errors.jsonl#")
     assert (run_dir / error_refs[0].split("#", 1)[0]).exists()
-    assert not (run_dir / "errors.jsonl").exists()
+    assert (run_dir / "errors.jsonl").exists()
     md = (run_dir / result.agent_session_ref).read_text(encoding="utf-8")
     assert "Error Refs" in md
     assert error_refs[0] in md

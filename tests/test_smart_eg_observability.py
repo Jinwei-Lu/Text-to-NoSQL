@@ -69,12 +69,18 @@ def test_recorder_writes_session_scoped_artifacts(tmp_path) -> None:
     for root_sidecar in [
         "evidence_ledger.jsonl",
         "submit_gates.jsonl",
-        "cost_summary.jsonl",
-        "errors.jsonl",
         "execution_trace.jsonl",
         "progress.jsonl",
     ]:
         assert not (tmp_path / root_sidecar).exists()
+    assert (tmp_path / "cost_summary.jsonl").exists()
+    assert (tmp_path / "errors.jsonl").exists()
+    root_errors = [
+        json.loads(line)
+        for line in (tmp_path / "errors.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert root_errors[0]["session_error_ref"] == f"{error_ref}#1"
+    assert root_errors[0]["agent_session_ref"] == f"{session_ref}/agent.md"
     rows = [
         json.loads(line)
         for line in (session_dir / "agent.jsonl")
@@ -345,7 +351,7 @@ def test_record_error_refs_are_visible_in_turn_markdown(tmp_path) -> None:
 
     assert error_ref == f"{session_ref}/errors.jsonl#1"
     assert (tmp_path / session_ref / "errors.jsonl").exists()
-    assert not (tmp_path / "errors.jsonl").exists()
+    assert (tmp_path / "errors.jsonl").exists()
     assert "## Turn 1" in md
     assert "Error Refs" in md
     assert error_ref in md
