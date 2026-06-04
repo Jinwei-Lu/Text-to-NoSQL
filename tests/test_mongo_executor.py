@@ -178,6 +178,42 @@ def test_mongo_executor_readonly_probe_rejects_banned_tokens_before_execution() 
     assert fake_account.aggregate_calls == []
 
 
+def test_mongo_executor_norm_exec_rejects_banned_tokens_before_execution() -> None:
+    executor = _executor_with_fake_client({"account": [{"_id": 1}]})
+    fake_account = executor._connect()["tend_run123_financial"]["account"]
+
+    with pytest.raises(DisabledOperatorError):
+        executor.norm_exec(
+            "financial",
+            'db.account.aggregate([{"$sample": {"size": 1}}])',
+        )
+
+    assert fake_account.aggregate_calls == []
+
+
+def test_mongo_executor_execute_prefix_uses_safe_norm_exec_adapter() -> None:
+    from tend.solver.per_stage import PrefixExecutionRequest
+
+    executor = _executor_with_fake_client({"account": [{"_id": 1}, {"_id": 2}]})
+    request = PrefixExecutionRequest(
+        db_id="financial",
+        collection="account",
+        stage_index=1,
+        stage={"$limit": 1},
+        pipeline=({"$limit": 1},),
+        mql='db.account.aggregate([{"$limit":1}])',
+    )
+
+    result = executor.execute_prefix(request)
+    fake_account = executor._connect()["tend_run123_financial"]["account"]
+
+    assert result.variants[0].documents == ({"_id": 1},)
+    assert result.variants[0].input_count == 2
+    assert fake_account.aggregate_calls == [
+        {"pipeline": [{"$limit": 1}], "maxTimeMS": _mongo_mod._EXEC_MAX_TIME_MS}
+    ]
+
+
 def test_mongo_executor_readonly_probe_forces_limit_and_returns_summary_not_rows() -> None:
     executor = _executor_with_fake_client(
         {

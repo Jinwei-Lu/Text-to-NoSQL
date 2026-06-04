@@ -62,8 +62,7 @@ def _print_solve_summary(
     print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
     print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl | progress.jsonl | llm/")
     print(f"  output : {out_path}")
-    if failures:
-        print(f"  failures output : {failures_path}")
+    print(f"  failures output : {failures_path}")
     _print_evaluation_block(evaluation, evaluate=evaluate, skip_reason=skip_reason)
     print("=" * 64)
 
@@ -100,8 +99,7 @@ def _print_baseline_summary(
     print(f"  anomalies : {summary.get('anomaly_total', 0)} {summary.get('anomalies_by_kind', {})}")
     print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl | progress.jsonl | llm/")
     print(f"  output : {out_path}")
-    if failures:
-        print(f"  failures output : {failures_path}")
+    print(f"  failures output : {failures_path}")
     _print_evaluation_block(evaluation, evaluate=evaluate, skip_reason=skip_reason)
     print("=" * 64)
 
@@ -136,8 +134,7 @@ def _print_ablation_summary(
     print(f"  logs   : {rt.settings.run_dir}/events.jsonl | anomalies.jsonl | progress.jsonl | llm/")
     print(f"  output : {out_path}")
     print(f"  summary: {summary_path}")
-    if failures:
-        print(f"  failures output : {failures_path}")
+    print(f"  failures output : {failures_path}")
     _print_evaluation_block(evaluation, evaluate=evaluate, skip_reason=skip_reason)
     print("=" * 64)
 
@@ -158,6 +155,25 @@ def _print_evaluation_block(
             print("  evaluation : skipped (no predictions)")
         else:
             print(f"  evaluation : skipped ({reason})")
+        return
+    headline = evaluation.report.get("headline")
+    if isinstance(headline, dict) and headline.get("mode") == "per_system":
+        print(f"  evaluation : {evaluation.status} per-system EX")
+        systems = headline.get("systems") if isinstance(headline.get("systems"), dict) else {}
+        for system_id, payload in list(systems.items())[:8]:
+            scores = payload.get("scores", {}) if isinstance(payload, dict) else {}
+            deltas = (
+                payload.get("delta_vs_smart_eg_full")
+                if isinstance(payload, dict) and isinstance(payload.get("delta_vs_smart_eg_full"), dict)
+                else {}
+            )
+            delta = deltas.get("EX")
+            suffix = f" delta_vs_smart_eg_full={delta}" if delta is not None else ""
+            print(
+                f"    {system_id}: EX={scores.get('EX', 0.0)} "
+                f"EFM={scores.get('EFM', 0.0)} EVM={scores.get('EVM', 0.0)}{suffix}"
+            )
+        print(f"  eval report: {evaluation.paths.report_md}")
         return
     scores = evaluation.report.get("scores", {})
     print(f"  evaluation : {evaluation.status} EX={scores.get('EX', 0.0)} "

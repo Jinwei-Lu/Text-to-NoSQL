@@ -38,6 +38,40 @@ def test_print_evaluation_block_distinguishes_skip_reasons(capsys: pytest.Captur
     assert "evaluation : skipped (no predictions)" in output
 
 
+def test_print_evaluation_block_uses_ablation_per_system_headline(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    evaluation = SimpleNamespace(
+        status="partial",
+        report={
+            "scores": {"EX": 0.5, "EFM": 0.5, "EVM": 0.5},
+            "headline": {
+                "mode": "per_system",
+                "systems": {
+                    "smart_eg_full": {
+                        "scores": {"EX": 1.0, "EFM": 1.0, "EVM": 1.0},
+                        "delta_vs_smart_eg_full": {"EX": 0.0},
+                    },
+                    "smart_eg_no_evidence_gate": {
+                        "scores": {"EX": 0.0, "EFM": 0.0, "EVM": 0.0},
+                        "delta_vs_smart_eg_full": {"EX": -1.0},
+                    },
+                },
+            },
+        },
+        paths=SimpleNamespace(report_md=tmp_path / "report.md"),
+    )
+
+    cli._print_evaluation_block(evaluation)
+    output = capsys.readouterr().out
+
+    assert "evaluation : partial per-system EX" in output
+    assert "smart_eg_full: EX=1.0" in output
+    assert "smart_eg_no_evidence_gate: EX=0.0" in output
+    assert "evaluation : partial EX=0.5" not in output
+
+
 def test_construct_default_output_is_run_dataset_unless_env_overrides(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -438,6 +472,7 @@ def test_ablation_with_dataset_dir_does_not_require_bird(
         captured["dataset_dir"] = kwargs["dataset_dir"]
         captured["ablations"] = kwargs["ablations"]
         captured["nlq_track"] = kwargs["nlq_track"]
+        captured["workers"] = kwargs["workers"]
         rt.mongo.close()
         rt.log.close()
         return 0
@@ -451,6 +486,8 @@ def test_ablation_with_dataset_dir_does_not_require_bird(
         "tests/fixtures/smoke_release",
         "--ablations",
         "smart_eg_full,smart_eg_no_evidence_gate",
+        "--workers",
+        "3",
         "--nlq-track",
         "colloquial",
         "--stub",
@@ -460,6 +497,7 @@ def test_ablation_with_dataset_dir_does_not_require_bird(
     ]) == 0
     assert captured["source"] is None
     assert captured["ablations"] == "smart_eg_full,smart_eg_no_evidence_gate"
+    assert captured["workers"] == 3
     assert captured["dataset_dir"] == (
         config_module._find_repo_root() / "tests" / "fixtures" / "smoke_release"
     )
@@ -668,7 +706,9 @@ def test_run_solve_writes_failures_separately(
     )
 
     assert rc == 1
-    assert not (settings.run_dir / "solver_predictions.jsonl").exists()
+    predictions = settings.run_dir / "solver_predictions.jsonl"
+    assert predictions.exists()
+    assert predictions.read_text(encoding="utf-8") == ""
     failures = settings.run_dir / "solver_failures.jsonl"
     assert failures.exists()
     payload = json.loads(failures.read_text(encoding="utf-8").splitlines()[0])
@@ -928,6 +968,9 @@ def test_run_solve_nlq_db_only_skips_release_loader(
     assert predictions.exists()
     first_prediction = json.loads(predictions.read_text(encoding="utf-8").splitlines()[0])
     assert first_prediction["db_id"] == "manual_formula"
+    failures = settings.run_dir / "solver_failures.jsonl"
+    assert failures.exists()
+    assert failures.read_text(encoding="utf-8") == ""
 
 
 def test_run_baseline_nlq_db_only_skips_evaluation(
@@ -969,6 +1012,7 @@ def test_run_baseline_nlq_db_only_skips_evaluation(
                 "db_id": "manual_formula",
                 "MQL": "db.race_weekends_v2.aggregate([])",
                 "status": "ok",
+                "evaluation_skip_reason": "no_release_dataset",
             }
         ]
 
@@ -1004,6 +1048,10 @@ def test_run_baseline_nlq_db_only_skips_evaluation(
     assert predictions.exists()
     first_prediction = json.loads(predictions.read_text(encoding="utf-8").splitlines()[0])
     assert first_prediction["db_id"] == "manual_formula"
+    assert first_prediction["evaluation_skip_reason"] == "no_release_dataset"
+    failures = settings.run_dir / "baseline_failures.jsonl"
+    assert failures.exists()
+    assert failures.read_text(encoding="utf-8") == ""
 
 
 def test_run_ablation_nlq_db_only_skips_evaluation(
@@ -1045,6 +1093,7 @@ def test_run_ablation_nlq_db_only_skips_evaluation(
                 "db_id": "manual_cards",
                 "MQL": "db.card_print_dossiers.aggregate([])",
                 "status": "ok",
+                "evaluation_skip_reason": "no_release_dataset",
             }
         ]
 
@@ -1081,10 +1130,15 @@ def test_run_ablation_nlq_db_only_skips_evaluation(
     assert captured["max_tool_turns"] == 13
     assert captured["max_revisits"] == 1
     assert captured["cost_budget_usd"] == 0.75
+    assert captured["workers"] == 1
     predictions = settings.run_dir / "ablation_predictions.jsonl"
     assert predictions.exists()
     first_prediction = json.loads(predictions.read_text(encoding="utf-8").splitlines()[0])
     assert first_prediction["db_id"] == "manual_cards"
+    assert first_prediction["evaluation_skip_reason"] == "no_release_dataset"
+    failures = settings.run_dir / "ablation_failures.jsonl"
+    assert failures.exists()
+    assert failures.read_text(encoding="utf-8") == ""
 
 
 def test_run_ablation_variant_failure_does_not_fail_when_evaluation_is_ok(
@@ -1188,6 +1242,10 @@ def test_run_ablation_variant_failure_does_not_fail_when_evaluation_is_ok(
     assert captured["predictions_path"].name == "ablation_evaluation_inputs.jsonl"
     summary = json.loads((settings.run_dir / "ablation_summary.json").read_text(encoding="utf-8"))
     assert summary["status"] == "ok"
+    assert summary["experiment_status"] == "ok"
+    assert summary["outcome_status"] == "partial_variant_failures"
+    assert summary["all_variants_failed"] is False
+    assert summary["variant_failures_are_scored_outcomes"] is True
     assert summary["predictions"] == 1
     assert summary["failures"] == 1
 
@@ -1290,6 +1348,10 @@ def test_run_ablation_all_variant_failures_are_experiment_outcomes(
     ]
     summary = json.loads((settings.run_dir / "ablation_summary.json").read_text(encoding="utf-8"))
     assert summary["status"] == "ok"
+    assert summary["experiment_status"] == "ok"
+    assert summary["outcome_status"] == "all_variants_failed"
+    assert summary["all_variants_failed"] is True
+    assert summary["variant_failures_are_scored_outcomes"] is True
     assert summary["predictions"] == 0
     assert summary["failures"] == 1
     assert summary["evaluation"]["status"] == "partial"

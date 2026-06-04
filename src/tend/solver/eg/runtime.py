@@ -54,9 +54,9 @@ Stage order is mandatory.
 - Use `evidence_id` values returned by tools in later `evidence_refs`.
 - If `profile_relationship_candidates` is exposed, treat it as the relationship
   probe. Use it before `$lookup` or relationship cardinality assumptions.
-- If prefix tools are exposed, treat them as currently unimplemented: their
-  `TOOL_UNIMPLEMENTED` / non-success observations are feedback, not proof that a
-  prefix executed successfully.
+- If prefix tools are exposed, use them to render and execute bounded aggregation
+  prefixes. Their observations are typed stage-local feedback for repairing a
+  candidate before final submit.
 
 ## Evidence Grounding
 
@@ -161,16 +161,17 @@ _RUNTIME_TOOL_DESCRIPTION_OVERRIDES = {
         "an ok final sanity execution before or during submit_final_mql."
     ),
     "render_pipeline_prefix": (
-        "Prefix tools are exposed only as non-success feedback today. This prefix tool "
-        "is unimplemented and returns TOOL_UNIMPLEMENTED, not execution proof."
+        "Render a bounded aggregation prefix for stage-local inspection. Rendering is "
+        "not execution proof; use execute_pipeline_prefix or check_prefix_checkpoint "
+        "for execution feedback."
     ),
     "execute_pipeline_prefix": (
-        "Prefix tools are exposed only as non-success feedback today. This prefix tool "
-        "is unimplemented and returns TOOL_UNIMPLEMENTED, not execution proof."
+        "Execute a bounded aggregation prefix and return typed stage-local feedback. "
+        "Use it to localize row collapse, missing target fields, or operator errors."
     ),
     "check_prefix_checkpoint": (
-        "Prefix tools are exposed only as non-success feedback today. This prefix tool "
-        "is unimplemented and returns TOOL_UNIMPLEMENTED, not execution proof."
+        "Check a bounded aggregation prefix against expected checkpoint behavior and "
+        "return typed repair feedback before final submit."
     ),
     "submit_environment_model": (
         "Submit the accepted environment model after collection and shape/path "
@@ -271,7 +272,8 @@ async def smart_solve_nlq_db_eg(
         session_id=observer.session_id,
     )
     initial_user_message = _initial_user_message(nlq=nlq, db_id=db_id, record_id=record_id)
-    history = SmartEGHistory(system_prompt=SYSTEM_PROMPT)
+    system_prompt = _system_prompt_for_policy(policy)
+    history = SmartEGHistory(system_prompt=system_prompt)
     history.add_user(initial_user_message)
     observer.start_session(
         stage="solve",
@@ -279,9 +281,9 @@ async def smart_solve_nlq_db_eg(
         model=_model_name(ctx),
         db_id=db_id,
         record_id=record_id,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         user_message=initial_user_message,
-        tools=_tool_schemas(),
+        tools=_tool_schemas(policy=policy),
         max_turns=policy.budgets.max_tool_turns,
     )
     api = SmartEGToolAPI(policy, observer=observer, db_handle=db_handle, executor=executor)
@@ -344,23 +346,26 @@ async def smart_solve_nlq_db_eg(
                         "message_count": len(history.messages),
                     },
                 )
+            provider_messages = _messages_for_turn(
+                history,
+                state,
+                required_next_tool=submit_focus_tool,
+            )
             observer.agent_event(
                 "llm_request",
                 {
                     "turn_index": turn_index,
                     "mode": state.mode,
                     "tools": [tool["function"]["name"] for tool in exposed_tools],
+                    "tool_schemas": exposed_tools,
                     "tool_choice": tool_choice,
+                    "messages": provider_messages,
                 },
             )
             try:
                 response = await _complete_with_tools(
                     llm,
-                    messages=_messages_for_turn(
-                        history,
-                        state,
-                        required_next_tool=submit_focus_tool,
-                    ),
+                    messages=provider_messages,
                     tools=exposed_tools,
                     tool_choice=tool_choice,
                     agent="smart_eg",
@@ -411,6 +416,7 @@ async def smart_solve_nlq_db_eg(
                     "cumulative_tokens": state.counters.tokens,
                     "cumulative_cost_usd": state.counters.cost_usd,
                     "content": response.get("content") or response.get("response_text"),
+                    "assistant_message": response.get("assistant_message"),
                     "tool_calls": list(response.get("tool_calls") or []),
                     "has_tool_calls": bool(response.get("tool_calls")),
                     "tool_call_count": len(response.get("tool_calls") or []),
@@ -441,6 +447,7 @@ async def smart_solve_nlq_db_eg(
                         "turn_index": turn_index,
                         "tool_call_id": call.get("id"),
                         "tool": (call.get("function") or {}).get("name"),
+                        "raw_tool_call": call,
                         "arguments": _tool_arguments(call),
                     },
                 )
@@ -552,6 +559,7 @@ async def _complete_with_tools(llm: Any, **kwargs: Any) -> dict[str, Any]:
         return {
             "role": "assistant",
             "content": content,
+            "assistant_message": assistant if isinstance(assistant, dict) else {},
             "tool_calls": [call_to_json(call) for call in result.tool_calls],
             "usage": getattr(result, "usage", {}),
             "cost": getattr(result, "cost", {}),
@@ -578,8 +586,12 @@ def call_to_json(call: Any) -> dict[str, Any]:
         "type": "function",
         "function": {
             "name": str(getattr(call, "name", "")),
-            "arguments": json_dumps(getattr(call, "arguments", {})),
+            "arguments": str(
+                getattr(call, "raw_arguments", "")
+                or json_dumps(getattr(call, "arguments", {}))
+            ),
         },
+        "parsed_arguments": getattr(call, "arguments", {}),
     }
 
 
@@ -820,8 +832,54 @@ def default_budgets() -> SmartEGBudgets:
     return SmartEGBudgets()
 
 
-def _tool_schemas(*, terminal_only: bool = False) -> list[dict[str, Any]]:
-    return _document_runtime_tool_schemas(_base_tool_schemas(terminal_only=terminal_only))
+def _system_prompt_for_policy(policy: SmartEGPolicy) -> str:
+    if policy.value_grounding:
+        return SYSTEM_PROMPT
+    return SYSTEM_PROMPT.replace(
+        "  `list_collections`, `sample_documents`, `discover_paths`, `profile_path`,\n"
+        "  `profile_path_values`, `search_values`, `inspect_array_shape`,\n",
+        "  `list_collections`, `sample_documents`, `discover_paths`, `profile_path`,\n"
+        "  `inspect_array_shape`,\n",
+    ).replace(
+        "- Use typed value grounding before constants, enums, dates, ObjectId filters, regexes,\n"
+        "  or comparisons. Do not invent values that were not observed or profiled.",
+        "- Value-grounding probes are disabled for this run. Do not call value-grounding "
+        "tools; rely on non-value structural evidence and typed execution feedback.",
+    )
+
+
+def _tool_schemas(
+    *,
+    terminal_only: bool = False,
+    policy: SmartEGPolicy | None = None,
+) -> list[dict[str, Any]]:
+    schemas = _base_tool_schemas(terminal_only=terminal_only)
+    if policy is not None:
+        names = _policy_tool_schema_names(policy)
+        schemas = [
+            tool
+            for tool in schemas
+            if isinstance(tool.get("function"), dict)
+            and tool["function"].get("name") in names
+        ]
+    return _document_runtime_tool_schemas(schemas)
+
+
+def _policy_tool_schema_names(policy: SmartEGPolicy) -> set[str]:
+    names = {tool["function"]["name"] for tool in _base_tool_schemas()}
+    if not policy.value_grounding:
+        names.difference_update({"profile_path_values", "search_values"})
+    if not policy.relationship_probe:
+        names.discard("profile_relationship_candidates")
+    if not policy.enable_counterexamples:
+        names.discard("mine_counterexamples")
+    if not policy.prefix_execution:
+        names.difference_update(
+            {"render_pipeline_prefix", "execute_pipeline_prefix", "check_prefix_checkpoint"}
+        )
+    if not policy.revisit:
+        names.discard("request_revisit")
+    return names
 
 
 def _document_runtime_tool_schemas(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:

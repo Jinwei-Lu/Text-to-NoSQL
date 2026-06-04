@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,11 @@ import pytest
 import tend.baselines.workflow as baseline_workflow
 from tend.agents import AgentContext
 from tend.baselines import BASELINE_IDS, run_baseline_record, run_baseline_suite
-from tend.baselines.boundary import sanitize_public_record, sanitize_public_schema
+from tend.baselines.boundary import (
+    sanitize_public_local_data,
+    sanitize_public_record,
+    sanitize_public_schema,
+)
 from tend.baselines.strategies import (
     BaselinePromptContext,
     resolve_baselines,
@@ -27,7 +32,7 @@ from tend.baselines.workflow import (
     _extract_mql,
 )
 from tend.config import Settings
-from tend.errors import PromptAnomalyError
+from tend.errors import PromptAnomalyError, SourceError
 from tend.llm import LLMClient
 from tend.observability import setup_logging
 from tend.solver.inputs import _canonical_nlq, load_solver_release_inputs
@@ -49,6 +54,10 @@ def _workflow(settings: Settings, run_dir: Path) -> tuple[Workflow, object]:
     client.set_stub(stub_fn)
     ctx = AgentContext(settings=settings, llm=client, log=log)
     return Workflow(ctx), log
+
+
+def _nlq_hash(nlq: str) -> str:
+    return "sha256:" + hashlib.sha256(nlq.encode("utf-8")).hexdigest()
 
 
 class _SnapshotMongo:
@@ -96,6 +105,19 @@ def test_baseline_registry_has_six_constrained_strategies() -> None:
     assert all(spec.limitations for spec in specs)
 
 
+def test_baseline_selection_errors_are_typed_source_errors() -> None:
+    with pytest.raises(SourceError) as empty:
+        resolve_baselines(" , ")
+    assert empty.value.message == "empty baseline selection"
+    assert empty.value.context["known_baseline_ids"] == list(BASELINE_IDS)
+
+    with pytest.raises(SourceError) as unknown:
+        resolve_baselines(["direct", "missing_baseline"])
+    assert unknown.value.message == "unknown baseline selection"
+    assert unknown.value.context["requested_baseline_ids"] == ["missing_baseline"]
+    assert unknown.value.context["known_baseline_ids"] == list(BASELINE_IDS)
+
+
 def test_baseline_suite_stub_logs_markdown_transcripts(tmp_path: Path) -> None:
     settings = _settings()
     wf, log = _workflow(settings, tmp_path / "run")
@@ -120,6 +142,20 @@ def test_baseline_suite_stub_logs_markdown_transcripts(tmp_path: Path) -> None:
     assert all(item["status"] == "ok" for item in outputs)
     assert all(item["disclosure"]["uses_gold_mql"] is False for item in outputs)
     assert all("disjointness_ok" in item["disclosure"] for item in outputs)
+    for item in outputs:
+        assert item["disclosure"]["json_repair_retries"] == 0
+        assert item["disclosure"]["retry_contract"]["json_repair_retries"] == 0
+        assert item["input_mode"] == "release"
+        assert item["nlq_track"] == "record"
+        assert item["evaluation_skip_reason"] is None
+        assert item["nlq_hash"] == _nlq_hash(
+            "For each account attach loan_to_credit_ratio: if it has a loan, loan amount "
+            "over sum of credit transactions, else 0; keep every account."
+        )
+        for step in item["steps"]:
+            assert step["json_repair_retries"] == 0
+            assert step["llm_attempts"] == 1
+            assert step["transport_retries"] == 0
 
     run_dir = tmp_path / "run"
     events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
@@ -141,6 +177,8 @@ def test_baseline_suite_stub_logs_markdown_transcripts(tmp_path: Path) -> None:
         assert "canonical_form_set" not in prompt_text
         assert "shape_policy" not in prompt_text
         assert "agent_design_rationale_ref" not in prompt_text
+        assert diagnostics["json_repair_retries"] == 0
+        assert len(diagnostics["attempts"]) == 1
 
 
 def test_baseline_suite_nlq_db_only_derives_context_and_skips_release_loader(
@@ -167,8 +205,11 @@ def test_baseline_suite_nlq_db_only_derives_context_and_skips_release_loader(
         *,
         local_data: dict[str, list[dict[str, Any]]] | None = None,
         witness_k: int,
-        batch_index: int | None,
-    ) -> Any:
+            batch_index: int | None,
+            input_mode: str,
+            nlq_track: str,
+            evaluation_skip_reason: str | None,
+        ) -> Any:
         captured.append(
             {
                 "baseline_id": spec.id,
@@ -177,8 +218,11 @@ def test_baseline_suite_nlq_db_only_derives_context_and_skips_release_loader(
                 "local_data": local_data,
                 "witness_k": witness_k,
                 "batch_index": batch_index,
-            }
-        )
+                    "input_mode": input_mode,
+                    "nlq_track": nlq_track,
+                    "evaluation_skip_reason": evaluation_skip_reason,
+                }
+            )
 
         class _Result:
             def to_json(self) -> dict[str, Any]:
@@ -231,6 +275,9 @@ def test_baseline_suite_nlq_db_only_derives_context_and_skips_release_loader(
         )
         assert item["local_data"] == _manual_native_docs()
         assert item["witness_k"] == 2
+        assert item["input_mode"] == "nlq_db"
+        assert item["nlq_track"] == "canonical"
+        assert item["evaluation_skip_reason"] == "no_release_dataset"
 
 
 def test_baseline_record_requires_canonical_nlq(tmp_path: Path) -> None:
@@ -265,6 +312,46 @@ def test_baseline_record_requires_canonical_nlq(tmp_path: Path) -> None:
     ]
     assert anomalies[0]["anomaly"] == "prompt_malformed"
     assert anomalies[0]["baseline_id"] == "direct"
+
+
+def test_baseline_invalid_json_fails_without_repair_retry(tmp_path: Path) -> None:
+    settings = _settings()
+    wf, log = _workflow(settings, tmp_path / "run")
+    wf.ctx.llm.set_stub(lambda _agent, _messages, _schema: '{"MQL": ')
+    dataset_dir = settings.paths.repo_root / "tests" / "fixtures" / "smoke_release"
+    record, schema, data = load_solver_release_inputs(
+        dataset_dir,
+        db_id="financial",
+        record_id=1001,
+        limit=1,
+    )[0]
+    spec = resolve_baselines("direct")[0]
+
+    try:
+        result = asyncio.run(run_baseline_record(wf, spec, record, schema, local_data=data))
+    finally:
+        log.close()
+
+    payload = result.to_json()
+    assert payload["result_type"] == "baseline_failure"
+    assert payload["status"] == "failed"
+    assert payload["error_code"] == "parse_error"
+    assert payload["disclosure"]["json_repair_retries"] == 0
+    assert payload["disclosure"]["retry_contract"]["json_repair_retries"] == 0
+    assert payload["steps"] == []
+
+    run_dir = tmp_path / "run"
+    diagnostics_paths = sorted((run_dir / "llm").glob("**/*.diagnostics.json"))
+    assert len(diagnostics_paths) == 1
+    diagnostics = json.loads(diagnostics_paths[0].read_text(encoding="utf-8"))
+    assert diagnostics["failed"] is True
+    assert diagnostics["json_repair_retries"] == 0
+    assert len(diagnostics["attempts"]) == 1
+    assert diagnostics["attempts"][0]["validation_error"]["anomaly"] == "parse_error"
+    assert len(diagnostics["messages"]) == 2
+
+    events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
+    assert not [event for event in events if event["event"] == "llm_repair_retry"]
 
 
 # ---------------------------------------------------------------------------
@@ -493,6 +580,58 @@ def test_public_record_sanitizer_allows_only_public_record_boundary() -> None:
     )
 
 
+def test_public_local_data_sanitizer_recursively_strips_forbidden_fields() -> None:
+    local_data = {
+        "account": [
+            {
+                "account_id": 1,
+                "status": "active",
+                "MQL": "SECRET_LOCAL_MQL_SENTINEL",
+                "shape_policy": "SECRET_LOCAL_SHAPE_POLICY",
+                "nested": {
+                    "amount": 10,
+                    "canonical_form_set": ["SECRET_LOCAL_CANONICAL_FORM"],
+                    "provenance_refs": ["SECRET_LOCAL_PROVENANCE_REF"],
+                },
+                "events": [
+                    {
+                        "kind": "deposit",
+                        "native_metadata": {"compiler": "SECRET_LOCAL_COMPILER"},
+                    }
+                ],
+            }
+        ]
+    }
+
+    sanitized = sanitize_public_local_data(local_data)
+
+    assert sanitized.value == {
+        "account": [
+            {
+                "account_id": 1,
+                "status": "active",
+                "nested": {"amount": 10},
+                "events": [{"kind": "deposit"}],
+            }
+        ]
+    }
+    assert sanitized.stripped_fields == [
+        "account[0].MQL",
+        "account[0].shape_policy",
+        "account[0].nested.canonical_form_set",
+        "account[0].nested.provenance_refs",
+        "account[0].events[0].native_metadata",
+    ]
+    _assert_no_private_sentinel(
+        sanitized.value,
+        "SECRET_LOCAL_MQL_SENTINEL",
+        "SECRET_LOCAL_SHAPE_POLICY",
+        "SECRET_LOCAL_CANONICAL_FORM",
+        "SECRET_LOCAL_PROVENANCE_REF",
+        "SECRET_LOCAL_COMPILER",
+    )
+
+
 def test_prompt_builders_do_not_render_private_schema_or_record_sentinels(
     tmp_path: Path,
 ) -> None:
@@ -573,6 +712,88 @@ def test_prompt_builders_do_not_render_private_schema_or_record_sentinels(
     assert "public account document" in rendered
 
 
+def test_prompt_witness_digest_does_not_render_local_data_forbidden_sentinels(
+    tmp_path: Path,
+) -> None:
+    settings = _settings()
+    wf, log = _workflow(settings, tmp_path / "run")
+    spec = resolve_baselines("react_lite")[0]
+    raw_record = {
+        "db_id": "financial",
+        "record_id": 1001,
+        "nl_queries": {"canonical": "Show active accounts."},
+    }
+    raw_schema = {
+        "collections": {
+            "account": {
+                "fields": {"account_id": "int", "status": "string"},
+                "embeds": [],
+                "foreign_keys": [],
+            }
+        }
+    }
+    local_data = {
+        "account": [
+            {
+                "account_id": 1,
+                "status": "PUBLIC_LOCAL_STATUS_SENTINEL",
+                "MQL": "SECRET_PROMPT_LOCAL_MQL",
+                "shape_policy": "SECRET_PROMPT_LOCAL_SHAPE_POLICY",
+                "nested": {
+                    "canonical_form_set": ["SECRET_PROMPT_LOCAL_CANONICAL_FORM"],
+                    "amount": 10,
+                },
+                "events": [
+                    {
+                        "kind": "public",
+                        "native_metadata": {"compiler": "SECRET_PROMPT_LOCAL_COMPILER"},
+                    }
+                ],
+            }
+        ]
+    }
+
+    try:
+        result = asyncio.run(
+            run_baseline_record(
+                wf,
+                spec,
+                raw_record,
+                raw_schema,
+                local_data=local_data,
+                witness_k=1,
+            )
+        )
+    finally:
+        log.close()
+
+    payload = result.to_json()
+    assert payload["status"] == "ok"
+    assert payload["disclosure"]["local_data_sanitizer_applied"] is True
+    assert payload["disclosure"]["local_data_stripped_fields"] == [
+        "account[0].MQL",
+        "account[0].shape_policy",
+        "account[0].nested.canonical_form_set",
+        "account[0].events[0].native_metadata",
+    ]
+
+    run_dir = tmp_path / "run"
+    diagnostics_paths = sorted((run_dir / "llm").glob("**/*.diagnostics.json"))
+    assert len(diagnostics_paths) == 2
+    rendered = "\n".join(
+        _all_message_text(json.loads(path.read_text(encoding="utf-8"))["messages"])
+        for path in diagnostics_paths
+    )
+    assert "PUBLIC_LOCAL_STATUS_SENTINEL" in rendered
+    for sentinel in (
+        "SECRET_PROMPT_LOCAL_MQL",
+        "SECRET_PROMPT_LOCAL_SHAPE_POLICY",
+        "SECRET_PROMPT_LOCAL_CANONICAL_FORM",
+        "SECRET_PROMPT_LOCAL_COMPILER",
+    ):
+        assert sentinel not in rendered
+
+
 def test_baseline_disclosure_declares_sanitizer_and_retry_contract(
     tmp_path: Path,
 ) -> None:
@@ -586,6 +807,7 @@ def test_baseline_disclosure_declares_sanitizer_and_retry_contract(
             witness_k=5,
             schema_stripped_fields=["structure_audit", "account.source_tables"],
             record_stripped_fields=["MQL", "canonical_form_set"],
+            local_data_stripped_fields=["account[0].MQL"],
             schema_public_shape={
                 "format": "collections",
                 "collection_total": 1,
@@ -598,8 +820,10 @@ def test_baseline_disclosure_declares_sanitizer_and_retry_contract(
     assert disclosure["public_schema_version"] == "baseline_public_schema_v1"
     assert disclosure["schema_sanitizer_applied"] is True
     assert disclosure["record_sanitizer_applied"] is True
+    assert disclosure["local_data_sanitizer_applied"] is True
     assert disclosure["schema_stripped_fields"] == ["structure_audit", "account.source_tables"]
     assert disclosure["record_stripped_fields"] == ["MQL", "canonical_form_set"]
+    assert disclosure["local_data_stripped_fields"] == ["account[0].MQL"]
     assert disclosure["schema_public_shape"] == {
         "format": "collections",
         "collection_total": 1,
@@ -607,14 +831,64 @@ def test_baseline_disclosure_declares_sanitizer_and_retry_contract(
     }
     assert disclosure["uses_public_witness_digest"] is True
     assert disclosure["semantic_retry_budget"] == 0
+    assert disclosure["json_repair_retries"] == 0
     assert disclosure["r_max"] == 0
     assert disclosure["uses_execution_feedback"] is False
     assert disclosure["uses_gold_mql"] is False
     assert disclosure["retry_contract"] == {
         "semantic_retry_budget": 0,
+        "json_repair_retries": 0,
         "format_transport_retries_are_semantic_retries": False,
         "format_transport_retry_scope": "LLM client JSON/transport only",
     }
+
+
+def test_baseline_prediction_payload_includes_nlq_db_provenance_fields(
+    tmp_path: Path,
+) -> None:
+    settings = _settings()
+    wf, log = _workflow(settings, tmp_path / "run")
+    spec = resolve_baselines("direct")[0]
+    nlq = "List all active accounts."
+    record = {
+        "db_id": "financial",
+        "record_id": 42,
+        "nl_queries": {"canonical": nlq},
+    }
+    schema = {
+        "collections": {
+            "account": {
+                "fields": {"account_id": "int", "status": "string"},
+                "embeds": [],
+                "foreign_keys": [],
+            }
+        }
+    }
+
+    try:
+        result = asyncio.run(
+            run_baseline_record(
+                wf,
+                spec,
+                record,
+                schema,
+                local_data={"account": [{"account_id": 1, "status": "active"}]},
+                witness_k=1,
+                input_mode="nlq_db",
+                nlq_track="canonical",
+            )
+        )
+    finally:
+        log.close()
+
+    payload = result.to_json()
+    assert payload["result_type"] == "baseline_prediction"
+    assert payload["input_mode"] == "nlq_db"
+    assert payload["nlq_track"] == "canonical"
+    assert payload["nlq_hash"] == _nlq_hash(nlq)
+    assert payload["evaluation_skip_reason"] is None
+    assert "nlq" not in payload
+    assert payload["witness_k"] == 1
 
 
 def test_failure_row_preserves_disclosure_and_public_safe_step_context(
@@ -667,11 +941,17 @@ def test_failure_row_preserves_disclosure_and_public_safe_step_context(
     payload = result.to_json()
     assert payload["result_type"] == "baseline_failure"
     assert payload["status"] == "failed"
+    assert payload["input_mode"] == "release"
+    assert payload["nlq_track"] == "record"
+    assert payload["nlq_hash"] == _nlq_hash("Show all accounts.")
+    assert payload["evaluation_skip_reason"] is None
     assert payload["disclosure"]["schema_sanitizer_applied"] is True
     assert payload["disclosure"]["record_sanitizer_applied"] is True
+    assert payload["disclosure"]["local_data_sanitizer_applied"] is True
     assert payload["disclosure"]["uses_gold_mql"] is False
     assert payload["disclosure"]["uses_execution_feedback"] is False
     assert payload["disclosure"]["semantic_retry_budget"] == 0
+    assert payload["disclosure"]["json_repair_retries"] == 0
     assert payload["steps"]
     assert payload["steps"][0]["transcript_ref"]
     assert payload["steps"][0]["diagnostics_ref"]

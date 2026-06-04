@@ -19,6 +19,7 @@ from tend.baselines.strategies import BaselinePromptContext, _plan_messages
 from tend.config import Settings
 from tend.evaluation import EVALUATION_METRICS, evaluate_predictions
 from tend.execution.ast_check import parse_pipeline
+from tend.errors import SourceError
 from tend.llm import LLMClient
 from tend.observability import setup_logging
 from tend.solver.eg import SmartEGPolicy
@@ -59,7 +60,7 @@ def _json_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
 
 
-def test_first_turn_final_submit_and_unimplemented_prefix_tools_are_not_ok() -> None:
+def test_first_turn_final_submit_and_prefix_tools_have_truthful_outcomes() -> None:
     api = SmartEGToolAPI(SmartEGPolicy())
     first_turn = SmartEGState(nlq="list accounts", db_id="financial", record_id=1001)
 
@@ -97,7 +98,23 @@ def test_first_turn_final_submit_and_unimplemented_prefix_tools_are_not_ok() -> 
     }
     assert PREFIX_EXECUTION_TOOLS <= execution_tools
 
-    for tool_name in sorted(PREFIX_EXECUTION_TOOLS):
+    render_observation = api.execute(
+        _tool_call(
+            "render_pipeline_prefix",
+            {
+                "collection": "account",
+                "pipeline": [{"$limit": 1}],
+            },
+        ),
+        execution_state,
+        exposed_tool_names=execution_tools,
+    )
+    assert render_observation.ok is True
+    assert render_observation.llm_visible_content["ok"] is True
+    assert render_observation.result["prefix_length"] == 1
+    assert render_observation.result["MQL"] == 'db.account.aggregate([{"$limit":1}])'
+
+    for tool_name in sorted(PREFIX_EXECUTION_TOOLS - {"render_pipeline_prefix"}):
         observation = api.execute(
             _tool_call(
                 tool_name,
@@ -111,8 +128,7 @@ def test_first_turn_final_submit_and_unimplemented_prefix_tools_are_not_ok() -> 
         )
         assert observation.ok is False, tool_name
         assert observation.llm_visible_content["ok"] is False, tool_name
-        assert observation.result["reason"] == "TOOL_UNIMPLEMENTED", tool_name
-        assert observation.result["implemented"] is False, tool_name
+        assert observation.result["reason"] == "unsupported_prefix_executor", tool_name
 
 
 def test_sanitized_baseline_prompt_excludes_private_schema_and_gold_metadata() -> None:
@@ -215,7 +231,7 @@ def test_sanitized_baseline_prompt_excludes_private_schema_and_gold_metadata() -
 
 def test_registered_ablations_are_behavior_toggles_or_labelled_budget_profiles() -> None:
     assert "smart_eg_no_probe_scheduler" not in ABLATION_IDS
-    with pytest.raises(KeyError, match="smart_eg_no_probe_scheduler"):
+    with pytest.raises(SourceError, match="smart_eg_no_probe_scheduler"):
         resolve_ablations("smart_eg_no_probe_scheduler")
 
     behavior_flags = {
@@ -249,7 +265,7 @@ def test_registered_ablations_are_behavior_toggles_or_labelled_budget_profiles()
         disabled = {key for key in behavior_flags if options[key] is False}
         if spec.id == "smart_eg_full":
             assert not disabled
-            assert options["budget_profile"] == "medium"
+            assert options["budget_profile"] == "full"
         else:
             assert len(disabled) == 1, spec.id
             assert spec.limitations
@@ -354,6 +370,8 @@ def test_typed_runtime_failure_rows_are_failed_and_make_report_partial(
         "work_item_id": "ablation:0:smart_eg_no_revisit:financial:1001",
         "batch_index": 0,
         "result_type": "ablation_failure",
+        "transcript_refs": ["llm/ablation.md"],
+        "diagnostics_refs": ["llm/ablation.diagnostics.json"],
     }
 
 

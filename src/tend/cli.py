@@ -773,8 +773,8 @@ async def _run_solve(
                         failures.append(payload)
                     else:
                         predictions.append(payload)
-            _write_jsonl(out_path, predictions)
-            _write_jsonl(failures_path, failures)
+            _write_jsonl_even_empty(out_path, predictions)
+            _write_jsonl_even_empty(failures_path, failures)
             evaluation_rows = [*predictions, *failures]
             if evaluation_rows and evaluate_outputs and evaluation_dataset_dir is not None:
                 _write_jsonl_even_empty(eval_input_path, evaluation_rows)
@@ -802,6 +802,8 @@ async def _run_solve(
                      message=failed.message,
                      anomaly=failed.anomaly.value if failed.anomaly else None)
     finally:
+        _write_jsonl_even_empty(out_path, predictions)
+        _write_jsonl_even_empty(failures_path, failures)
         summary = rt.progress.summary() if hasattr(rt.progress, "summary") else {}
         failed_run = (
             failed is not None
@@ -897,8 +899,8 @@ async def _run_baseline(
             )
             predictions = [item for item in outputs if item.get("status") == "ok"]
             failures = [item for item in outputs if item.get("status") != "ok"]
-            _write_jsonl(out_path, predictions)
-            _write_jsonl(failures_path, failures)
+            _write_jsonl_even_empty(out_path, predictions)
+            _write_jsonl_even_empty(failures_path, failures)
             evaluation_rows = [*predictions, *failures]
             if evaluation_rows and evaluate_outputs and evaluation_dataset_dir is not None:
                 _write_jsonl_even_empty(eval_input_path, evaluation_rows)
@@ -926,6 +928,8 @@ async def _run_baseline(
                      message=failed.message,
                      anomaly=failed.anomaly.value if failed.anomaly else None)
     finally:
+        _write_jsonl_even_empty(out_path, predictions)
+        _write_jsonl_even_empty(failures_path, failures)
         summary = rt.progress.summary() if hasattr(rt.progress, "summary") else {}
         failed_run = (
             failed is not None
@@ -970,6 +974,7 @@ async def _run_ablation(
     max_tool_turns: int,
     max_revisits: int,
     cost_budget_usd: float,
+    workers: int = 1,
     nlq: str | None = None,
     nlq_track: str = "record",
     evaluate: bool = True,
@@ -1024,11 +1029,12 @@ async def _run_ablation(
                 max_tool_turns=max_tool_turns,
                 max_revisits=max_revisits,
                 cost_budget_usd=cost_budget_usd,
+                workers=workers,
             )
             predictions = [item for item in outputs if item.get("status") == "ok"]
             failures = [item for item in outputs if item.get("status") != "ok"]
-            _write_jsonl(out_path, predictions)
-            _write_jsonl(failures_path, failures)
+            _write_jsonl_even_empty(out_path, predictions)
+            _write_jsonl_even_empty(failures_path, failures)
             evaluation_rows = [*predictions, *failures]
             if evaluation_rows and evaluate_outputs and evaluation_dataset_dir is not None:
                 _write_jsonl_even_empty(eval_input_path, evaluation_rows)
@@ -1056,6 +1062,8 @@ async def _run_ablation(
                      message=failed.message,
                      anomaly=failed.anomaly.value if failed.anomaly else None)
     finally:
+        _write_jsonl_even_empty(out_path, predictions)
+        _write_jsonl_even_empty(failures_path, failures)
         summary = rt.progress.summary() if hasattr(rt.progress, "summary") else {}
         failed_run = (
             failed is not None
@@ -1063,16 +1071,33 @@ async def _run_ablation(
             or (evaluation is not None and evaluation.status == "failed")
             or summary.get("anomaly_total", 0) > 0
         )
+        all_variants_failed = bool(outputs) and bool(failures) and not predictions
+        if not outputs:
+            outcome_status = "no_outputs"
+        elif all_variants_failed:
+            outcome_status = "all_variants_failed"
+        elif failures:
+            outcome_status = "partial_variant_failures"
+        else:
+            outcome_status = "ok"
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         summary_path.write_text(json.dumps({
             "run_id": rt.settings.run_id,
             "status": "failed" if failed_run else "ok",
+            "experiment_status": "failed" if failed_run else "ok",
+            "outcome_status": outcome_status,
+            "all_variants_failed": all_variants_failed,
+            "variant_failures_are_scored_outcomes": True,
             "outputs": len(outputs),
             "predictions": len(predictions),
             "failures": len(failures),
             "by_ablation": _count_by(predictions, "ablation_id"),
             "failed_by_ablation": _count_by(failures, "ablation_id"),
+            "workers": max(1, int(workers)),
             "evaluation": evaluation.report if evaluation else None,
+            "evaluation_headline": (
+                evaluation.report.get("headline") if evaluation else None
+            ),
             "progress": summary,
             "output": str(out_path),
             "failures_output": str(failures_path),
@@ -1396,6 +1421,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="SMART-EG maximum milestone revisits")
     a.add_argument("--cost-budget-usd", type=float, default=DEFAULT_COST_BUDGET_USD,
                    help="SMART-EG cost budget in USD")
+    a.add_argument("--workers", type=int, default=1,
+                   help="parallel ablation run fan-out (does not affect evaluation workers)")
     a.add_argument("--stub", action="store_true", help="offline mode (no live LLM)")
     a.add_argument("--quiet", action="store_true", help="disable the live progress UI")
     _add_eval_args(a)
@@ -1514,6 +1541,7 @@ def main(argv: list[str] | None = None) -> int:
             max_tool_turns=args.max_tool_turns,
             max_revisits=args.max_revisits,
             cost_budget_usd=args.cost_budget_usd,
+            workers=args.workers,
             nlq_track=args.nlq_track,
             nlq=args.nlq,
             evaluate=not args.no_eval,

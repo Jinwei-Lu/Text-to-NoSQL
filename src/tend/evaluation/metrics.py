@@ -55,6 +55,23 @@ FAILURE_RESULT_TYPES = frozenset({
     "baseline_failure",
     "ablation_failure",
 })
+DIAGNOSTIC_REF_KEYS: tuple[str, ...] = (
+    "transcript_refs",
+    "diagnostics_refs",
+    "agent_session_ref",
+    "evidence_ledger_ref",
+    "execution_trace_ref",
+    "last_candidate_ref",
+    "unresolved_debts",
+)
+PROVENANCE_REF_KEYS: tuple[str, ...] = (
+    "input_mode",
+    "nlq_track",
+    "nlq_hash",
+    "witness_k",
+    "evaluation_skip_reason",
+)
+REFERENCE_ABLATION_SYSTEM = "smart_eg_full"
 ORDER_SENSITIVE_ROOT_OPS = {"$sort", "$limit", "$skip", "$setWindowFields"}
 FIELD_VALUE_KEYS = {"localField", "foreignField", "as"}
 NON_FIELD_VALUE_KEYS = {"from"}
@@ -920,12 +937,32 @@ def _system_id(prediction: dict[str, Any], experiment_kind: str) -> str:
 
 
 def _prediction_ref(prediction: dict[str, Any]) -> dict[str, Any]:
-    return {
+    ref = {
         "line": prediction.get("_prediction_line"),
         "work_item_id": prediction.get("work_item_id"),
         "batch_index": prediction.get("batch_index"),
         "result_type": prediction.get("result_type"),
     }
+    for key in (*DIAGNOSTIC_REF_KEYS, *PROVENANCE_REF_KEYS):
+        value = prediction.get(key)
+        if _ref_value_present(value):
+            ref[key] = value
+
+    transcript_ref = prediction.get("transcript_ref")
+    if "transcript_refs" not in ref and isinstance(transcript_ref, str) and transcript_ref:
+        ref["transcript_refs"] = [transcript_ref]
+    diagnostics_ref = prediction.get("diagnostics_ref")
+    if "diagnostics_refs" not in ref and isinstance(diagnostics_ref, str) and diagnostics_ref:
+        ref["diagnostics_refs"] = [diagnostics_ref]
+    return ref
+
+
+def _ref_value_present(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value)
+    if isinstance(value, list):
+        return any(item not in (None, "") for item in value)
+    return value is not None
 
 
 def _canonical_text(parsed: tuple[str, list[dict[str, Any]]] | None) -> str:
@@ -1191,6 +1228,20 @@ def _build_report(
     by_system: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         by_system[str(row.get("system_id"))].append(row)
+    systems = {
+        system_id: {
+            "record_count": len(items),
+            "scores": _aggregate(items),
+            "diagnostics": _diagnostic_counts(items),
+            "diagnostic_artifact_refs": _diagnostic_artifact_refs(items),
+        }
+        for system_id, items in sorted(by_system.items())
+    }
+    headline = _headline_summary(
+        experiment_kind=experiment_kind,
+        overall_scores=scores,
+        systems=systems,
+    )
 
     diagnostics = _diagnostic_counts(rows)
     status = "ok"
@@ -1202,7 +1253,8 @@ def _build_report(
         "status": status,
         "run_id": run_id,
         "experiment_kind": experiment_kind,
-        "headline_metric": HEADLINE_METRIC,
+        "headline_metric": headline["headline_metric"],
+        "headline": headline,
         "metrics_order": list(EVALUATION_METRICS),
         "diagnostic_metrics_order": list(DIAGNOSTIC_METRICS),
         "record_count": len(rows),
@@ -1214,17 +1266,11 @@ def _build_report(
             dataset_dir=dataset_dir,
         ),
         "scores": scores,
-        "systems": {
-            system_id: {
-                "record_count": len(items),
-                "scores": _aggregate(items),
-                "diagnostics": _diagnostic_counts(items),
-            }
-            for system_id, items in sorted(by_system.items())
-        },
+        "systems": systems,
         "slice_aggregates": _aggregate_slices(rows, SLICE_AXES),
         "diagnostic_slice_aggregates": _aggregate_slices(rows, DIAGNOSTIC_SLICE_AXES),
         "diagnostics": diagnostics,
+        "diagnostic_artifact_refs": _diagnostic_artifact_refs(rows),
         "disclosure": {
             "proposal": "05_evaluation_methodology",
             "disclosure_status": "analysis_report_not_official_leaderboard_submission",
@@ -1237,6 +1283,55 @@ def _build_report(
             "dataset_dir": str(dataset_dir),
             "predictions_path": str(predictions_path),
         },
+    }
+
+
+def _headline_summary(
+    *,
+    experiment_kind: str,
+    overall_scores: dict[str, float],
+    systems: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    if experiment_kind != "ablation":
+        return {
+            "mode": "overall",
+            "headline_metric": HEADLINE_METRIC,
+            "metric": HEADLINE_METRIC,
+            "scores": overall_scores,
+        }
+
+    reference = systems.get(REFERENCE_ABLATION_SYSTEM)
+    reference_scores = reference.get("scores") if isinstance(reference, dict) else None
+    if not isinstance(reference_scores, dict):
+        reference_scores = None
+
+    per_system: dict[str, dict[str, Any]] = {}
+    for system_id, payload in systems.items():
+        scores = payload.get("scores") if isinstance(payload.get("scores"), dict) else {}
+        item: dict[str, Any] = {
+            "record_count": payload.get("record_count", 0),
+            "scores": scores,
+        }
+        if reference_scores is not None:
+            item["delta_vs_smart_eg_full"] = {
+                metric: round(
+                    float(scores.get(metric, 0.0)) - float(reference_scores.get(metric, 0.0)),
+                    6,
+                )
+                for metric in EVALUATION_METRICS
+            }
+        per_system[system_id] = item
+
+    return {
+        "mode": "per_system",
+        "headline_metric": "per_system_EX",
+        "metric": HEADLINE_METRIC,
+        "reference_system_id": (
+            REFERENCE_ABLATION_SYSTEM if REFERENCE_ABLATION_SYSTEM in systems else None
+        ),
+        "mixed_overall_scores_are_diagnostic": True,
+        "overall_scores": overall_scores,
+        "systems": per_system,
     }
 
 
@@ -1317,6 +1412,37 @@ def _diagnostic_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def _diagnostic_artifact_refs(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        prediction_ref = row.get("prediction_ref")
+        if not isinstance(prediction_ref, dict):
+            continue
+        trace = {
+            key: prediction_ref[key]
+            for key in DIAGNOSTIC_REF_KEYS
+            if key in prediction_ref and _ref_value_present(prediction_ref[key])
+        }
+        if not trace:
+            continue
+        items.append({
+            "system_id": row.get("system_id"),
+            "db_id": row.get("db_id"),
+            "record_id": row.get("record_id"),
+            "prediction_index": row.get("prediction_index"),
+            "prediction_line": row.get("prediction_line"),
+            "work_item_id": prediction_ref.get("work_item_id"),
+            "batch_index": prediction_ref.get("batch_index"),
+            "result_type": prediction_ref.get("result_type"),
+            **trace,
+        })
+    return {
+        "count": len(items),
+        "items": items[:200],
+        "truncated": len(items) > 200,
+    }
+
+
 def _environment_digest() -> dict[str, Any]:
     return {
         "python": sys.version.split()[0],
@@ -1340,6 +1466,12 @@ def _write_failed_report(
         "run_id": run_id,
         "experiment_kind": experiment_kind,
         "headline_metric": HEADLINE_METRIC,
+        "headline": {
+            "mode": "overall",
+            "headline_metric": HEADLINE_METRIC,
+            "metric": HEADLINE_METRIC,
+            "scores": {name: 0.0 for name in EVALUATION_METRICS},
+        },
         "metrics_order": list(EVALUATION_METRICS),
         "diagnostic_metrics_order": list(DIAGNOSTIC_METRICS),
         "record_count": 0,
@@ -1348,6 +1480,7 @@ def _write_failed_report(
         "slice_aggregates": {},
         "diagnostic_slice_aggregates": {},
         "diagnostics": {"error_code": error_code, "message": message},
+        "diagnostic_artifact_refs": {"count": 0, "items": [], "truncated": False},
         "artifacts": paths.as_dict(),
     }
     paths.report_json.write_text(
@@ -1368,19 +1501,71 @@ def _write_failed_report(
 
 
 def _render_markdown_report(report: dict[str, Any]) -> str:
+    headline = report.get("headline") if isinstance(report.get("headline"), dict) else {}
+    headline_mode = str(headline.get("mode") or "overall")
     lines = [
         f"# TEND Evaluation Report: {report.get('experiment_kind')}",
         "",
         f"- run_id: `{report.get('run_id')}`",
         f"- status: `{report.get('status')}`",
-        f"- headline: `{HEADLINE_METRIC} = {report.get('scores', {}).get(HEADLINE_METRIC, 0.0)}`",
         f"- records: `{report.get('record_count', 0)}`",
         "",
         "## Headline",
         "",
-        "| Metric | Mean |",
-        "|--------|------|",
-        f"| {HEADLINE_METRIC} | {report.get('scores', {}).get(HEADLINE_METRIC, 0.0)} |",
+    ]
+    systems = report.get("systems") if isinstance(report.get("systems"), dict) else {}
+    if headline_mode == "per_system":
+        lines.insert(
+            4,
+            f"- headline: `per-system {HEADLINE_METRIC}; mixed overall is diagnostic`",
+        )
+        reference = headline.get("reference_system_id")
+        delta_header = f"Delta vs {reference}" if reference else "Delta"
+        lines += [
+            f"Reference system: `{reference or 'none'}`",
+            "",
+            f"| System | Records | {HEADLINE_METRIC} | {delta_header} | EFM | EVM |",
+            "|--------|---------|----|-------|-----|-----|",
+        ]
+        headline_systems = (
+            headline.get("systems") if isinstance(headline.get("systems"), dict) else {}
+        )
+        for system_id, payload in headline_systems.items():
+            scores = payload.get("scores", {}) if isinstance(payload, dict) else {}
+            deltas = (
+                payload.get("delta_vs_smart_eg_full")
+                if isinstance(payload, dict) and isinstance(payload.get("delta_vs_smart_eg_full"), dict)
+                else {}
+            )
+            delta_ex = deltas.get(HEADLINE_METRIC, "")
+            lines.append(
+                f"| {system_id} | {payload.get('record_count', 0)} | "
+                f"{scores.get(HEADLINE_METRIC, 0.0)} | {delta_ex} | "
+                f"{scores.get('EFM', 0.0)} | {scores.get('EVM', 0.0)} |"
+            )
+        if not headline_systems:
+            lines.append("| (none) | 0 | 0 |  | 0 | 0 |")
+        lines += [
+            "",
+            "## Mixed Overall Scores (Diagnostic)",
+            "",
+            "| Metric | Mean |",
+            "|--------|------|",
+        ]
+        for metric in EVALUATION_METRICS:
+            lines.append(f"| {metric} | {report.get('scores', {}).get(metric, 0.0)} |")
+    else:
+        lines.insert(
+            4,
+            f"- headline: `{HEADLINE_METRIC} = {report.get('scores', {}).get(HEADLINE_METRIC, 0.0)}`",
+        )
+        lines += [
+            "| Metric | Mean |",
+            "|--------|------|",
+            f"| {HEADLINE_METRIC} | {report.get('scores', {}).get(HEADLINE_METRIC, 0.0)} |",
+        ]
+
+    lines += [
         "",
         "## Diagnostic Metrics",
         "",
@@ -1393,7 +1578,6 @@ def _render_markdown_report(report: dict[str, Any]) -> str:
     for metric in diagnostic_metrics:
         lines.append(f"| {metric} | {report.get('scores', {}).get(metric, 0.0)} |")
     lines += ["", "## Systems", "", "| System | Records | EX | EFM | EVM |", "|--------|---------|----|-----|-----|"]
-    systems = report.get("systems") if isinstance(report.get("systems"), dict) else {}
     if systems:
         for system_id, payload in systems.items():
             scores = payload.get("scores", {})

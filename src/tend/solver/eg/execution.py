@@ -43,6 +43,17 @@ def run_final_sanity_execution(
     db_id: str,
     mql: str,
 ) -> dict[str, Any]:
+    ast = check_ast_filter(mql)
+    if not ast["ok"]:
+        return {
+            "ok": False,
+            "skipped": False,
+            "reason": "disabled_operator",
+            "error_type": "DisabledOperatorError",
+            "disallowed_operators": ast["disallowed_operators"],
+            "collection": ast["collection"],
+            "stage_count": ast["stage_count"],
+        }
     if executor is None:
         return {"ok": False, "skipped": True, "reason": "no_executor"}
     try:

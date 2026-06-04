@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import traceback
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -14,6 +15,7 @@ from .boundary import (
     check_disjointness,
     load_solver_allow_list,
     public_schema_shape,
+    sanitize_public_local_data,
     sanitize_public_record,
     sanitize_public_schema,
 )
@@ -32,6 +34,9 @@ from .strategies import (
 )
 
 
+BASELINE_JSON_REPAIR_RETRIES = 0
+
+
 @dataclass(frozen=True, slots=True)
 class BaselineStepTrace:
     step_id: str
@@ -40,6 +45,9 @@ class BaselineStepTrace:
     transcript_ref: str
     diagnostics_ref: str
     output: dict[str, Any]
+    llm_attempts: int = 0
+    transport_retries: int = 0
+    json_repair_retries: int = BASELINE_JSON_REPAIR_RETRIES
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +61,10 @@ class BaselinePrediction:
     steps: list[BaselineStepTrace]
     witness_k: int = 0
     r_max: int = 0
+    input_mode: str = "release"
+    nlq_track: str = "record"
+    nlq_hash: str = ""
+    evaluation_skip_reason: str | None = None
     static_feedback: list[dict[str, Any]] = field(default_factory=list)
     result_type: str = "baseline_prediction"
     status: str = "ok"
@@ -74,6 +86,10 @@ class BaselineFailure:
     disclosure: dict[str, Any]
     witness_k: int = 0
     r_max: int = 0
+    input_mode: str = "release"
+    nlq_track: str = "record"
+    nlq_hash: str = ""
+    evaluation_skip_reason: str | None = None
     steps: list[BaselineStepTrace] = field(default_factory=list)
     static_feedback: list[dict[str, Any]] = field(default_factory=list)
     result_type: str = "baseline_failure"
@@ -98,6 +114,9 @@ async def run_baseline_suite(
     witness_k: int = 3,
 ) -> list[dict[str, Any]]:
     specs = resolve_baselines(baseline_selection)
+    input_mode = "nlq_db" if nlq is not None else "release"
+    effective_nlq_track = "canonical" if nlq is not None else nlq_track
+    evaluation_skip_reason = "no_release_dataset" if nlq is not None else None
     if nlq is not None:
         if not db_id:
             raise SourceError("NLQ+DB baseline mode requires --db-id")
@@ -125,7 +144,9 @@ async def run_baseline_suite(
         dataset_dir=str(dataset_dir),
         db_id=db_id,
         record_id=record_id,
-        input_mode="nlq_db" if nlq is not None else "release",
+        input_mode=input_mode,
+        nlq_track=effective_nlq_track,
+        evaluation_skip_reason=evaluation_skip_reason,
     )
     if not inputs:
         log.anomaly(
@@ -160,6 +181,9 @@ async def run_baseline_suite(
             local_data=data,
             witness_k=witness_k,
             batch_index=batch_index,
+            input_mode=input_mode,
+            nlq_track=effective_nlq_track,
+            evaluation_skip_reason=evaluation_skip_reason,
         )
         payload = result.to_json()
         payload["batch_index"] = batch_index
@@ -202,31 +226,44 @@ async def run_baseline_record(
     local_data: dict[str, list[dict[str, Any]]] | None = None,
     witness_k: int = 3,
     batch_index: int | None = None,
+    input_mode: str = "release",
+    nlq_track: str = "record",
+    evaluation_skip_reason: str | None = None,
 ) -> BaselinePrediction | BaselineFailure:
     base_log = wf.ctx.log.bind(
         component="baseline_runner", baseline_id=spec.id, batch_index=batch_index
     )
     sanitized_record = sanitize_public_record(record)
     sanitized_schema = sanitize_public_schema(schema)
+    sanitized_local_data = sanitize_public_local_data(local_data)
     if sanitized_record.stripped_fields:
         base_log.info("baseline_record_fields_stripped", fields=sanitized_record.stripped_fields)
     if sanitized_schema.stripped_fields:
         base_log.info("baseline_schema_fields_stripped", fields=sanitized_schema.stripped_fields)
+    if sanitized_local_data.stripped_fields:
+        base_log.info(
+            "baseline_local_data_fields_stripped",
+            fields=sanitized_local_data.stripped_fields,
+        )
     safe = sanitized_record.value
     public_schema = sanitized_schema.value
     db_id = str(safe["db_id"])
     record_id = safe.get("record_id")
+    actual_nlq_track = str(record.get("nlq_track") or nlq_track)
     disclosure = _baseline_disclosure(
         wf,
         spec,
         witness_k=witness_k,
         schema_stripped_fields=sanitized_schema.stripped_fields,
         record_stripped_fields=sanitized_record.stripped_fields,
+        local_data_stripped_fields=sanitized_local_data.stripped_fields,
         schema_public_shape=public_schema_shape(public_schema),
     )
+    nlq_hash = ""
     try:
         # Baselines expose only the canonical NLQ track after record sanitization.
         nlq = _canonical_nlq(safe, use_colloquial=False)
+        nlq_hash = _hash_nlq(nlq)
     except TendError as err:
         err.with_context(baseline_id=spec.id, db_id=db_id, record_id=record_id)
         base_log.anomaly(err)
@@ -240,9 +277,16 @@ async def run_baseline_record(
             disclosure=disclosure,
             witness_k=witness_k,
             r_max=0,
+            input_mode=input_mode,
+            nlq_track=actual_nlq_track,
+            nlq_hash=nlq_hash,
+            evaluation_skip_reason=evaluation_skip_reason,
         )
     schema_summary = summarize_schema(public_schema)
-    witness_digest = build_witness_digest(local_data, witness_k)
+    witness_digest = build_witness_digest(
+        sanitized_local_data.value if local_data is not None else None,
+        witness_k,
+    )
     prompt_ctx = BaselinePromptContext(
         record=safe,
         schema=public_schema,
@@ -320,6 +364,10 @@ async def run_baseline_record(
                 disclosure=disclosure,
                 witness_k=witness_k,
                 r_max=0,
+                input_mode=input_mode,
+                nlq_track=actual_nlq_track,
+                nlq_hash=nlq_hash,
+                evaluation_skip_reason=evaluation_skip_reason,
                 steps=traces,
                 static_feedback=final_feedback,
             )
@@ -339,6 +387,10 @@ async def run_baseline_record(
             disclosure=disclosure,
             witness_k=witness_k,
             r_max=0,
+            input_mode=input_mode,
+            nlq_track=actual_nlq_track,
+            nlq_hash=nlq_hash,
+            evaluation_skip_reason=evaluation_skip_reason,
             steps=traces,
             static_feedback=final_feedback,
         )
@@ -356,6 +408,10 @@ async def run_baseline_record(
             disclosure=disclosure,
             witness_k=witness_k,
             r_max=0,
+            input_mode=input_mode,
+            nlq_track=actual_nlq_track,
+            nlq_hash=nlq_hash,
+            evaluation_skip_reason=evaluation_skip_reason,
             steps=traces,
             static_feedback=final_feedback or static_feedback,
         )
@@ -378,6 +434,10 @@ async def run_baseline_record(
             disclosure=disclosure,
             witness_k=witness_k,
             r_max=0,
+            input_mode=input_mode,
+            nlq_track=actual_nlq_track,
+            nlq_hash=nlq_hash,
+            evaluation_skip_reason=evaluation_skip_reason,
             steps=traces,
             static_feedback=final_feedback or static_feedback,
         )
@@ -415,12 +475,16 @@ async def _run_step(
             logger=log,
             schema=step.schema,
             temperature=0.0,
+            json_repair_retries=BASELINE_JSON_REPAIR_RETRIES,
         )
         output = result.data
         log.info(
             "baseline_step_done",
             transcript_ref=result.transcript_ref,
             diagnostics_ref=result.diagnostics_ref,
+            llm_attempts=result.attempts,
+            transport_retries=max(0, result.attempts - 1),
+            json_repair_retries=BASELINE_JSON_REPAIR_RETRIES,
         )
         if ctx.progress:
             ctx.progress.finish_task(task_id, ok=True)
@@ -431,6 +495,9 @@ async def _run_step(
             transcript_ref=result.transcript_ref,
             diagnostics_ref=result.diagnostics_ref,
             output=output,
+            llm_attempts=result.attempts,
+            transport_retries=max(0, result.attempts - 1),
+            json_repair_retries=BASELINE_JSON_REPAIR_RETRIES,
         )
     except Exception:
         if ctx.progress:
@@ -471,6 +538,7 @@ def _baseline_disclosure(
     witness_k: int,
     schema_stripped_fields: list[str] | None = None,
     record_stripped_fields: list[str] | None = None,
+    local_data_stripped_fields: list[str] | None = None,
     schema_public_shape: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     model_ids = [wf.ctx.settings.llm.model, *wf.ctx.settings.llm.agent_models.values()]
@@ -494,17 +562,21 @@ def _baseline_disclosure(
         "limitations": list(spec.limitations),
         "r_max": 0,  # baselines have no retry loop
         "witness_k": witness_k,
+        "json_repair_retries": BASELINE_JSON_REPAIR_RETRIES,
         "public_schema_version": PUBLIC_SCHEMA_VERSION,
         "schema_sanitizer_applied": True,
         "record_sanitizer_applied": True,
+        "local_data_sanitizer_applied": True,
         "schema_stripped_fields": list(schema_stripped_fields or []),
         "record_stripped_fields": list(record_stripped_fields or []),
+        "local_data_stripped_fields": list(local_data_stripped_fields or []),
         "schema_public_shape": schema_public_shape
         or {"format": "unknown", "collection_total": 0, "collections": []},
         "uses_public_witness_digest": True,
         "semantic_retry_budget": 0,
         "retry_contract": {
             "semantic_retry_budget": 0,
+            "json_repair_retries": BASELINE_JSON_REPAIR_RETRIES,
             "format_transport_retries_are_semantic_retries": False,
             "format_transport_retry_scope": "LLM client JSON/transport only",
         },
@@ -514,3 +586,7 @@ def _baseline_disclosure(
 def _extract_mql(state: dict[str, Any]) -> str:
     value = state.get("MQL") or state.get("mql")
     return str(value or "")
+
+
+def _hash_nlq(nlq: str) -> str:
+    return "sha256:" + hashlib.sha256(nlq.encode("utf-8")).hexdigest()

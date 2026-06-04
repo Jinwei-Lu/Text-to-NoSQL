@@ -57,6 +57,22 @@ _PRIVATE_SCHEMA_KEYS = frozenset(
         "source_signal",
     }
 )
+_PRIVATE_LOCAL_DATA_KEYS = frozenset(
+    {
+        "canonical_form_set",
+        "expected_mql",
+        "expected_query",
+        "feedback",
+        "gold_mql",
+        "gold_query",
+        "logical_spec",
+        "nl_queries",
+        "physical_plan",
+        "query_plan",
+        "shape_policy",
+        "static_feedback",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +193,35 @@ def sanitize_public_schema(schema: dict[str, Any]) -> SanitizedPayload:
             stripped.append(str(key))
 
     return SanitizedPayload(value=public, stripped_fields=_dedupe(stripped))
+
+
+def sanitize_public_local_data(
+    local_data: dict[str, list[dict[str, Any]]] | None,
+) -> SanitizedPayload:
+    """Strip construction/gold/provenance fields from prompt-visible witness samples."""
+    if not isinstance(local_data, dict):
+        return SanitizedPayload(value={}, stripped_fields=[])
+
+    stripped: list[str] = []
+    clean: dict[str, Any] = {}
+    for collection, samples in sorted(local_data.items()):
+        collection_name = str(collection)
+        if isinstance(samples, list):
+            clean[collection_name] = [
+                _sanitize_local_data_value(
+                    sample,
+                    f"{collection_name}[{index}]",
+                    stripped,
+                )
+                for index, sample in enumerate(samples)
+            ]
+        else:
+            clean[collection_name] = _sanitize_local_data_value(
+                samples,
+                collection_name,
+                stripped,
+            )
+    return SanitizedPayload(value=clean, stripped_fields=_dedupe(stripped))
 
 
 def public_schema_shape(schema: dict[str, Any]) -> dict[str, Any]:
@@ -350,6 +395,29 @@ def _is_private_schema_key(key: Any) -> bool:
     )
 
 
+def _sanitize_local_data_value(value: Any, path: str, stripped: list[str]) -> Any:
+    if isinstance(value, dict):
+        clean: dict[str, Any] = {}
+        for key, child in value.items():
+            key_text = str(key)
+            child_path = f"{path}.{key_text}" if path else key_text
+            if _is_private_local_data_key(key_text):
+                stripped.append(child_path)
+                continue
+            clean[key] = _sanitize_local_data_value(child, child_path, stripped)
+        return clean
+    if isinstance(value, list):
+        return [
+            _sanitize_local_data_value(child, f"{path}[{index}]", stripped)
+            for index, child in enumerate(value)
+        ]
+    return value
+
+
+def _is_private_local_data_key(key: str) -> bool:
+    return _is_private_schema_key(key) or key.lower() in _PRIVATE_LOCAL_DATA_KEYS
+
+
 def _dedupe(values: list[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -422,6 +490,7 @@ __all__ = [
     "check_disjointness",
     "load_solver_allow_list",
     "public_schema_shape",
+    "sanitize_public_local_data",
     "sanitize_public_record",
     "sanitize_public_schema",
 ]

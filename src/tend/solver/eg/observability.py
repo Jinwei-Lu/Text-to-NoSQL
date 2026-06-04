@@ -107,6 +107,10 @@ def _append_json_preview(lines: list[str], value: Any, *, max_chars: int = MAX_I
     lines += ["```json", truncated, "```", ""]
 
 
+def _append_json_complete(lines: list[str], value: Any) -> None:
+    lines += ["```json", json.dumps(value, indent=2, ensure_ascii=False, default=str), "```", ""]
+
+
 def _tool_name(event: dict[str, Any]) -> str:
     return str(event.get("tool") or event.get("name") or "unknown_tool")
 
@@ -491,6 +495,18 @@ class SmartEGObserver:
                 ),
             ],
         )
+        if request and request.get("messages") is not None:
+            lines += ["#### Provider Request Messages", ""]
+            _append_json_complete(lines, request.get("messages"))
+        if request and request.get("tool_schemas") is not None:
+            lines += ["#### Provider Tool Schemas", ""]
+            _append_json_complete(lines, request.get("tool_schemas"))
+        if response and response.get("assistant_message") is not None:
+            lines += ["#### Provider Assistant Message", ""]
+            _append_json_complete(lines, response.get("assistant_message"))
+        elif response and response.get("tool_calls") is not None:
+            lines += ["#### Normalized Assistant Tool Calls", ""]
+            _append_json_complete(lines, response.get("tool_calls"))
 
     def _append_tool_calls(
         self,
@@ -505,7 +521,11 @@ class SmartEGObserver:
             name = _tool_name(event)
             call_id = str(event.get("tool_call_id") or "unknown_call")
             lines += [f"#### {name} (`{call_id}`)", ""]
-            _append_json_preview(lines, _tool_arguments(event))
+            if event.get("raw_tool_call") is not None:
+                lines += ["##### Provider Tool Call", ""]
+                _append_json_complete(lines, event.get("raw_tool_call"))
+                lines += ["##### Parsed Arguments", ""]
+            _append_json_complete(lines, _tool_arguments(event))
 
     def _append_tool_results(
         self,
@@ -543,7 +563,7 @@ class SmartEGObserver:
                     for key, value in event.items()
                     if key not in {"ts", "event", "turn_index"}
                 }
-            _append_json_preview(lines, content)
+            _append_json_complete(lines, content)
 
     def _append_turn_deltas(
         self,
@@ -652,6 +672,12 @@ class SmartEGObserver:
                     ("Tool Choice", event.get("tool_choice")),
                 ],
             )
+            if event.get("messages") is not None:
+                lines += ["#### Provider Request Messages", ""]
+                _append_json_preview(lines, event.get("messages"))
+            if event.get("tool_schemas") is not None:
+                lines += ["#### Provider Tool Schemas", ""]
+                _append_json_preview(lines, event.get("tool_schemas"))
             return
         if name == "llm_response":
             usage = event.get("usage") if isinstance(event.get("usage"), dict) else {}

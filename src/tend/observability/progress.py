@@ -412,6 +412,8 @@ class ProgressReporter:
             default=0.0,
         )
         payload = {
+            "record_type": "progress_snapshot",
+            "source": "tend_root_progress",
             "ts": time.time(),
             "reason": reason,
             "run_id": self.run_id,

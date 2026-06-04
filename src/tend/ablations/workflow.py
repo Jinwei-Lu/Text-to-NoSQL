@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import traceback
 from dataclasses import asdict, dataclass, field, replace
@@ -33,6 +34,11 @@ class AblationPrediction:
     work_item_id: str
     record_id: int | str | None
     db_id: str
+    input_mode: str
+    nlq_track: str
+    nlq_hash: str | None
+    witness_k: int
+    evaluation_skip_reason: str | None
     MQL: str
     attempts: int
     max_tool_turns: int
@@ -44,7 +50,6 @@ class AblationPrediction:
     uses_relationship_probe: bool
     uses_prefix_execution: bool
     uses_revisit: bool
-    uses_probe_scheduler: bool
     disclosure: dict[str, Any]
     feedback: list[dict[str, Any]] = field(default_factory=list)
     static_feedback: list[dict[str, Any]] = field(default_factory=list)
@@ -78,6 +83,11 @@ class AblationFailure:
     work_item_id: str
     record_id: int | str | None
     db_id: str
+    input_mode: str
+    nlq_track: str
+    nlq_hash: str | None
+    witness_k: int
+    evaluation_skip_reason: str | None
     error_code: str
     message: str
     attempts: int
@@ -90,7 +100,6 @@ class AblationFailure:
     uses_relationship_probe: bool
     uses_prefix_execution: bool
     uses_revisit: bool
-    uses_probe_scheduler: bool
     disclosure: dict[str, Any]
     MQL: str = ""
     feedback: list[dict[str, Any]] = field(default_factory=list)
@@ -131,8 +140,8 @@ async def smart_solve_record_eg(*args: Any, **kwargs: Any) -> Any:
         relationship_probe=bool(options.get("use_relationship_probe", True)),
         prefix_execution=bool(options.get("use_prefix_execution", True)),
         revisit=bool(options.get("use_revisit", True)),
-        probe_scheduler=bool(options.get("use_probe_scheduler", True)),
-        budget_profile=str(options.get("budget_profile") or "medium"),
+        probe_scheduler=bool(options.get("use_probe_scheduler", False)),
+        budget_profile=str(options.get("budget_profile") or "reference"),
     )
     session_id = options.get("session_id")
     return await solve(
@@ -155,11 +164,17 @@ async def run_ablation_suite(
     nlq_track: NlqTrack = "record",
     record_id: int | None = None,
     limit: int = 1,
+    witness_k: int = DEFAULT_INPUT_SAMPLE_SIZE,
     max_tool_turns: int = 48,
     max_revisits: int = 2,
     cost_budget_usd: float = 1.0,
+    workers: int = 1,
 ) -> list[dict[str, Any]]:
     specs = resolve_ablations(ablation_selection)
+    suite_workers = max(1, int(workers))
+    input_mode = "nlq_db" if nlq is not None else "release"
+    effective_nlq_track: NlqTrack = "canonical" if nlq is not None else nlq_track
+    evaluation_skip_reason = "no_release_dataset" if nlq is not None else None
     if nlq is not None:
         if not db_id:
             raise SourceError("NLQ+DB ablation mode requires --db-id")
@@ -168,7 +183,7 @@ async def run_ablation_suite(
             db_id=str(db_id),
             nlq=nlq,
             record_id=record_id,
-            sample_size=DEFAULT_INPUT_SAMPLE_SIZE,
+            sample_size=witness_k,
         )
         inputs = [(runtime_input.record, runtime_input.schema, runtime_input.local_data)]
     else:
@@ -177,8 +192,9 @@ async def run_ablation_suite(
             db_id=db_id,
             record_id=record_id,
             limit=limit,
-            nlq_track=nlq_track,
+            nlq_track=effective_nlq_track,
         )
+    nlq_hash = _nlq_hash(nlq) if nlq is not None else None
     log = wf.ctx.log.bind(component="ablation_suite")
     log.info(
         "ablation_suite_start",
@@ -190,7 +206,12 @@ async def run_ablation_suite(
         max_tool_turns=max_tool_turns,
         max_revisits=max_revisits,
         cost_budget_usd=cost_budget_usd,
-        input_mode="nlq_db" if nlq is not None else "release",
+        input_mode=input_mode,
+        nlq_track=effective_nlq_track,
+        nlq_hash=nlq_hash,
+        witness_k=witness_k,
+        workers=suite_workers,
+        evaluation_skip_reason=evaluation_skip_reason,
     )
     if not inputs:
         log.anomaly(
@@ -224,48 +245,159 @@ async def run_ablation_suite(
         schema: dict[str, Any],
         data: dict[str, list[dict[str, Any]]] | None,
     ) -> tuple[int, dict[str, Any]]:
-        result = await run_ablation_record(
-            wf,
-            spec,
-            record,
-            schema,
-            local_data=data,
-            max_tool_turns=max_tool_turns,
-            max_revisits=max_revisits,
-            cost_budget_usd=cost_budget_usd,
-            batch_index=batch_index,
-            witness_preloaded=str(record.get("db_id") or "") in preloaded_dbs,
-        )
-        payload = result.to_json()
-        work_item_id = _work_item_id(
-            spec.id,
-            batch_index,
-            record.get("db_id"),
-            record.get("record_id"),
-        )
+        db = str(record.get("db_id") or "")
+        rid = record.get("record_id")
+        work_item_id = _work_item_id(spec.id, batch_index, db, rid)
+        try:
+            result = await run_ablation_record(
+                wf,
+                spec,
+                record,
+                schema,
+                local_data=data,
+                max_tool_turns=max_tool_turns,
+                max_revisits=max_revisits,
+                cost_budget_usd=cost_budget_usd,
+                batch_index=batch_index,
+                witness_preloaded=db in preloaded_dbs,
+                input_mode=input_mode,
+                nlq_track=effective_nlq_track,
+                nlq_hash=nlq_hash,
+                witness_k=witness_k,
+                evaluation_skip_reason=evaluation_skip_reason,
+            )
+            payload = result.to_json() if hasattr(result, "to_json") else dict(result)
+            if not isinstance(payload, dict):
+                raise TypeError(
+                    f"ablation result serialized to {type(payload).__name__}, expected dict"
+                )
+        except TendError as err:
+            err.with_context(
+                ablation_id=spec.id,
+                db_id=db,
+                record_id=rid,
+                batch_index=batch_index,
+            )
+            if not err.logged:
+                log.anomaly(err)
+            payload = _ablation_worker_failure_payload(
+                wf,
+                spec,
+                err,
+                db_id=db,
+                record_id=rid,
+                batch_index=batch_index,
+                local_data=data,
+                max_tool_turns=max_tool_turns,
+                max_revisits=max_revisits,
+                cost_budget_usd=cost_budget_usd,
+                input_mode=input_mode,
+                nlq_track=effective_nlq_track,
+                nlq_hash=nlq_hash,
+                witness_k=witness_k,
+                evaluation_skip_reason=evaluation_skip_reason,
+            )
+        except Exception as exc:  # noqa: BLE001 - one wrapper failure is one row
+            err = wrap_unexpected(
+                exc,
+                stage="ablation_worker",
+                ablation_id=spec.id,
+                db_id=db,
+                record_id=rid,
+                batch_index=batch_index,
+                traceback="".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+            )
+            log.anomaly(err)
+            payload = _ablation_worker_failure_payload(
+                wf,
+                spec,
+                err,
+                db_id=db,
+                record_id=rid,
+                batch_index=batch_index,
+                local_data=data,
+                max_tool_turns=max_tool_turns,
+                max_revisits=max_revisits,
+                cost_budget_usd=cost_budget_usd,
+                input_mode=input_mode,
+                nlq_track=effective_nlq_track,
+                nlq_hash=nlq_hash,
+                witness_k=witness_k,
+                evaluation_skip_reason=evaluation_skip_reason,
+            )
         payload["batch_index"] = batch_index
         payload["work_item_id"] = work_item_id
         payload.setdefault("session_id", _session_id(work_item_id))
         return batch_index, payload
 
-    tasks = [
-        asyncio.create_task(run_one(batch_index, spec, record, schema, data))
-        for batch_index, spec, record, schema, data in work
-    ]
-    try:
-        completed = await asyncio.gather(*tasks)
-    except Exception:
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for exc in results:
-            if isinstance(exc, Exception) and not isinstance(exc, asyncio.CancelledError):
-                log.anomaly(wrap_unexpected(exc, stage="ablation_suite_gather"))
-        raise
+    semaphore = asyncio.Semaphore(suite_workers)
+
+    async def run_guarded(
+        batch_index: int,
+        spec: SmartEGAblationSpec,
+        record: dict[str, Any],
+        schema: dict[str, Any],
+        data: dict[str, list[dict[str, Any]]] | None,
+    ) -> tuple[int, dict[str, Any]]:
+        async with semaphore:
+            return await run_one(batch_index, spec, record, schema, data)
+
+    completed = await asyncio.gather(
+        *(
+            run_guarded(batch_index, spec, record, schema, data)
+            for batch_index, spec, record, schema, data in work
+        )
+    )
     outputs = [payload for _, payload in sorted(completed, key=lambda item: item[0])]
     log.info("ablation_suite_done", outputs=len(outputs), ablations=len(specs))
     return outputs
+
+
+def _ablation_worker_failure_payload(
+    wf: Workflow,
+    spec: SmartEGAblationSpec,
+    err: TendError,
+    *,
+    db_id: str,
+    record_id: int | str | None,
+    batch_index: int,
+    local_data: dict[str, list[dict[str, Any]]] | None,
+    max_tool_turns: int,
+    max_revisits: int,
+    cost_budget_usd: float,
+    input_mode: str,
+    nlq_track: NlqTrack,
+    nlq_hash: str | None,
+    witness_k: int,
+    evaluation_skip_reason: str | None,
+) -> dict[str, Any]:
+    options = _runtime_options(
+        spec,
+        max_tool_turns=max_tool_turns,
+        max_revisits=max_revisits,
+        cost_budget_usd=cost_budget_usd,
+        batch_index=batch_index,
+        db_id=db_id,
+        record_id=record_id,
+        input_mode=input_mode,
+        nlq_track=nlq_track,
+        nlq_hash=nlq_hash,
+        witness_k=witness_k,
+        evaluation_skip_reason=evaluation_skip_reason,
+    )
+    refs = _llm_refs_for(wf, spec.id, db_id, record_id)
+    failure = _failure_from_error(
+        wf,
+        spec,
+        options,
+        err,
+        db_id=db_id,
+        record_id=record_id,
+        local_data=local_data,
+        transcript_refs=refs["transcript_refs"],
+        diagnostics_refs=refs["diagnostics_refs"],
+    )
+    return failure.to_json()
 
 
 async def _preload_ablation_witnesses(
@@ -306,9 +438,15 @@ async def run_ablation_record(
     cost_budget_usd: float = 1.0,
     batch_index: int | None = None,
     witness_preloaded: bool = False,
+    input_mode: str = "release",
+    nlq_track: NlqTrack = "record",
+    nlq_hash: str | None = None,
+    witness_k: int = DEFAULT_INPUT_SAMPLE_SIZE,
+    evaluation_skip_reason: str | None = None,
 ) -> AblationPrediction | AblationFailure:
     db_id = str(record.get("db_id") or "")
     record_id = record.get("record_id")
+    effective_nlq_hash = nlq_hash if nlq_hash is not None else _nlq_hash_from_record(record)
     options = _runtime_options(
         spec,
         max_tool_turns=max_tool_turns,
@@ -317,6 +455,11 @@ async def run_ablation_record(
         batch_index=batch_index,
         db_id=db_id,
         record_id=record_id,
+        input_mode=input_mode,
+        nlq_track=nlq_track,
+        nlq_hash=effective_nlq_hash,
+        witness_k=witness_k,
+        evaluation_skip_reason=evaluation_skip_reason,
     )
     base_log = wf.ctx.log.bind(
         component="ablation_runner",
@@ -438,6 +581,11 @@ def _runtime_options(
     batch_index: int | None = None,
     db_id: str | None = None,
     record_id: int | str | None = None,
+    input_mode: str = "release",
+    nlq_track: NlqTrack = "record",
+    nlq_hash: str | None = None,
+    witness_k: int = DEFAULT_INPUT_SAMPLE_SIZE,
+    evaluation_skip_reason: str | None = None,
 ) -> dict[str, Any]:
     prefix = (
         f"ablation:{batch_index}:{spec.id}"
@@ -457,6 +605,11 @@ def _runtime_options(
             "batch_index": batch_index,
             "db_id": db_id,
             "record_id": record_id,
+            "input_mode": input_mode,
+            "nlq_track": str(nlq_track),
+            "nlq_hash": nlq_hash,
+            "witness_k": max(0, int(witness_k)),
+            "evaluation_skip_reason": evaluation_skip_reason,
             "work_item_id": work_item_id,
             "session_id": _session_id(work_item_id),
         }
@@ -519,6 +672,13 @@ def _prediction_from_solver_payload(
         work_item_id=trace["work_item_id"],
         record_id=record_id,
         db_id=db_id,
+        input_mode=_provenance_str(options, payload, "input_mode", default="release"),
+        nlq_track=_provenance_str(options, payload, "nlq_track", default="record"),
+        nlq_hash=_optional_str(options.get("nlq_hash") or payload.get("nlq_hash")),
+        witness_k=_provenance_int(options, payload, "witness_k"),
+        evaluation_skip_reason=_optional_str(
+            options.get("evaluation_skip_reason") or payload.get("evaluation_skip_reason")
+        ),
         MQL=mql,
         attempts=_attempt_count(feedback, payload),
         max_tool_turns=int(options["max_tool_turns"]),
@@ -530,7 +690,6 @@ def _prediction_from_solver_payload(
         uses_relationship_probe=bool(options["use_relationship_probe"]),
         uses_prefix_execution=bool(options["use_prefix_execution"]),
         uses_revisit=bool(options["use_revisit"]),
-        uses_probe_scheduler=bool(options["use_probe_scheduler"]),
         disclosure=_disclosure(spec, options, payload.get("disclosure") or {}),
         feedback=feedback,
         static_feedback=static_mql_feedback(mql),
@@ -572,6 +731,13 @@ def _failure_from_solver_payload(
         work_item_id=trace["work_item_id"],
         record_id=record_id,
         db_id=db_id,
+        input_mode=_provenance_str(options, payload, "input_mode", default="release"),
+        nlq_track=_provenance_str(options, payload, "nlq_track", default="record"),
+        nlq_hash=_optional_str(options.get("nlq_hash") or payload.get("nlq_hash")),
+        witness_k=_provenance_int(options, payload, "witness_k"),
+        evaluation_skip_reason=_optional_str(
+            options.get("evaluation_skip_reason") or payload.get("evaluation_skip_reason")
+        ),
         error_code=str(payload.get("error_code") or "SOLVER_FAILURE"),
         message=str(payload.get("message") or "solver returned failure"),
         attempts=_attempt_count(feedback, payload),
@@ -584,7 +750,6 @@ def _failure_from_solver_payload(
         uses_relationship_probe=bool(options["use_relationship_probe"]),
         uses_prefix_execution=bool(options["use_prefix_execution"]),
         uses_revisit=bool(options["use_revisit"]),
-        uses_probe_scheduler=bool(options["use_probe_scheduler"]),
         disclosure=_disclosure(spec, options, payload.get("disclosure") or {}),
         MQL=mql,
         feedback=feedback,
@@ -606,7 +771,7 @@ def _failure_from_error(
     err: TendError,
     *,
     db_id: str,
-    record_id: int | None,
+    record_id: int | str | None,
     local_data: dict[str, list[dict[str, Any]]] | None,
     transcript_refs: list[str],
     diagnostics_refs: list[str],
@@ -623,6 +788,11 @@ def _failure_from_error(
         work_item_id=trace["work_item_id"],
         record_id=record_id,
         db_id=db_id,
+        input_mode=str(options.get("input_mode") or "release"),
+        nlq_track=str(options.get("nlq_track") or "record"),
+        nlq_hash=_optional_str(options.get("nlq_hash")),
+        witness_k=max(0, int(options.get("witness_k") or 0)),
+        evaluation_skip_reason=_optional_str(options.get("evaluation_skip_reason")),
         error_code=err.anomaly.value if err.anomaly else "tend_error",
         message=err.message,
         attempts=0,
@@ -635,7 +805,6 @@ def _failure_from_error(
         uses_relationship_probe=bool(options["use_relationship_probe"]),
         uses_prefix_execution=bool(options["use_prefix_execution"]),
         uses_revisit=bool(options["use_revisit"]),
-        uses_probe_scheduler=bool(options["use_probe_scheduler"]),
         disclosure=_disclosure(spec, options, {}),
         transcript_refs=transcript_refs,
         diagnostics_refs=diagnostics_refs,
@@ -653,15 +822,31 @@ def _disclosure(
         "solver_variant": options["solver_variant"],
         "options": options,
         "limitations": list(spec.limitations),
+        "input_mode": options.get("input_mode"),
+        "nlq_track": options.get("nlq_track"),
+        "nlq_hash": options.get("nlq_hash"),
+        "witness_k": options.get("witness_k"),
+        "evaluation_skip_reason": options.get("evaluation_skip_reason"),
+        "mechanism_claims": options.get("mechanism_claims"),
+        "tool_exposure_intent": options.get("tool_exposure_intent"),
+        "prompt_intent": options.get("prompt_intent"),
+        "gate_flags": options.get("gate_flags"),
+        "state_transition_intent": options.get("state_transition_intent"),
+        "probe_scheduler_status": options.get("probe_scheduler_status"),
+        "effective_budget_profile": options.get("effective_budget_profile"),
+        "effective_tool_turn_count": options.get("effective_tool_turn_count"),
+        "budget_disclosure": options.get("budget_disclosure"),
         "backbone": solver_disclosure.get("backbone"),
         "disjointness_ok": solver_disclosure.get("disjointness_ok"),
         "s_solver": solver_disclosure.get("s_solver"),
-        "max_tool_turns": solver_disclosure.get("max_tool_turns", options["max_tool_turns"]),
-        "max_revisits": solver_disclosure.get("max_revisits", options["max_revisits"]),
-        "cost_budget_usd": solver_disclosure.get("cost_budget_usd", options["cost_budget_usd"]),
-        "budget_profile": solver_disclosure.get(
-            "budget_profile", options.get("budget_profile")
-        ),
+        "max_tool_turns": options["max_tool_turns"],
+        "max_revisits": options["max_revisits"],
+        "cost_budget_usd": options["cost_budget_usd"],
+        "budget_profile": options.get("budget_profile"),
+        "solver_reported_max_tool_turns": solver_disclosure.get("max_tool_turns"),
+        "solver_reported_max_revisits": solver_disclosure.get("max_revisits"),
+        "solver_reported_cost_budget_usd": solver_disclosure.get("cost_budget_usd"),
+        "solver_reported_budget_profile": solver_disclosure.get("budget_profile"),
         "cost_budget_usd_source": options.get("cost_budget_usd_source"),
         "cost_budget_usd_unpriced_behavior": options.get(
             "cost_budget_usd_unpriced_behavior"
@@ -687,6 +872,40 @@ def _attempt_count(
 
 def _optional_str(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _nlq_hash(nlq: str | None) -> str | None:
+    if not nlq:
+        return None
+    return "sha256:" + hashlib.sha256(nlq.encode("utf-8")).hexdigest()
+
+
+def _nlq_hash_from_record(record: dict[str, Any]) -> str | None:
+    try:
+        return _nlq_hash(_canonical_nlq(record))
+    except TendError:
+        return None
+
+
+def _provenance_str(
+    options: dict[str, Any],
+    payload: dict[str, Any],
+    key: str,
+    *,
+    default: str,
+) -> str:
+    value = options.get(key) or payload.get(key) or default
+    return str(value)
+
+
+def _provenance_int(options: dict[str, Any], payload: dict[str, Any], key: str) -> int:
+    value = options.get(key)
+    if value is None:
+        value = payload.get(key, 0)
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _str_list(value: Any) -> list[str]:

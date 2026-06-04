@@ -231,17 +231,30 @@ def test_full_staged_submit_final_mql_succeeds_with_refs_and_executor(tmp_path: 
             ),
             ToolCall(
                 id="call_7",
-                name="submit_final_mql",
+                name="run_final_sanity_execution",
                 raw_arguments=(
                     '{"collection":"account","pipeline":[{"$limit":2}],'
-                    '"MQL":"db.account.aggregate([{\\"$limit\\":2}])",'
-                    '"evidence_refs":["ev-0003"]}'
+                    '"MQL":"db.account.aggregate([{\\"$limit\\":2}])"}'
                 ),
                 arguments={
                     "collection": "account",
                     "pipeline": [{"$limit": 2}],
                     "MQL": 'db.account.aggregate([{"$limit":2}])',
-                    "evidence_refs": ["ev-0003"],
+                },
+            ),
+            ToolCall(
+                id="call_8",
+                name="submit_final_mql",
+                raw_arguments=(
+                    '{"collection":"account","pipeline":[{"$limit":2}],'
+                    '"MQL":"db.account.aggregate([{\\"$limit\\":2}])",'
+                    '"evidence_refs":["ev-0004"]}'
+                ),
+                arguments={
+                    "collection": "account",
+                    "pipeline": [{"$limit": 2}],
+                    "MQL": 'db.account.aggregate([{"$limit":2}])',
+                    "evidence_refs": ["ev-0004"],
                 },
             ),
         ]
@@ -339,10 +352,10 @@ def test_terminal_only_mode_exposes_current_stage_submit_tools(tmp_path: Path) -
 
     assert isinstance(result, SmartEGFailure)
     exposed = {tool["function"]["name"] for tool in llm.requests[0]["tools"]}
-    assert exposed == {"submit_environment_model", "abandon_with_failure"}
+    assert exposed == {"abandon_with_failure"}
     assert llm.requests[0]["tool_choice"] == {
         "type": "function",
-        "function": {"name": "submit_environment_model"},
+        "function": {"name": "abandon_with_failure"},
     }
 
 
@@ -437,6 +450,9 @@ def test_submit_ready_turn_compacts_provider_history(tmp_path: Path) -> None:
         encoding="utf-8"
     )
     assert "### LLM Call" in md
+    assert "#### Provider Request Messages" in md
+    assert "required_next_tool" in md
+    assert "submit_environment_model" in md
     assert "### Tool Calls" in md
     assert "### Tool Results" in md
     assert "### Metrics" in md

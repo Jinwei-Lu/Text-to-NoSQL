@@ -607,15 +607,25 @@ def test_staged_final_requires_relevant_refs_and_accepts_with_real_executor() ->
     assert bad.llm_visible_content["ok"] is False
     assert bad.result["accepted"] is False
     assert [item["code"] for item in bad.result["violations"]] == [
-        "irrelevant_evidence_refs"
+        "irrelevant_evidence_refs",
+        "final_execution_evidence_missing",
     ]
 
     accepted_state = _staged_execution_state()
-    good_ref = _add_evidence(
+    sanity = api.execute(
+        _call(
+            "run_final_sanity_execution",
+            {
+                "collection": "account",
+                "pipeline": [{"$limit": 2}],
+                "MQL": 'db.account.aggregate([{"$limit":2}])',
+            },
+            call_id="call_sanity",
+        ),
         accepted_state,
-        "run_readonly_probe",
-        {"tool": "run_readonly_probe", "ok": True, "count": 1},
+        exposed_tool_names={"run_final_sanity_execution"},
     )
+    good_ref = sanity.result["evidence_id"]
 
     good = api.execute(
         _call(
@@ -637,13 +647,64 @@ def test_staged_final_requires_relevant_refs_and_accepts_with_real_executor() ->
     assert accepted_state.terminal is True
 
 
+def test_final_submit_rejects_final_sanity_evidence_for_different_mql() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(), executor=_Executor())
+    state = _staged_execution_state()
+    sanity = api.execute(
+        _call(
+            "run_final_sanity_execution",
+            {
+                "collection": "account",
+                "pipeline": [{"$limit": 2}],
+                "MQL": 'db.account.aggregate([{"$limit":2}])',
+            },
+            call_id="call_sanity",
+        ),
+        state,
+        exposed_tool_names={"run_final_sanity_execution"},
+    )
+
+    observation = api.execute(
+        _call(
+            "submit_final_mql",
+            {
+                "collection": "account",
+                "pipeline": [{"$limit": 3}],
+                "MQL": 'db.account.aggregate([{"$limit":3}])',
+                "evidence_refs": [sanity.result["evidence_id"]],
+            },
+        ),
+        state,
+        exposed_tool_names={"submit_final_mql"},
+    )
+
+    assert observation.ok is False
+    assert "final_execution_mql_mismatch" in [
+        item["code"] for item in observation.result["violations"]
+    ]
+
+
 def test_submit_final_rejects_missing_executor_even_with_relevant_refs() -> None:
+    setup_api = SmartEGToolAPI(SmartEGPolicy(), executor=_Executor())
     api = SmartEGToolAPI(SmartEGPolicy(), executor=None)
     state = _staged_execution_state()
-    ref = _add_evidence(
+    _add_evidence(
         state,
         "run_readonly_probe",
         {"tool": "run_readonly_probe", "ok": True, "count": 1},
+    )
+    sanity = setup_api.execute(
+        _call(
+            "run_final_sanity_execution",
+            {
+                "collection": "account",
+                "pipeline": [{"$limit": 2}],
+                "MQL": 'db.account.aggregate([{"$limit":2}])',
+            },
+            call_id="call_sanity",
+        ),
+        state,
+        exposed_tool_names={"run_final_sanity_execution"},
     )
 
     observation = api.execute(
@@ -653,7 +714,7 @@ def test_submit_final_rejects_missing_executor_even_with_relevant_refs() -> None
                 "collection": "account",
                 "pipeline": [{"$limit": 2}],
                 "MQL": 'db.account.aggregate([{"$limit":2}])',
-                "evidence_refs": [ref],
+                "evidence_refs": [sanity.result["evidence_id"]],
             },
         ),
         state,
@@ -672,11 +733,20 @@ def test_submit_final_rejects_missing_executor_even_with_relevant_refs() -> None
 def test_submit_final_can_repair_previous_value_grounding_debt() -> None:
     api = SmartEGToolAPI(SmartEGPolicy(counterexample_gate=False), executor=_Executor())
     state = _staged_execution_state()
-    probe_ref = _add_evidence(
+    sanity = api.execute(
+        _call(
+            "run_final_sanity_execution",
+            {
+                "collection": "account",
+                "pipeline": [{"$match": {"status": "ACTIVE"}}, {"$limit": 1}],
+                "MQL": 'db.account.aggregate([{"$match":{"status":"ACTIVE"}},{"$limit":1}])',
+            },
+            call_id="call_sanity",
+        ),
         state,
-        "run_readonly_probe",
-        {"tool": "run_readonly_probe", "ok": True, "count": 1},
+        exposed_tool_names={"run_final_sanity_execution"},
     )
+    probe_ref = sanity.result["evidence_id"]
 
     first = api.execute(
         _call(
@@ -805,6 +875,104 @@ def test_submit_plan_rejects_irrelevant_existing_evidence_refs() -> None:
     assert [item["code"] for item in observation.result["violations"]] == [
         "irrelevant_evidence_refs"
     ]
+
+
+def test_invalid_link_evidence_ref_is_not_success() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy())
+    state = SmartEGState(nlq="list accounts", db_id="financial")
+    claim = state.evidence_ledger.add_claim(
+        claim_type="field_grounding",
+        statement="account.status exists",
+        required_evidence=["profile_path"],
+    )
+
+    observation = api.execute(
+        _call(
+            "link_evidence",
+            {"claim_id": claim.claim_id, "evidence_id": "ev-missing"},
+            call_id="call_link",
+        ),
+        state,
+        exposed_tool_names={"link_evidence"},
+    )
+
+    assert observation.ok is False
+    assert observation.result["reason"] == "invalid_evidence_ref"
+
+
+def test_intent_submit_requires_target_collection_and_contract() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy())
+    state = SmartEGState(nlq="list accounts", db_id="financial", mode="intent")
+    state.environment = {"candidate_collections": ["account"]}
+    ref = _add_evidence(
+        state,
+        "profile_path_values",
+        {"tool": "profile_path_values", "collection": "account", "path": "_id"},
+    )
+
+    weak = api.execute(
+        _call(
+            "submit_intent_hypothesis",
+            {"task_kind": "list", "evidence_refs": [ref]},
+            call_id="call_weak",
+        ),
+        state,
+        exposed_tool_names={"submit_intent_hypothesis"},
+    )
+
+    assert weak.ok is False
+    assert weak.result["accepted"] is False
+    assert [item["code"] for item in weak.result["violations"]].count("contract_invalid") >= 2
+
+    wrong_collection = api.execute(
+        _call(
+            "submit_intent_hypothesis",
+            {
+                "task_kind": "list",
+                "target_collection": "loan",
+                "target_fields": ["_id"],
+                "evidence_refs": [ref],
+            },
+            call_id="call_wrong",
+        ),
+        state,
+        exposed_tool_names={"submit_intent_hypothesis"},
+    )
+
+    assert wrong_collection.ok is False
+    assert "target_collection_unaccepted" in [
+        item["code"] for item in wrong_collection.result["violations"]
+    ]
+
+
+def test_request_mode_shift_backward_obeys_revisit_policy_and_budget() -> None:
+    no_revisit_api = SmartEGToolAPI(SmartEGPolicy(revisit=False))
+    state = SmartEGState(nlq="list accounts", db_id="financial", mode="execution")
+
+    rejected = no_revisit_api.execute(
+        _call("request_mode_shift", {"target_mode": "planning"}, call_id="call_shift"),
+        state,
+        exposed_tool_names={"request_mode_shift"},
+    )
+
+    assert rejected.ok is False
+    assert rejected.result["reason"] == "no_revisit"
+    assert state.mode == "execution"
+
+    budgeted_state = SmartEGState(nlq="list accounts", db_id="financial", mode="execution")
+    budgeted_state.budgets.max_revisits = 1
+    budgeted_state.counters.revisits = 1
+    budgeted = SmartEGToolAPI(SmartEGPolicy())
+
+    exhausted = budgeted.execute(
+        _call("request_mode_shift", {"target_mode": "planning"}, call_id="call_budget"),
+        budgeted_state,
+        exposed_tool_names={"request_mode_shift"},
+    )
+
+    assert exhausted.ok is False
+    assert exhausted.result["reason"] == "revisit_budget_exhausted"
+    assert budgeted_state.terminal_only is True
 
 
 def test_value_grounding_ignores_lookup_structural_strings_and_requires_literals() -> None:

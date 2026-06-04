@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,12 @@ import pytest
 
 import tend.ablations.workflow as ablation_workflow
 from tend.ablations import ABLATION_IDS, run_ablation_record, run_ablation_suite
-from tend.ablations.strategies import SmartEGAblationSpec, resolve_ablations
+from tend.ablations.strategies import (
+    BUDGET_PROFILES,
+    SmartEGAblationSpec,
+    resolve_ablations,
+)
+from tend.errors import SourceError
 from tend.ablations.workflow import (
     _attempt_count,
     _disclosure,
@@ -101,7 +107,25 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
     assert full_options["use_relationship_probe"] is True
     assert full_options["use_prefix_execution"] is True
     assert full_options["use_revisit"] is True
-    assert full_options["use_probe_scheduler"] is True
+    assert full_options["use_probe_scheduler"] is False
+    assert full_options["probe_scheduler_status"] == "unsupported"
+    assert "probe_scheduler" not in full_options["mechanism_claims"]
+    assert full_options["budget_profile"] == "full"
+    assert full_options["effective_budget_profile"] == "full"
+    assert full_options["effective_tool_turn_count"] == 48
+    assert full_options["budget_disclosure"] == {
+        "profile": "full",
+        "profile_max_tool_turns": 48,
+        "profile_max_revisits": 2,
+        "profile_cost_budget_usd": 1.0,
+        "effective_max_tool_turns": 48,
+        "effective_max_revisits": 2,
+        "effective_cost_budget_usd": 1.0,
+        "mechanism_overrides": [],
+        "runtime_overrides_applied": [],
+        "budget_profile_locked": False,
+        "source": "ablation_spec",
+    }
 
     toggles = {
         "smart_eg_no_evidence_gate": "use_evidence_gate",
@@ -114,19 +138,30 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
     for ablation_id, disabled_key in toggles.items():
         options = resolve_ablations(ablation_id)[0].to_runtime_options()
         assert options[disabled_key] is False
-        for key, value in full_options.items():
-            if key in {"ablation_id", "solver_variant", disabled_key}:
-                continue
-            if ablation_id == "smart_eg_no_revisit" and key == "max_revisits":
-                assert options[key] == 0
-                continue
-            assert options[key] == value, f"{ablation_id} changed unrelated option {key}"
+        assert options["budget_profile"] == "reference"
+        assert options["max_tool_turns"] == 48
+        assert options["cost_budget_usd"] == 1.0
 
     assert resolve_ablations("smart_eg_budget_low")[0].to_runtime_options() == {
         **full_options,
         "ablation_id": "smart_eg_budget_low",
         "solver_variant": "smart_eg_budget_low",
         "budget_profile": "low",
+        "effective_budget_profile": "low",
+        "effective_tool_turn_count": 8,
+        "budget_disclosure": {
+            "profile": "low",
+            "profile_max_tool_turns": 8,
+            "profile_max_revisits": 0,
+            "profile_cost_budget_usd": 0.25,
+            "effective_max_tool_turns": 8,
+            "effective_max_revisits": 0,
+            "effective_cost_budget_usd": 0.25,
+            "mechanism_overrides": [],
+            "runtime_overrides_applied": [],
+            "budget_profile_locked": True,
+            "source": "ablation_spec",
+        },
         "max_tool_turns": 8,
         "max_revisits": 0,
         "cost_budget_usd": 0.25,
@@ -136,6 +171,21 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
         "ablation_id": "smart_eg_budget_medium",
         "solver_variant": "smart_eg_budget_medium",
         "budget_profile": "medium",
+        "effective_budget_profile": "medium",
+        "effective_tool_turn_count": 24,
+        "budget_disclosure": {
+            "profile": "medium",
+            "profile_max_tool_turns": 24,
+            "profile_max_revisits": 2,
+            "profile_cost_budget_usd": 1.0,
+            "effective_max_tool_turns": 24,
+            "effective_max_revisits": 2,
+            "effective_cost_budget_usd": 1.0,
+            "mechanism_overrides": [],
+            "runtime_overrides_applied": [],
+            "budget_profile_locked": True,
+            "source": "ablation_spec",
+        },
         "max_tool_turns": 24,
     }
     assert resolve_ablations("smart_eg_budget_high")[0].to_runtime_options() == {
@@ -143,18 +193,47 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
         "ablation_id": "smart_eg_budget_high",
         "solver_variant": "smart_eg_budget_high",
         "budget_profile": "high",
-        "max_tool_turns": 48,
+        "effective_budget_profile": "high",
+        "effective_tool_turn_count": 72,
+        "budget_disclosure": {
+            "profile": "high",
+            "profile_max_tool_turns": 72,
+            "profile_max_revisits": 4,
+            "profile_cost_budget_usd": 3.0,
+            "effective_max_tool_turns": 72,
+            "effective_max_revisits": 4,
+            "effective_cost_budget_usd": 3.0,
+            "mechanism_overrides": [],
+            "runtime_overrides_applied": [],
+            "budget_profile_locked": True,
+            "source": "ablation_spec",
+        },
+        "max_tool_turns": 72,
         "max_revisits": 4,
         "cost_budget_usd": 3.0,
     }
 
 
 def test_registry_rejects_unsupported_probe_scheduler_ablation() -> None:
-    with pytest.raises(KeyError, match="smart_eg_no_probe_scheduler"):
+    with pytest.raises(SourceError, match="smart_eg_no_probe_scheduler"):
         resolve_ablations("smart_eg_no_probe_scheduler")
 
 
+def test_resolve_ablations_rejects_empty_and_unknown_with_source_error() -> None:
+    with pytest.raises(SourceError, match="did not include"):
+        resolve_ablations("")
+    with pytest.raises(SourceError, match="unknown ablations"):
+        resolve_ablations("smart_eg_full,missing_ablation")
+
+
 def test_budget_variants_are_profiles_not_mechanism_isolation() -> None:
+    assert set(BUDGET_PROFILES) == {"full", "reference", "low", "medium", "high"}
+    assert BUDGET_PROFILES["full"].max_tool_turns == 48
+    assert BUDGET_PROFILES["reference"].max_tool_turns == 48
+    assert BUDGET_PROFILES["low"].max_tool_turns == 8
+    assert BUDGET_PROFILES["medium"].max_tool_turns == 24
+    assert BUDGET_PROFILES["high"].max_tool_turns == 72
+
     for profile in ("low", "medium", "high"):
         spec = resolve_ablations(f"smart_eg_budget_{profile}")[0]
         options = spec.to_runtime_options()
@@ -167,7 +246,95 @@ def test_budget_variants_are_profiles_not_mechanism_isolation() -> None:
         assert options["cost_budget_usd_unpriced_behavior"] == "advisory_when_unpriced"
 
     full = resolve_ablations("smart_eg_full")[0]
-    assert full.to_runtime_options()["budget_profile"] == "medium"
+    assert full.to_runtime_options()["budget_profile"] == "full"
+
+
+def test_all_ablation_options_expose_policy_budget_and_transition_intent() -> None:
+    expected_effective_budgets = {
+        "smart_eg_full": ("full", 13, 1, 0.75),
+        "smart_eg_no_evidence_gate": ("reference", 13, 1, 0.75),
+        "smart_eg_no_counterexample": ("reference", 13, 1, 0.75),
+        "smart_eg_no_value_grounding": ("reference", 13, 1, 0.75),
+        "smart_eg_no_relationship_probe": ("reference", 13, 1, 0.75),
+        "smart_eg_no_prefix_execution": ("reference", 13, 1, 0.75),
+        "smart_eg_no_revisit": ("reference", 13, 0, 0.75),
+        "smart_eg_budget_low": ("low", 8, 0, 0.25),
+        "smart_eg_budget_medium": ("medium", 24, 2, 1.0),
+        "smart_eg_budget_high": ("high", 72, 4, 3.0),
+    }
+    by_id: dict[str, dict[str, Any]] = {}
+    for spec in resolve_ablations("all"):
+        options = _runtime_options(
+            spec,
+            max_tool_turns=13,
+            max_revisits=1,
+            cost_budget_usd=0.75,
+            db_id="financial",
+            record_id=1001,
+        )
+        by_id[spec.id] = options
+
+        profile_name, max_turns, max_revisits, cost_budget = expected_effective_budgets[
+            spec.id
+        ]
+        profile = BUDGET_PROFILES[profile_name]
+        budget = options["budget_disclosure"]
+        assert options["budget_profile"] == profile_name
+        assert options["effective_budget_profile"] == profile_name
+        assert options["max_tool_turns"] == max_turns
+        assert options["max_revisits"] == max_revisits
+        assert options["cost_budget_usd"] == cost_budget
+        assert budget["profile"] == profile_name
+        assert budget["profile_max_tool_turns"] == profile.max_tool_turns
+        assert budget["profile_max_revisits"] == profile.max_revisits
+        assert budget["profile_cost_budget_usd"] == profile.cost_budget_usd
+        assert budget["effective_max_tool_turns"] == max_turns
+        assert budget["effective_max_revisits"] == max_revisits
+        assert budget["effective_cost_budget_usd"] == cost_budget
+        if spec.id.startswith("smart_eg_budget_"):
+            assert budget["budget_profile_locked"] is True
+            assert budget["runtime_overrides_applied"] == []
+        else:
+            assert budget["budget_profile_locked"] is False
+            expected_runtime_overrides = ["max_tool_turns", "cost_budget_usd"]
+            if spec.id != "smart_eg_no_revisit":
+                expected_runtime_overrides.insert(1, "max_revisits")
+            assert budget["runtime_overrides_applied"] == expected_runtime_overrides
+        assert options["tool_exposure_intent"]["probe_scheduler"] == "unsupported"
+        assert options["probe_scheduler_status"] == "unsupported"
+        assert options["use_probe_scheduler"] is False
+        assert "probe_scheduler" not in options["mechanism_claims"]
+
+    assert by_id["smart_eg_no_evidence_gate"]["gate_flags"] == {
+        "evidence_gate": False,
+        "evidence_debt_blocking": False,
+        "counterexample_gate": True,
+        "value_grounding_gate": True,
+    }
+    assert by_id["smart_eg_no_evidence_gate"]["policy_options"][
+        "block_evidence_debt"
+    ] is False
+
+    no_value = by_id["smart_eg_no_value_grounding"]
+    assert no_value["tool_exposure_intent"]["value_grounding"] == "disabled"
+    assert no_value["prompt_intent"]["value_grounding"] == "disabled"
+    assert no_value["gate_flags"]["value_grounding_gate"] is False
+    assert no_value["policy_options"]["expose_value_grounding_tools"] is False
+    assert no_value["policy_options"]["include_value_grounding_prompt"] is False
+    assert no_value["policy_options"]["block_value_grounding_debt"] is False
+
+    no_prefix = by_id["smart_eg_no_prefix_execution"]
+    assert no_prefix["tool_exposure_intent"]["prefix_execution"] == "disabled"
+    assert no_prefix["policy_options"]["expose_prefix_execution_tools"] is False
+
+    no_revisit = by_id["smart_eg_no_revisit"]
+    assert no_revisit["state_transition_intent"] == {
+        "revisit": "disabled",
+        "backward_mode_shift": "rejected_by_policy",
+    }
+    assert no_revisit["policy_options"]["allow_revisit"] is False
+    assert no_revisit["policy_options"]["allow_backward_mode_shift"] is False
+    assert no_revisit["budget_disclosure"]["mechanism_overrides"] == ["max_revisits"]
 
 
 def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Path) -> None:
@@ -188,6 +355,11 @@ def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Pa
         cost_budget_usd: float,
         batch_index: int | None,
         witness_preloaded: bool,
+        input_mode: str,
+        nlq_track: str,
+        nlq_hash: str | None,
+        witness_k: int,
+        evaluation_skip_reason: str | None,
     ) -> Any:
         options = spec.to_runtime_options(
             max_tool_turns=max_tool_turns,
@@ -205,6 +377,11 @@ def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Pa
                 "options": options,
                 "batch_index": batch_index,
                 "witness_preloaded": witness_preloaded,
+                "input_mode": input_mode,
+                "nlq_track": nlq_track,
+                "nlq_hash": nlq_hash,
+                "witness_k": witness_k,
+                "evaluation_skip_reason": evaluation_skip_reason,
             }
         )
 
@@ -251,7 +428,12 @@ def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Pa
     assert by_id["smart_eg_full"]["max_tool_turns"] == 12
     assert by_id["smart_eg_full"]["max_revisits"] == 1
     assert by_id["smart_eg_full"]["cost_budget_usd"] == 0.5
-    assert by_id["smart_eg_full"]["budget_profile"] == "medium"
+    assert by_id["smart_eg_full"]["budget_profile"] == "full"
+    assert by_id["smart_eg_full"]["budget_disclosure"]["runtime_overrides_applied"] == [
+        "max_tool_turns",
+        "max_revisits",
+        "cost_budget_usd",
+    ]
     assert by_id["smart_eg_budget_low"]["max_tool_turns"] == 8
     assert by_id["smart_eg_budget_low"]["max_revisits"] == 0
     assert by_id["smart_eg_budget_low"]["cost_budget_usd"] == 0.25
@@ -260,11 +442,16 @@ def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Pa
     assert by_id["smart_eg_budget_medium"]["max_revisits"] == 2
     assert by_id["smart_eg_budget_medium"]["cost_budget_usd"] == 1.0
     assert by_id["smart_eg_budget_medium"]["budget_profile"] == "medium"
-    assert by_id["smart_eg_budget_high"]["max_tool_turns"] == 48
+    assert by_id["smart_eg_budget_high"]["max_tool_turns"] == 72
     assert by_id["smart_eg_budget_high"]["max_revisits"] == 4
     assert by_id["smart_eg_budget_high"]["cost_budget_usd"] == 3.0
     assert by_id["smart_eg_budget_high"]["budget_profile"] == "high"
     assert all(item["witness_preloaded"] is False for item in captured)
+    assert all(item["input_mode"] == "release" for item in captured)
+    assert all(item["nlq_track"] == "record" for item in captured)
+    assert all(item["nlq_hash"] is None for item in captured)
+    assert all(item["witness_k"] == 3 for item in captured)
+    assert all(item["evaluation_skip_reason"] is None for item in captured)
 
     assert progress_summary["tasks"]["started"] == progress_summary["tasks"]["ok"]
     assert progress_summary["tasks"]["fail"] == 0
@@ -274,6 +461,58 @@ def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Pa
     events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
     assert any(event["event"] == "ablation_suite_start" for event in events)
     assert not (run_dir / "anomalies.jsonl").read_text(encoding="utf-8").strip()
+
+
+def test_ablation_suite_serialization_failure_becomes_typed_row(tmp_path: Path) -> None:
+    settings = _settings()
+    wf, log, _progress = _workflow(settings, tmp_path / "run")
+    dataset_dir = settings.paths.repo_root / "tests" / "fixtures" / "smoke_release"
+
+    class _BadResult:
+        def to_json(self) -> dict[str, Any]:
+            raise TypeError("not JSON serializable")
+
+    async def fake_run_ablation_record(
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> Any:
+        return _BadResult()
+
+    try:
+        with patch.object(ablation_workflow, "run_ablation_record", new=fake_run_ablation_record):
+            outputs = asyncio.run(
+                run_ablation_suite(
+                    wf,
+                    dataset_dir=dataset_dir,
+                    ablation_selection="smart_eg_full",
+                    db_id="financial",
+                    record_id=1001,
+                    limit=1,
+                    workers=2,
+                )
+            )
+    finally:
+        log.close()
+
+    assert len(outputs) == 1
+    failure = outputs[0]
+    assert failure["result_type"] == "ablation_failure"
+    assert failure["status"] == "failed"
+    assert failure["ablation_id"] == "smart_eg_full"
+    assert failure["db_id"] == "financial"
+    assert failure["record_id"] == 1001
+    assert failure["error_code"] == "internal"
+    assert "not JSON serializable" in failure["message"]
+
+    run_dir = tmp_path / "run"
+    events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
+    start_event = next(event for event in events if event["event"] == "ablation_suite_start")
+    assert start_event["workers"] == 2
+    anomalies = [
+        json.loads(line)
+        for line in (run_dir / "anomalies.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert anomalies[0]["stage"] == "ablation_worker"
 
 
 def test_ablation_suite_nlq_db_only_derives_context_and_skips_release_loader(
@@ -304,6 +543,11 @@ def test_ablation_suite_nlq_db_only_derives_context_and_skips_release_loader(
         cost_budget_usd: float,
         batch_index: int | None,
         witness_preloaded: bool,
+        input_mode: str,
+        nlq_track: str,
+        nlq_hash: str | None,
+        witness_k: int,
+        evaluation_skip_reason: str | None,
     ) -> Any:
         captured.append(
             {
@@ -316,6 +560,11 @@ def test_ablation_suite_nlq_db_only_derives_context_and_skips_release_loader(
                 "cost_budget_usd": cost_budget_usd,
                 "batch_index": batch_index,
                 "witness_preloaded": witness_preloaded,
+                "input_mode": input_mode,
+                "nlq_track": nlq_track,
+                "nlq_hash": nlq_hash,
+                "witness_k": witness_k,
+                "evaluation_skip_reason": evaluation_skip_reason,
             }
         )
 
@@ -375,6 +624,13 @@ def test_ablation_suite_nlq_db_only_derives_context_and_skips_release_loader(
         assert item["max_revisits"] == 1
         assert item["cost_budget_usd"] == 0.75
         assert item["witness_preloaded"] is True
+        assert item["input_mode"] == "nlq_db"
+        assert item["nlq_track"] == "canonical"
+        assert item["nlq_hash"] == "sha256:" + hashlib.sha256(
+            "Find Modern banned card printings.".encode("utf-8")
+        ).hexdigest()
+        assert item["witness_k"] == 3
+        assert item["evaluation_skip_reason"] == "no_release_dataset"
 
 
 def test_ablation_record_missing_nlq_is_prompt_anomaly(tmp_path: Path) -> None:
@@ -530,17 +786,24 @@ def test_disclosure_exposes_top_level_comparable_keys() -> None:
     }
     d = _disclosure(spec, options, solver_disclosure)
 
-    # Top-level keys must be present and match solver_disclosure values
+    # Top-level solver identity keys must be present and match solver_disclosure values.
     assert d["backbone"] == "deepseek-v4-flash"
     assert d["disjointness_ok"] is True
     assert d["s_solver"] == ["smart_eg_agent", "smart_eg_tools"]
-    assert d["max_tool_turns"] == 24
-    assert d["max_revisits"] == 2
+    assert d["max_tool_turns"] == options["max_tool_turns"]
+    assert d["max_revisits"] == options["max_revisits"]
     assert d["cost_budget_usd"] == 1.0
-    assert d["budget_profile"] == "medium"
+    assert d["budget_profile"] == "full"
+    assert d["solver_reported_max_tool_turns"] == 24
+    assert d["solver_reported_max_revisits"] == 2
+    assert d["solver_reported_cost_budget_usd"] == 1.0
     assert d["cost_budget_usd_source"] == "provider_cost_usd_if_available"
     assert d["cost_budget_usd_unpriced_behavior"] == "advisory_when_unpriced"
     assert d["no_training"] is True
+    assert d["effective_budget_profile"] == "full"
+    assert d["effective_tool_turn_count"] == 48
+    assert d["tool_exposure_intent"]["probe_scheduler"] == "unsupported"
+    assert "probe_scheduler" not in d["mechanism_claims"]
 
     # solver_disclosure still available nested
     assert d["solver_disclosure"] == solver_disclosure
@@ -728,6 +991,11 @@ def test_prediction_and_failure_rows_preserve_traceability_refs_and_options(
         batch_index=3,
         db_id="financial",
         record_id=1001,
+        input_mode="nlq_db",
+        nlq_track="manual",
+        nlq_hash="abc123",
+        witness_k=5,
+        evaluation_skip_reason="no_release_dataset",
     )
     prediction_payload = {
         "record_id": 1001,
@@ -775,8 +1043,26 @@ def test_prediction_and_failure_rows_preserve_traceability_refs_and_options(
         assert row["max_tool_turns"] == 8
         assert row["max_revisits"] == 0
         assert row["cost_budget_usd"] == 0.25
+        assert row["input_mode"] == "nlq_db"
+        assert row["nlq_track"] == "manual"
+        assert row["nlq_hash"] == "abc123"
+        assert row["witness_k"] == 5
+        assert row["evaluation_skip_reason"] == "no_release_dataset"
+        assert "uses_probe_scheduler" not in row
         assert row["disclosure"]["options"]["budget_profile"] == "low"
         assert row["disclosure"]["budget_profile"] == "low"
+        assert row["disclosure"]["effective_budget_profile"] == "low"
+        assert row["disclosure"]["effective_tool_turn_count"] == 8
+        assert row["disclosure"]["input_mode"] == "nlq_db"
+        assert row["disclosure"]["nlq_track"] == "manual"
+        assert row["disclosure"]["nlq_hash"] == "abc123"
+        assert row["disclosure"]["witness_k"] == 5
+        assert row["disclosure"]["evaluation_skip_reason"] == (
+            "no_release_dataset"
+        )
+        assert row["disclosure"]["tool_exposure_intent"]["probe_scheduler"] == (
+            "unsupported"
+        )
         assert row["disclosure"]["cost_budget_usd_unpriced_behavior"] == (
             "advisory_when_unpriced"
         )

@@ -284,10 +284,23 @@ def test_evaluate_predictions_preserves_typed_failure_artifacts(
                 "message": "agent output failed semantic contract",
                 "batch_index": 1,
                 "work_item_id": f"{experiment_kind}:1:financial:41",
+                "input_mode": "nlq_db",
+                "nlq_track": "canonical",
+                "nlq_hash": "sha256:failure",
+                "witness_k": 3,
+                "evaluation_skip_reason": "no_release_dataset",
+                "transcript_refs": ["llm/failure.md"],
+                "diagnostics_refs": ["llm/failure.diagnostics.json"],
+                "agent_session_ref": "agent_sessions/failure.json",
+                "evidence_ledger_ref": "evidence/failure-ledger.json",
+                "execution_trace_ref": "traces/failure-execution.json",
+                "last_candidate_ref": "candidates/failure-last.json",
+                "unresolved_debts": ["target_fields_missing", "counterexample_unresolved"],
             }),
         ]) + "\n",
         encoding="utf-8",
     )
+
     log = setup_logging(tmp_path / "run", console=False)
     try:
         output = evaluate_predictions(
@@ -337,7 +350,32 @@ def test_evaluate_predictions_preserves_typed_failure_artifacts(
         "work_item_id": f"{experiment_kind}:1:financial:41",
         "batch_index": 1,
         "result_type": result_type,
+        "input_mode": "nlq_db",
+        "nlq_track": "canonical",
+        "nlq_hash": "sha256:failure",
+        "witness_k": 3,
+        "evaluation_skip_reason": "no_release_dataset",
+        "transcript_refs": ["llm/failure.md"],
+        "diagnostics_refs": ["llm/failure.diagnostics.json"],
+        "agent_session_ref": "agent_sessions/failure.json",
+        "evidence_ledger_ref": "evidence/failure-ledger.json",
+        "execution_trace_ref": "traces/failure-execution.json",
+        "last_candidate_ref": "candidates/failure-last.json",
+        "unresolved_debts": ["target_fields_missing", "counterexample_unresolved"],
     }
+    assert output.report["diagnostic_artifact_refs"]["count"] == 1
+    assert output.report["diagnostic_artifact_refs"]["items"][0]["work_item_id"] == (
+        f"{experiment_kind}:1:financial:41"
+    )
+    assert output.report["diagnostic_artifact_refs"]["items"][0]["diagnostics_refs"] == [
+        "llm/failure.diagnostics.json"
+    ]
+    assert (
+        output.report["systems"][system_id]["diagnostic_artifact_refs"]["items"][0][
+            "last_candidate_ref"
+        ]
+        == "candidates/failure-last.json"
+    )
     assert failure["slice_keys"] == {
         "domain": "finance_domain",
         "join_depth": "2",
@@ -401,6 +439,81 @@ def test_evaluate_predictions_supports_release_package_layout(tmp_path: Path) ->
     assert output.report["release_record_count"] == 1
     assert output.report["denominator"]["scope"] == "dataset_records"
     assert output.report["scores"]["EX"] == 1.0
+
+
+def test_ablation_evaluation_headline_uses_per_system_deltas(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "release"
+    (dataset_dir / "mongodb_data").mkdir(parents=True)
+    record = {
+        "record_id": 44,
+        "db_id": "financial",
+        "MQL": "db.gold_one.aggregate([])",
+        "canonical_form_set": {},
+    }
+    (dataset_dir / "test.json").write_text(json.dumps([record]), encoding="utf-8")
+    (dataset_dir / "mongodb_data" / "financial.json").write_text(
+        json.dumps({"gold_one": [{"_id": 1}], "account": [{"_id": 2}]}),
+        encoding="utf-8",
+    )
+    predictions = tmp_path / "ablation_predictions.jsonl"
+    predictions.write_text(
+        "\n".join([
+            json.dumps({
+                "result_type": "ablation_prediction",
+                "ablation_id": "smart_eg_full",
+                "record_id": record["record_id"],
+                "db_id": record["db_id"],
+                "MQL": record["MQL"],
+            }),
+            json.dumps({
+                "result_type": "ablation_prediction",
+                "ablation_id": "smart_eg_no_evidence_gate",
+                "record_id": record["record_id"],
+                "db_id": record["db_id"],
+                "MQL": "db.account.aggregate([])",
+            }),
+        ]) + "\n",
+        encoding="utf-8",
+    )
+
+    class _AblationHeadlineExecutor(_SelectiveGoldExecutor):
+        def norm_exec(self, db_id: str, mql: str) -> list[dict]:
+            self.calls.append(mql)
+            if "gold_one" in mql:
+                return [{"_id": 1}]
+            return [{"_id": 2}]
+
+    log = setup_logging(tmp_path / "run", console=False)
+    try:
+        output = evaluate_predictions(
+            dataset_dir=dataset_dir,
+            predictions_path=predictions,
+            out_dir=tmp_path / "eval",
+            experiment_kind="ablation",
+            run_id="eval-ablation-headline",
+            logger=log,
+            progress=None,
+            executor=_AblationHeadlineExecutor(),
+            max_workers=1,
+        )
+    finally:
+        log.close()
+
+    assert output.report["headline_metric"] == "per_system_EX"
+    headline = output.report["headline"]
+    assert headline["mode"] == "per_system"
+    assert headline["reference_system_id"] == "smart_eg_full"
+    assert headline["mixed_overall_scores_are_diagnostic"] is True
+    assert headline["overall_scores"]["EX"] == 0.5
+    assert headline["systems"]["smart_eg_full"]["scores"]["EX"] == 1.0
+    assert (
+        headline["systems"]["smart_eg_no_evidence_gate"]["delta_vs_smart_eg_full"]["EX"]
+        == -1.0
+    )
+    report_md = output.paths.report_md.read_text(encoding="utf-8")
+    assert "per-system EX; mixed overall is diagnostic" in report_md
+    assert "Mixed Overall Scores (Diagnostic)" in report_md
+    assert "headline: `EX = 0.5`" not in report_md
 
 
 def test_evaluate_predictions_normalizes_stale_preserve_cfs_for_gold_unwind(

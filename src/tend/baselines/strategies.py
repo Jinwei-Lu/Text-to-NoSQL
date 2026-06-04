@@ -10,6 +10,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from ..errors import SourceError
 from ..llm import Message
 
 JsonMap = dict[str, Any]
@@ -94,19 +95,34 @@ def resolve_baselines(selection: str | list[str] | tuple[str, ...] | None) -> li
     if selection is None or selection == "all":
         return list(_BASELINES.values())
     parts = selection if isinstance(selection, (list, tuple)) else selection.split(",")
+    keys = [str(part).strip() for part in parts if str(part).strip()]
+    if not keys:
+        raise SourceError(
+            "empty baseline selection",
+            context={
+                "requested_baseline_selection": selection,
+                "known_baseline_ids": list(_BASELINES),
+            },
+        )
+    if keys == ["all"]:
+        return list(_BASELINES.values())
+
     specs: list[BaselineSpec] = []
     unknown: list[str] = []
-    for part in parts:
-        key = str(part).strip()
-        if not key:
-            continue
+    for key in keys:
         spec = _BASELINES.get(key)
         if spec is None:
             unknown.append(key)
         else:
             specs.append(spec)
     if unknown:
-        raise KeyError(f"unknown baselines: {unknown}; known={list(_BASELINES)}")
+        raise SourceError(
+            "unknown baseline selection",
+            context={
+                "requested_baseline_ids": unknown,
+                "known_baseline_ids": list(_BASELINES),
+            },
+        )
     return specs
 
 

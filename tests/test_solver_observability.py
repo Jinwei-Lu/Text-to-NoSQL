@@ -483,6 +483,8 @@ def test_progress_persists_snapshots_and_surfaces_warning_events(tmp_path: Path)
 
     snapshots = _read_jsonl(tmp_path / "run" / "progress.jsonl")
     warning_events = _read_jsonl(tmp_path / "run" / "events.jsonl")
+    assert all(item["record_type"] == "progress_snapshot" for item in snapshots)
+    assert all(item["source"] == "tend_root_progress" for item in snapshots)
     assert summary["alerts_by_event"] == {"llm_repair_retry": 1}
     assert any(item["reason"] == "event" for item in snapshots)
     assert snapshots[-1]["alerts_by_event"] == {"llm_repair_retry": 1}

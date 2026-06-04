@@ -8,7 +8,8 @@ import pytest
 
 from tend.agents import LLMAgent
 from tend.config import Settings
-from tend.solver.eg.runtime import SYSTEM_PROMPT, _tool_schemas
+from tend.solver.eg.policy import SmartEGPolicy
+from tend.solver.eg.runtime import SYSTEM_PROMPT, _system_prompt_for_policy, _tool_schemas
 
 
 @pytest.fixture(scope="module")
@@ -139,7 +140,7 @@ def test_smart_eg_live_system_prompt_teaches_batch2_runtime_contract() -> None:
         "value grounding",
         "relationship probe",
         "prefix tools",
-        "tool_unimplemented",
+        "stage-local feedback",
         "final sanity execution",
         "production success",
         "typed feedback",
@@ -203,8 +204,8 @@ def test_smart_eg_runtime_tool_schemas_describe_live_batch2_contract() -> None:
         "execute_pipeline_prefix",
         "check_prefix_checkpoint",
     ]:
-        assert "unimplemented" in description(name)
-        assert "non-success" in description(name)
+        assert "prefix" in description(name)
+        assert "feedback" in description(name)
 
     assert "accepted environment" in description("submit_intent_hypothesis")
     assert "accepted intent" in description("submit_query_plan")
@@ -215,3 +216,15 @@ def test_smart_eg_runtime_tool_schemas_describe_live_batch2_contract() -> None:
     assert "production success" in description("submit_final_mql")
     assert "typed failure" in description("abandon_with_failure")
     assert "typed feedback" in description("run_readonly_probe")
+
+
+def test_smart_eg_no_value_grounding_policy_removes_prompt_and_tools() -> None:
+    policy = SmartEGPolicy(value_grounding=False)
+    prompt = _system_prompt_for_policy(policy).lower()
+    schemas = {tool["function"]["name"] for tool in _tool_schemas(policy=policy)}
+
+    assert "profile_path_values" not in prompt
+    assert "search_values" not in prompt
+    assert "value-grounding probes are disabled" in prompt
+    assert "profile_path_values" not in schemas
+    assert "search_values" not in schemas

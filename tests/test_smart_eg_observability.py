@@ -158,6 +158,25 @@ def test_recorder_keeps_live_markdown_with_llm_turn_and_tool_observation(tmp_pat
     recorder = SmartEGRecorder(log, session_id="smart-eg-financial-manual-deadbeef")
 
     recorder.agent_event(
+        "llm_request",
+        {
+            "turn_index": 1,
+            "mode": "environment",
+            "tools": ["list_collections"],
+            "tool_schemas": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "list_collections",
+                        "parameters": {"type": "object", "description": "x" * 13_000},
+                    },
+                }
+            ],
+            "tool_choice": "required",
+            "messages": [{"role": "user", "content": "NLQ: list accounts"}],
+        },
+    )
+    recorder.agent_event(
         "llm_response",
         {
             "turn_index": 1,
@@ -166,6 +185,17 @@ def test_recorder_keeps_live_markdown_with_llm_turn_and_tool_observation(tmp_pat
             "diagnostics_ref": "llm/smart_eg/call-1.diagnostics.json",
             "has_tool_calls": True,
             "tool_call_count": 1,
+            "assistant_message": {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": "tool-1",
+                        "type": "function",
+                        "function": {"name": "list_collections", "arguments": "{}"},
+                        "provider_extra": "preserved",
+                    }
+                ],
+            },
         },
     )
     recorder.agent_event(
@@ -174,6 +204,12 @@ def test_recorder_keeps_live_markdown_with_llm_turn_and_tool_observation(tmp_pat
             "turn_index": 1,
             "tool_call_id": "tool-1",
             "tool": "list_collections",
+            "raw_tool_call": {
+                "id": "tool-1",
+                "type": "function",
+                "function": {"name": "list_collections", "arguments": "{}"},
+                "provider_extra": "preserved",
+            },
             "arguments": {},
         },
     )
@@ -197,6 +233,14 @@ def test_recorder_keeps_live_markdown_with_llm_turn_and_tool_observation(tmp_pat
     assert "## Turn 1" in md
     assert "### Reasoning" in md
     assert "### LLM Call" in md
+    assert "#### Provider Request Messages" in md
+    assert "#### Provider Tool Schemas" in md
+    assert "#### Provider Assistant Message" in md
+    assert "NLQ: list accounts" in md
+    assert "provider_extra" in md
+    assert "preserved" in md
+    assert "truncated" not in md
+    assert "x" * 500 in md
     assert "### Tool Calls" in md
     assert "### Tool Results" in md
     assert "### Metrics" in md
@@ -229,18 +273,18 @@ def test_mode_based_tool_exposure_and_terminal_only_allowlist() -> None:
     state.terminal_only = True
     state.mode = "planning"
     terminal_tools = {tool["function"]["name"] for tool in api.tools_for_state(state)}
-    assert terminal_tools == {"submit_query_plan", "abandon_with_failure"}
+    assert terminal_tools == {"abandon_with_failure"}
     assert api.tool_choice_for_state(state) == {
         "type": "function",
-        "function": {"name": "submit_query_plan"},
+        "function": {"name": "abandon_with_failure"},
     }
 
     state.mode = "execution"
     terminal_tools = {tool["function"]["name"] for tool in api.tools_for_state(state)}
-    assert terminal_tools == {"submit_final_mql", "abandon_with_failure"}
+    assert terminal_tools == {"abandon_with_failure"}
     assert api.tool_choice_for_state(state) == {
         "type": "function",
-        "function": {"name": "submit_final_mql"},
+        "function": {"name": "abandon_with_failure"},
     }
 
     forced_api = SmartEGToolAPI(SmartEGPolicy(force_tool_choice=True))
@@ -261,7 +305,7 @@ def test_terminal_only_with_blocking_debt_exposes_debt_repair_tools() -> None:
 
     terminal_tools = {tool["function"]["name"] for tool in api.tools_for_state(state)}
 
-    assert "submit_query_plan" in terminal_tools
+    assert "submit_query_plan" not in terminal_tools
     assert "abandon_with_failure" in terminal_tools
     assert "inspect_evidence_debt" in terminal_tools
     assert "profile_path_values" in terminal_tools
@@ -477,15 +521,22 @@ def test_execution_mode_waits_for_final_evidence_before_submit_focus() -> None:
     )
     exposed_names = {tool["function"]["name"] for tool in api.tools_for_state(state)}
 
+    assert "run_final_sanity_execution" in exposed_names
+    assert api.tool_choice_for_state(state) is None
+
+    state.evidence_ledger.add_record(
+        source_tool="run_final_sanity_execution",
+        tool_call_id="call_final",
+        observation_ref="agent/session.jsonl#final",
+        summary={"tool": "run_final_sanity_execution", "ok": True, "mql_hash": "sha256:x"},
+    )
+    exposed_names = {tool["function"]["name"] for tool in api.tools_for_state(state)}
+
     assert exposed_names == {
         "submit_final_mql",
         "inspect_evidence_ledger",
         "inspect_evidence_debt",
         "abandon_with_failure",
-    }
-    assert api.tool_choice_for_state(state) == {
-        "type": "function",
-        "function": {"name": "submit_final_mql"},
     }
 
     observation = api.execute(
@@ -603,6 +654,29 @@ def test_run_final_sanity_execution_preserves_bounded_executor_failure() -> None
     assert result["error_class"] == "EXECUTION_ERROR"
 
 
+def test_run_final_sanity_execution_rejects_disabled_operator_before_executor() -> None:
+    class CountingExecutor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def norm_exec(self, _db_id, _mql):
+            self.calls += 1
+            raise AssertionError("disabled MQL must not execute")
+
+    executor = CountingExecutor()
+
+    result = run_final_sanity_execution(
+        executor=executor,
+        db_id="financial",
+        mql='db.account.aggregate([{"$sample":{"size":1}}])',
+    )
+
+    assert result["ok"] is False
+    assert result["reason"] == "disabled_operator"
+    assert "$sample" in result["disallowed_operators"]
+    assert executor.calls == 0
+
+
 def test_readonly_mongo_tools_stay_available_across_non_terminal_modes() -> None:
     api = SmartEGToolAPI(SmartEGPolicy())
     state = SmartEGState(nlq="list accounts", db_id="financial")
@@ -613,6 +687,20 @@ def test_readonly_mongo_tools_stay_available_across_non_terminal_modes() -> None
         names = {tool["function"]["name"] for tool in api.tools_for_state(state)}
         assert "sample_documents" in names
         assert "profile_path_values" in names
+        assert "run_readonly_probe" in names
+
+
+def test_no_value_grounding_policy_hides_value_tools_across_modes() -> None:
+    api = SmartEGToolAPI(SmartEGPolicy(value_grounding=False))
+    state = SmartEGState(nlq="list accounts", db_id="financial")
+
+    for mode in ["environment", "intent", "planning", "execution"]:
+        state.mode = mode
+        state.terminal_only = False
+        names = {tool["function"]["name"] for tool in api.tools_for_state(state)}
+        assert "profile_path_values" not in names
+        assert "search_values" not in names
+        assert "profile_path" in names
         assert "run_readonly_probe" in names
 
 
@@ -673,8 +761,19 @@ def test_explicit_empty_exposure_snapshot_rejects_known_and_terminal_tools() -> 
     assert terminal.llm_visible_content["reason"] == "tool_not_exposed"
 
 
-def test_unimplemented_prefix_tools_do_not_report_success() -> None:
-    api = SmartEGToolAPI(SmartEGPolicy(), db_handle=_Mongo())
+def test_prefix_tools_execute_with_prefix_executor() -> None:
+    class PrefixExecutor:
+        def __init__(self) -> None:
+            self.requests = []
+
+        def execute_prefix(self, request):
+            from tend.solver.per_stage import PrefixExecutionResult
+
+            self.requests.append(request)
+            return PrefixExecutionResult.single_variant([{"_id": 1}])
+
+    executor = PrefixExecutor()
+    api = SmartEGToolAPI(SmartEGPolicy(), db_handle=_Mongo(), executor=executor)
     state = SmartEGState(nlq="list accounts", db_id="financial", mode="execution")
 
     observation = api.execute(
@@ -688,10 +787,11 @@ def test_unimplemented_prefix_tools_do_not_report_success() -> None:
         state,
     )
 
-    assert observation.ok is False
-    assert observation.llm_visible_content["ok"] is False
-    assert observation.result["reason"] == "TOOL_UNIMPLEMENTED"
-    assert observation.result["implemented"] is False
+    assert observation.ok is True
+    assert observation.result["prefix_length"] == 1
+    assert observation.result["prefixes_executed"] == 1
+    assert observation.result["evidence_id"] == "ev-0001"
+    assert [request.stage_index for request in executor.requests] == [1]
 
 
 def test_policy_flags_change_exposure_and_readiness() -> None:
@@ -765,6 +865,28 @@ def test_list_collections_passes_current_db_id_to_db_handle() -> None:
 
     assert observation.ok is True
     assert mongo.calls == ["financial"]
+
+
+def test_list_collections_error_is_failed_observation_without_evidence() -> None:
+    class BrokenMongo:
+        def list_collections(self, _db_id):
+            raise RuntimeError("db unavailable")
+
+    api = SmartEGToolAPI(SmartEGPolicy(), db_handle=BrokenMongo())
+    state = SmartEGState(nlq="list accounts", db_id="financial")
+
+    observation = api.execute(
+        {
+            "id": "call_collections",
+            "function": {"name": "list_collections", "arguments": "{}"},
+        },
+        state,
+    )
+
+    assert observation.ok is False
+    assert observation.llm_visible_content["ok"] is False
+    assert observation.result["reason"] == "tool_execution_failed"
+    assert state.evidence_ledger.records == {}
 
 
 def test_candidate_check_tools_are_not_exposed_as_live_tools() -> None:

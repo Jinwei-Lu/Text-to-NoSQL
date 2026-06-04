@@ -242,6 +242,7 @@ class MongoExecutor:
 
     def norm_exec(self, db_id: str, mql: str) -> list[dict[str, Any]]:
         """Execute an MQL aggregate and return the *normalized* result documents."""
+        assert_no_disabled(mql)
         collection, pipeline = parse_pipeline(mql)
         client = self._connect()
         db = client[self._db_name(db_id)]
@@ -252,6 +253,18 @@ class MongoExecutor:
                                  context={"db_id": db_id, "collection": collection,
                                           "error": str(exc)[:300]}) from exc
         return [_normalize_doc(d) for d in raw]
+
+    def execute_prefix(self, request: Any) -> Any:
+        """Adapter for solver-local per-stage prefix checks."""
+        from tend.solver.per_stage import PrefixExecutionResult
+
+        rows = self.norm_exec(str(request.db_id), str(request.mql))
+        input_count: int | None = None
+        try:
+            input_count = self.count(str(request.db_id), str(request.collection))
+        except Exception:  # noqa: BLE001 - prefix checks can proceed without input counts
+            input_count = None
+        return PrefixExecutionResult.single_variant(rows, input_count=input_count)
 
     def close(self) -> None:
         if self._client is not None:
