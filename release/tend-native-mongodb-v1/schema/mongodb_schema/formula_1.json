@@ -1,0 +1,312 @@
+{
+  "db_id": "formula_1",
+  "source_tables": [
+    "circuits",
+    "constructors",
+    "drivers",
+    "seasons",
+    "races",
+    "constructorResults",
+    "constructorStandings",
+    "driverStandings",
+    "lapTimes",
+    "pitStops",
+    "qualifying",
+    "status",
+    "results"
+  ],
+  "collections": {
+    "race_weekends_v2": {
+      "document_count": 954,
+      "root_entity": "race weekend",
+      "source_tables": [
+        "races",
+        "circuits",
+        "results",
+        "qualifying",
+        "lapTimes",
+        "pitStops",
+        "driverStandings",
+        "constructorStandings"
+      ]
+    },
+    "f1_actor_profiles": {
+      "document_count": 1120,
+      "root_entity": "driver/constructor/circuit profile",
+      "source_tables": [
+        "drivers",
+        "constructors",
+        "circuits",
+        "results",
+        "races"
+      ]
+    }
+  },
+  "structure_audit": {
+    "db_id": "formula_1",
+    "collection_counts": {
+      "f1_actor_profiles": 1120,
+      "race_weekends_v2": 954
+    },
+    "max_depth": 9,
+    "dynamic_key_paths": [
+      {
+        "path": "career_by_year",
+        "sample_keys": [
+          "1950",
+          "1951",
+          "1952",
+          "1953",
+          "1954",
+          "1955",
+          "1956",
+          "1957"
+        ],
+        "document_count": 839,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "career_by_year.*.finishes_by_position_order",
+        "sample_keys": [
+          "1",
+          "10",
+          "11",
+          "12",
+          "13",
+          "14",
+          "15",
+          "16"
+        ],
+        "document_count": 3054,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "races_by_year",
+        "sample_keys": [
+          "1950",
+          "1951",
+          "1952",
+          "1953",
+          "1954",
+          "1955",
+          "1956",
+          "1957"
+        ],
+        "document_count": 71,
+        "value_kinds": [
+          "array"
+        ]
+      },
+      {
+        "path": "seasons_by_year",
+        "sample_keys": [
+          "1950",
+          "1951",
+          "1952",
+          "1953",
+          "1954",
+          "1955",
+          "1956",
+          "1957"
+        ],
+        "document_count": 207,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "sessions.qualifying.entries[].times_by_phase",
+        "sample_keys": [
+          "q1",
+          "q2",
+          "q3"
+        ],
+        "document_count": 6967,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "sessions.race.constructor_points_by_team",
+        "sample_keys": [
+          "ags",
+          "alfa",
+          "amon",
+          "apollon",
+          "arrows",
+          "aston_martin",
+          "ats",
+          "bar"
+        ],
+        "document_count": 885,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "sessions.race.entries[].pace_profile.laps_by_number",
+        "sample_keys": [
+          "1",
+          "10",
+          "11",
+          "12",
+          "13",
+          "14",
+          "15",
+          "16"
+        ],
+        "document_count": 7586,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "sessions.race.laps_by_number",
+        "sample_keys": [
+          "1",
+          "10",
+          "11",
+          "12",
+          "13",
+          "14",
+          "15",
+          "16"
+        ],
+        "document_count": 367,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "sessions.race.results_by_status",
+        "sample_keys": [
+          "+1 Lap",
+          "+10 Laps",
+          "+11 Laps",
+          "+12 Laps",
+          "+13 Laps",
+          "+14 Laps",
+          "+15 Laps",
+          "+16 Laps"
+        ],
+        "document_count": 948,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "standings_after.constructors_by_position",
+        "sample_keys": [
+          "1",
+          "10",
+          "11",
+          "12",
+          "13",
+          "14",
+          "15",
+          "16"
+        ],
+        "document_count": 884,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "standings_after.drivers_by_position",
+        "sample_keys": [
+          "1",
+          "10",
+          "100",
+          "101",
+          "102",
+          "103",
+          "104",
+          "105"
+        ],
+        "document_count": 948,
+        "value_kinds": [
+          "object"
+        ]
+      }
+    ],
+    "nested_array_paths": [
+      "_provenance.source_tables[]",
+      "races_by_year.*[]",
+      "sessions.qualifying.elimination_windows.q1_slowest_five.entries[]",
+      "sessions.qualifying.entries[]",
+      "sessions.race.entries[]",
+      "sessions.race.entries[].pit_stops[]",
+      "sessions.race.laps_by_number.*.running_order[]",
+      "sessions.race.results_by_status.*.entries[]"
+    ],
+    "array_lengths": {
+      "_provenance.source_tables[]": {
+        "count": 954,
+        "min": 8,
+        "max": 8,
+        "avg": 8.0
+      },
+      "races_by_year.*[]": {
+        "count": 954,
+        "min": 1,
+        "max": 1,
+        "avg": 1.0
+      },
+      "sessions.qualifying.elimination_windows.q1_slowest_five.entries[]": {
+        "count": 954,
+        "min": 0,
+        "max": 5,
+        "avg": 1.6719
+      },
+      "sessions.qualifying.entries[]": {
+        "count": 954,
+        "min": 0,
+        "max": 28,
+        "avg": 7.3029
+      },
+      "sessions.race.entries[]": {
+        "count": 954,
+        "min": 0,
+        "max": 55,
+        "avg": 24.2966
+      },
+      "sessions.race.entries[].pit_stops[]": {
+        "count": 23179,
+        "min": 0,
+        "max": 6,
+        "avg": 0.2509
+      },
+      "sessions.race.laps_by_number.*.running_order[]": {
+        "count": 22641,
+        "min": 2,
+        "max": 24,
+        "avg": 17.6902
+      },
+      "sessions.race.results_by_status.*.entries[]": {
+        "count": 9831,
+        "min": 1,
+        "max": 19,
+        "avg": 2.3577
+      }
+    },
+    "dynamic_array_object_paths": [
+      "races_by_year.*[]",
+      "sessions.race.laps_by_number.*.running_order[]",
+      "sessions.race.results_by_status.*.entries[]"
+    ],
+    "array_object_dynamic_paths": [
+      "sessions.qualifying.entries[].times_by_phase.*",
+      "sessions.race.entries[].pace_profile.laps_by_number.*"
+    ],
+    "presence_state_counts": {
+      "empty": 39613,
+      "missing": 24133,
+      "null": 39391,
+      "present": 1366961
+    }
+  }
+}

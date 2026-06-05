@@ -1,0 +1,7 @@
+TEND lean public release validator snapshot
+dataset: /Users/jwlu18/Developer/TEND/release/tend-native-mongodb-v1/data/TEND_lean.json
+ok: True
+records: 1210
+record_violations: 0
+schema_violations: 0
+file_violations: 0

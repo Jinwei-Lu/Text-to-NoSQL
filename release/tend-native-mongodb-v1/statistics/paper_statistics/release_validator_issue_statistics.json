@@ -1,0 +1,52 @@
+{
+  "created_at": "2026-06-05T02:34:30.507210+00:00",
+  "dataset": "/Users/jwlu18/Developer/TEND/release/tend-native-mongodb-v1/data/TEND_lean.json",
+  "validator": "public_lean_release_contract",
+  "public_record_fields": [
+    "record_id",
+    "db_id",
+    "NLQ",
+    "NLQ_colloquial",
+    "MQL"
+  ],
+  "ok": true,
+  "records": 1210,
+  "record_violations": 0,
+  "schema_violations": 0,
+  "file_violations": 0,
+  "composition": {
+    "records": 1210,
+    "db_ids": [
+      "california_schools",
+      "card_games",
+      "codebase_community",
+      "debit_card_specializing",
+      "european_football_2",
+      "financial",
+      "formula_1",
+      "student_club",
+      "superhero",
+      "thrombosis_prediction",
+      "toxicology"
+    ],
+    "records_per_db": {
+      "california_schools": 110,
+      "card_games": 110,
+      "codebase_community": 110,
+      "debit_card_specializing": 110,
+      "european_football_2": 110,
+      "financial": 110,
+      "formula_1": 110,
+      "student_club": 110,
+      "superhero": 110,
+      "thrombosis_prediction": 110,
+      "toxicology": 110
+    },
+    "distinct_mql_strings": 1210,
+    "distinct_canonical_nl": 1210,
+    "distinct_db_nl_mql_pairs": 1210
+  },
+  "issue_categories": [],
+  "affected_records_by_db": {},
+  "top_issue_samples": []
+}

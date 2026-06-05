@@ -66,6 +66,41 @@ def test_validate_release_rejects_duplicate_mql(tmp_path: Path):
     assert any("duplicate MQL" in issue and "r2" in issue for issue in report.record_violations)
 
 
+def test_validate_release_accepts_lean_only_public_package(tmp_path: Path):
+    out = tmp_path / "release" / "tend-native-mongodb-v1"
+    db = "financial"
+    record = {
+        "record_id": 1,
+        "db_id": db,
+        "NLQ": "List account ledger documents.",
+        "NLQ_colloquial": "Show the ledger rows.",
+        "MQL": 'db.account_ledgers.aggregate([{"$match":{}},{"$limit":1}])',
+    }
+    (out / "data").mkdir(parents=True)
+    (out / "schema" / "mongodb_schema").mkdir(parents=True)
+    (out / "mongodb_data").mkdir()
+    (out / "data" / "TEND_lean.json").write_text(
+        json.dumps([record]),
+        encoding="utf-8",
+    )
+    (out / "schema" / "mongodb_schema" / f"{db}.json").write_text(
+        json.dumps({"collections": {"account_ledgers": {"document_count": 1}}}),
+        encoding="utf-8",
+    )
+    (out / "mongodb_data" / f"{db}.json").write_text(
+        json.dumps({"account_ledgers": [{"_id": 1}]}),
+        encoding="utf-8",
+    )
+
+    report = validate_release(out, require_all_dbs=False)
+
+    assert report.ok
+    assert report.format == "public_lean"
+    assert report.n_records == 1
+    assert report.diversity.distinct_mql == 1
+    assert report.diversity.distinct_canonical_nl == 1
+
+
 def test_validate_release_rejects_repeated_mql_skeleton_family(tmp_path: Path):
     out = tmp_path / "release"
     db = "financial"

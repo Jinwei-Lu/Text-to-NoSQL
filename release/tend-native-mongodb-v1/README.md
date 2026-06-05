@@ -4,37 +4,28 @@ Formal release id: `tend-native-mongodb-v1`
 
 Source build/run id: `native-variant-11db-110distinct-final3`
 
-Release date: `2026-06-04`
+Release date: `2026-06-05`
 
-This is the release-facing TEND Native MongoDB benchmark package. Use this
+This is the lean public TEND Native MongoDB benchmark package. Use this
 directory for GitHub publication, paper tables, reviewer inspection, and local
-evaluation. The `runs/` directory is generation evidence only and is not the
-canonical release location.
+evaluation. Internal construction records, repair metadata, and audit
+transcripts are intentionally not part of this release surface.
 
 ## Directory Layout
 
 | Path | Contents |
 | --- | --- |
-| `data/` | Full and lean NL-MQL records plus database catalog and MongoDB data manifest. |
+| `data/TEND_lean.json` | Public NL-MQL records. Each record has exactly five fields: `record_id`, `db_id`, `NLQ`, `NLQ_colloquial`, and `MQL`. |
 | `schema/mongodb_schema/` | One MongoDB schema JSON per database. |
-| `metadata/native_feature_manifest/` | Per-database Mongo-native feature manifests. |
-| `metadata/migration_recipe/` | Per-database relational-to-native MongoDB migration recipes. |
-| `metadata/agent_design_rationale/` | Per-database structure and workload design rationale. |
-| `metadata/provenance/` | Per-database provenance records. |
 | `statistics/paper_statistics/` | Paper-ready JSON, CSV, Markdown, and LaTeX statistics. |
-| `audits/nl_mql/` | Final post-surgery NL-MQL pair extraction and diversity/complexity audit. |
-| `audits/surgery/` | Surgical patch report and exact post-surgery execution evidence. |
 | `mongodb_data/` | Raw MongoDB witness exports in a full local/Drive release; ignored by Git. |
 | `external/` | Google Drive package links/checksums and raw MongoDB checksum manifest. |
 
 ## Data Files
 
-- `data/TEND.json`: full release records with metadata, provenance, native
-  feature labels, and verification fields.
-- `data/TEND_lean.json`: lightweight evaluation records.
-- `data/TEND_lean.jsonl`: JSONL form of the lightweight records.
-- `data/test.json` and `data/test_lean.json`: release test aliases matching the
-  same 1,210 records.
+The release data directory contains one public query file:
+
+- `data/TEND_lean.json`: 1,210 lightweight evaluation records.
 
 Lean records have this shape:
 
@@ -53,12 +44,9 @@ Lean records have this shape:
 Each record has one canonical natural-language query and one colloquial variant
 for the same MQL target.
 
-- Full format: `nl_queries.canonical` and `nl_queries.colloquial`
-- Lean format: `NLQ` and `NLQ_colloquial`
-
-Use `NLQ` / `nl_queries.canonical` as the default evaluation utterance.
-`NLQ_colloquial` is for robustness or paraphrase-style evaluation and should
-not be counted as a second independent task.
+Use `NLQ` as the default evaluation utterance. `NLQ_colloquial` is for
+robustness or paraphrase-style evaluation and should not be counted as a second
+independent task.
 
 ## Scale
 
@@ -70,6 +58,8 @@ not be counted as a second independent task.
 - Distinct MQL strings/signatures: `1,210 / 1,210`
 - Aggregation pipelines parsed: `1,210 / 1,210`
 - Median / max top-level stages: `7 / 12`
+- Global / DB-scoped MQL skeleton families: `1,035 / 1,104`
+- Max DB-scoped skeleton family: `7`
 - Raw MongoDB documents in witness data: `269,177`
 
 The 11 database ids are:
@@ -89,15 +79,12 @@ The Drive full package contains the raw witness exports:
 
 https://drive.google.com/file/d/1O9ctyY6mUuKBF6OMCqk_UXyGdNkM8MRE/view?usp=drivesdk
 
+Current lean public package upload status is recorded in
+`external/google_drive_files.json`.
+
 Drive folder:
 
 https://drive.google.com/drive/folders/1s7LgW-zub1gIx9A1OpuWdx7lyNVwXhi5
-
-Expected full package checksum:
-
-```text
-3fabc19772bbe6e70c322944a3e7ce0e1a29c3c753ee04cb30d26580622f2594
-```
 
 Per-database raw JSON checksums and sizes are recorded in:
 
@@ -124,36 +111,27 @@ Important headline numbers:
 - Fresh exact MongoDB execution: `1,210 / 1,210`
 - Execution failures: `0`
 - Empty outputs: `0`
-- Distinct full stage sequences: `54`
-- Stage-count histogram: `3:1`, `4:6`, `5:29`, `6:390`,
-  `7:408`, `8:291`, `9:79`, `12:6`
-- Structural stage buckets: `unwind_grouped:451`,
-  `unwind_filter_project:308`, `enrich_filter_project:216`,
-  `multi_unwind_grouped:134`, `linear_filter_project:91`,
-  `group_without_unwind:10`
+- Public lean contract: `OK`
+- Distinct full stage sequences: `248`
+- Stage-count histogram: `3:1`, `4:22`, `5:148`, `6:212`,
+  `7:295`, `8:328`, `9:137`, `10:51`, `11:7`, `12:9`
+- Structural stage buckets: `unwind_grouped:397`,
+  `unwind_filter_project:298`, `linear_filter_project:248`,
+  `multi_unwind_grouped:193`, `enrich_filter_project:63`,
+  `group_without_unwind:11`
 
-The post-surgery NL-MQL audit also reports `complexity_score`. This is a
-heuristic audit score, not the primary paper metric:
+Prefer the `statistics/paper_statistics/` stage and operator distributions for
+main paper claims; these are regenerated directly from the public lean MQLs.
 
-```text
-complexity_score =
-  stage_count
-  + 0.35 * unique_operator_count
-  + 1.25 * count(root stages in {$unwind, $group})
-  + 2.00 * count(unique heavy operators present)
-  + 0.80 * count(unique nested/array operators present)
+## Validation
+
+This package validates as a lean public release:
+
+```bash
+.venv/bin/python -m tend.cli validate --dataset-dir release/tend-native-mongodb-v1
 ```
 
-where heavy operators are `$lookup`, `$facet`, `$graphLookup`,
-`$setWindowFields`, and `$unionWith`; nested/array operators are
-`$objectToArray`, `$filter`, `$map`, `$reduce`, `$setUnion`, and
-`$setIntersection`. Prefer the `statistics/paper_statistics/` stage and
-operator distributions for main paper claims.
-
-## Validation Caveat
-
-Exact MongoDB execution is clean. The stricter release validator snapshot is
-kept in `statistics/paper_statistics/release_validator_snapshot.*`; it records
-metadata/provenance/native-feature gate issues separate from runtime execution.
-Use the exact execution report for query executability and the validator
-snapshot for remaining metadata-contract caveats.
+The validation target is `data/TEND_lean.json`, not the internal full
+construction records. The validator checks the five-field public record shape,
+database composition, MQL parsing, duplicate MQL/NLQ pairs, MQL skeleton-family
+concentration, schema files, and local MongoDB witness files.

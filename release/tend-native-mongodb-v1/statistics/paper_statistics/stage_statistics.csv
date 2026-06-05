@@ -1,0 +1,11 @@
+stage,role,occurrence_count,occurrence_share,record_presence_count,record_presence_share
+$addFields,enrichment,1223,0.140252,974,0.804959
+$group,aggregation,602,0.069037,601,0.496694
+$limit,result_bound,1189,0.136353,1189,0.982645
+$match,filter,1172,0.134404,1035,0.855372
+$project,projection,2146,0.246101,1210,1.0
+$replaceRoot,other,5,0.000573,5,0.004132
+$set,other,3,0.000344,3,0.002479
+$sort,ordering,1210,0.138761,1207,0.997521
+$unset,other,1,0.000115,1,0.000826
+$unwind,array_traversal,1169,0.13406,888,0.733884

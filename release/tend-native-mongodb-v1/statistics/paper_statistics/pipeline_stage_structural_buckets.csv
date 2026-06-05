@@ -1,0 +1,7 @@
+structural_bucket,records,share
+unwind_grouped,397,0.328099
+unwind_filter_project,298,0.246281
+linear_filter_project,248,0.204959
+multi_unwind_grouped,193,0.159504
+enrich_filter_project,63,0.052066
+group_without_unwind,11,0.009091

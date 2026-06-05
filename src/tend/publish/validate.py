@@ -18,7 +18,13 @@ from typing import Any
 import yaml
 
 from ..construction.recipe import NativeFeatureManifest, load_native_feature_manifest
-from ..execution import mql_signature, mql_skeleton_signature, mql_skeleton_summary, world_signature
+from ..execution import (
+    mql_signature,
+    mql_skeleton_signature,
+    mql_skeleton_summary,
+    parse_pipeline,
+    world_signature,
+)
 from ..execution import ast_check
 from ..execution.ast_check import DISABLED_OPERATORS, DISABLED_SYSTEM_VARS
 from ..construction.verify import verify_native_record
@@ -53,6 +59,7 @@ H7_FLEX_MIN, H7_FLEX_MIN_RELAXED = 0.25, 0.15
 H9_SSF_MIN, H9_SSF_MIN_RELAXED = 0.20, 0.10
 BIRD_DB_COUNT = 11
 H11_SKELETON_FAMILY_MAX = 16
+PUBLIC_LEAN_FIELDS = ("record_id", "db_id", "NLQ", "NLQ_colloquial", "MQL")
 
 
 # --------------------------------------------------------------------------- #
@@ -221,6 +228,7 @@ class ReleaseReport:
     composition: CompositionReport
     file_violations: list[str]
     diversity: "DiversityReport"
+    format: str = "full"
 
     def summary(self) -> str:
         c = self.composition
@@ -267,6 +275,14 @@ def validate_release(
     else:
         file_viol.append("[C4] missing TEND.json")
     records = test if isinstance(test, list) else test.get("records", [])
+    if _is_public_lean_release(records):
+        return _validate_public_lean_release(
+            layout,
+            records,
+            file_viol,
+            supply_relax=supply_relax,
+            require_all_dbs=require_all_dbs,
+        )
     record_db_ids = sorted({str(r.get("db_id")) for r in records if r.get("db_id")})
     native_mode = layout.native_feature_manifest_dir.is_dir() or any(
         "native_feature_id" in r for r in records
@@ -377,6 +393,107 @@ def validate_release(
     return ReleaseReport(ok, len(records), rec_viol, sch_viol, comp, file_viol, diversity)
 
 
+def _is_public_lean_release(records: Any) -> bool:
+    return (
+        isinstance(records, list)
+        and bool(records)
+        and all(
+            isinstance(record, dict) and set(record) == set(PUBLIC_LEAN_FIELDS)
+            for record in records
+        )
+    )
+
+
+def _validate_public_lean_release(
+    layout: ReleaseDatasetLayout,
+    records: list[dict[str, Any]],
+    file_viol: list[str],
+    *,
+    supply_relax: bool,
+    require_all_dbs: bool,
+) -> ReleaseReport:
+    rec_viol = _validate_public_lean_records(records, require_full_release=require_all_dbs)
+    db_ids = sorted({str(record.get("db_id")) for record in records if record.get("db_id")})
+    comp_viol: list[str] = []
+    if require_all_dbs and len(db_ids) != BIRD_DB_COUNT:
+        comp_viol.append(f"[H4] db coverage {len(db_ids)} != {BIRD_DB_COUNT}")
+    if require_all_dbs:
+        for db_id in db_ids:
+            count = sum(1 for record in records if record.get("db_id") == db_id)
+            if count != 110:
+                comp_viol.append(f"[H4] db_id {db_id!r} has {count} records != 110")
+
+    comp = CompositionReport(
+        ok=not comp_viol,
+        n=len(records),
+        db_ids=db_ids,
+        l4_ratio=0.0,
+        l0_ratio=0.0,
+        flex_ratio=0.0,
+        ssf_ratio=0.0,
+        supply_relax=supply_relax,
+        violations=comp_viol,
+    )
+    diversity = _diversity_report(records)
+
+    for db_id in db_ids:
+        required_files = (
+            ("mongodb_schema", layout.mongodb_schema_dir / f"{db_id}.json"),
+            ("mongodb_data", layout.mongodb_data_dir / f"{db_id}.json"),
+        )
+        for label, path in required_files:
+            if not path.exists():
+                file_viol.append(f"[C4] missing {label}/{db_id}{path.suffix}")
+
+    ok = not (rec_viol or file_viol) and comp.ok
+    return ReleaseReport(
+        ok,
+        len(records),
+        rec_viol,
+        [],
+        comp,
+        file_viol,
+        diversity,
+        format="public_lean",
+    )
+
+
+def _validate_public_lean_records(
+    records: list[dict[str, Any]],
+    *,
+    require_full_release: bool,
+) -> list[str]:
+    issues: list[str] = []
+    seen_ids: set[Any] = set()
+    for index, record in enumerate(records):
+        rid = record.get("record_id", "?")
+        if tuple(record.keys()) != PUBLIC_LEAN_FIELDS:
+            issues.append(
+                f"[public r{rid}] fields must be exactly {list(PUBLIC_LEAN_FIELDS)} "
+                f"in order (got {list(record.keys())})"
+            )
+        if not isinstance(record.get("record_id"), int):
+            issues.append(f"[public r{rid}] record_id must be an integer")
+        if record.get("record_id") in seen_ids:
+            issues.append(f"[public r{rid}] duplicate record_id")
+        seen_ids.add(record.get("record_id"))
+        if not isinstance(record.get("db_id"), str) or not str(record.get("db_id", "")).strip():
+            issues.append(f"[public r{rid}] db_id must be a non-empty string")
+        for field in ("NLQ", "NLQ_colloquial", "MQL"):
+            if not isinstance(record.get(field), str) or not str(record.get(field, "")).strip():
+                issues.append(f"[public r{rid}] {field} must be a non-empty string")
+        try:
+            parse_pipeline(str(record.get("MQL") or ""))
+        except Exception as exc:  # noqa: BLE001 - release validation should report, not raise
+            issues.append(f"[public r{rid}] MQL parse failed: {exc}")
+    issues += _duplicate_mql_violations(records)
+    issues += _mql_skeleton_family_violations(records)
+    issues += _duplicate_canonical_nl_violations(records)
+    if require_full_release and len(records) != 1210:
+        issues.append(f"[public] record count {len(records)} != 1210")
+    return issues
+
+
 def _duplicate_mql_violations(records: list[dict[str, Any]]) -> list[str]:
     seen: dict[tuple[Any, str], dict[str, Any]] = {}
     violations: list[str] = []
@@ -442,10 +559,7 @@ def _duplicate_canonical_nl_violations(records: list[dict[str, Any]]) -> list[st
     seen: dict[tuple[Any, str], dict[str, Any]] = {}
     violations: list[str] = []
     for record in records:
-        nl_queries = record.get("nl_queries")
-        if not isinstance(nl_queries, dict):
-            continue
-        canonical = _normalized_nl_text(nl_queries.get("canonical"))
+        canonical = _record_canonical_nl(record)
         if not canonical:
             continue
         sig = _text_signature(canonical)
@@ -484,12 +598,7 @@ def _diversity_report(records: list[dict[str, Any]]) -> DiversityReport:
             skeleton_key = (db_id, skeleton_sig)
             skeleton_families[skeleton_key] = skeleton_families.get(skeleton_key, 0) + 1
 
-        nl_queries = record.get("nl_queries")
-        canonical = (
-            _normalized_nl_text(nl_queries.get("canonical"))
-            if isinstance(nl_queries, dict)
-            else ""
-        )
+        canonical = _record_canonical_nl(record)
         if canonical:
             nl_sig = _text_signature(canonical)
             canonical_sigs.add((db_id, nl_sig))
@@ -512,6 +621,13 @@ def _diversity_report(records: list[dict[str, Any]]) -> DiversityReport:
 
 def _normalized_nl_text(text: Any) -> str:
     return " ".join(str(text or "").strip().lower().split())
+
+
+def _record_canonical_nl(record: dict[str, Any]) -> str:
+    nl_queries = record.get("nl_queries")
+    if isinstance(nl_queries, dict):
+        return _normalized_nl_text(nl_queries.get("canonical"))
+    return _normalized_nl_text(record.get("NLQ"))
 
 
 def _text_signature(text: str) -> str:

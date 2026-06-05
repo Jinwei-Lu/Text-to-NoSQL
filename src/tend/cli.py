@@ -1425,8 +1425,11 @@ def _print_validation_summary(
         c = report.composition
         d = report.diversity
         print(f"  records : {report.n_records}")
-        print(f"  coverage: dbs={len(c.db_ids)} L4={c.l4_ratio:.0%} "
-              f"L0={c.l0_ratio:.0%} flex={c.flex_ratio:.0%} ssf={c.ssf_ratio:.0%}")
+        if getattr(report, "format", "full") == "public_lean":
+            print(f"  coverage: dbs={len(c.db_ids)} public_fields=5 public_format=TEND_lean.json")
+        else:
+            print(f"  coverage: dbs={len(c.db_ids)} L4={c.l4_ratio:.0%} "
+                  f"L0={c.l0_ratio:.0%} flex={c.flex_ratio:.0%} ssf={c.ssf_ratio:.0%}")
         print(
             f"  diversity: mql={d.distinct_mql} skeletons={d.distinct_mql_skeletons} "
             f"canonical_nl={d.distinct_canonical_nl} "

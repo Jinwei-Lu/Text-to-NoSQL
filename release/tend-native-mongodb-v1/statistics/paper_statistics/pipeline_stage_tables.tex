@@ -1,0 +1,61 @@
+\begin{table}[t]
+\centering
+\caption{Distribution of MongoDB aggregation pipeline lengths in TEND.}
+\label{tab:tend-stage-counts}
+\begin{tabular}{lrrr}
+\toprule
+Stages & Records & Share & Cum. share \\
+\midrule
+3 & 1 & 0.1\% & 0.1\% \\
+4 & 22 & 1.8\% & 1.9\% \\
+5 & 148 & 12.2\% & 14.1\% \\
+6 & 212 & 17.5\% & 31.7\% \\
+7 & 295 & 24.4\% & 56.0\% \\
+8 & 328 & 27.1\% & 83.1\% \\
+9 & 137 & 11.3\% & 94.5\% \\
+10 & 51 & 4.2\% & 98.7\% \\
+11 & 7 & 0.6\% & 99.3\% \\
+12 & 9 & 0.7\% & 100.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Top-level aggregation stage occurrence and per-record presence.}
+\label{tab:tend-stage-types}
+\begin{tabular}{lrrrr}
+\toprule
+Stage & Role & Occ. & Presence & Repeated recs. \\
+\midrule
+\$project & projection & 2146 & 1210 (100.0\%) & 867 \\
+\$addFields & enrichment & 1223 & 974 (80.5\%) & 206 \\
+\$sort & ordering & 1210 & 1207 (99.8\%) & 3 \\
+\$limit & result\_bound & 1189 & 1189 (98.3\%) & 0 \\
+\$match & filter & 1172 & 1035 (85.5\%) & 133 \\
+\$unwind & array\_traversal & 1169 & 888 (73.4\%) & 253 \\
+\$group & aggregation & 602 & 601 (49.7\%) & 1 \\
+\$replaceRoot & other & 5 & 5 (0.4\%) & 0 \\
+\$set & other & 3 & 3 (0.2\%) & 0 \\
+\$unset & other & 1 & 1 (0.1\%) & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Coarse aggregation-pipeline structural families.}
+\label{tab:tend-stage-structural-buckets}
+\begin{tabular}{lrr}
+\toprule
+Structural bucket & Records & Share \\
+\midrule
+unwind\_grouped & 397 & 32.8\% \\
+unwind\_filter\_project & 298 & 24.6\% \\
+linear\_filter\_project & 248 & 20.5\% \\
+multi\_unwind\_grouped & 193 & 16.0\% \\
+enrich\_filter\_project & 63 & 5.2\% \\
+group\_without\_unwind & 11 & 0.9\% \\
+\bottomrule
+\end{tabular}
+\end{table}

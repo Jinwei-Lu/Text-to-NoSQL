@@ -1,0 +1,426 @@
+{
+  "db_id": "superhero",
+  "source_tables": [
+    "alignment",
+    "attribute",
+    "colour",
+    "gender",
+    "publisher",
+    "race",
+    "superhero",
+    "hero_attribute",
+    "superpower",
+    "hero_power"
+  ],
+  "collections": {
+    "hero_dossiers": {
+      "document_count": 750,
+      "root_entity": "superhero profile dossier",
+      "source_tables": [
+        "superhero",
+        "hero_attribute",
+        "attribute",
+        "hero_power",
+        "superpower",
+        "publisher",
+        "alignment",
+        "gender",
+        "race",
+        "colour"
+      ]
+    },
+    "publisher_universes": {
+      "document_count": 25,
+      "root_entity": "publisher universe with alignment and power buckets",
+      "source_tables": [
+        "publisher",
+        "superhero",
+        "alignment",
+        "hero_power",
+        "superpower"
+      ]
+    },
+    "ability_catalog": {
+      "document_count": 173,
+      "root_entity": "typed attribute and power catalog entries",
+      "source_tables": [
+        "attribute",
+        "hero_attribute",
+        "superpower",
+        "hero_power",
+        "superhero"
+      ]
+    },
+    "alignment_rosters": {
+      "document_count": 4,
+      "root_entity": "alignment roster with publisher and power membership buckets",
+      "source_tables": [
+        "alignment",
+        "superhero",
+        "publisher",
+        "hero_power",
+        "superpower"
+      ]
+    }
+  },
+  "structure_audit": {
+    "db_id": "superhero",
+    "collection_counts": {
+      "ability_catalog": 173,
+      "alignment_rosters": 4,
+      "hero_dossiers": 750,
+      "publisher_universes": 25
+    },
+    "max_depth": 9,
+    "dynamic_key_paths": [
+      {
+        "path": "ability_matrix.attributes_by_name",
+        "sample_keys": [
+          "combat",
+          "durability",
+          "intelligence",
+          "power",
+          "speed",
+          "strength"
+        ],
+        "document_count": 623,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "alignment_buckets_by_name",
+        "sample_keys": [
+          "bad",
+          "good",
+          "neutral",
+          "unknown_alignment"
+        ],
+        "document_count": 25,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "appearance.color_refs_by_role",
+        "sample_keys": [
+          "eye",
+          "hair",
+          "skin"
+        ],
+        "document_count": 750,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "heroes_by_alignment",
+        "sample_keys": [
+          "bad",
+          "good",
+          "neutral",
+          "unknown_alignment"
+        ],
+        "document_count": 167,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "power_families_by_bucket",
+        "sample_keys": [
+          "cosmic",
+          "energy",
+          "mental",
+          "mobility",
+          "physical",
+          "specialized",
+          "tactical"
+        ],
+        "document_count": 28,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "powers.powers_by_family",
+        "sample_keys": [
+          "cosmic",
+          "energy",
+          "mental",
+          "mobility",
+          "physical",
+          "specialized",
+          "tactical"
+        ],
+        "document_count": 652,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "publishers_by_name",
+        "sample_keys": [
+          "abc_studios",
+          "dark_horse_comics",
+          "dc_comics",
+          "george_lucas",
+          "hanna_barbera",
+          "harpercollins",
+          "icon_comics",
+          "idw_publishing"
+        ],
+        "document_count": 3,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "query_views[].alignment_members_by_name",
+        "sample_keys": [
+          "bad",
+          "good",
+          "neutral",
+          "unknown_alignment"
+        ],
+        "document_count": 167,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "query_views[].alignment_power_matrix_by_alignment",
+        "sample_keys": [
+          "bad",
+          "good",
+          "neutral",
+          "unknown_alignment"
+        ],
+        "document_count": 25,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "query_views[].alignment_power_matrix_by_alignment.*.power_families_by_bucket",
+        "sample_keys": [
+          "cosmic",
+          "energy",
+          "mental",
+          "mobility",
+          "physical",
+          "specialized",
+          "tactical"
+        ],
+        "document_count": 43,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "query_views[].attribute_bands_by_name",
+        "sample_keys": [
+          "combat",
+          "durability",
+          "intelligence",
+          "power",
+          "speed",
+          "strength"
+        ],
+        "document_count": 623,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "query_views[].power_families_by_bucket",
+        "sample_keys": [
+          "cosmic",
+          "energy",
+          "mental",
+          "mobility",
+          "physical",
+          "specialized",
+          "tactical"
+        ],
+        "document_count": 652,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "values_by_bucket",
+        "sample_keys": [
+          "capable",
+          "elite",
+          "legendary",
+          "limited"
+        ],
+        "document_count": 6,
+        "value_kinds": [
+          "object"
+        ]
+      }
+    ],
+    "nested_array_paths": [
+      "ability_matrix.attribute_score_buckets.capable[]",
+      "ability_matrix.attribute_score_buckets.elite[]",
+      "ability_matrix.attribute_score_buckets.legendary[]",
+      "ability_matrix.attribute_score_buckets.limited[]",
+      "ability_matrix.attributes_by_name.*.observations[]",
+      "alignment_buckets_by_name.*.heroes[]",
+      "appearance.color_refs_by_role.*.states[]",
+      "heroes_by_alignment.*.heroes[]",
+      "power_families_by_bucket.*.heroes[]",
+      "power_families_by_bucket.*.members[]",
+      "powers.powers_by_family.*.powers[]",
+      "publishers_by_name.*.heroes[]",
+      "query_views[]",
+      "query_views[].alignment_members_by_name.*.heroes[]",
+      "query_views[].alignment_power_matrix_by_alignment.*.power_families_by_bucket.*.members[]",
+      "query_views[].power_families_by_bucket.*.powers[]",
+      "values_by_bucket.*.heroes[]"
+    ],
+    "array_lengths": {
+      "ability_matrix.attribute_score_buckets.capable[]": {
+        "count": 264,
+        "min": 1,
+        "max": 6,
+        "avg": 3.2614
+      },
+      "ability_matrix.attribute_score_buckets.elite[]": {
+        "count": 424,
+        "min": 1,
+        "max": 6,
+        "avg": 1.7807
+      },
+      "ability_matrix.attribute_score_buckets.legendary[]": {
+        "count": 288,
+        "min": 1,
+        "max": 6,
+        "avg": 1.9271
+      },
+      "ability_matrix.attribute_score_buckets.limited[]": {
+        "count": 393,
+        "min": 1,
+        "max": 6,
+        "avg": 3.9873
+      },
+      "ability_matrix.attributes_by_name.*.observations[]": {
+        "count": 3738,
+        "min": 1,
+        "max": 1,
+        "avg": 1.0
+      },
+      "alignment_buckets_by_name.*.heroes[]": {
+        "count": 43,
+        "min": 1,
+        "max": 256,
+        "avg": 17.3721
+      },
+      "appearance.color_refs_by_role.*.states[]": {
+        "count": 2250,
+        "min": 1,
+        "max": 1,
+        "avg": 1.0
+      },
+      "heroes_by_alignment.*.heroes[]": {
+        "count": 460,
+        "min": 1,
+        "max": 209,
+        "avg": 12.663
+      },
+      "power_families_by_bucket.*.heroes[]": {
+        "count": 133,
+        "min": 1,
+        "max": 1236,
+        "avg": 43.797
+      },
+      "power_families_by_bucket.*.members[]": {
+        "count": 21,
+        "min": 15,
+        "max": 1514,
+        "avg": 272.9048
+      },
+      "powers.powers_by_family.*.powers[]": {
+        "count": 2238,
+        "min": 1,
+        "max": 28,
+        "avg": 2.6028
+      },
+      "publishers_by_name.*.heroes[]": {
+        "count": 39,
+        "min": 1,
+        "max": 256,
+        "avg": 19.0769
+      },
+      "query_views[]": {
+        "count": 942,
+        "min": 1,
+        "max": 2,
+        "avg": 1.7962
+      },
+      "query_views[].alignment_members_by_name.*.heroes[]": {
+        "count": 460,
+        "min": 1,
+        "max": 209,
+        "avg": 12.663
+      },
+      "query_views[].alignment_power_matrix_by_alignment.*.power_families_by_bucket.*.members[]": {
+        "count": 224,
+        "min": 1,
+        "max": 794,
+        "avg": 26.0045
+      },
+      "query_views[].power_families_by_bucket.*.powers[]": {
+        "count": 2238,
+        "min": 1,
+        "max": 28,
+        "avg": 2.6028
+      },
+      "values_by_bucket.*.heroes[]": {
+        "count": 24,
+        "min": 3,
+        "max": 350,
+        "avg": 155.75
+      }
+    },
+    "dynamic_array_object_paths": [
+      "ability_matrix.attributes_by_name.*.observations[]",
+      "alignment_buckets_by_name.*.heroes[]",
+      "appearance.color_refs_by_role.*.states[]",
+      "heroes_by_alignment.*.heroes[]",
+      "power_families_by_bucket.*.heroes[]",
+      "power_families_by_bucket.*.members[]",
+      "powers.powers_by_family.*.powers[]",
+      "publishers_by_name.*.heroes[]",
+      "query_views[].alignment_members_by_name.*.heroes[]",
+      "query_views[].alignment_power_matrix_by_alignment.*.power_families_by_bucket.*.members[]",
+      "query_views[].power_families_by_bucket.*.powers[]",
+      "values_by_bucket.*.heroes[]"
+    ],
+    "array_object_dynamic_paths": [
+      "query_views[].alignment_members_by_name.*",
+      "query_views[].alignment_power_matrix_by_alignment.*",
+      "query_views[].alignment_power_matrix_by_alignment.*.power_families_by_bucket.*",
+      "query_views[].attribute_bands_by_name.*",
+      "query_views[].power_families_by_bucket.*"
+    ],
+    "presence_state_counts": {
+      "empty": 53,
+      "missing": 451,
+      "null": 3579,
+      "present": 88554
+    }
+  },
+  "structure_gate": {
+    "ok": true,
+    "errors": [],
+    "evidence": [
+      "max_depth=9",
+      "dynamic_array_object_paths=12",
+      "array_object_dynamic_paths=5",
+      "presence_states={'empty': 53, 'missing': 451, 'null': 3579, 'present': 88554}"
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+from_stage,to_stage,count,boundary
+<START>,$addFields,824,start
+<START>,$project,237,start
+<START>,$unwind,120,start
+<START>,$match,25,start
+<START>,$group,2,start
+<START>,$set,1,start
+<START>,$sort,1,start
+$limit,<END>,859,end
+$project,<END>,331,end
+$sort,<END>,17,end
+$replaceRoot,<END>,3,end

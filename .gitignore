@@ -135,14 +135,19 @@ Llama-3.2-1B/*.safetensors
 !/drive_upload/SHA256SUMS.txt
 !/drive_upload/raw_mongodb_data_checksums_and_sizes.txt
 
-# Formal releases are distributed through Drive. Keep only the lightweight
-# README/VERSION/external manifest surface in git; generated dataset payloads,
-# schemas, audits, metadata, statistics, and raw MongoDB exports stay local.
-/release/*/data/
+# Formal releases keep the lean public surface in git; raw MongoDB witness
+# exports and internal construction/audit payloads stay local or in Drive.
+/release/*/data/*
+!/release/*/data/TEND_lean.json
 /release/*/audits/
 /release/*/metadata/
-/release/*/schema/
-/release/*/statistics/
+/release/*/schema/*
+!/release/*/schema/mongodb_schema/
+!/release/*/schema/mongodb_schema/*.json
+/release/*/statistics/*
+!/release/*/statistics/paper_statistics/
+!/release/*/statistics/paper_statistics/**
+/release/*/statistics/**/__pycache__/
 /release/**/mongodb_data/*
 !/release/**/mongodb_data/README.md
 

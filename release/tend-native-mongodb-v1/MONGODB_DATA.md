@@ -6,9 +6,9 @@ Source build/run id: `native-variant-11db-110distinct-final3`
 
 The raw MongoDB witness exports are intentionally not tracked in GitHub. They
 are large JSON exports, totaling about 4.9 GiB locally before compression. The
-GitHub repository keeps the benchmark records, schemas, provenance, manifests,
-paper statistics, and audit evidence; the raw `mongodb_data/` directory should
-be restored from the Google Drive package.
+GitHub repository keeps the lean benchmark records, schemas, manifests, and
+paper statistics; the raw `mongodb_data/` directory should be restored from the
+Google Drive package.
 
 Google Drive folder:
 https://drive.google.com/drive/folders/1s7LgW-zub1gIx9A1OpuWdx7lyNVwXhi5
@@ -58,4 +58,3 @@ Related tracked verification evidence:
 - `statistics/paper_statistics/fresh_exact_execution_by_db_verification.json`
 - `statistics/paper_statistics/release_validator_snapshot.json`
 - `statistics/paper_statistics/pipeline_stage_detailed_statistics.json`
-- `audits/surgery/post_surgery_exact_execution.json`

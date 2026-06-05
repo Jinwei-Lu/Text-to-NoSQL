@@ -1,0 +1,358 @@
+{
+  "db_id": "codebase_community",
+  "source_tables": [
+    "badges",
+    "comments",
+    "postHistory",
+    "postLinks",
+    "posts",
+    "tags",
+    "users",
+    "votes"
+  ],
+  "collections": {
+    "community_threads": {
+      "document_count": 42912,
+      "root_entity": "question thread with answers, comments, tags, votes, revisions",
+      "source_tables": [
+        "posts",
+        "comments",
+        "votes",
+        "postHistory",
+        "postLinks",
+        "tags",
+        "users"
+      ]
+    },
+    "user_reputation_profiles": {
+      "document_count": 40325,
+      "root_entity": "community user reputation and participation profile",
+      "source_tables": [
+        "users",
+        "badges",
+        "posts",
+        "comments",
+        "votes"
+      ]
+    },
+    "tag_topic_ecosystems": {
+      "document_count": 1032,
+      "root_entity": "tag/topic ecosystem",
+      "source_tables": [
+        "tags",
+        "posts",
+        "postLinks"
+      ]
+    }
+  },
+  "structure_audit": {
+    "db_id": "codebase_community",
+    "collection_counts": {
+      "community_threads": 42912,
+      "tag_topic_ecosystems": 1032,
+      "user_reputation_profiles": 40325
+    },
+    "max_depth": 9,
+    "dynamic_key_paths": [
+      {
+        "path": "activity.by_year",
+        "sample_keys": [
+          "2009",
+          "2010",
+          "2011",
+          "2012",
+          "2013",
+          "2014"
+        ],
+        "document_count": 22600,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "answers.items[].comments_by_year",
+        "sample_keys": [
+          "2009",
+          "2010",
+          "2011",
+          "2012",
+          "2013",
+          "2014"
+        ],
+        "document_count": 26836,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "answers.items[].votes_by_type",
+        "sample_keys": [
+          "1",
+          "11",
+          "15",
+          "16",
+          "2",
+          "3",
+          "9"
+        ],
+        "document_count": 5751,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "badge_ecosystem.by_name",
+        "sample_keys": [
+          "Altruist",
+          "Analytical",
+          "Announcer",
+          "Archaeologist",
+          "Autobiographer",
+          "Benefactor",
+          "Beta",
+          "Booster"
+        ],
+        "document_count": 25078,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "comments.by_year",
+        "sample_keys": [
+          "2009",
+          "2010",
+          "2011",
+          "2012",
+          "2013",
+          "2014"
+        ],
+        "document_count": 26562,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "link_graph.by_type",
+        "sample_keys": [
+          "1",
+          "3"
+        ],
+        "document_count": 7603,
+        "value_kinds": [
+          "array"
+        ]
+      },
+      {
+        "path": "revision_timeline.by_year",
+        "sample_keys": [
+          "2009",
+          "2010",
+          "2011",
+          "2012",
+          "2013",
+          "2014"
+        ],
+        "document_count": 42912,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "taxonomy.tags_by_name",
+        "sample_keys": [
+          "2sls",
+          "ab-test",
+          "abc",
+          "absolute-risk",
+          "academia",
+          "accuracy",
+          "adjustment",
+          "age"
+        ],
+        "document_count": 42912,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "threads_by_status_by_year",
+        "sample_keys": [
+          "accepted_closed",
+          "accepted_open",
+          "unanswered_closed",
+          "unanswered_open"
+        ],
+        "document_count": 1032,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "threads_by_status_by_year.*",
+        "sample_keys": [
+          "2009",
+          "2010",
+          "2011",
+          "2012",
+          "2013",
+          "2014"
+        ],
+        "document_count": 1994,
+        "value_kinds": [
+          "object"
+        ]
+      },
+      {
+        "path": "votes.by_type",
+        "sample_keys": [
+          "11",
+          "15",
+          "16",
+          "2",
+          "3",
+          "5",
+          "8",
+          "9"
+        ],
+        "document_count": 2822,
+        "value_kinds": [
+          "object"
+        ]
+      }
+    ],
+    "nested_array_paths": [
+      "answers.items[]",
+      "answers.items[].votes_by_type.*.evidence.source.columns[]",
+      "comments.highlighted[]",
+      "link_graph.by_type.*[]",
+      "revision_timeline.by_year.*.events[]",
+      "taxonomy.raw_tags[]",
+      "taxonomy.tags_by_name.*.threads[]",
+      "threads_by_status_by_year.*.*.threads[]",
+      "threads_by_status_by_year.*.2010.threads[]",
+      "threads_by_status_by_year.*.2011.threads[]",
+      "threads_by_status_by_year.*.2012.threads[]",
+      "threads_by_status_by_year.*.2013.threads[]",
+      "threads_by_status_by_year.*.2014.threads[]",
+      "votes.by_type.*.evidence.source.columns[]"
+    ],
+    "array_lengths": {
+      "answers.items[]": {
+        "count": 42912,
+        "min": 0,
+        "max": 136,
+        "avg": 1.1127
+      },
+      "answers.items[].votes_by_type.*.evidence.source.columns[]": {
+        "count": 7513,
+        "min": 4,
+        "max": 4,
+        "avg": 4.0
+      },
+      "comments.highlighted[]": {
+        "count": 42912,
+        "min": 0,
+        "max": 3,
+        "avg": 1.4023
+      },
+      "link_graph.by_type.*[]": {
+        "count": 8265,
+        "min": 1,
+        "max": 13,
+        "avg": 1.3431
+      },
+      "revision_timeline.by_year.*.events[]": {
+        "count": 45357,
+        "min": 1,
+        "max": 14,
+        "avg": 4.3702
+      },
+      "taxonomy.raw_tags[]": {
+        "count": 42912,
+        "min": 1,
+        "max": 5,
+        "avg": 2.7413
+      },
+      "taxonomy.tags_by_name.*.threads[]": {
+        "count": 117633,
+        "min": 1,
+        "max": 1,
+        "avg": 1.0
+      },
+      "threads_by_status_by_year.*.*.threads[]": {
+        "count": 7151,
+        "min": 1,
+        "max": 1624,
+        "avg": 16.3016
+      },
+      "threads_by_status_by_year.*.2010.threads[]": {
+        "count": 19,
+        "min": 1,
+        "max": 4,
+        "avg": 1.3684
+      },
+      "threads_by_status_by_year.*.2011.threads[]": {
+        "count": 46,
+        "min": 1,
+        "max": 3,
+        "avg": 1.3043
+      },
+      "threads_by_status_by_year.*.2012.threads[]": {
+        "count": 92,
+        "min": 1,
+        "max": 4,
+        "avg": 1.2174
+      },
+      "threads_by_status_by_year.*.2013.threads[]": {
+        "count": 173,
+        "min": 1,
+        "max": 4,
+        "avg": 1.2139
+      },
+      "threads_by_status_by_year.*.2014.threads[]": {
+        "count": 321,
+        "min": 1,
+        "max": 25,
+        "avg": 2.0312
+      },
+      "votes.by_type.*.evidence.source.columns[]": {
+        "count": 4562,
+        "min": 4,
+        "max": 4,
+        "avg": 4.0
+      }
+    },
+    "dynamic_array_object_paths": [
+      "link_graph.by_type.*[]",
+      "revision_timeline.by_year.*.events[]",
+      "taxonomy.tags_by_name.*.threads[]",
+      "threads_by_status_by_year.*.*.threads[]",
+      "threads_by_status_by_year.*.2010.threads[]",
+      "threads_by_status_by_year.*.2011.threads[]",
+      "threads_by_status_by_year.*.2012.threads[]",
+      "threads_by_status_by_year.*.2013.threads[]",
+      "threads_by_status_by_year.*.2014.threads[]"
+    ],
+    "array_object_dynamic_paths": [
+      "answers.items[].comments_by_year.*",
+      "answers.items[].votes_by_type.*"
+    ],
+    "presence_state_counts": {
+      "empty": 106996,
+      "missing": 349788,
+      "null": 32009,
+      "present": 655689
+    }
+  },
+  "structure_gate": {
+    "ok": true,
+    "errors": [],
+    "evidence": [
+      "max_depth=9",
+      "dynamic_array_object_paths=9",
+      "array_object_dynamic_paths=2",
+      "presence_states={'empty': 106996, 'missing': 349788, 'null': 32009, 'present': 655689}"
+    ]
+  }
+}
