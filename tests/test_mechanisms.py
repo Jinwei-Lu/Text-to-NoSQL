@@ -76,6 +76,7 @@ def test_get_archetype_unknown_raises():
 # detectors on real BIRD signal
 # --------------------------------------------------------------------------- #
 @_needs_bird
+@pytest.mark.integration
 def test_detect_financial_polymorphic_and_sparse_embed():
     from tend.source import BirdSource
 
@@ -92,6 +93,7 @@ def test_detect_financial_polymorphic_and_sparse_embed():
 
 
 @_needs_bird
+@pytest.mark.integration
 def test_no_synthesis_when_no_signal():
     # debit_card_specializing / formula_1 yield no query-bearing structural mechanism (census)
     from tend.source import BirdSource

@@ -1236,6 +1236,7 @@ class LLMClient:
         usage = self._usage_dict(getattr(resp, "usage", None))
         reasoning = getattr(message, "reasoning_content", None)
         if reasoning:
+            usage["reasoning_content"] = str(reasoning)
             usage["reasoning_preview"] = str(reasoning)[:1200]
         tool_calls = self._normalize_tool_calls(getattr(message, "tool_calls", None))
         return text, choice.finish_reason, usage, resp, tool_calls
@@ -1287,6 +1288,7 @@ class LLMClient:
         chunks: list[Any],
     ) -> tuple[str, str | None, dict[str, int], Any, list[dict[str, Any]]]:
         text_parts: list[str] = []
+        reasoning_parts: list[str] = []
         finish: str | None = None
         usage: dict[str, int] = {}
         tool_calls_by_index: dict[int, dict[str, Any]] = {}
@@ -1299,7 +1301,10 @@ class LLMClient:
             for choice in self._get(chunk, "choices", []) or []:
                 finish = self._get(choice, "finish_reason") or finish
                 delta = self._get(choice, "delta", {}) or {}
+                reasoning = self._get(delta, "reasoning_content")
                 content = self._get(delta, "content")
+                if reasoning:
+                    reasoning_parts.append(str(reasoning))
                 if content:
                     text_parts.append(str(content))
                 for call_delta in self._get(delta, "tool_calls", []) or []:
@@ -1330,6 +1335,10 @@ class LLMClient:
             if call.get("id") or call.get("function", {}).get("name")
         ]
         raw = {"stream_chunks": raw_chunks}
+        if reasoning_parts:
+            reasoning_content = "".join(reasoning_parts)
+            usage["reasoning_content"] = reasoning_content
+            usage["reasoning_preview"] = reasoning_content[:1200]
         return "".join(text_parts), finish, usage, raw, tool_calls
 
     def _stub_call(
@@ -1515,6 +1524,11 @@ class LLMClient:
         return "unavailable"
 
     @staticmethod
+    def _reasoning_content(usage: dict[str, Any]) -> str:
+        reasoning = usage.get("reasoning_content") or usage.get("reasoning_preview")
+        return str(reasoning) if reasoning else ""
+
+    @staticmethod
     def _repair_prompt(err: LLMError, schema: dict | None) -> str:
         detail = err.context.get("violations") or [err.message]
         lines = "\n".join(f"  - {d}" for d in detail)
@@ -1604,12 +1618,19 @@ class LLMClient:
             None,
         )
         cost_source = self._cost_source(usage)
+        assistant_message: Message = {"role": "assistant", "content": text}
+        reasoning_content = self._reasoning_content(usage)
+        if reasoning_content:
+            assistant_message["reasoning_content"] = reasoning_content
+        if tool_calls:
+            assistant_message["tool_calls"] = tool_calls
         ref = log.save_transcript(agent, call_id, {
             "model": model,
             **request_config,
             "messages": messages,
             "tool_choice_fallback": tool_choice_fallback,
             "attempts": attempts,
+            "assistant_message": assistant_message,
             "response_text": text,
             "tool_calls": tool_calls,
             "finish_reason": finish,
@@ -1640,9 +1661,6 @@ class LLMClient:
                  cost_source=cost_source,
                  transcript_ref=ref, diagnostics_ref=diagnostics_ref)
         parsed_tool_calls = parse_tool_calls(tool_calls)
-        assistant_message: Message = {"role": "assistant", "content": text}
-        if tool_calls:
-            assistant_message["tool_calls"] = tool_calls
         cost = {
             "source": cost_source,
             "total_tokens": int(usage.get("total_tokens", 0) or 0),

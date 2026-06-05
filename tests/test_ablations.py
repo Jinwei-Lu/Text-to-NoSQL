@@ -112,13 +112,13 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
     assert "probe_scheduler" not in full_options["mechanism_claims"]
     assert full_options["budget_profile"] == "full"
     assert full_options["effective_budget_profile"] == "full"
-    assert full_options["effective_tool_turn_count"] == 48
+    assert full_options["effective_agent_turn_count"] == 100
     assert full_options["budget_disclosure"] == {
         "profile": "full",
-        "profile_max_tool_turns": 48,
+        "profile_max_turns": 100,
         "profile_max_revisits": 2,
         "profile_cost_budget_usd": 1.0,
-        "effective_max_tool_turns": 48,
+        "effective_max_turns": 100,
         "effective_max_revisits": 2,
         "effective_cost_budget_usd": 1.0,
         "mechanism_overrides": [],
@@ -139,7 +139,7 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
         options = resolve_ablations(ablation_id)[0].to_runtime_options()
         assert options[disabled_key] is False
         assert options["budget_profile"] == "reference"
-        assert options["max_tool_turns"] == 48
+        assert options["max_turns"] == 100
         assert options["cost_budget_usd"] == 1.0
 
     assert resolve_ablations("smart_eg_budget_low")[0].to_runtime_options() == {
@@ -148,13 +148,13 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
         "solver_variant": "smart_eg_budget_low",
         "budget_profile": "low",
         "effective_budget_profile": "low",
-        "effective_tool_turn_count": 8,
+        "effective_agent_turn_count": 8,
         "budget_disclosure": {
             "profile": "low",
-            "profile_max_tool_turns": 8,
+            "profile_max_turns": 8,
             "profile_max_revisits": 0,
             "profile_cost_budget_usd": 0.25,
-            "effective_max_tool_turns": 8,
+            "effective_max_turns": 8,
             "effective_max_revisits": 0,
             "effective_cost_budget_usd": 0.25,
             "mechanism_overrides": [],
@@ -162,7 +162,7 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
             "budget_profile_locked": True,
             "source": "ablation_spec",
         },
-        "max_tool_turns": 8,
+        "max_turns": 8,
         "max_revisits": 0,
         "cost_budget_usd": 0.25,
     }
@@ -172,13 +172,13 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
         "solver_variant": "smart_eg_budget_medium",
         "budget_profile": "medium",
         "effective_budget_profile": "medium",
-        "effective_tool_turn_count": 24,
+        "effective_agent_turn_count": 24,
         "budget_disclosure": {
             "profile": "medium",
-            "profile_max_tool_turns": 24,
+            "profile_max_turns": 24,
             "profile_max_revisits": 2,
             "profile_cost_budget_usd": 1.0,
-            "effective_max_tool_turns": 24,
+            "effective_max_turns": 24,
             "effective_max_revisits": 2,
             "effective_cost_budget_usd": 1.0,
             "mechanism_overrides": [],
@@ -186,7 +186,7 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
             "budget_profile_locked": True,
             "source": "ablation_spec",
         },
-        "max_tool_turns": 24,
+        "max_turns": 24,
     }
     assert resolve_ablations("smart_eg_budget_high")[0].to_runtime_options() == {
         **full_options,
@@ -194,13 +194,13 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
         "solver_variant": "smart_eg_budget_high",
         "budget_profile": "high",
         "effective_budget_profile": "high",
-        "effective_tool_turn_count": 72,
+        "effective_agent_turn_count": 72,
         "budget_disclosure": {
             "profile": "high",
-            "profile_max_tool_turns": 72,
+            "profile_max_turns": 72,
             "profile_max_revisits": 4,
             "profile_cost_budget_usd": 3.0,
-            "effective_max_tool_turns": 72,
+            "effective_max_turns": 72,
             "effective_max_revisits": 4,
             "effective_cost_budget_usd": 3.0,
             "mechanism_overrides": [],
@@ -208,7 +208,7 @@ def test_ablation_registry_covers_smart_eg_mechanisms() -> None:
             "budget_profile_locked": True,
             "source": "ablation_spec",
         },
-        "max_tool_turns": 72,
+        "max_turns": 72,
         "max_revisits": 4,
         "cost_budget_usd": 3.0,
     }
@@ -228,11 +228,11 @@ def test_resolve_ablations_rejects_empty_and_unknown_with_source_error() -> None
 
 def test_budget_variants_are_profiles_not_mechanism_isolation() -> None:
     assert set(BUDGET_PROFILES) == {"full", "reference", "low", "medium", "high"}
-    assert BUDGET_PROFILES["full"].max_tool_turns == 48
-    assert BUDGET_PROFILES["reference"].max_tool_turns == 48
-    assert BUDGET_PROFILES["low"].max_tool_turns == 8
-    assert BUDGET_PROFILES["medium"].max_tool_turns == 24
-    assert BUDGET_PROFILES["high"].max_tool_turns == 72
+    assert BUDGET_PROFILES["full"].max_turns == 100
+    assert BUDGET_PROFILES["reference"].max_turns == 100
+    assert BUDGET_PROFILES["low"].max_turns == 8
+    assert BUDGET_PROFILES["medium"].max_turns == 24
+    assert BUDGET_PROFILES["high"].max_turns == 72
 
     for profile in ("low", "medium", "high"):
         spec = resolve_ablations(f"smart_eg_budget_{profile}")[0]
@@ -266,7 +266,7 @@ def test_all_ablation_options_expose_policy_budget_and_transition_intent() -> No
     for spec in resolve_ablations("all"):
         options = _runtime_options(
             spec,
-            max_tool_turns=13,
+            max_turns=13,
             max_revisits=1,
             cost_budget_usd=0.75,
             db_id="financial",
@@ -281,14 +281,14 @@ def test_all_ablation_options_expose_policy_budget_and_transition_intent() -> No
         budget = options["budget_disclosure"]
         assert options["budget_profile"] == profile_name
         assert options["effective_budget_profile"] == profile_name
-        assert options["max_tool_turns"] == max_turns
+        assert options["max_turns"] == max_turns
         assert options["max_revisits"] == max_revisits
         assert options["cost_budget_usd"] == cost_budget
         assert budget["profile"] == profile_name
-        assert budget["profile_max_tool_turns"] == profile.max_tool_turns
+        assert budget["profile_max_turns"] == profile.max_turns
         assert budget["profile_max_revisits"] == profile.max_revisits
         assert budget["profile_cost_budget_usd"] == profile.cost_budget_usd
-        assert budget["effective_max_tool_turns"] == max_turns
+        assert budget["effective_max_turns"] == max_turns
         assert budget["effective_max_revisits"] == max_revisits
         assert budget["effective_cost_budget_usd"] == cost_budget
         if spec.id.startswith("smart_eg_budget_"):
@@ -296,7 +296,7 @@ def test_all_ablation_options_expose_policy_budget_and_transition_intent() -> No
             assert budget["runtime_overrides_applied"] == []
         else:
             assert budget["budget_profile_locked"] is False
-            expected_runtime_overrides = ["max_tool_turns", "cost_budget_usd"]
+            expected_runtime_overrides = ["max_turns", "cost_budget_usd"]
             if spec.id != "smart_eg_no_revisit":
                 expected_runtime_overrides.insert(1, "max_revisits")
             assert budget["runtime_overrides_applied"] == expected_runtime_overrides
@@ -350,7 +350,7 @@ def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Pa
         schema: dict[str, Any],
         *,
         local_data: dict[str, list[dict[str, Any]]] | None = None,
-        max_tool_turns: int,
+        max_turns: int,
         max_revisits: int,
         cost_budget_usd: float,
         batch_index: int | None,
@@ -362,7 +362,7 @@ def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Pa
         evaluation_skip_reason: str | None,
     ) -> Any:
         options = spec.to_runtime_options(
-            max_tool_turns=max_tool_turns,
+            max_turns=max_turns,
             max_revisits=max_revisits,
             cost_budget_usd=cost_budget_usd,
             progress_work_item_id=f"{spec.id}:{batch_index}",
@@ -408,7 +408,7 @@ def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Pa
                     db_id="financial",
                     record_id=1001,
                     limit=1,
-                    max_tool_turns=12,
+                    max_turns=12,
                     max_revisits=1,
                     cost_budget_usd=0.5,
                 )
@@ -425,24 +425,24 @@ def test_ablation_suite_stub_logs_markdown_transcripts_and_progress(tmp_path: Pa
     assert all(item["result_type"] == "ablation_prediction" for item in outputs)
     assert [item["ablation_id"] for item in captured] == list(ABLATION_IDS)
     by_id = {item["ablation_id"]: item["options"] for item in captured}
-    assert by_id["smart_eg_full"]["max_tool_turns"] == 12
+    assert by_id["smart_eg_full"]["max_turns"] == 12
     assert by_id["smart_eg_full"]["max_revisits"] == 1
     assert by_id["smart_eg_full"]["cost_budget_usd"] == 0.5
     assert by_id["smart_eg_full"]["budget_profile"] == "full"
     assert by_id["smart_eg_full"]["budget_disclosure"]["runtime_overrides_applied"] == [
-        "max_tool_turns",
+        "max_turns",
         "max_revisits",
         "cost_budget_usd",
     ]
-    assert by_id["smart_eg_budget_low"]["max_tool_turns"] == 8
+    assert by_id["smart_eg_budget_low"]["max_turns"] == 8
     assert by_id["smart_eg_budget_low"]["max_revisits"] == 0
     assert by_id["smart_eg_budget_low"]["cost_budget_usd"] == 0.25
     assert by_id["smart_eg_budget_low"]["budget_profile"] == "low"
-    assert by_id["smart_eg_budget_medium"]["max_tool_turns"] == 24
+    assert by_id["smart_eg_budget_medium"]["max_turns"] == 24
     assert by_id["smart_eg_budget_medium"]["max_revisits"] == 2
     assert by_id["smart_eg_budget_medium"]["cost_budget_usd"] == 1.0
     assert by_id["smart_eg_budget_medium"]["budget_profile"] == "medium"
-    assert by_id["smart_eg_budget_high"]["max_tool_turns"] == 72
+    assert by_id["smart_eg_budget_high"]["max_turns"] == 72
     assert by_id["smart_eg_budget_high"]["max_revisits"] == 4
     assert by_id["smart_eg_budget_high"]["cost_budget_usd"] == 3.0
     assert by_id["smart_eg_budget_high"]["budget_profile"] == "high"
@@ -538,7 +538,7 @@ def test_ablation_suite_nlq_db_only_derives_context_and_skips_release_loader(
         schema: dict[str, Any],
         *,
         local_data: dict[str, list[dict[str, Any]]] | None = None,
-        max_tool_turns: int,
+        max_turns: int,
         max_revisits: int,
         cost_budget_usd: float,
         batch_index: int | None,
@@ -555,7 +555,7 @@ def test_ablation_suite_nlq_db_only_derives_context_and_skips_release_loader(
                 "record": record,
                 "schema": schema,
                 "local_data": local_data,
-                "max_tool_turns": max_tool_turns,
+                "max_turns": max_turns,
                 "max_revisits": max_revisits,
                 "cost_budget_usd": cost_budget_usd,
                 "batch_index": batch_index,
@@ -592,7 +592,7 @@ def test_ablation_suite_nlq_db_only_derives_context_and_skips_release_loader(
                 db_id="manual_cards",
                 record_id=7,
                 limit=999,
-                max_tool_turns=13,
+                max_turns=13,
                 max_revisits=1,
                 cost_budget_usd=0.75,
                 nlq="Find Modern banned card printings.",
@@ -620,7 +620,7 @@ def test_ablation_suite_nlq_db_only_derives_context_and_skips_release_loader(
             item["schema"]["collections"]["card_print_dossiers"]["dynamic_key_paths"]
         )
         assert item["local_data"] == _manual_native_docs()
-        assert item["max_tool_turns"] == 13
+        assert item["max_turns"] == 13
         assert item["max_revisits"] == 1
         assert item["cost_budget_usd"] == 0.75
         assert item["witness_preloaded"] is True
@@ -779,7 +779,7 @@ def test_disclosure_exposes_top_level_comparable_keys() -> None:
         "backbone": "deepseek-v4-flash",
         "disjointness_ok": True,
         "s_solver": ["smart_eg_agent", "smart_eg_tools"],
-        "max_tool_turns": 24,
+        "max_turns": 24,
         "max_revisits": 2,
         "cost_budget_usd": 1.0,
         "no_training": True,
@@ -790,18 +790,18 @@ def test_disclosure_exposes_top_level_comparable_keys() -> None:
     assert d["backbone"] == "deepseek-v4-flash"
     assert d["disjointness_ok"] is True
     assert d["s_solver"] == ["smart_eg_agent", "smart_eg_tools"]
-    assert d["max_tool_turns"] == options["max_tool_turns"]
+    assert d["max_turns"] == options["max_turns"]
     assert d["max_revisits"] == options["max_revisits"]
     assert d["cost_budget_usd"] == 1.0
     assert d["budget_profile"] == "full"
-    assert d["solver_reported_max_tool_turns"] == 24
+    assert d["solver_reported_max_turns"] == 24
     assert d["solver_reported_max_revisits"] == 2
     assert d["solver_reported_cost_budget_usd"] == 1.0
     assert d["cost_budget_usd_source"] == "provider_cost_usd_if_available"
     assert d["cost_budget_usd_unpriced_behavior"] == "advisory_when_unpriced"
     assert d["no_training"] is True
     assert d["effective_budget_profile"] == "full"
-    assert d["effective_tool_turn_count"] == 48
+    assert d["effective_agent_turn_count"] == 100
     assert d["tool_exposure_intent"]["probe_scheduler"] == "unsupported"
     assert "probe_scheduler" not in d["mechanism_claims"]
 
@@ -819,7 +819,7 @@ def test_disclosure_top_level_none_when_solver_disclosure_empty() -> None:
         "backbone",
         "disjointness_ok",
         "s_solver",
-        "max_tool_turns",
+        "max_turns",
         "max_revisits",
         "cost_budget_usd",
         "budget_profile",
@@ -832,7 +832,7 @@ def test_disclosure_top_level_none_when_solver_disclosure_empty() -> None:
     assert d["disjointness_ok"] is None
     assert d["s_solver"] is None
     assert d["no_training"] is None
-    assert d["max_tool_turns"] == options["max_tool_turns"]
+    assert d["max_turns"] == options["max_turns"]
     assert d["max_revisits"] == options["max_revisits"]
     assert d["cost_budget_usd"] == options["cost_budget_usd"]
     assert d["budget_profile"] == options["budget_profile"]
@@ -872,7 +872,7 @@ def test_result_type_dispatch_routes_solver_failure(tmp_path: Path) -> None:
                 "disclosure": {
                     "s_solver": ["smart_eg_agent", "smart_eg_tools"],
                     "backbone": "deepseek-v4-flash",
-                    "max_tool_turns": 24,
+                    "max_turns": 24,
                     "max_revisits": 2,
                     "cost_budget_usd": 1.0,
                 },
@@ -985,7 +985,7 @@ def test_prediction_and_failure_rows_preserve_traceability_refs_and_options(
     spec = resolve_ablations("smart_eg_budget_low")[0]
     options = _runtime_options(
         spec,
-        max_tool_turns=12,
+        max_turns=12,
         max_revisits=1,
         cost_budget_usd=0.5,
         batch_index=3,
@@ -1041,7 +1041,7 @@ def test_prediction_and_failure_rows_preserve_traceability_refs_and_options(
         assert row["ablation_id"] == "smart_eg_budget_low"
         assert row["batch_index"] == 3
         assert row["work_item_id"] == "ablation:3:smart_eg_budget_low:financial:1001"
-        assert row["max_tool_turns"] == 8
+        assert row["max_turns"] == 8
         assert row["max_revisits"] == 0
         assert row["cost_budget_usd"] == 0.25
         assert row["input_mode"] == "nlq_db"
@@ -1053,7 +1053,7 @@ def test_prediction_and_failure_rows_preserve_traceability_refs_and_options(
         assert row["disclosure"]["options"]["budget_profile"] == "low"
         assert row["disclosure"]["budget_profile"] == "low"
         assert row["disclosure"]["effective_budget_profile"] == "low"
-        assert row["disclosure"]["effective_tool_turn_count"] == 8
+        assert row["disclosure"]["effective_agent_turn_count"] == 8
         assert row["disclosure"]["input_mode"] == "nlq_db"
         assert row["disclosure"]["nlq_track"] == "manual"
         assert row["disclosure"]["nlq_hash"] == "abc123"

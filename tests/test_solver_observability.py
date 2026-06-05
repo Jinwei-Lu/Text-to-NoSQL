@@ -600,3 +600,161 @@ def test_progress_persists_snapshots_and_surfaces_warning_events(tmp_path: Path)
     assert snapshots[-1]["alerts_by_event"] == {"llm_repair_retry": 1}
     assert snapshots[-1]["recent_alerts"][-1]["event"] == "llm_repair_retry"
     assert any(event["event"] == "llm_repair_retry" for event in warning_events)
+
+
+def test_progress_updates_solver_task_from_smart_eg_events(tmp_path: Path) -> None:
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = ProgressReporter("solver-run", log, enabled=False)
+
+    progress.phase("SOLVE")
+    log.info(
+        "smart_eg_progress",
+        db_id="financial",
+        record_id=17,
+        group="solve:financial",
+        work_item_id="solve:0:financial:17",
+        mode="planning",
+        llm_turns_completed=2,
+        max_turns=100,
+        remaining_agent_turns=98,
+        tool_calls_seen=3,
+        evidence_debt_count=1,
+        tokens=42,
+        agent_session_ref="solve/sessions/s1/agent.md",
+    )
+    task = progress._tasks["solve:0:financial:17"]
+    assert task.status == "running"
+    assert "mode=planning" in task.detail
+    assert "turn=2/100" in task.detail
+    assert "remaining=98" in task.detail
+    assert "tools=3" in task.detail
+    assert "session=solve/sessions/s1/agent.md" in task.detail
+    log.info(
+        "smart_eg_final_outcome",
+        db_id="financial",
+        record_id=17,
+        work_item_id="solve:0:financial:17",
+        result_type="solver_prediction",
+    )
+    summary = progress.summary()
+    log.close()
+
+    task = progress._tasks["solve:0:financial:17"]
+    assert task.status == "ok"
+    assert task.detail == "solver_prediction"
+    assert summary["tasks"]["started"] == 1
+    assert summary["tasks"]["ok"] == 1
+
+
+def test_progress_keeps_solver_final_when_final_event_arrives_first(
+    tmp_path: Path,
+) -> None:
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = ProgressReporter("solver-run", log, enabled=False)
+
+    progress.phase("SOLVE")
+    log.info(
+        "smart_eg_final_outcome",
+        db_id="financial",
+        record_id=18,
+        work_item_id="solve:0:financial:18",
+        result_type="solver_failure",
+        terminal_reason="budget_exhausted",
+    )
+    log.info(
+        "smart_eg_progress",
+        db_id="financial",
+        record_id=18,
+        group="solve:financial",
+        work_item_id="solve:0:financial:18",
+        mode="planning",
+        llm_turns_completed=1,
+        max_turns=100,
+        remaining_agent_turns=99,
+        tool_calls_seen=1,
+        evidence_debt_count=2,
+        tokens=15,
+    )
+    summary = progress.summary()
+    log.close()
+
+    task = progress._tasks["solve:0:financial:18"]
+    assert task.status == "fail"
+    assert task.detail == "solver_failure"
+    assert task.anomaly == "budget_exhausted"
+    assert summary["tasks"]["started"] == 1
+    assert summary["tasks"]["fail"] == 1
+    snapshots = _read_jsonl(tmp_path / "run" / "progress.jsonl")
+    assert any(item["reason"] == "smart_eg_final_outcome" for item in snapshots)
+
+
+def test_progress_fails_closed_for_unknown_smart_eg_result_type(
+    tmp_path: Path,
+) -> None:
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = ProgressReporter("solver-run", log, enabled=False)
+
+    log.info(
+        "smart_eg_final_outcome",
+        db_id="financial",
+        record_id=19,
+        work_item_id="solve:0:financial:19",
+    )
+    summary = progress.summary()
+    log.close()
+
+    task = progress._tasks["solve:0:financial:19"]
+    assert task.status == "fail"
+    assert task.detail == "unknown_result_type"
+    assert task.anomaly == "unknown_result_type"
+    assert summary["tasks"]["started"] == 1
+    assert summary["tasks"]["fail"] == 1
+
+
+def test_progress_uses_session_fallback_for_parallel_smart_eg_events(
+    tmp_path: Path,
+) -> None:
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = ProgressReporter("solver-run", log, enabled=False)
+
+    for session_id in ("session-a", "session-b"):
+        log.info(
+            "smart_eg_progress",
+            db_id="financial",
+            record_id=20,
+            session_id=session_id,
+            mode="planning",
+        )
+    summary = progress.summary()
+    log.close()
+
+    assert "solve:financial:20:session-a" in progress._tasks
+    assert "solve:financial:20:session-b" in progress._tasks
+    assert summary["tasks"]["started"] == 2
+
+
+def test_progress_dedupes_smart_eg_final_and_cli_finish(
+    tmp_path: Path,
+) -> None:
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = ProgressReporter("solver-run", log, enabled=False)
+
+    progress.start_task(
+        "solve:0:financial:21",
+        "SMART-EG financial #21",
+        group="solve:financial",
+    )
+    log.info(
+        "smart_eg_final_outcome",
+        db_id="financial",
+        record_id=21,
+        work_item_id="solve:0:financial:21",
+        result_type="solver_prediction",
+    )
+    progress.finish_task("solve:0:financial:21", ok=True, detail="solver_prediction")
+    summary = progress.summary()
+    log.close()
+
+    assert progress._tasks["solve:0:financial:21"].status == "ok"
+    assert summary["tasks"]["started"] == 1
+    assert summary["tasks"]["ok"] == 1

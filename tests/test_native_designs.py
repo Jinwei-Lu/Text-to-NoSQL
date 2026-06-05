@@ -58,6 +58,7 @@ def test_native_design_registry_covers_each_bird_minidev_db():
         assert module_ref == f"tend.construction.designs.{db_id}"
 
 
+@pytest.mark.integration
 def test_native_designs_build_verified_database_specific_recipes():
     from tend.construction.designs.registry import build_native_recipe_for_db
     from tend.construction.recipe import NATIVE_TRANSFORMS, verify_native_recipe

@@ -35,7 +35,6 @@ from .ablations import ABLATION_IDS, run_ablation_suite
 from .ablations.strategies import (
     DEFAULT_COST_BUDGET_USD,
     DEFAULT_MAX_REVISITS,
-    DEFAULT_MAX_TOOL_TURNS,
 )
 from .baselines import BASELINE_IDS, run_baseline_suite
 from .config import Settings
@@ -71,6 +70,7 @@ from .solver.inputs import (
 from .workflow import Workflow
 
 PRODUCTION_RELEASE_DIR = Path("release/tend-native-mongodb-v1")
+DEFAULT_SOLVER_MAX_TURNS = 100
 VALIDATION_ISSUE_LIMIT = 12
 
 
@@ -146,7 +146,7 @@ async def smart_solve_record_eg(*args: Any, **kwargs: Any) -> Any:
         "db_id": db_id,
         "nlq": _canonical_nlq(record),
         "record_id": record.get("record_id"),
-        "max_tool_turns": kwargs.get("max_tool_turns", DEFAULT_MAX_TOOL_TURNS),
+        "max_turns": _resolve_max_turns(kwargs.get("max_turns")),
         "max_revisits": kwargs.get("max_revisits", DEFAULT_MAX_REVISITS),
         "cost_budget_usd": kwargs.get("cost_budget_usd", DEFAULT_COST_BUDGET_USD),
         "policy": kwargs.get("policy"),
@@ -159,8 +159,11 @@ async def smart_solve_record_eg(*args: Any, **kwargs: Any) -> Any:
 def _smart_eg_policy(policy_cls: Any, kwargs: dict[str, Any]) -> Any:
     options = kwargs.get("options") if isinstance(kwargs.get("options"), dict) else {}
     return policy_cls(
-        max_tool_turns=int(
-            kwargs.get("max_tool_turns", options.get("max_tool_turns", DEFAULT_MAX_TOOL_TURNS))
+        max_turns=int(
+            _resolve_max_turns(
+                kwargs.get("max_turns"),
+                options=options,
+            )
         ),
         max_revisits=int(
             kwargs.get("max_revisits", options.get("max_revisits", DEFAULT_MAX_REVISITS))
@@ -222,13 +225,26 @@ def _parse_option_value(value: str) -> Any:
 
 def _strip_policy_kwargs(kwargs: dict[str, Any]) -> None:
     for key in (
-        "max_tool_turns",
+        "max_turns",
         "max_revisits",
         "cost_budget_usd",
         "options",
         "witness_preloaded",
     ):
         kwargs.pop(key, None)
+
+
+def _resolve_max_turns(
+    max_turns: Any = None,
+    *,
+    options: dict[str, Any] | None = None,
+) -> int:
+    opts = options or {}
+    if max_turns is not None:
+        return int(max_turns)
+    if opts.get("max_turns") is not None:
+        return int(opts["max_turns"])
+    return DEFAULT_SOLVER_MAX_TURNS
 
 
 def _close_runtime(rt: Runtime) -> None:
@@ -533,6 +549,95 @@ def _stage_dir(rt: Runtime, stage: str) -> Path:
     return rt.settings.run_dir / stage
 
 
+def _solve_group_id(db_id: str | None) -> str:
+    return f"solve:{db_id or 'unknown'}"
+
+
+def _solve_task_id(batch_index: int, db_id: str | None, record_id: Any) -> str:
+    return f"solve:{batch_index}:{db_id or 'unknown'}:{record_id}"
+
+
+def _solve_task_label(db_id: str | None, record_id: Any) -> str:
+    suffix = "" if record_id is None else f" #{record_id}"
+    return f"SMART-EG {db_id or 'unknown'}{suffix}"
+
+
+def _progress_add_solve_group(rt: Runtime, db_id: str | None, *, total: int | None) -> None:
+    add_group = getattr(rt.progress, "add_group", None)
+    if callable(add_group):
+        add_group(_solve_group_id(db_id), str(db_id or "unknown"), phase="SOLVE", total=total)
+
+
+def _progress_start_solve_case(
+    rt: Runtime,
+    *,
+    task_id: str,
+    db_id: str | None,
+    record_id: Any,
+    detail: str = "",
+) -> None:
+    start_task = getattr(rt.progress, "start_task", None)
+    if callable(start_task):
+        start_task(
+            task_id,
+            _solve_task_label(db_id, record_id),
+            group=_solve_group_id(db_id),
+            detail=detail,
+        )
+
+
+def _progress_finish_solve_case(
+    rt: Runtime,
+    *,
+    task_id: str,
+    payload: dict[str, Any],
+) -> None:
+    finish_task = getattr(rt.progress, "finish_task", None)
+    if not callable(finish_task):
+        return
+    result_type = str(payload.get("result_type") or "")
+    ok = result_type == "solver_prediction"
+    detail = (
+        payload.get("agent_session_ref")
+        or payload.get("error_code")
+        or result_type
+        or "unknown_result_type"
+        or ""
+    )
+    finish_task(
+        task_id,
+        ok=ok,
+        anomaly=None
+        if ok
+        else str(payload.get("anomaly") or payload.get("error_code") or detail),
+        detail=str(detail),
+    )
+
+
+def _solver_case_workflow(
+    rt: Runtime,
+    *,
+    db_id: str,
+    record_id: Any,
+    batch_index: int,
+    task_id: str,
+    solver_options: dict[str, Any],
+) -> Workflow:
+    extra = dict(rt.ctx.extra or {})
+    extra.update({"batch_index": batch_index, "work_item_id": task_id})
+    if solver_options:
+        extra["solver_options"] = dict(solver_options)
+    ctx = rt.workflow.context(
+        db_id=db_id,
+        record_id=record_id,
+        phase="SOLVE",
+        group=_solve_group_id(db_id),
+        work_item_id=task_id,
+        extra=extra,
+    )
+    return Workflow(ctx, name=rt.workflow.name)
+
+
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
     """Write ``rows`` one JSON object per line, creating parents; no-op when empty."""
     if not rows:
@@ -688,9 +793,9 @@ async def _run_solve(
     db_id: str | None,
     record_id: int | None,
     limit: int,
-    max_tool_turns: int,
     max_revisits: int,
     cost_budget_usd: float,
+    max_turns: int | None = None,
     nlq_track: str = "record",
     nlq: str | None = None,
     evaluate: bool = True,
@@ -711,6 +816,7 @@ async def _run_solve(
     evaluation_rows: list[dict] = []
     evaluation_dataset_dir: Path | None = None
     solver_options = dict(solver_options or {})
+    max_turns_value = _resolve_max_turns(max_turns, options=solver_options)
     try:
         with rt.progress:
             rt.workflow.phase("SOLVE")
@@ -720,34 +826,63 @@ async def _run_solve(
                 if not db_id:
                     raise SourceError("NLQ+DB solver mode requires --db-id")
                 record_stub = {"db_id": str(db_id), "record_id": record_id}
+                task_id = _solve_task_id(0, str(db_id), record_id)
+                _progress_add_solve_group(rt, str(db_id), total=1)
+                _progress_start_solve_case(
+                    rt,
+                    task_id=task_id,
+                    db_id=str(db_id),
+                    record_id=record_id,
+                    detail="NLQ+DB",
+                )
                 try:
                     solve_kwargs: dict[str, Any] = {
                         "db_id": str(db_id),
                         "nlq": nlq,
                         "record_id": record_id,
-                        "max_tool_turns": max_tool_turns,
+                        "max_turns": max_turns_value,
                         "max_revisits": max_revisits,
                         "cost_budget_usd": cost_budget_usd,
                     }
                     if solver_options:
                         solve_kwargs["options"] = solver_options
-                    result = await smart_solve_nlq_db_eg(rt.workflow, **solve_kwargs)
+                    solve_wf = _solver_case_workflow(
+                        rt,
+                        db_id=str(db_id),
+                        record_id=record_id,
+                        batch_index=0,
+                        task_id=task_id,
+                        solver_options=solver_options,
+                    )
+                    result = await smart_solve_nlq_db_eg(solve_wf, **solve_kwargs)
                     payload = result.to_json()
                     payload["batch_index"] = 0
-                    payload["work_item_id"] = f"solve:0:{db_id}:{record_id}"
+                    payload["work_item_id"] = task_id
                 except Exception as exc:  # noqa: BLE001 - convert one record into a failure row
-                    err = wrap_unexpected(exc, stage="solve_record", **record_stub)
+                    err = wrap_unexpected(
+                        exc,
+                        stage="solve_record",
+                        **record_stub,
+                        batch_index=0,
+                        work_item_id=task_id,
+                    )
                     if not err.logged:
-                        rt.log.anomaly(err)
+                        rt.log.bind(
+                            db_id=str(db_id),
+                            record_id=record_id,
+                            batch_index=0,
+                            work_item_id=task_id,
+                        ).anomaly(err)
                     payload = _solver_exception_failure_payload(
                         err,
                         record=record_stub,
                         batch_index=0,
                     )
-                if payload.get("result_type") == "solver_failure":
-                    failures.append(payload)
-                else:
+                _progress_finish_solve_case(rt, task_id=task_id, payload=payload)
+                if payload.get("result_type") == "solver_prediction":
                     predictions.append(payload)
+                else:
+                    failures.append(payload)
             else:
                 inputs = load_solver_release_inputs(
                     dataset_dir,
@@ -777,6 +912,9 @@ async def _run_solve(
                         db_id=db_id,
                         record_id=record_id,
                     )
+                db_counts = Counter(str(record.get("db_id") or "") for record, _, _ in inputs)
+                for group_db_id, count in sorted(db_counts.items()):
+                    _progress_add_solve_group(rt, group_db_id, total=count)
                 preloaded_dbs = await _preload_solver_witnesses(rt, inputs)
 
                 async def solve_one(
@@ -786,42 +924,67 @@ async def _run_solve(
                     data: dict | None,
                 ) -> tuple[int, dict]:
                     db = str(record.get("db_id"))
+                    rid = record.get("record_id")
+                    task_id = _solve_task_id(batch_index, db, rid)
+                    _progress_start_solve_case(
+                        rt,
+                        task_id=task_id,
+                        db_id=db,
+                        record_id=rid,
+                        detail=f"track={nlq_track}",
+                    )
                     try:
                         solve_kwargs = {
                             "local_data": data,
-                            "max_tool_turns": max_tool_turns,
+                            "max_turns": max_turns_value,
                             "max_revisits": max_revisits,
                             "cost_budget_usd": cost_budget_usd,
                             "witness_preloaded": db in preloaded_dbs,
                         }
                         if solver_options:
                             solve_kwargs["options"] = solver_options
+                        solve_wf = _solver_case_workflow(
+                            rt,
+                            db_id=db,
+                            record_id=rid,
+                            batch_index=batch_index,
+                            task_id=task_id,
+                            solver_options=solver_options,
+                        )
                         result = await smart_solve_record_eg(
-                            rt.workflow,
+                            solve_wf,
                             record,
                             schema,
                             **solve_kwargs,
                         )
                         payload = result.to_json()
                         payload["batch_index"] = batch_index
-                        payload["work_item_id"] = (
-                            f"solve:{batch_index}:{db}:{record.get('record_id')}"
-                        )
+                        payload["work_item_id"] = task_id
+                        _progress_finish_solve_case(rt, task_id=task_id, payload=payload)
                         return batch_index, payload
                     except Exception as exc:  # noqa: BLE001 - preserve batch progress.
                         err = wrap_unexpected(
                             exc,
                             stage="solve_record",
                             db_id=db,
-                            record_id=record.get("record_id"),
+                            record_id=rid,
+                            batch_index=batch_index,
+                            work_item_id=task_id,
                         )
                         if not err.logged:
-                            rt.log.anomaly(err)
-                        return batch_index, _solver_exception_failure_payload(
+                            rt.log.bind(
+                                db_id=db,
+                                record_id=rid,
+                                batch_index=batch_index,
+                                work_item_id=task_id,
+                            ).anomaly(err)
+                        payload = _solver_exception_failure_payload(
                             err,
                             record=record,
                             batch_index=batch_index,
                         )
+                        _progress_finish_solve_case(rt, task_id=task_id, payload=payload)
+                        return batch_index, payload
 
                 tasks = [
                     asyncio.create_task(solve_one(index, record, schema, data))
@@ -839,10 +1002,10 @@ async def _run_solve(
                             rt.log.anomaly(wrap_unexpected(exc, stage="solve_gather"))
                     raise
                 for _, payload in sorted(solved, key=lambda item: item[0]):
-                    if payload.get("result_type") == "solver_failure":
-                        failures.append(payload)
-                    else:
+                    if payload.get("result_type") == "solver_prediction":
                         predictions.append(payload)
+                    else:
+                        failures.append(payload)
             _write_jsonl_even_empty(out_path, predictions)
             _write_jsonl_even_empty(failures_path, failures)
             evaluation_rows = [*predictions, *failures]
@@ -1042,9 +1205,9 @@ async def _run_ablation(
     db_id: str | None,
     record_id: int | None,
     limit: int,
-    max_tool_turns: int,
     max_revisits: int,
     cost_budget_usd: float,
+    max_turns: int | None = None,
     workers: int = 1,
     nlq: str | None = None,
     nlq_track: str = "record",
@@ -1066,6 +1229,7 @@ async def _run_ablation(
     evaluate_outputs = evaluate and nlq is None
     evaluation_rows: list[dict] = []
     evaluation_dataset_dir: Path | None = None
+    max_turns_value = _resolve_max_turns(max_turns)
     try:
         with rt.progress:
             if evaluate_outputs:
@@ -1098,7 +1262,7 @@ async def _run_ablation(
                 nlq_track=nlq_track,
                 record_id=record_id,
                 limit=limit,
-                max_tool_turns=max_tool_turns,
+                max_turns=max_turns_value,
                 max_revisits=max_revisits,
                 cost_budget_usd=cost_budget_usd,
                 workers=workers,
@@ -1225,12 +1389,14 @@ def _validate_dataset(
     dataset_dir: Path,
     *,
     smoke: bool,
+    metadata_only: bool,
 ) -> tuple[ReleaseReport | None, str | None]:
     try:
         report = validate_release(
             dataset_dir,
             schemas_dir=settings.paths.schemas,
             require_all_dbs=not smoke,
+            verify_world_signature=not metadata_only,
         )
     except Exception as exc:  # noqa: BLE001 - CLI validation boundary
         return None, f"{type(exc).__name__}: {exc}"
@@ -1277,9 +1443,30 @@ def _print_validation_summary(
     print("=" * 64)
 
 
-def _run_validate(settings: Settings, *, dataset_dir: Path, smoke: bool) -> int:
-    mode = "smoke" if smoke else "full"
-    report, error = _validate_dataset(settings, dataset_dir, smoke=smoke)
+def _validation_mode_label(*, smoke: bool, metadata_only: bool) -> str:
+    if smoke and metadata_only:
+        return "smoke+metadata-only"
+    if metadata_only:
+        return "metadata-only"
+    if smoke:
+        return "smoke"
+    return "full"
+
+
+def _run_validate(
+    settings: Settings,
+    *,
+    dataset_dir: Path,
+    smoke: bool,
+    metadata_only: bool,
+) -> int:
+    mode = _validation_mode_label(smoke=smoke, metadata_only=metadata_only)
+    report, error = _validate_dataset(
+        settings,
+        dataset_dir,
+        smoke=smoke,
+        metadata_only=metadata_only,
+    )
     _print_validation_summary(
         title="TEND validate",
         dataset_dir=dataset_dir,
@@ -1591,7 +1778,12 @@ def _copy_release_tree(dataset_dir: Path, out_dir: Path) -> None:
 
 def _run_publish(settings: Settings, *, dataset_dir: Path, out_dir: Path) -> int:
     mode = "full"
-    report, error = _validate_dataset(settings, dataset_dir, smoke=False)
+    report, error = _validate_dataset(
+        settings,
+        dataset_dir,
+        smoke=False,
+        metadata_only=False,
+    )
     _print_validation_summary(
         title="TEND publish",
         dataset_dir=dataset_dir,
@@ -1703,6 +1895,11 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--dataset-dir", required=True, help="dataset dir to validate")
     v.add_argument("--smoke", action="store_true",
                    help="smoke validation: relax all-DB composition only")
+    v.add_argument(
+        "--metadata-only",
+        action="store_true",
+        help="skip raw mongodb_data loading and world_signature recomputation",
+    )
 
     q = sub.add_parser(
         "quality-audit",
@@ -1851,7 +2048,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="production release dir (default: release/tend-native-mongodb-v1)")
 
     s = sub.add_parser("solve", help="run the SMART-EG schema-less solver")
-    s.add_argument("--dataset-dir", default=None,
+    s.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
                    help="release dataset dir (default: release/tend-native-mongodb-v1)")
     s.add_argument("--db-id", default=None, help="optional db_id filter")
     s.add_argument("--nlq-track", choices=["record", "canonical", "colloquial"],
@@ -1862,8 +2059,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="solve one natural-language question against --db-id by querying MongoDB")
     s.add_argument("--record-id", type=int, default=None, help="optional record_id filter")
     s.add_argument("--limit", type=int, default=1, help="max records to solve")
-    s.add_argument("--max-tool-turns", type=int, default=DEFAULT_MAX_TOOL_TURNS,
-                   help="SMART-EG maximum provider tool turns")
+    s.add_argument("--max-turns", type=int, default=DEFAULT_SOLVER_MAX_TURNS,
+                   help="SMART-EG maximum agent iterations (default: 100)")
     s.add_argument("--max-revisits", type=int, default=DEFAULT_MAX_REVISITS,
                    help="SMART-EG maximum milestone revisits")
     s.add_argument("--cost-budget-usd", type=float, default=DEFAULT_COST_BUDGET_USD,
@@ -1876,7 +2073,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--run-id", default=None)
 
     b = sub.add_parser("baseline", help="run constrained LLM baselines")
-    b.add_argument("--dataset-dir", default=None,
+    b.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
                    help="release dataset dir (default: release/tend-native-mongodb-v1)")
     b.add_argument("--baselines", default="all",
                    help=f"comma-separated baseline ids or all; known={','.join(BASELINE_IDS)}")
@@ -1897,7 +2094,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--run-id", default=None)
 
     a = sub.add_parser("ablation", help="run SMART-EG solver ablation study")
-    a.add_argument("--dataset-dir", default=None,
+    a.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
                    help="release dataset dir (default: release/tend-native-mongodb-v1)")
     a.add_argument("--ablations", default="all",
                    help=f"comma-separated ablation ids or all; known={','.join(ABLATION_IDS)}")
@@ -1910,8 +2107,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="run ablations for one natural-language question against --db-id")
     a.add_argument("--record-id", type=int, default=None, help="optional record_id filter")
     a.add_argument("--limit", type=int, default=1, help="max records per ablation")
-    a.add_argument("--max-tool-turns", type=int, default=DEFAULT_MAX_TOOL_TURNS,
-                   help="SMART-EG maximum provider tool turns")
+    a.add_argument("--max-turns", type=int, default=DEFAULT_SOLVER_MAX_TURNS,
+                   help="SMART-EG maximum agent iterations (default: 100)")
     a.add_argument("--max-revisits", type=int, default=DEFAULT_MAX_REVISITS,
                    help="SMART-EG maximum milestone revisits")
     a.add_argument("--cost-budget-usd", type=float, default=DEFAULT_COST_BUDGET_USD,
@@ -1965,6 +2162,7 @@ def main(argv: list[str] | None = None) -> int:
             settings,
             dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
             smoke=args.smoke,
+            metadata_only=args.metadata_only,
         )
     if args.command == "quality-audit":
         rt = build_solver_runtime(settings, run_kind="quality_audit")
@@ -2119,9 +2317,9 @@ def main(argv: list[str] | None = None) -> int:
             db_id=args.db_id,
             record_id=args.record_id,
             limit=args.limit,
-            max_tool_turns=args.max_tool_turns,
             max_revisits=args.max_revisits,
             cost_budget_usd=args.cost_budget_usd,
+            max_turns=args.max_turns,
             nlq_track=args.nlq_track,
             nlq=args.nlq,
             evaluate=not args.no_eval,
@@ -2154,9 +2352,9 @@ def main(argv: list[str] | None = None) -> int:
             db_id=args.db_id,
             record_id=args.record_id,
             limit=args.limit,
-            max_tool_turns=args.max_tool_turns,
             max_revisits=args.max_revisits,
             cost_budget_usd=args.cost_budget_usd,
+            max_turns=args.max_turns,
             workers=args.workers,
             nlq_track=args.nlq_track,
             nlq=args.nlq,

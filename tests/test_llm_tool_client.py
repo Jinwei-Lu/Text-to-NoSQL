@@ -105,12 +105,21 @@ class _FakeOpenAI:
         self.chat = SimpleNamespace(completions=self.completions)
 
 
-def _delta_chunk(*, tool_calls: list[Any] | None = None, finish_reason: str | None = None,
-                 usage: Any = None) -> Any:
+def _delta_chunk(
+    *,
+    tool_calls: list[Any] | None = None,
+    reasoning_content: str | None = None,
+    finish_reason: str | None = None,
+    usage: Any = None,
+) -> Any:
     return SimpleNamespace(
         choices=[
             SimpleNamespace(
-                delta=SimpleNamespace(content=None, tool_calls=tool_calls),
+                delta=SimpleNamespace(
+                    content=None,
+                    reasoning_content=reasoning_content,
+                    tool_calls=tool_calls,
+                ),
                 finish_reason=finish_reason,
             )
         ],
@@ -346,6 +355,7 @@ def test_complete_with_tools_uses_streaming_with_first_token_timeout_metadata(tm
     log = setup_logging(settings.run_dir, console=False)
     client = LLMClient(settings, log)
     chunks = [
+        _delta_chunk(reasoning_content="inspect collection catalog "),
         _delta_chunk(
             tool_calls=[
                 SimpleNamespace(
@@ -400,10 +410,13 @@ def test_complete_with_tools_uses_streaming_with_first_token_timeout_metadata(tm
         )
     ]
     assert result.cost_source == "api"
+    assert result.assistant_message["reasoning_content"] == "inspect collection catalog "
     diagnostics = json.loads((log.run_dir / result.diagnostics_ref).read_text(encoding="utf-8"))
     assert diagnostics["stream"] is True
     assert diagnostics["first_token_timeout_s"] == 6.0
     assert diagnostics["cost_source"] == "api"
+    assert diagnostics["assistant_message"]["reasoning_content"] == "inspect collection catalog "
+    assert diagnostics["usage"]["reasoning_content"] == "inspect collection catalog "
 
 
 def test_validate_tool_message_pairs_rejects_unmatched_tool_result(tmp_path) -> None:

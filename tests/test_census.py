@@ -12,7 +12,10 @@ from pathlib import Path
 import pytest
 
 _BIRD = Path("minidev/MINIDEV")
-pytestmark = pytest.mark.skipif(not _BIRD.exists(), reason="BIRD mini-dev not present")
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not _BIRD.exists(), reason="BIRD mini-dev not present"),
+]
 
 
 def _census():
@@ -23,8 +26,13 @@ def _census():
         return run_census(src)
 
 
-def test_census_matches_reference_supply():
-    c = _census()
+@pytest.fixture(scope="module")
+def full_census():
+    return _census()
+
+
+def test_census_matches_reference_supply(full_census):
+    c = full_census
     assert len(c.databases) == 11
     # reproduces proposals/scripts/census_supply.py structural supply
     assert c.l4_supply_cells == 153
@@ -38,10 +46,10 @@ def test_census_matches_reference_supply():
     assert c.databases["thrombosis_prediction"].l4_supply_cells == 35
 
 
-def test_coverage_controller_hits_composition_targets():
+def test_coverage_controller_hits_composition_targets(full_census):
     from tend.source.census import plan_coverage_slots
 
-    c = _census()
+    c = full_census
     slots = plan_coverage_slots(c, n_records=200, seed=0)
     assert len(slots) == 200
     diff = Counter(s.target_difficulty for s in slots)
@@ -51,10 +59,10 @@ def test_coverage_controller_hits_composition_targets():
     assert ssf / 200 >= 0.20                        # H9
 
 
-def test_coverage_controller_deterministic():
+def test_coverage_controller_deterministic(full_census):
     from tend.source.census import plan_coverage_slots
 
-    c = _census()
+    c = full_census
     a = plan_coverage_slots(c, n_records=120, seed=7)
     b = plan_coverage_slots(c, n_records=120, seed=7)
     assert [(s.db_id, s.mechanism, s.archetype) for s in a] == \

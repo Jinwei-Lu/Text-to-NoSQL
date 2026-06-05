@@ -63,10 +63,7 @@ _REVIEW_SCHEMA: dict[str, Any] = {
 
 _SYSTEM_PROMPT = """You are auditing a benchmark record.
 
-The MQL is the ground truth. Decide whether each NLQ fully matches the MQL semantics.
-Check collection, result shape, match predicates, constants, numeric thresholds, boolean
-logic, unwind/filter conditions, ifNull/fallback semantics, group keys, output fields,
-sort order, and limit.
+The MQL is the ground truth. Decide whether each NLQ fully matches the MQL semantics. Check collection, result shape, match predicates, constants, numeric thresholds, boolean logic, unwind/filter conditions, ifNull/fallback semantics, group keys, output fields, sort order, and limit.
 
 Return only a JSON object. Do not use markdown.
 
@@ -86,10 +83,7 @@ The JSON object MUST have exactly this shape:
   }
 }
 
-The canonical and colloquial values MUST be objects, not strings. Use verdict "mismatch",
-not "misaligned". For an aligned NLQ, replacement_nlq must be null. For a mismatch,
-replacement_nlq must be a complete NLQ that preserves the original style but adds the
-missing MQL semantics. Never change the MQL and never invent semantics not in the MQL.
+The canonical and colloquial values MUST be objects, not strings. Use verdict "mismatch", not "misaligned". For an aligned NLQ, replacement_nlq must be null. For a mismatch, replacement_nlq must be a complete NLQ that preserves the original style but adds the missing MQL semantics. Never change the MQL and never invent semantics not in the MQL.
 """
 
 

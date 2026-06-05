@@ -3,9 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from tend.construction.audit import audit_database_structure, validate_structure_gate
 from tend.construction.designs.superhero import materialize_native_dataworld
 from tend.source import BirdSource
+
+pytestmark = pytest.mark.integration
 
 
 def _bird_source() -> BirdSource:
@@ -21,8 +25,13 @@ def _max_depth(value: Any) -> int:
     return 0
 
 
-def test_superhero_direct_materializer_builds_semantic_dataworld() -> None:
-    result = materialize_native_dataworld(_bird_source(), "superhero")
+@pytest.fixture(scope="module")
+def superhero_result() -> Any:
+    return materialize_native_dataworld(_bird_source(), "superhero")
+
+
+def test_superhero_direct_materializer_builds_semantic_dataworld(superhero_result: Any) -> None:
+    result = superhero_result
 
     assert {
         "hero_dossiers",
@@ -42,8 +51,8 @@ def test_superhero_direct_materializer_builds_semantic_dataworld() -> None:
     assert _max_depth(hero) >= 7
 
 
-def test_superhero_direct_materializer_passes_native_structure_gate() -> None:
-    result = materialize_native_dataworld(_bird_source(), "superhero")
+def test_superhero_direct_materializer_passes_native_structure_gate(superhero_result: Any) -> None:
+    result = superhero_result
     audit = audit_database_structure("superhero", result.data)
     gate = validate_structure_gate(audit)
 
@@ -67,8 +76,10 @@ def test_superhero_direct_materializer_passes_native_structure_gate() -> None:
     assert result.schema["structure_gate"]["ok"] is True
 
 
-def test_superhero_direct_manifest_exposes_features_and_pipeline_blueprints() -> None:
-    result = materialize_native_dataworld(_bird_source(), "superhero")
+def test_superhero_direct_manifest_exposes_features_and_pipeline_blueprints(
+    superhero_result: Any,
+) -> None:
+    result = superhero_result
     features = {feature.id: feature for feature in result.manifest.features}
 
     assert {

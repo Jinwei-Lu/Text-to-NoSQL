@@ -41,7 +41,7 @@ class AblationPrediction:
     evaluation_skip_reason: str | None
     MQL: str
     attempts: int
-    max_tool_turns: int
+    max_turns: int
     max_revisits: int
     cost_budget_usd: float
     uses_evidence_gate: bool
@@ -92,7 +92,7 @@ class AblationFailure:
     error_code: str
     message: str
     attempts: int
-    max_tool_turns: int
+    max_turns: int
     max_revisits: int
     cost_budget_usd: float
     uses_evidence_gate: bool
@@ -133,7 +133,7 @@ async def smart_solve_record_eg(*args: Any, **kwargs: Any) -> Any:
         raise TypeError("smart_solve_record_eg record must be a dict")
     options = kwargs.get("options") if isinstance(kwargs.get("options"), dict) else {}
     policy = kwargs.get("policy") or SmartEGPolicy(
-        max_tool_turns=int(kwargs.get("max_tool_turns", options.get("max_tool_turns", 48))),
+        max_turns=int(kwargs.get("max_turns", options.get("max_turns", 100))),
         max_revisits=int(kwargs.get("max_revisits", options.get("max_revisits", 2))),
         cost_budget_usd=float(kwargs.get("cost_budget_usd", options.get("cost_budget_usd", 1.0))),
         evidence_gate=bool(options.get("use_evidence_gate", True)),
@@ -167,7 +167,7 @@ async def run_ablation_suite(
     record_id: int | None = None,
     limit: int = 1,
     witness_k: int = DEFAULT_INPUT_SAMPLE_SIZE,
-    max_tool_turns: int = 48,
+    max_turns: int = 100,
     max_revisits: int = 2,
     cost_budget_usd: float = 1.0,
     workers: int = 1,
@@ -205,7 +205,7 @@ async def run_ablation_suite(
         dataset_dir=str(dataset_dir),
         db_id=db_id,
         record_id=record_id,
-        max_tool_turns=max_tool_turns,
+        max_turns=max_turns,
         max_revisits=max_revisits,
         cost_budget_usd=cost_budget_usd,
         input_mode=input_mode,
@@ -257,7 +257,7 @@ async def run_ablation_suite(
                 record,
                 schema,
                 local_data=data,
-                max_tool_turns=max_tool_turns,
+                max_turns=max_turns,
                 max_revisits=max_revisits,
                 cost_budget_usd=cost_budget_usd,
                 batch_index=batch_index,
@@ -290,7 +290,7 @@ async def run_ablation_suite(
                 record_id=rid,
                 batch_index=batch_index,
                 local_data=data,
-                max_tool_turns=max_tool_turns,
+                max_turns=max_turns,
                 max_revisits=max_revisits,
                 cost_budget_usd=cost_budget_usd,
                 input_mode=input_mode,
@@ -318,7 +318,7 @@ async def run_ablation_suite(
                 record_id=rid,
                 batch_index=batch_index,
                 local_data=data,
-                max_tool_turns=max_tool_turns,
+                max_turns=max_turns,
                 max_revisits=max_revisits,
                 cost_budget_usd=cost_budget_usd,
                 input_mode=input_mode,
@@ -364,7 +364,7 @@ def _ablation_worker_failure_payload(
     record_id: int | str | None,
     batch_index: int,
     local_data: dict[str, list[dict[str, Any]]] | None,
-    max_tool_turns: int,
+    max_turns: int,
     max_revisits: int,
     cost_budget_usd: float,
     input_mode: str,
@@ -375,7 +375,7 @@ def _ablation_worker_failure_payload(
 ) -> dict[str, Any]:
     options = _runtime_options(
         spec,
-        max_tool_turns=max_tool_turns,
+        max_turns=max_turns,
         max_revisits=max_revisits,
         cost_budget_usd=cost_budget_usd,
         batch_index=batch_index,
@@ -435,7 +435,7 @@ async def run_ablation_record(
     schema: dict[str, Any],
     *,
     local_data: dict[str, list[dict[str, Any]]] | None = None,
-    max_tool_turns: int = 48,
+    max_turns: int = 100,
     max_revisits: int = 2,
     cost_budget_usd: float = 1.0,
     batch_index: int | None = None,
@@ -451,7 +451,7 @@ async def run_ablation_record(
     effective_nlq_hash = nlq_hash if nlq_hash is not None else _nlq_hash_from_record(record)
     options = _runtime_options(
         spec,
-        max_tool_turns=max_tool_turns,
+        max_turns=max_turns,
         max_revisits=max_revisits,
         cost_budget_usd=cost_budget_usd,
         batch_index=batch_index,
@@ -487,7 +487,7 @@ async def run_ablation_record(
             schema,
             local_data=local_data,
             options=options,
-            max_tool_turns=options["max_tool_turns"],
+            max_turns=options["max_turns"],
             max_revisits=options["max_revisits"],
             cost_budget_usd=options["cost_budget_usd"],
             witness_preloaded=witness_preloaded,
@@ -577,7 +577,7 @@ async def run_ablation_record(
 def _runtime_options(
     spec: SmartEGAblationSpec,
     *,
-    max_tool_turns: int,
+    max_turns: int,
     max_revisits: int,
     cost_budget_usd: float,
     batch_index: int | None = None,
@@ -596,7 +596,7 @@ def _runtime_options(
     )
     work_item_id = _work_item_id(spec.id, batch_index, db_id, record_id)
     options = spec.to_runtime_options(
-        max_tool_turns=max_tool_turns,
+        max_turns=max_turns,
         max_revisits=max_revisits,
         cost_budget_usd=cost_budget_usd,
         progress_group_prefix=prefix,
@@ -683,7 +683,7 @@ def _prediction_from_solver_payload(
         ),
         MQL=mql,
         attempts=_attempt_count(feedback, payload),
-        max_tool_turns=int(options["max_tool_turns"]),
+        max_turns=int(options["max_turns"]),
         max_revisits=int(options["max_revisits"]),
         cost_budget_usd=float(options["cost_budget_usd"]),
         uses_evidence_gate=bool(options["use_evidence_gate"]),
@@ -744,7 +744,7 @@ def _failure_from_solver_payload(
         error_code=str(payload.get("error_code") or "SOLVER_FAILURE"),
         message=str(payload.get("message") or "solver returned failure"),
         attempts=_attempt_count(feedback, payload),
-        max_tool_turns=int(options["max_tool_turns"]),
+        max_turns=int(options["max_turns"]),
         max_revisits=int(options["max_revisits"]),
         cost_budget_usd=float(options["cost_budget_usd"]),
         uses_evidence_gate=bool(options["use_evidence_gate"]),
@@ -800,7 +800,7 @@ def _failure_from_error(
         error_code=err.anomaly.value if err.anomaly else "tend_error",
         message=err.message,
         attempts=0,
-        max_tool_turns=int(options["max_tool_turns"]),
+        max_turns=int(options["max_turns"]),
         max_revisits=int(options["max_revisits"]),
         cost_budget_usd=float(options["cost_budget_usd"]),
         uses_evidence_gate=bool(options["use_evidence_gate"]),
@@ -838,16 +838,16 @@ def _disclosure(
         "state_transition_intent": options.get("state_transition_intent"),
         "probe_scheduler_status": options.get("probe_scheduler_status"),
         "effective_budget_profile": options.get("effective_budget_profile"),
-        "effective_tool_turn_count": options.get("effective_tool_turn_count"),
+        "effective_agent_turn_count": options.get("effective_agent_turn_count"),
         "budget_disclosure": options.get("budget_disclosure"),
         "backbone": solver_disclosure.get("backbone"),
         "disjointness_ok": solver_disclosure.get("disjointness_ok"),
         "s_solver": solver_disclosure.get("s_solver"),
-        "max_tool_turns": options["max_tool_turns"],
+        "max_turns": options["max_turns"],
         "max_revisits": options["max_revisits"],
         "cost_budget_usd": options["cost_budget_usd"],
         "budget_profile": options.get("budget_profile"),
-        "solver_reported_max_tool_turns": solver_disclosure.get("max_tool_turns"),
+        "solver_reported_max_turns": solver_disclosure.get("max_turns"),
         "solver_reported_max_revisits": solver_disclosure.get("max_revisits"),
         "solver_reported_cost_budget_usd": solver_disclosure.get("cost_budget_usd"),
         "solver_reported_budget_profile": solver_disclosure.get("budget_profile"),
@@ -865,7 +865,7 @@ def _attempt_count(
     payload: dict[str, Any] | None = None,
 ) -> int:
     if payload:
-        for key in ("attempts", "tool_turns", "turns"):
+        for key in ("attempts", "llm_turns", "turns"):
             value = payload.get(key)
             if isinstance(value, int) and value > 0:
                 return value

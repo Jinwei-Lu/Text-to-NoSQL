@@ -117,6 +117,9 @@ def _record_for_nlq_track(record: dict[str, Any], nlq_track: NlqTrack) -> dict[s
         return record
     nl_queries = record.get("nl_queries")
     selected = nl_queries.get(nlq_track) if isinstance(nl_queries, dict) else None
+    if selected is None:
+        lean_key = "NLQ" if nlq_track == "canonical" else "NLQ_colloquial"
+        selected = record.get(lean_key)
     if not isinstance(selected, str) or not selected.strip():
         raise PromptAnomalyError(
             f"record missing {nlq_track} NLQ track",

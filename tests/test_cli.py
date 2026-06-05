@@ -295,10 +295,37 @@ def test_validate_smoke_relaxes_all_db_composition(capsys: pytest.CaptureFixture
     assert "TEND validate · validation INVALID · mode=full" in full
     assert "[H4] db coverage 1 != 11" in full
 
+    assert cli.main(["validate", "--dataset-dir", str(dataset), "--metadata-only"]) == 1
+    metadata_only = capsys.readouterr().out
+    assert "TEND validate · validation INVALID · mode=metadata-only" in metadata_only
+    assert "[H4] db coverage 1 != 11" in metadata_only
+
     assert cli.main(["validate", "--dataset-dir", str(dataset), "--smoke"]) == 0
     smoke = capsys.readouterr().out
     assert "TEND validate · validation OK · mode=smoke" in smoke
     assert "diversity: mql=" in smoke and "pairs=" in smoke
+
+    assert cli.main([
+        "validate",
+        "--dataset-dir",
+        str(dataset),
+        "--smoke",
+        "--metadata-only",
+    ]) == 0
+    smoke_metadata = capsys.readouterr().out
+    assert "TEND validate · validation OK · mode=smoke+metadata-only" in smoke_metadata
+    assert "diversity: mql=" in smoke_metadata and "pairs=" in smoke_metadata
+
+
+def test_validate_cli_help_describes_metadata_only(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as validate_help:
+        cli.main(["validate", "--help"])
+    assert validate_help.value.code == 0
+    output = " ".join(capsys.readouterr().out.split())
+    assert "--metadata-only" in output
+    assert "skip raw mongodb_data loading and world_signature recomputation" in output
 
 
 def test_publish_refuses_invalid_input(
@@ -659,9 +686,7 @@ def test_solve_cli_accepts_smart_eg_budget_flags_and_rejects_old_knobs(
 
     assert cli.main([
         "solve",
-        "--dataset-dir",
-        "tests/fixtures/smoke_release",
-        "--max-tool-turns",
+        "--max-turns",
         "17",
         "--max-revisits",
         "3",
@@ -678,7 +703,8 @@ def test_solve_cli_accepts_smart_eg_budget_flags_and_rejects_old_knobs(
     ]) == 0
 
     assert captured["source"] is None
-    assert captured["max_tool_turns"] == 17
+    assert captured["dataset_dir"].as_posix().endswith("release/tend-native-mongodb-v1")
+    assert captured["max_turns"] == 17
     assert captured["max_revisits"] == 3
     assert captured["cost_budget_usd"] == 2.5
     assert captured["solver_options"] == {
@@ -695,6 +721,36 @@ def test_solve_cli_accepts_smart_eg_budget_flags_and_rejects_old_knobs(
     with pytest.raises(SystemExit) as old_witness_k:
         cli.main(["solve", "--witness-k", "2", "--stub", "--quiet"])
     assert old_witness_k.value.code == 2
+
+    with pytest.raises(SystemExit) as old_tool_budget:
+        cli.main(["solve", "--max-tool-turns", "2", "--stub", "--quiet"])
+    assert old_tool_budget.value.code == 2
+
+    with pytest.raises(SystemExit) as old_ablation_tool_budget:
+        cli.main(["ablation", "--max-tool-turns", "2", "--stub", "--quiet"])
+    assert old_ablation_tool_budget.value.code == 2
+
+
+def test_solver_cli_help_uses_max_turns_and_release_dataset_default(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as solve_help:
+        cli.main(["solve", "--help"])
+    assert solve_help.value.code == 0
+    solve_output = capsys.readouterr().out
+    assert "--max-turns" in solve_output
+    assert "--max-tool-turns" not in solve_output
+    normalized_solve_output = " ".join(solve_output.split()).replace("- mongodb", "-mongodb")
+    assert "release/tend-native-mongodb-v1" in normalized_solve_output
+
+    with pytest.raises(SystemExit) as ablation_help:
+        cli.main(["ablation", "--help"])
+    assert ablation_help.value.code == 0
+    ablation_output = capsys.readouterr().out
+    assert "--max-turns" in ablation_output
+    assert "--max-tool-turns" not in ablation_output
+    normalized_ablation_output = " ".join(ablation_output.split()).replace("- mongodb", "-mongodb")
+    assert "release/tend-native-mongodb-v1" in normalized_ablation_output
 
 
 def test_smart_solve_record_forwards_solver_options(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -716,7 +772,7 @@ def test_smart_solve_record_forwards_solver_options(monkeypatch: pytest.MonkeyPa
                 "NLQ": "canonical question",
             },
             {},
-            max_tool_turns=13,
+            max_turns=13,
             options={"use_counterexample": False, "use_value_grounding": False},
         )
     )
@@ -724,7 +780,7 @@ def test_smart_solve_record_forwards_solver_options(monkeypatch: pytest.MonkeyPa
     assert result.to_json()["result_type"] == "solver_prediction"
     assert captured["db_id"] == "financial"
     assert captured["nlq"] == "canonical question"
-    assert captured["max_tool_turns"] == 13
+    assert captured["max_turns"] == 13
     assert captured["options"] == {"use_counterexample": False, "use_value_grounding": False}
 
 
@@ -784,7 +840,7 @@ def test_run_solve_writes_failures_separately(
             db_id=None,
             record_id=None,
             limit=1,
-            max_tool_turns=1,
+            max_turns=1,
             max_revisits=0,
             cost_budget_usd=0.1,
         )
@@ -801,6 +857,112 @@ def test_run_solve_writes_failures_separately(
     assert payload["error_code"] == "SOLVER_EXHAUSTED"
     assert not (settings.run_dir / "solver_predictions.jsonl").exists()
     assert not (settings.run_dir / "solver_failures.jsonl").exists()
+
+
+def test_run_solve_release_progress_context_and_counts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tend.agents import AgentContext
+    from tend.config import Settings
+    from tend.observability import make_reporter, setup_logging
+    from tend.workflow import Workflow
+
+    settings = Settings.from_env(
+        run_id="solver-release-progress-cli-test",
+        overrides={"TEND_LLM_STUB": "1"},
+        require_bird=False,
+    )
+    settings = replace(settings, paths=replace(settings.paths, runs=tmp_path / "runs"))
+    log = setup_logging(tmp_path / "run", console=False)
+    progress = make_reporter(settings.run_id, log, enabled=False)
+    ctx = AgentContext(settings=settings, llm=None, log=log, progress=progress, mongo=None)
+    rt = cli.Runtime(
+        settings,
+        ctx,
+        Workflow(ctx),
+        progress,
+        log,
+        None,
+        SimpleNamespace(close=lambda: None),
+    )
+    records = [
+        ({"record_id": 1001, "db_id": "financial"}, {}, None),
+        ({"record_id": 2002, "db_id": "superhero"}, {}, None),
+    ]
+    captured_contexts: list[dict[str, object]] = []
+
+    monkeypatch.setattr(cli, "load_solver_release_inputs", lambda *_args, **_kwargs: records)
+
+    async def fake_solve_record(wf, record, _schema, **_kwargs):
+        captured_contexts.append(
+            {
+                "db_id": wf.ctx.db_id,
+                "record_id": wf.ctx.record_id,
+                "group": wf.ctx.group,
+                "work_item_id": wf.ctx.work_item_id,
+                "extra": dict(wf.ctx.extra),
+            }
+        )
+        if record["db_id"] == "superhero":
+            return SimpleNamespace(
+                to_json=lambda: {
+                    "result_type": "solver_failure",
+                    "record_id": record["record_id"],
+                    "db_id": record["db_id"],
+                    "error_code": "SOLVER_EXHAUSTED",
+                    "message": "forced failure",
+                }
+            )
+        return SimpleNamespace(
+            to_json=lambda: {
+                "result_type": "solver_prediction",
+                "record_id": record["record_id"],
+                "db_id": record["db_id"],
+                "MQL": "db.account.aggregate([])",
+            }
+        )
+
+    monkeypatch.setattr(cli, "smart_solve_record_eg", fake_solve_record)
+
+    rc = __import__("asyncio").run(
+        cli._run_solve(
+            rt,
+            dataset_dir=tmp_path,
+            db_id=None,
+            record_id=None,
+            limit=2,
+            max_turns=1,
+            max_revisits=0,
+            cost_budget_usd=0.1,
+            evaluate=False,
+        )
+    )
+
+    assert rc == 1
+    assert captured_contexts == [
+        {
+            "db_id": "financial",
+            "record_id": 1001,
+            "group": "solve:financial",
+            "work_item_id": "solve:0:financial:1001",
+            "extra": {"batch_index": 0, "work_item_id": "solve:0:financial:1001"},
+        },
+        {
+            "db_id": "superhero",
+            "record_id": 2002,
+            "group": "solve:superhero",
+            "work_item_id": "solve:1:superhero:2002",
+            "extra": {"batch_index": 1, "work_item_id": "solve:1:superhero:2002"},
+        },
+    ]
+    summary = progress.summary()
+    assert summary["tasks"]["started"] == 2
+    assert summary["tasks"]["ok"] == 1
+    assert summary["tasks"]["fail"] == 1
+    assert progress._groups["solve:financial"].total == 1
+    assert progress._groups["solve:superhero"].total == 1
+    assert progress._tasks["solve:1:superhero:2002"].anomaly == "SOLVER_EXHAUSTED"
 
 
 def test_run_baseline_evaluates_against_selected_dataset_subset(
@@ -959,7 +1121,7 @@ def test_run_solve_writes_failure_artifact_for_solver_exception(
             db_id=None,
             record_id=None,
             limit=1,
-            max_tool_turns=1,
+            max_turns=1,
             max_revisits=0,
             cost_budget_usd=0.1,
         )
@@ -1004,7 +1166,8 @@ def test_run_solve_nlq_db_only_skips_release_loader(
         None,
         SimpleNamespace(close=lambda: None),
     )
-    captured: dict[str, object] = {}
+    captured_kwargs: dict[str, object] = {}
+    captured_context: dict[str, object] = {}
 
     monkeypatch.setattr(
         cli,
@@ -1012,12 +1175,16 @@ def test_run_solve_nlq_db_only_skips_release_loader(
         lambda *_args, **_kwargs: pytest.fail("NLQ+DB solve must not read release inputs"),
     )
 
-    async def fake_solve_nlq_db(*_args, **kwargs):
-        captured.update(kwargs)
+    async def fake_solve_nlq_db(wf, **kwargs):
+        captured_kwargs.update(kwargs)
+        captured_context["work_item_id"] = wf.ctx.work_item_id
+        captured_context["group"] = wf.ctx.group
+        captured_context["extra"] = dict(wf.ctx.extra)
 
         class FakePrediction:
             def to_json(self) -> dict:
                 return {
+                    "result_type": "solver_prediction",
                     "record_id": 12,
                     "db_id": "manual_formula",
                     "MQL": "db.race_weekends_v2.aggregate([])",
@@ -1034,7 +1201,7 @@ def test_run_solve_nlq_db_only_skips_release_loader(
             db_id="manual_formula",
             record_id=12,
             limit=1,
-            max_tool_turns=9,
+            max_turns=9,
             max_revisits=1,
             cost_budget_usd=0.25,
             nlq="List race weekends with Finished status buckets.",
@@ -1046,14 +1213,20 @@ def test_run_solve_nlq_db_only_skips_release_loader(
     stdout = capsys.readouterr().out
     assert "evaluation : skipped (NLQ+DB mode has no release evaluation dataset)" in stdout
     assert "evaluation : disabled (--no-eval)" not in stdout
-    assert captured == {
+    assert captured_kwargs == {
         "db_id": "manual_formula",
         "nlq": "List race weekends with Finished status buckets.",
         "record_id": 12,
-        "max_tool_turns": 9,
+        "max_turns": 9,
         "max_revisits": 1,
         "cost_budget_usd": 0.25,
     }
+    assert captured_context["work_item_id"] == "solve:0:manual_formula:12"
+    assert captured_context["group"] == "solve:manual_formula"
+    assert captured_context["extra"]["batch_index"] == 0
+    assert captured_context["extra"]["work_item_id"] == "solve:0:manual_formula:12"
+    assert progress.summary()["tasks"]["started"] == 1
+    assert progress.summary()["tasks"]["ok"] == 1
     predictions = settings.run_dir / "solve" / "solver_predictions.jsonl"
     assert predictions.exists()
     first_prediction = json.loads(predictions.read_text(encoding="utf-8").splitlines()[0])
@@ -1206,7 +1379,7 @@ def test_run_ablation_nlq_db_only_skips_evaluation(
             db_id="manual_cards",
             record_id=7,
             limit=1,
-            max_tool_turns=13,
+            max_turns=13,
             max_revisits=1,
             cost_budget_usd=0.75,
             nlq="Find Modern banned card printings.",
@@ -1221,7 +1394,7 @@ def test_run_ablation_nlq_db_only_skips_evaluation(
     assert captured["nlq"] == "Find Modern banned card printings."
     assert captured["db_id"] == "manual_cards"
     assert captured["record_id"] == 7
-    assert captured["max_tool_turns"] == 13
+    assert captured["max_turns"] == 13
     assert captured["max_revisits"] == 1
     assert captured["cost_budget_usd"] == 0.75
     assert captured["workers"] == 1
@@ -1323,7 +1496,7 @@ def test_run_ablation_variant_failure_does_not_fail_when_evaluation_is_ok(
             db_id="financial",
             record_id=None,
             limit=1,
-            max_tool_turns=1,
+            max_turns=1,
             max_revisits=0,
             cost_budget_usd=0.1,
             evaluate=True,
@@ -1426,7 +1599,7 @@ def test_run_ablation_all_variant_failures_are_experiment_outcomes(
             db_id="financial",
             record_id=None,
             limit=1,
-            max_tool_turns=1,
+            max_turns=1,
             max_revisits=0,
             cost_budget_usd=0.1,
             evaluate=True,

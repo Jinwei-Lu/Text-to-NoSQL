@@ -13,7 +13,7 @@ NextAction = Literal["continue", "revisit", "terminal_only", "abandon", "finaliz
 
 @dataclass
 class SmartEGBudgets:
-    max_tool_turns: int = 48
+    max_turns: int = 100
     max_revisits: int = 3
     max_repeated_submit_rejections: int = 8
     max_repeated_protocol_violations: int = 2
@@ -29,12 +29,13 @@ class SmartEGBudgets:
 @dataclass
 class SmartEGCounters:
     llm_turns: int = 0
-    tool_turns: int = 0
+    tool_calls: int = 0
     revisits: int = 0
     submit_rejections: int = 0
     protocol_violations: int = 0
     tokens: int = 0
     cost_usd: float = 0.0
+    cost_source: str = "unavailable"
     repeated_execution_failures: int = 0
 
     def to_json(self) -> dict[str, Any]:
@@ -193,7 +194,7 @@ class SmartEGFailure:
     nlq: str
     error_code: Literal[
         "INSUFFICIENT_EVIDENCE",
-        "TOOL_BUDGET_EXHAUSTED",
+        "AGENT_ITERATION_LIMIT_EXHAUSTED",
         "PROVIDER_FAILURE",
         "BOUNDARY_REJECTED",
         "EXECUTION_UNRESOLVED",

@@ -3,9 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from tend.construction.audit import audit_database_structure, validate_structure_gate
 from tend.construction.designs.california_schools import materialize_native_dataworld
 from tend.source import BirdSource
+
+pytestmark = pytest.mark.integration
 
 
 def _bird_source() -> BirdSource:

@@ -382,7 +382,7 @@ def test_ablation_prediction_and_failure_rows_keep_traceability_refs(
     spec = resolve_ablations("smart_eg_budget_low")[0]
     options = _runtime_options(
         spec,
-        max_tool_turns=48,
+        max_turns=48,
         max_revisits=2,
         cost_budget_usd=1.0,
         batch_index=3,

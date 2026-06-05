@@ -8,8 +8,75 @@ import pytest
 
 from tend.agents import LLMAgent
 from tend.config import Settings
+from tend.publish.gold_review import _SYSTEM_PROMPT as GOLD_REVIEW_SYSTEM_PROMPT
+from tend.publish.llm_review import _SYSTEM_PROMPT as LLM_REVIEW_SYSTEM_PROMPT
+from tend.publish.nlq_rewrite import _SYSTEM_PROMPT as NLQ_REWRITE_SYSTEM_PROMPT
 from tend.solver.eg.policy import SmartEGPolicy
 from tend.solver.eg.runtime import SYSTEM_PROMPT, _system_prompt_for_policy, _tool_schemas
+
+
+_CJK = re.compile(r"[\u2e80-\u9fff\u3000-\u30ff\uff00-\uffef]")
+_FENCE = re.compile(r"^\s*(```|~~~)")
+_HEADING = re.compile(r"^\s{0,3}#{1,6}\s")
+_HORIZONTAL_RULE = re.compile(r"^\s{0,3}([-*_])(?:\s*\1){2,}\s*$")
+_TABLE = re.compile(r"^\s*\|")
+_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+_BLOCKQUOTE = re.compile(r"^\s*>")
+_PLACEHOLDER = re.compile(r"^\s*\{\{[^}]+\}\s*$")
+
+
+def _is_plain_prose(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if any(
+        pattern.match(line)
+        for pattern in (
+            _HEADING,
+            _HORIZONTAL_RULE,
+            _TABLE,
+            _LIST_ITEM,
+            _BLOCKQUOTE,
+            _PLACEHOLDER,
+        )
+    ):
+        return False
+    if line[:1].isspace():
+        return False
+    return stripped[:1] not in {"{", "}", "[", "]"}
+
+
+def _prompt_text_failures(label: str, text: str) -> list[str]:
+    failures: list[str] = []
+    in_fence = False
+    previous_plain: tuple[int, str] | None = None
+    previous_list_item: tuple[int, str] | None = None
+    for line_no, line in enumerate(text.splitlines(), 1):
+        if _FENCE.match(line):
+            in_fence = not in_fence
+            previous_plain = None
+            previous_list_item = None
+            continue
+        if in_fence:
+            continue
+        if _CJK.search(line):
+            failures.append(f"{label}:{line_no}: contains CJK prompt text")
+        if _LIST_ITEM.match(line):
+            previous_plain = None
+            previous_list_item = (line_no, line)
+            continue
+        if previous_list_item and line[:1].isspace() and line.strip():
+            failures.append(f"{label}:{previous_list_item[0]}-{line_no}: list item hard wrap")
+        if _is_plain_prose(line):
+            if previous_plain:
+                failures.append(f"{label}:{previous_plain[0]}-{line_no}: prose hard wrap")
+            previous_plain = (line_no, line)
+            previous_list_item = None
+        else:
+            previous_plain = None
+            if line.strip():
+                previous_list_item = None
+    return failures
 
 
 @pytest.fixture(scope="module")
@@ -53,56 +120,23 @@ def test_llm_agent_prompt_text_reads_template_source_without_rewriting(tmp_path:
 def test_agent_prompt_templates_are_english_and_not_hard_wrapped(
     stub_settings: Settings,
 ) -> None:
-    cjk = re.compile(r"[\u2e80-\u9fff\u3000-\u30ff\uff00-\uffef]")
-    fence = re.compile(r"^\s*(```|~~~)")
-    heading = re.compile(r"^\s{0,3}#{1,6}\s")
-    horizontal_rule = re.compile(r"^\s{0,3}([-*_])(?:\s*\1){2,}\s*$")
-    table = re.compile(r"^\s*\|")
-    list_item = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
-    blockquote = re.compile(r"^\s*>")
-    placeholder = re.compile(r"^\s*\{\{[^}]+\}\s*$")
-
-    def is_plain_prose(line: str) -> bool:
-        stripped = line.strip()
-        if not stripped:
-            return False
-        if any(
-            pattern.match(line)
-            for pattern in (
-                heading,
-                horizontal_rule,
-                table,
-                list_item,
-                blockquote,
-                placeholder,
-            )
-        ):
-            return False
-        if line[:1].isspace():
-            return False
-        return stripped[:1] not in {"{", "}", "[", "]"}
-
     failures: list[str] = []
     for path in sorted(stub_settings.paths.agent_prompts.glob("*.md")):
-        in_fence = False
-        previous_plain: tuple[int, str] | None = None
-        for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            if fence.match(line):
-                in_fence = not in_fence
-                previous_plain = None
-                continue
-            if in_fence:
-                continue
-            if cjk.search(line):
-                failures.append(f"{path.name}:{line_no}: contains CJK prompt text")
-            if is_plain_prose(line):
-                if previous_plain:
-                    failures.append(
-                        f"{path.name}:{previous_plain[0]}-{line_no}: prose hard wrap"
-                    )
-                previous_plain = (line_no, line)
-            else:
-                previous_plain = None
+        failures.extend(_prompt_text_failures(path.name, path.read_text(encoding="utf-8")))
+
+    assert failures == []
+
+
+def test_code_prompt_templates_are_english_and_not_hard_wrapped() -> None:
+    prompts = {
+        "SMART_EG_SYSTEM_PROMPT": SYSTEM_PROMPT,
+        "NLQ_REWRITE_SYSTEM_PROMPT": NLQ_REWRITE_SYSTEM_PROMPT,
+        "GOLD_REVIEW_SYSTEM_PROMPT": GOLD_REVIEW_SYSTEM_PROMPT,
+        "LLM_REVIEW_SYSTEM_PROMPT": LLM_REVIEW_SYSTEM_PROMPT,
+    }
+    failures: list[str] = []
+    for label, text in prompts.items():
+        failures.extend(_prompt_text_failures(label, text))
 
     assert failures == []
 

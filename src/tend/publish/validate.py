@@ -248,8 +248,12 @@ class DiversityReport:
 def validate_release(
     out_dir: str | Path, *, schemas_dir: str | Path | None = None,
     executor: Any = None, supply_relax: bool = False, require_all_dbs: bool = True,
+    verify_world_signature: bool = True,
 ) -> ReleaseReport:
-    """Validate a written release: records (C1-C9 + jsonschema), composition (H), 3-way files (C4)."""
+    """Validate a written release: records (C1-C9 + jsonschema), composition (H), 3-way files (C4).
+
+    ``verify_world_signature=False`` skips raw ``mongodb_data`` loading and signature recomputation.
+    """
     layout = resolve_release_dataset_layout(out_dir)
     out_dir = layout.root
     test_path = layout.test_path
@@ -281,16 +285,18 @@ def validate_release(
     schemas_path = Path(schemas_dir) if schemas_dir else None
     schema_path = schemas_path / "record.schema.json" if schemas_path else None
     snapshots: dict[str, Any] = {}
-    for r in records:
-        db = r.get("db_id")
-        if db and db not in snapshots:
-            p = layout.mongodb_data_dir / f"{db}.json"
-            snapshots[db] = json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
-    snapshot_signatures = {
-        db: world_signature(snapshot)
-        for db, snapshot in snapshots.items()
-        if snapshot is not None
-    }
+    snapshot_signatures: dict[str, str] = {}
+    if verify_world_signature:
+        for r in records:
+            db = r.get("db_id")
+            if db and db not in snapshots:
+                p = layout.mongodb_data_dir / f"{db}.json"
+                snapshots[db] = json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+        snapshot_signatures = {
+            db: world_signature(snapshot)
+            for db, snapshot in snapshots.items()
+            if snapshot is not None
+        }
     record_schema = (
         json.loads(schema_path.read_text(encoding="utf-8"))
         if schema_path and schema_path.exists()
@@ -303,8 +309,13 @@ def validate_release(
         local_sch: list[str] = []
         try:
             db = r.get("db_id")
-            snap = snapshots.get(db) if db else None
-            if db and snap is not None and r.get("world_signature") != snapshot_signatures.get(db):
+            snap = snapshots.get(db) if db and verify_world_signature else None
+            if (
+                verify_world_signature
+                and db
+                and snap is not None
+                and r.get("world_signature") != snapshot_signatures.get(db)
+            ):
                 local_rec.append(
                     f"[C4 r{r.get('record_id','?')}] world_signature does not match "
                     f"mongodb_data/{db}.json"
@@ -355,7 +366,12 @@ def validate_release(
         if native_mode:
             file_viol += _validate_native_catalog_artifact(layout, schemas_path)
         else:
-            file_viol += _validate_release_artifacts(layout, comp.db_ids, schemas_path)
+            file_viol += _validate_release_artifacts(
+                layout,
+                comp.db_ids,
+                schemas_path,
+                validate_mongodb_data=verify_world_signature,
+            )
 
     ok = not (rec_viol or sch_viol or file_viol) and comp.ok
     return ReleaseReport(ok, len(records), rec_viol, sch_viol, comp, file_viol, diversity)
@@ -673,7 +689,11 @@ def _validate_native_catalog_artifact(layout: ReleaseDatasetLayout, schemas_dir:
 
 
 def _validate_release_artifacts(
-    layout: ReleaseDatasetLayout, db_ids: list[str], schemas_dir: Path
+    layout: ReleaseDatasetLayout,
+    db_ids: list[str],
+    schemas_dir: Path,
+    *,
+    validate_mongodb_data: bool = True,
 ) -> list[str]:
     """Validate release-level artifacts when proposal schemas are available."""
     try:
@@ -714,10 +734,14 @@ def _validate_release_artifacts(
     def check_db(db: str) -> list[str]:
         db_issues: list[str] = []
         if lib is not None:
-            for path, ref, label in (
+            artifacts = [
                 (layout.mongodb_schema_dir / f"{db}.json", "mongodb_schema", "mongodb_schema"),
-                (layout.mongodb_data_dir / f"{db}.json", "mongodb_data", "mongodb_data"),
-            ):
+            ]
+            if validate_mongodb_data:
+                artifacts.append(
+                    (layout.mongodb_data_dir / f"{db}.json", "mongodb_data", "mongodb_data")
+                )
+            for path, ref, label in artifacts:
                 if path.exists():
                     db_issues += check(
                         lib_ref(ref),

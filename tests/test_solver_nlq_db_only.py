@@ -233,6 +233,67 @@ def test_solver_release_inputs_support_formal_release_package_layout(tmp_path: P
     assert data == {"account_ledgers": [{"_id": 1}]}
 
 
+def test_solver_release_inputs_support_lean_only_formal_package_layout(tmp_path: Path) -> None:
+    package = tmp_path / "release" / "tend-native-mongodb-v1"
+    (package / "data").mkdir(parents=True)
+    (package / "schema" / "mongodb_schema").mkdir(parents=True)
+    (package / "mongodb_data").mkdir()
+    records = [
+        {
+            "record_id": 11,
+            "db_id": "financial",
+            "NLQ": "List financial ledgers.",
+            "NLQ_colloquial": "Show ledger rows.",
+            "MQL": "db.account_ledgers.aggregate([])",
+        },
+        {
+            "record_id": 12,
+            "db_id": "superhero",
+            "NLQ": "List heroes.",
+            "NLQ_colloquial": "Show heroes.",
+            "MQL": "db.hero.aggregate([])",
+        },
+    ]
+    (package / "data" / "TEND_lean.json").write_text(
+        json.dumps(records),
+        encoding="utf-8",
+    )
+    (package / "schema" / "mongodb_schema" / "financial.json").write_text(
+        json.dumps({"collections": {"account_ledgers": {}}}),
+        encoding="utf-8",
+    )
+    (package / "mongodb_data" / "financial.json").write_text(
+        json.dumps({"account_ledgers": [{"_id": 1}]}),
+        encoding="utf-8",
+    )
+
+    selected = solver_inputs.select_solver_release_records(
+        package,
+        db_id="financial",
+        limit=1,
+        nlq_track="colloquial",
+    )
+    loaded = solver_inputs.load_solver_release_inputs(
+        package,
+        db_id="financial",
+        limit=1,
+        nlq_track="colloquial",
+    )
+
+    assert selected == [
+        {
+            **records[0],
+            "nl_queries": {"canonical": "Show ledger rows."},
+            "nlq_track": "colloquial",
+        }
+    ]
+    record, schema, data = loaded[0]
+    assert record["record_id"] == 11
+    assert record["nl_queries"] == {"canonical": "Show ledger rows."}
+    assert schema == {"collections": {"account_ledgers": {}}}
+    assert data == {"account_ledgers": [{"_id": 1}]}
+
+
 def test_witness_digest_remains_available_for_non_eg_baselines() -> None:
     digest = solver_inputs.build_witness_digest(
         {"orders": [{"name": "Alice", "nested": {"city": "Brno"}}]},

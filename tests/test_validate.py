@@ -353,6 +353,13 @@ def test_validate_release_reports_malformed_mql_as_record_violation(tmp_path: Pa
     assert not report.ok
     assert any("C5" in issue and "parse error" in issue for issue in report.record_violations)
 
+    metadata_report = validate_release(out, require_all_dbs=False, verify_world_signature=False)
+    assert not metadata_report.ok
+    assert any(
+        "C5" in issue and "parse error" in issue
+        for issue in metadata_report.record_violations
+    )
+
 
 def test_validate_release_checks_artifacts_and_signature(tmp_path: Path):
     out = tmp_path / "release"
@@ -440,3 +447,21 @@ def test_validate_release_checks_artifacts_and_signature(tmp_path: Path):
     report = validate_release(out, schemas_dir="proposals/schemas", require_all_dbs=False)
     assert not report.ok
     assert any("world_signature" in issue for issue in report.record_violations)
+
+    metadata_report = validate_release(
+        out,
+        schemas_dir="proposals/schemas",
+        require_all_dbs=False,
+        verify_world_signature=False,
+    )
+    assert metadata_report.ok, metadata_report.summary()
+    assert not any("world_signature" in issue for issue in metadata_report.record_violations)
+
+    (out / "mongodb_data" / f"{db}.json").write_text("{not valid json", encoding="utf-8")
+    metadata_report = validate_release(
+        out,
+        schemas_dir="proposals/schemas",
+        require_all_dbs=False,
+        verify_world_signature=False,
+    )
+    assert metadata_report.ok, metadata_report.summary()

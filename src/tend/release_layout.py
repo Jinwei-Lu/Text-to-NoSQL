@@ -35,6 +35,20 @@ def resolve_release_dataset_layout(dataset_dir: str | Path) -> ReleaseDatasetLay
             native_feature_manifest_dir=root / "metadata" / "native_feature_manifest",
             provenance_dir=root / "metadata" / "provenance",
         )
+    if (root / "data" / "TEND_lean.json").exists():
+        lean_path = root / "data" / "TEND_lean.json"
+        return ReleaseDatasetLayout(
+            root=root,
+            test_path=lean_path,
+            tend_path=lean_path,
+            catalog_path=root / "data" / "bird_db_catalog.json",
+            mongodb_schema_dir=root / "schema" / "mongodb_schema",
+            mongodb_data_dir=root / "mongodb_data",
+            agent_design_rationale_dir=root / "metadata" / "agent_design_rationale",
+            migration_recipe_dir=root / "metadata" / "migration_recipe",
+            native_feature_manifest_dir=root / "metadata" / "native_feature_manifest",
+            provenance_dir=root / "metadata" / "provenance",
+        )
     return ReleaseDatasetLayout(
         root=root,
         test_path=root / "test.json",

@@ -3,9 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from tend.construction.audit import audit_database_structure, validate_structure_gate
 from tend.construction.designs.student_club import materialize_native_dataworld
 from tend.source import BirdSource
+
+pytestmark = pytest.mark.integration
 
 
 def _bird_source() -> BirdSource:
@@ -21,8 +25,15 @@ def _max_depth(value: Any) -> int:
     return 0
 
 
-def test_student_club_direct_materializer_builds_deep_event_documents() -> None:
-    result = materialize_native_dataworld(_bird_source(), "student_club")
+@pytest.fixture(scope="module")
+def student_club_result() -> Any:
+    return materialize_native_dataworld(_bird_source(), "student_club")
+
+
+def test_student_club_direct_materializer_builds_deep_event_documents(
+    student_club_result: Any,
+) -> None:
+    result = student_club_result
 
     assert "club_event_plans_v2" in result.data
     assert "club_member_accounts_v2" in result.data
@@ -50,8 +61,10 @@ def test_student_club_direct_materializer_builds_deep_event_documents() -> None:
     assert _max_depth(event) >= 7
 
 
-def test_student_club_direct_materializer_passes_native_structure_gate() -> None:
-    result = materialize_native_dataworld(_bird_source(), "student_club")
+def test_student_club_direct_materializer_passes_native_structure_gate(
+    student_club_result: Any,
+) -> None:
+    result = student_club_result
     audit = audit_database_structure("student_club", result.data)
     gate = validate_structure_gate(audit)
 
@@ -76,8 +89,10 @@ def test_student_club_direct_materializer_passes_native_structure_gate() -> None
     )
 
 
-def test_student_club_direct_manifest_names_semantic_query_features() -> None:
-    result = materialize_native_dataworld(_bird_source(), "student_club")
+def test_student_club_direct_manifest_names_semantic_query_features(
+    student_club_result: Any,
+) -> None:
+    result = student_club_result
 
     features = {feature.id: feature for feature in result.manifest.features}
     assert len(features) >= 3

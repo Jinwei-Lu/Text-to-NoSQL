@@ -282,7 +282,7 @@ def render_llm_transcript_markdown(payload: dict[str, Any]) -> str:
         ],
     )
 
-    reasoning = usage.get("reasoning_preview")
+    reasoning = usage.get("reasoning_content") or usage.get("reasoning_preview")
     if reasoning:
         _append_content(lines, "### Reasoning", reasoning)
 

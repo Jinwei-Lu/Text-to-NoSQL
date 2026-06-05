@@ -94,39 +94,25 @@ _REWRITE_SCHEMA: dict[str, Any] = {
 
 _SYSTEM_PROMPT = """You rewrite benchmark natural-language questions.
 
-The MQL is the ground truth. Rewrite both NLQs so they remain fully faithful to
-the MQL but no longer look generated from a slot template.
+The MQL is the ground truth. Rewrite both NLQs so they remain fully faithful to the MQL but no longer look generated from a slot template.
 
 Return only a JSON object. Do not use markdown.
 
 Hard requirements:
 - Keep the same record_id and db_id.
 - Do not change, simplify, or add MQL semantics.
-- Preserve the collection, limit, sort priority, filters, constants, numeric
-  thresholds, boolean logic, dynamic-key or nested-array behavior, group keys,
-  result shape, and output fields when those semantics exist.
-- When a descending sort is paired with a limit, both NLQs must explicitly use a
-  top/ranked/highest/most/maximum-style phrase and must name the descending sort
-  metric with recognizable tokens. For synthetic metrics, include the readable
-  words from the field name, such as "native dynamic key count", "above threshold",
-  "observed", or "loan account share". If needed, include the exact field path in
-  parentheses, such as "(ranked by native dynamic key count descending)". Replace
-  dots and underscores with spaces so validators can see tokens such as "score",
-  "native", "dynamic", "key", and "count". Do not rely on "first" alone.
-- Include every numeric threshold and every answer-changing string constant
-  verbatim somewhere in each NLQ.
+- Preserve the collection, limit, sort priority, filters, constants, numeric thresholds, boolean logic, dynamic-key or nested-array behavior, group keys, result shape, and output fields when those semantics exist.
+- When a descending sort is paired with a limit, both NLQs must explicitly use a top/ranked/highest/most/maximum-style phrase and must name the descending sort metric with recognizable tokens. For synthetic metrics, include the readable words from the field name, such as "native dynamic key count", "above threshold", "observed", or "loan account share". If needed, include the exact field path in parentheses, such as "(ranked by native dynamic key count descending)". Replace dots and underscores with spaces so validators can see tokens such as "score", "native", "dynamic", "key", and "count". Do not rely on "first" alone.
+- Include every numeric threshold and every answer-changing string constant verbatim somewhere in each NLQ.
 - Write natural benchmark questions, not audit checklists.
 - The canonical_nlq should be precise and formal, but still natural English.
-- The colloquial_nlq should sound like a realistic user request, while keeping
-  the same answer-changing constraints.
+- The colloquial_nlq should sound like a realistic user request, while keeping the same answer-changing constraints.
 - Avoid a repeated global frame. Vary wording across records.
 
 Forbidden template artifacts:
 - Do not start with "On `".
 - Do not start with "Show the top".
-- Do not use the phrases "predicate fields", "output fields", "require constants",
-  "apply numeric thresholds", "expand dynamic sources", "context source",
-  "reference fields", "using constants", "with fields", or "aggregate groups".
+- Do not use the phrases "predicate fields", "output fields", "require constants", "apply numeric thresholds", "expand dynamic sources", "context source", "reference fields", "using constants", "with fields", or "aggregate groups".
 - Do not expose native_query_pattern as a user-facing label.
 - Avoid semicolon-separated slot lists.
 

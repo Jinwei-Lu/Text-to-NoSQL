@@ -67,7 +67,7 @@ STAGE_CONTROL_TOOLS = {
 }
 FAILURE_CODES = {
     "INSUFFICIENT_EVIDENCE",
-    "TOOL_BUDGET_EXHAUSTED",
+    "AGENT_ITERATION_LIMIT_EXHAUSTED",
     "PROVIDER_FAILURE",
     "BOUNDARY_REJECTED",
     "EXECUTION_UNRESOLVED",
@@ -1629,14 +1629,22 @@ def _planning_ready_for_submit(state: SmartEGState, policy: SmartEGPolicy) -> bo
 
 
 def _execution_ready_for_submit(state: SmartEGState, policy: SmartEGPolicy) -> bool:
-    del policy
     if state.mode != "execution":
         return False
     if state.query_plan is None or {"environment", "intent", "plan"} & state.stale_milestones:
         return False
     if state.evidence_ledger.blocking_debts():
         return False
+    if policy.enable_final_sanity_execution and not _has_final_sanity_evidence(state):
+        return False
     return True
+
+
+def _has_final_sanity_evidence(state: SmartEGState) -> bool:
+    return any(
+        record.source_tool == "run_final_sanity_execution"
+        for record in state.evidence_ledger.records.values()
+    )
 
 
 def _refs(payload: Any) -> list[str]:

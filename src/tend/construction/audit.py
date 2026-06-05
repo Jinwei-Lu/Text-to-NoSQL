@@ -74,10 +74,20 @@ def audit_database_structure(
         collection: len(docs) for collection, docs in sorted(data.items())
     }
     state = _AuditState()
-    for docs in data.values():
-        for doc in docs:
-            if isinstance(doc, dict):
-                _walk(doc, path=(), tokens=("object",), state=state, depth=1)
+    per_collection_paths: dict[str, dict[str, list[str]]] = {}
+    for collection, docs in sorted(data.items()):
+        coll_state = _audit_docs(docs)
+        _merge_state(state, coll_state)
+        per_collection_paths[collection] = {
+            "dynamic_key_paths": sorted(coll_state.dynamic_key_samples),
+            "nested_array_paths": sorted(coll_state.array_lengths),
+            "dynamic_array_object_paths": sorted(coll_state.dynamic_array_object_paths),
+            "array_object_dynamic_paths": sorted(coll_state.array_object_dynamic_paths),
+            "presence_state_counts": [
+                f"{state_name}:{count}"
+                for state_name, count in sorted(coll_state.presence_state_counts.items())
+            ],
+        }
 
     dynamic_key_paths = [
         DynamicKeyPath(
@@ -92,23 +102,6 @@ def audit_database_structure(
         path: _length_stats(lengths)
         for path, lengths in sorted(state.array_lengths.items())
     }
-    # NOTE: changes measured behavior; affected ablation/leaderboard numbers need re-run (review fix H4 re-architecture)
-    per_collection_paths: dict[str, dict[str, list[str]]] = {}
-    for collection, docs in sorted(data.items()):
-        coll_state = _AuditState()
-        for doc in docs:
-            if isinstance(doc, dict):
-                _walk(doc, path=(), tokens=("object",), state=coll_state, depth=1)
-        per_collection_paths[collection] = {
-            "dynamic_key_paths": sorted(coll_state.dynamic_key_samples),
-            "nested_array_paths": sorted(coll_state.array_lengths),
-            "dynamic_array_object_paths": sorted(coll_state.dynamic_array_object_paths),
-            "array_object_dynamic_paths": sorted(coll_state.array_object_dynamic_paths),
-            "presence_state_counts": [
-                f"{state_name}:{count}"
-                for state_name, count in sorted(coll_state.presence_state_counts.items())
-            ],
-        }
     return NativeStructureAudit(
         db_id=db_id,
         collection_counts=collection_counts,
@@ -160,6 +153,28 @@ class _AuditState:
     dynamic_array_object_paths: set[str] = field(default_factory=set)
     array_object_dynamic_paths: set[str] = field(default_factory=set)
     presence_state_counts: Counter[str] = field(default_factory=Counter)
+
+
+def _audit_docs(docs: list[dict[str, Any]]) -> _AuditState:
+    state = _AuditState()
+    for doc in docs:
+        if isinstance(doc, dict):
+            _walk(doc, path=(), tokens=("object",), state=state, depth=1)
+    return state
+
+
+def _merge_state(target: _AuditState, source: _AuditState) -> None:
+    target.max_depth = max(target.max_depth, source.max_depth)
+    target.dynamic_path_counts.update(source.dynamic_path_counts)
+    target.presence_state_counts.update(source.presence_state_counts)
+    for path, samples in source.dynamic_key_samples.items():
+        target.dynamic_key_samples[path].update(samples)
+    for path, kinds in source.dynamic_value_kinds.items():
+        target.dynamic_value_kinds[path].update(kinds)
+    for path, lengths in source.array_lengths.items():
+        target.array_lengths[path].extend(lengths)
+    target.dynamic_array_object_paths.update(source.dynamic_array_object_paths)
+    target.array_object_dynamic_paths.update(source.array_object_dynamic_paths)
 
 
 def _walk(

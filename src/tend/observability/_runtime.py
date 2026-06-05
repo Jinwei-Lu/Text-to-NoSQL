@@ -333,6 +333,12 @@ class RunLogger:
             self._ctx.get("agent_session_ref") or transcript.get("agent_session_ref")
         )
         agent_session_ref = str(raw_agent_session_ref) if raw_agent_session_ref else None
+        write_markdown = bool(
+            self._ctx.get(
+                "write_llm_markdown_transcript",
+                self._run.write_llm_markdown_transcripts,
+            )
+        )
         diagnostics_ref = _llm_diagnostics_ref(
             agent,
             call_id,
@@ -349,7 +355,7 @@ class RunLogger:
         diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
         md_path = self._run.run_dir / markdown_ref
         transcript_ref = agent_session_ref or (
-            markdown_ref if self._run.write_llm_markdown_transcripts else diagnostics_ref
+            markdown_ref if write_markdown else diagnostics_ref
         )
         payload = {
             "ts": _utcnow(),
@@ -361,16 +367,16 @@ class RunLogger:
             "transcript_ref": transcript_ref,
             "diagnostics_ref": diagnostics_ref,
             "markdown_transcript_ref": (
-                markdown_ref if self._run.write_llm_markdown_transcripts else None
+                markdown_ref if write_markdown else None
             ),
-            "markdown_transcript_enabled": self._run.write_llm_markdown_transcripts,
+            "markdown_transcript_enabled": write_markdown,
         }
         diagnostics_path.write_text(_json_dumps(payload, indent=2), encoding="utf-8")
         with self._run._lock:
             self._run.llm_diagnostics_by_transcript_ref[transcript_ref] = diagnostics_ref
             if markdown_ref:
                 self._run.llm_diagnostics_by_transcript_ref[markdown_ref] = diagnostics_ref
-        if self._run.write_llm_markdown_transcripts:
+        if write_markdown:
             md_path.write_text(render_llm_transcript_markdown(payload), encoding="utf-8")
         if _is_final_transcript_payload(payload):
             usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}

@@ -3,8 +3,12 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
+import pytest
+
 from tend.construction.audit import audit_database_structure, validate_structure_gate
 from tend.source import ColumnSchema, DbSchema, ForeignKey
+
+pytestmark = pytest.mark.integration
 
 
 class ToxicologyFixtureSource:

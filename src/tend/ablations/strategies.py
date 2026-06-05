@@ -6,8 +6,8 @@ from typing import Any
 
 from ..errors import SourceError
 
-DEFAULT_MAX_TOOL_TURNS = 48
-MEDIUM_BUDGET_MAX_TOOL_TURNS = 24
+DEFAULT_MAX_TURNS = 100
+MEDIUM_BUDGET_MAX_TURNS = 24
 DEFAULT_MAX_REVISITS = 2
 DEFAULT_COST_BUDGET_USD = 1.0
 COST_BUDGET_USD_SOURCE = "provider_cost_usd_if_available"
@@ -18,25 +18,25 @@ PROBE_SCHEDULER_STATUS = "unsupported"
 @dataclass(frozen=True, slots=True)
 class BudgetProfile:
     name: str
-    max_tool_turns: int
+    max_turns: int
     max_revisits: int
     cost_budget_usd: float
 
 
 BUDGET_PROFILES: dict[str, BudgetProfile] = {
     "full": BudgetProfile(
-        "full", DEFAULT_MAX_TOOL_TURNS, DEFAULT_MAX_REVISITS, DEFAULT_COST_BUDGET_USD
+        "full", DEFAULT_MAX_TURNS, DEFAULT_MAX_REVISITS, DEFAULT_COST_BUDGET_USD
     ),
     "reference": BudgetProfile(
         "reference",
-        DEFAULT_MAX_TOOL_TURNS,
+        DEFAULT_MAX_TURNS,
         DEFAULT_MAX_REVISITS,
         DEFAULT_COST_BUDGET_USD,
     ),
     "low": BudgetProfile("low", 8, 0, 0.25),
     "medium": BudgetProfile(
         "medium",
-        MEDIUM_BUDGET_MAX_TOOL_TURNS,
+        MEDIUM_BUDGET_MAX_TURNS,
         DEFAULT_MAX_REVISITS,
         DEFAULT_COST_BUDGET_USD,
     ),
@@ -57,7 +57,7 @@ class SmartEGAblationSpec:
     use_prefix_execution: bool = True
     use_revisit: bool = True
     use_probe_scheduler: bool = False
-    max_tool_turns: int | None = None
+    max_turns: int | None = None
     max_revisits: int | None = None
     cost_budget_usd: float | None = None
     budget_profile: str = "reference"
@@ -65,7 +65,7 @@ class SmartEGAblationSpec:
     def to_runtime_options(
         self,
         *,
-        max_tool_turns: int | None = None,
+        max_turns: int | None = None,
         max_revisits: int | None = None,
         cost_budget_usd: float | None = None,
         progress_group_prefix: str = "solve",
@@ -73,16 +73,16 @@ class SmartEGAblationSpec:
     ) -> dict[str, Any]:
         profile = BUDGET_PROFILES.get(self.budget_profile)
         profile_locks_budget = _profile_locks_budget(self)
-        effective_tool_turns = (
-            self.max_tool_turns
-            if self.max_tool_turns is not None
-            else max_tool_turns
-            if max_tool_turns is not None and not profile_locks_budget
-            else profile.max_tool_turns
+        effective_turns = (
+            self.max_turns
+            if self.max_turns is not None
+            else max_turns
+            if max_turns is not None and not profile_locks_budget
+            else profile.max_turns
             if profile is not None
-            else max_tool_turns
-            if max_tool_turns is not None
-            else DEFAULT_MAX_TOOL_TURNS
+            else max_turns
+            if max_turns is not None
+            else DEFAULT_MAX_TURNS
         )
         effective_revisits = (
             self.max_revisits
@@ -106,12 +106,12 @@ class SmartEGAblationSpec:
             if cost_budget_usd is not None
             else DEFAULT_COST_BUDGET_USD
         )
-        max_turns = max(1, int(effective_tool_turns))
+        turn_budget = max(1, int(effective_turns))
         max_revisits_value = max(0, int(effective_revisits))
         cost_budget = max(0.0, float(effective_cost))
         profile_budget = profile or BudgetProfile(
             self.budget_profile,
-            max_turns,
+            turn_budget,
             max_revisits_value,
             cost_budget,
         )
@@ -146,24 +146,24 @@ class SmartEGAblationSpec:
             "use_revisit": self.use_revisit,
             "use_probe_scheduler": self.use_probe_scheduler,
             "probe_scheduler_status": PROBE_SCHEDULER_STATUS,
-            "max_tool_turns": max_turns,
+            "max_turns": turn_budget,
             "max_revisits": max_revisits_value,
             "cost_budget_usd": cost_budget,
             "budget_profile": self.budget_profile,
             "effective_budget_profile": self.budget_profile,
-            "effective_tool_turn_count": max_turns,
+            "effective_agent_turn_count": turn_budget,
             "budget_disclosure": {
                 "profile": self.budget_profile,
-                "profile_max_tool_turns": profile_budget.max_tool_turns,
+                "profile_max_turns": profile_budget.max_turns,
                 "profile_max_revisits": profile_budget.max_revisits,
                 "profile_cost_budget_usd": profile_budget.cost_budget_usd,
-                "effective_max_tool_turns": max_turns,
+                "effective_max_turns": turn_budget,
                 "effective_max_revisits": max_revisits_value,
                 "effective_cost_budget_usd": cost_budget,
                 "mechanism_overrides": [
                     name
                     for name, enabled in (
-                        ("max_tool_turns", self.max_tool_turns is not None),
+                        ("max_turns", self.max_turns is not None),
                         ("max_revisits", self.max_revisits is not None),
                         ("cost_budget_usd", self.cost_budget_usd is not None),
                     )
@@ -173,9 +173,9 @@ class SmartEGAblationSpec:
                     name
                     for name, enabled in (
                         (
-                            "max_tool_turns",
-                            max_tool_turns is not None
-                            and self.max_tool_turns is None
+                            "max_turns",
+                            max_turns is not None
+                            and self.max_turns is None
                             and not profile_locks_budget,
                         ),
                         (
@@ -345,11 +345,11 @@ _ABLATIONS: dict[str, SmartEGAblationSpec] = {
         id="smart_eg_budget_low",
         title="Low budget profile",
         description=(
-            "Run SMART-EG under a low tool-turn/revisit budget profile; this "
+            "Run SMART-EG under a low agent-turn/revisit budget profile; this "
             "is not a single-mechanism isolation ablation."
         ),
         limitations=(
-            "low tool-turn profile",
+            "low agent-turn profile",
             "zero revisit profile",
             "cost ceiling applies only when provider cost_usd is reported",
         ),
@@ -359,11 +359,11 @@ _ABLATIONS: dict[str, SmartEGAblationSpec] = {
         id="smart_eg_budget_medium",
         title="Medium budget profile",
         description=(
-            "Run SMART-EG under the medium tool-turn/revisit budget profile; "
+            "Run SMART-EG under the medium agent-turn/revisit budget profile; "
             "this is not a single-mechanism isolation ablation."
         ),
         limitations=(
-            "medium tool-turn profile",
+            "medium agent-turn profile",
             "cost ceiling applies only when provider cost_usd is reported",
         ),
         budget_profile="medium",
@@ -372,11 +372,11 @@ _ABLATIONS: dict[str, SmartEGAblationSpec] = {
         id="smart_eg_budget_high",
         title="High budget profile",
         description=(
-            "Run SMART-EG under an expanded tool-turn/revisit budget profile; "
+            "Run SMART-EG under an expanded agent-turn/revisit budget profile; "
             "this is not a single-mechanism isolation ablation."
         ),
         limitations=(
-            "high tool-turn profile",
+            "high agent-turn profile",
             "high revisit profile",
             "cost ceiling applies only when provider cost_usd is reported",
         ),

@@ -14,91 +14,51 @@ from ..inputs import _canonical_nlq
 
 SYSTEM_PROMPT = """# SMART-EG Solver
 
-You solve one NLQ against one interactive MongoDB database using provider-native tool
-calls. Do not answer in natural language. Every productive step is a tool call.
+You solve one NLQ against one interactive MongoDB database using provider-native tool calls. Do not answer in natural language. Every productive step is a tool call.
 
 ## Stage Contract
 
 Stage order is mandatory.
 
-1. Environment: inspect the database with `list_collections` and compact Mongo tools.
-   Submit `submit_environment_model` only after you have observed candidate
-   collections plus shape/path evidence. The submit requires `candidate_collections`
-   and `evidence_refs`.
-2. Intent: accepted environment is required before intent submit. Ground the NLQ in
-   observed paths, observed value buckets, or relationship evidence, then call
-   `submit_intent_hypothesis` with `evidence_refs`.
-3. Planning: accepted intent is required before plan submit. Build one MongoDB
-   aggregation plan from the grounded intent, then call `submit_query_plan`.
-4. Execution: accepted query_plan is required before final submit. Validate the
-   candidate query with read-only probes and boundary checks, then call
-   `submit_final_mql`.
+1. Environment: inspect the database with `list_collections` and compact Mongo tools. Submit `submit_environment_model` only after you have observed candidate collections plus shape/path evidence. The submit requires `candidate_collections` and `evidence_refs`.
+2. Intent: accepted environment is required before intent submit. Ground the NLQ in observed paths, observed value buckets, or relationship evidence, then call `submit_intent_hypothesis` with `evidence_refs`.
+3. Planning: accepted intent is required before plan submit. Build one MongoDB aggregation plan from the grounded intent, then call `submit_query_plan`.
+4. Execution: accepted query_plan is required before final submit. Validate the candidate query with read-only probes and boundary checks, then call `submit_final_mql`.
 
 ## Tool Boundary
 
-- Only call tools exposed in the current turn. The exact exposed tools are the
-  provider-native tools attached to this request; do not assume every SMART-EG tool
-  is available in every stage.
+- Only call tools exposed in the current turn. The exact exposed tools are the provider-native tools attached to this request; do not assume every SMART-EG tool is available in every stage.
 - `read_documents` and `run_query` are not available tools.
-- Use the exposed subset of these Batch 2 tool names:
-  `list_collections`, `sample_documents`, `discover_paths`, `profile_path`,
-  `profile_path_values`, `search_values`, `inspect_array_shape`,
-  `inspect_dynamic_keys`, `profile_relationship_candidates`, `run_readonly_probe`,
-  `add_evidence_claim`, `link_evidence`, `inspect_evidence_ledger`,
-  `inspect_evidence_debt`, `mine_counterexamples`, `render_pipeline`,
-  `check_ast_filter`, `run_final_sanity_execution`,
-  `render_pipeline_prefix`, `execute_pipeline_prefix`, `check_prefix_checkpoint`,
-  `submit_environment_model`, `submit_intent_hypothesis`, `submit_query_plan`,
-  `submit_final_mql`, `request_revisit`, `request_mode_shift`,
-  `abandon_with_failure`.
+- Use the exposed subset of these Batch 2 tool names: `list_collections`, `sample_documents`, `discover_paths`, `profile_path`, `profile_path_values`, `search_values`, `inspect_array_shape`, `inspect_dynamic_keys`, `profile_relationship_candidates`, `run_readonly_probe`, `add_evidence_claim`, `link_evidence`, `inspect_evidence_ledger`, `inspect_evidence_debt`, `mine_counterexamples`, `render_pipeline`, `check_ast_filter`, `run_final_sanity_execution`, `render_pipeline_prefix`, `execute_pipeline_prefix`, `check_prefix_checkpoint`, `submit_environment_model`, `submit_intent_hypothesis`, `submit_query_plan`, `submit_final_mql`, `request_revisit`, `request_mode_shift`, `abandon_with_failure`.
 - Use `evidence_id` values returned by tools in later `evidence_refs`.
-- If `profile_relationship_candidates` is exposed, treat it as the relationship
-  probe. Use it before `$lookup` or relationship cardinality assumptions.
-- If prefix tools are exposed, use them to render and execute bounded aggregation
-  prefixes. Their observations are typed stage-local feedback for repairing a
-  candidate before final submit.
+- If `profile_relationship_candidates` is exposed, treat it as the relationship probe. Use it before `$lookup` or relationship cardinality assumptions.
+- If prefix tools are exposed, use them to render and execute bounded aggregation prefixes. Their observations are typed stage-local feedback for repairing a candidate before final submit.
 
 ## Evidence Grounding
 
-- `evidence_refs` must cite typed evidence from observations. Typed evidence means
-  source tool, observed collection/path/type information, observed value buckets,
-  relationship candidates, counterexamples, and read-only probe outputs.
-- Use typed value grounding before constants, enums, dates, ObjectId filters, regexes,
-  or comparisons. Do not invent values that were not observed or profiled.
-- Tool rejections return typed feedback such as `reason`, `error_code`,
-  `required_tool`, `missing_evidence`, `debt_ids`, and `gate_ref`. Repair from those
-  fields instead of repeating the same invalid call.
+- `evidence_refs` must cite typed evidence from observations. Typed evidence means source tool, observed collection/path/type information, observed value buckets, relationship candidates, counterexamples, and read-only probe outputs.
+- Use typed value grounding before constants, enums, dates, ObjectId filters, regexes, or comparisons. Do not invent values that were not observed or profiled.
+- Tool rejections return typed feedback such as `reason`, `error_code`, `required_tool`, `missing_evidence`, `debt_ids`, and `gate_ref`. Repair from those fields instead of repeating the same invalid call.
 
 ## Exit Contract
 
 - Successful completion is only `submit_final_mql`.
 - Normal failure is only `abandon_with_failure`.
-- Production success requires final sanity execution. `submit_final_mql` runs the
-  final sanity execution when enabled; if the final sanity observation is not ok,
-  the solver must repair or use typed failure.
-- Keep exploration bounded: prefer one or two targeted tool calls per turn and stop
-  probing once the current stage has enough evidence.
+- Production success requires final sanity execution. `submit_final_mql` runs the final sanity execution when enabled; if the final sanity observation is not ok, the solver must repair or use typed failure.
+- Keep exploration bounded: prefer one or two targeted tool calls per turn and stop probing once the current stage has enough evidence.
 
 ## MongoDB Idioms
 
-- Use MongoDB aggregation idioms: choose one base collection, provide `collection`
-  plus `pipeline`, `$match` early, `$unwind` arrays before filtering nested array
-  members, `$group` only for real aggregation, and `$project` final answer fields.
-- Use `$lookup` only after proving relationship keys with evidence. Avoid SQL table,
-  join, and column language in the final MQL.
+- Use MongoDB aggregation idioms: choose one base collection, provide `collection` plus `pipeline`, `$match` early, `$unwind` arrays before filtering nested array members, `$group` only for real aggregation, and `$project` final answer fields.
+- Use `$lookup` only after proving relationship keys with evidence. Avoid SQL table, join, and column language in the final MQL.
 - Use ObjectId and ISODate only when observed values prove those BSON/date types.
 
 ## Semantic Plan Fidelity
 
-- Translate the NLQ into result semantics before choosing stages. Preserve requested
-  grouping dimensions, comparison axes, context fields, row limits, and sort intent.
-- Phrases such as share, ratio, rate, pool, context, concentrated, top, and compare
-  usually imply derived metrics, counts, thresholds, sort order, or final projection
-  fields. Encode those semantics explicitly instead of returning only raw paths.
-- For dynamic-key objects, use `$objectToArray` and keep both key and value meaning:
-  project the key as an answer dimension and compute counts from the value array.
-- When the NLQ asks for context, include the scalar context fields and derived
-  summary fields needed to make the comparison interpretable.
+- Translate the NLQ into result semantics before choosing stages. Preserve requested grouping dimensions, comparison axes, context fields, row limits, and sort intent.
+- Phrases such as share, ratio, rate, pool, context, concentrated, top, and compare usually imply derived metrics, counts, thresholds, sort order, or final projection fields. Encode those semantics explicitly instead of returning only raw paths.
+- For dynamic-key objects, use `$objectToArray` and keep both key and value meaning: project the key as an answer dimension and compute counts from the value array.
+- When the NLQ asks for context, include the scalar context fields and derived summary fields needed to make the comparison interpretable.
 """
 
 _RUNTIME_TOOL_DESCRIPTION_OVERRIDES = {
@@ -283,6 +243,8 @@ async def smart_solve_nlq_db_eg(
         db_id=db_id,
         record_id=record_id,
     )
+    if session_logger is not None:
+        observer.run_logger = session_logger
     state = SmartEGState(
         nlq=nlq,
         db_id=db_id,
@@ -303,7 +265,7 @@ async def smart_solve_nlq_db_eg(
         system_prompt=system_prompt,
         user_message=initial_user_message,
         tools=_tool_schemas(policy=policy),
-        max_turns=policy.budgets.max_tool_turns,
+        max_turns=policy.budgets.max_turns,
     )
     if session_logger is not None and hasattr(session_logger, "open_agent_session"):
         session_logger.open_agent_session(
@@ -356,7 +318,10 @@ async def smart_solve_nlq_db_eg(
                     "turn_index": turn_index,
                     "mode": state.mode,
                     "terminal_only": state.terminal_only,
-                    "tool_turn": state.counters.tool_turns,
+                    "llm_turns_completed": state.counters.llm_turns,
+                    "max_turns": state.budgets.max_turns,
+                    "remaining_agent_turns": state.budgets.max_turns - state.counters.llm_turns,
+                    "tool_calls_seen": state.counters.tool_calls,
                     "debt_count": len(state.evidence_ledger.blocking_debts()),
                 },
             )
@@ -364,11 +329,15 @@ async def smart_solve_nlq_db_eg(
                 {
                     "db_id": state.db_id,
                     "mode": state.mode,
-                    "tool_turn": state.counters.tool_turns,
+                    "llm_turns_completed": state.counters.llm_turns,
+                    "max_turns": state.budgets.max_turns,
+                    "remaining_agent_turns": state.budgets.max_turns - state.counters.llm_turns,
+                    "tool_calls_seen": state.counters.tool_calls,
                     "evidence_debt_count": len(state.evidence_ledger.blocking_debts()),
                     "revisit_budget": state.budgets.max_revisits - state.counters.revisits,
                     "provider_wait_s": 0.0,
                     "cost": state.counters.cost_usd,
+                    "cost_source": state.counters.cost_source,
                     "tokens": state.counters.tokens,
                 }
             )
@@ -461,6 +430,7 @@ async def smart_solve_nlq_db_eg(
                     "cost": response.get("cost"),
                     "cumulative_tokens": state.counters.tokens,
                     "cumulative_cost_usd": state.counters.cost_usd,
+                    "cumulative_cost_source": state.counters.cost_source,
                     "content": response.get("content") or response.get("response_text"),
                     "assistant_message": response.get("assistant_message"),
                     "tool_calls": list(response.get("tool_calls") or []),
@@ -506,8 +476,7 @@ async def smart_solve_nlq_db_eg(
                         **observation.llm_visible_content,
                         "error_refs": error_refs,
                     }
-                if _counts_against_tool_budget(observation):
-                    state.counters.tool_turns += 1
+                state.counters.tool_calls += 1
                 history.add_tool_result(
                     observation.tool_call_id,
                     observation.name,
@@ -560,10 +529,10 @@ async def smart_solve_nlq_db_eg(
         if session_logger is not None and hasattr(session_logger, "close_agent_session"):
             session_logger.close_agent_session(
                 turns=state.counters.llm_turns,
-                tool_calls_made=state.counters.tool_turns,
+                tool_calls_made=state.counters.tool_calls,
                 total_tokens=state.counters.tokens,
                 total_cost=state.counters.cost_usd,
-                total_cost_source="api" if state.counters.cost_usd else "unavailable",
+                total_cost_source=state.counters.cost_source,
                 completed=state.result.result_type != "solver_failure",
                 reason=state.terminal_reason,
                 outcome=state.result.result_type,
@@ -581,7 +550,7 @@ async def smart_solve_record_eg(
     *,
     local_data: dict[str, list[dict[str, Any]]] | None = None,
     policy: SmartEGPolicy | None = None,
-    max_tool_turns: int | None = None,
+    max_turns: int | None = None,
     max_revisits: int | None = None,
     cost_budget_usd: float | None = None,
     witness_preloaded: bool = False,
@@ -597,7 +566,7 @@ async def smart_solve_record_eg(
     if policy is None:
         policy = _policy_from_options(
             options or {},
-            max_tool_turns=max_tool_turns,
+            max_turns=max_turns,
             max_revisits=max_revisits,
             cost_budget_usd=cost_budget_usd,
         )
@@ -627,6 +596,11 @@ def _session_logger(
         "db_id": db_id,
         "record_id": record_id,
     }
+    if ctx is not None:
+        for key in ("group", "work_item_id"):
+            value = getattr(ctx, key, None)
+            if value is not None:
+                fields[key] = value
     extra = getattr(ctx, "extra", None) if ctx is not None else None
     if isinstance(extra, dict):
         for key in ("ablation_id", "batch_index", "work_item_id"):
@@ -894,22 +868,28 @@ def _record_usage(response: dict[str, Any], state: SmartEGState, observer: Smart
     usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
     cost = response.get("cost") if isinstance(response.get("cost"), dict) else {}
     total_tokens = int(usage.get("total_tokens") or 0)
-    cost_usd = float(cost.get("cost_usd") or response.get("cost_usd") or 0.0)
+    raw_cost_usd = cost.get("cost_usd", response.get("cost_usd"))
+    cost_usd = float(raw_cost_usd or 0.0) if raw_cost_usd is not None else 0.0
+    cost_source = (
+        cost.get("cost_source")
+        or cost.get("source")
+        or response.get("cost_source")
+        or "unavailable"
+    )
+    if raw_cost_usd is None:
+        cost_source = "unavailable"
     state.counters.tokens += total_tokens
     state.counters.cost_usd += cost_usd
+    state.counters.cost_source = str(cost_source)
     observer.record_cost(
         {
             "provider": response.get("provider") or "unknown",
             "prompt_tokens": usage.get("prompt_tokens"),
             "completion_tokens": usage.get("completion_tokens"),
             "total_tokens": total_tokens,
-            "cost_usd": cost_usd,
-            "cost_source": (
-                cost.get("cost_source")
-                or cost.get("source")
-                or response.get("cost_source")
-                or "unavailable"
-            ),
+            "cost_usd": raw_cost_usd if raw_cost_usd is not None else None,
+            "tracked_cost_usd": cost_usd,
+            "cost_source": state.counters.cost_source,
         }
     )
 
@@ -928,17 +908,6 @@ def _record_observation_evidence(
         observer.record_evidence(record.to_json())
 
 
-def _counts_against_tool_budget(observation: ToolObservation) -> bool:
-    reason = observation.llm_visible_content.get("reason")
-    return reason not in {
-        "environment_ready_to_submit",
-        "intent_ready_to_submit",
-        "planning_ready_to_submit",
-        "execution_ready_to_submit",
-        "terminal_only",
-    }
-
-
 def _budget_failure(
     state: SmartEGState,
     observer: SmartEGObserver,
@@ -950,7 +919,7 @@ def _budget_failure(
         db_id=state.db_id,
         record_id=state.record_id,
         nlq=state.nlq,
-        error_code="TOOL_BUDGET_EXHAUSTED",
+        error_code="AGENT_ITERATION_LIMIT_EXHAUSTED",
         message=f"SMART-EG stopped at runtime limit: {reason}",
         last_candidate_ref=None,
         unresolved_debts=[debt.debt_id for debt in state.debt_queue],
@@ -968,13 +937,10 @@ def _system_prompt_for_policy(policy: SmartEGPolicy) -> str:
     if policy.value_grounding:
         return SYSTEM_PROMPT
     return SYSTEM_PROMPT.replace(
-        "  `list_collections`, `sample_documents`, `discover_paths`, `profile_path`,\n"
-        "  `profile_path_values`, `search_values`, `inspect_array_shape`,\n",
-        "  `list_collections`, `sample_documents`, `discover_paths`, `profile_path`,\n"
-        "  `inspect_array_shape`,\n",
+        "`profile_path_values`, `search_values`, ",
+        "",
     ).replace(
-        "- Use typed value grounding before constants, enums, dates, ObjectId filters, regexes,\n"
-        "  or comparisons. Do not invent values that were not observed or profiled.",
+        "- Use typed value grounding before constants, enums, dates, ObjectId filters, regexes, or comparisons. Do not invent values that were not observed or profiled.",
         "- Value-grounding probes are disabled for this run. Do not call value-grounding "
         "tools; rely on non-value structural evidence and typed execution feedback.",
     )
@@ -1060,16 +1026,18 @@ def _document_runtime_tool_schemas(tools: list[dict[str, Any]]) -> list[dict[str
 def _policy_from_options(
     options: dict[str, Any],
     *,
-    max_tool_turns: int | None,
+    max_turns: int | None,
     max_revisits: int | None,
     cost_budget_usd: float | None,
 ) -> SmartEGPolicy:
+    if max_turns is not None:
+        resolved_iterations = max_turns
+    elif options.get("max_turns") is not None:
+        resolved_iterations = options["max_turns"]
+    else:
+        resolved_iterations = 100
     return SmartEGPolicy(
-        max_tool_turns=int(
-            max_tool_turns
-            if max_tool_turns is not None
-            else options.get("max_tool_turns", 48)
-        ),
+        max_turns=int(resolved_iterations),
         max_revisits=int(
             max_revisits if max_revisits is not None else options.get("max_revisits", 4)
         ),

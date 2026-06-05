@@ -811,6 +811,7 @@ async def _run_step(
         "baseline_id": spec.id,
         "baseline_step": step.id,
         "batch_index": batch_index,
+        "write_llm_markdown_transcript": False,
     }
     if session is not None:
         log_fields["agent_session_ref"] = session.agent_session_ref

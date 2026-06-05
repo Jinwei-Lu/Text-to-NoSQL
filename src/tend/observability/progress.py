@@ -228,6 +228,12 @@ class ProgressReporter:
         event = str(record.get("event", ""))
         if event == "anomaly":
             return
+        if event == "smart_eg_progress":
+            self._on_smart_eg_progress(record)
+            return
+        if event == "smart_eg_final_outcome":
+            self._on_smart_eg_final_outcome(record)
+            return
         level = str(record.get("level", ""))
         if event not in _WATCH_EVENTS and level not in {"warning", "error"}:
             return
@@ -236,6 +242,99 @@ class ProgressReporter:
             self._alert_by_event[event] = self._alert_by_event.get(event, 0) + 1
             self._alerts.append({"alert_kind": "event", **record})
             self._write_snapshot(reason="event", force=True)
+
+    def _on_smart_eg_progress(self, record: dict[str, Any]) -> None:
+        task_id = _smart_eg_task_id(record)
+        if not task_id:
+            return
+        db_id = str(record.get("db_id") or "unknown")
+        record_id = record.get("record_id")
+        group = str(record.get("group") or f"solve:{db_id}")
+        label = _smart_eg_task_label(db_id=db_id, record_id=record_id)
+        mode = str(record.get("mode") or "?")
+        llm_turns = record.get("llm_turns_completed", 0)
+        max_turns = record.get("max_turns")
+        turn_detail = f"turn={llm_turns}/{max_turns}" if max_turns else f"turn={llm_turns}"
+        detail_parts = [
+            f"mode={mode}",
+            turn_detail,
+            f"remaining={record.get('remaining_agent_turns', '?')}",
+            f"tools={record.get('tool_calls_seen', 0)}",
+            f"debt={record.get('evidence_debt_count', 0)}",
+            f"tokens={record.get('tokens', 0)}",
+        ]
+        session_ref = record.get("agent_session_ref")
+        if session_ref:
+            detail_parts.append(f"session={session_ref}")
+        with self._lock:
+            self._last_activity = time.monotonic()
+            if group not in self._groups:
+                self._groups[group] = _Group(
+                    label=db_id,
+                    phase=self._phase,
+                    order=len(self._groups),
+                )
+            task = self._tasks.get(task_id)
+            if task is None:
+                task = _Task(label=label, group=group)
+                self._tasks[task_id] = task
+                self._counts["started"] += 1
+                self._ensure_group_uses_task_units(group)
+            elif task.status in ("ok", "fail"):
+                return
+            task.status = "running"
+            task.group = group
+            task.label = label
+            task.detail = " ".join(detail_parts)
+            self._write_snapshot(reason="smart_eg_progress", force=True)
+
+    def _on_smart_eg_final_outcome(self, record: dict[str, Any]) -> None:
+        task_id = _smart_eg_task_id(record)
+        if not task_id:
+            return
+        db_id = str(record.get("db_id") or "unknown")
+        record_id = record.get("record_id")
+        group = str(record.get("group") or f"solve:{db_id}")
+        result_type = str(record.get("result_type") or "")
+        status = "ok" if result_type == "solver_prediction" else "fail"
+        detail = result_type or str(record.get("error_code") or "unknown_result_type")
+        with self._lock:
+            self._last_activity = time.monotonic()
+            if group not in self._groups:
+                self._groups[group] = _Group(
+                    label=db_id,
+                    phase=self._phase,
+                    order=len(self._groups),
+                )
+            task = self._tasks.get(task_id)
+            if task is None:
+                task = _Task(
+                    label=_smart_eg_task_label(db_id=db_id, record_id=record_id),
+                    group=group,
+                )
+                self._tasks[task_id] = task
+                self._counts["started"] += 1
+                self._ensure_group_uses_task_units(group)
+            previous_status = task.status
+            task.status = status
+            task.ended = time.monotonic()
+            task.detail = detail
+            if status == "fail":
+                task.anomaly = str(
+                    record.get("terminal_reason")
+                    or record.get("error_code")
+                    or detail
+                )
+            if previous_status != status:
+                if previous_status in ("ok", "fail"):
+                    self._counts[previous_status] = max(
+                        0,
+                        self._counts[previous_status] - 1,
+                    )
+                self._counts[status] += 1
+            elif previous_status not in ("ok", "fail"):
+                self._counts[status] += 1
+            self._write_snapshot(reason="smart_eg_final_outcome", force=True)
 
     def _ensure_group_uses_task_units(self, group: str) -> None:
         if not group:
@@ -434,3 +533,27 @@ class ProgressReporter:
 
 def make_reporter(run_id: str, logger: RunLogger, *, enabled: bool = True) -> ProgressReporter:
     return ProgressReporter(run_id, logger, enabled=enabled and sys.stderr.isatty())
+
+
+def _smart_eg_task_id(record: dict[str, Any]) -> str:
+    explicit = record.get("work_item_id")
+    if explicit:
+        return str(explicit)
+    db_id = record.get("db_id")
+    record_id = record.get("record_id")
+    batch_index = record.get("batch_index")
+    session_ref = record.get("session_id") or record.get("agent_session_ref")
+    if db_id is None and record_id is None:
+        if session_ref:
+            return f"solve:{session_ref}"
+        return ""
+    if batch_index is not None:
+        return f"solve:{batch_index}:{db_id}:{record_id}"
+    if session_ref:
+        return f"solve:{db_id}:{record_id}:{session_ref}"
+    return f"solve:{db_id}:{record_id}"
+
+
+def _smart_eg_task_label(*, db_id: str, record_id: Any) -> str:
+    suffix = "" if record_id is None else f" #{record_id}"
+    return f"SMART-EG {db_id}{suffix}"

@@ -10,7 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from ..errors import ExecutionError
-from ..execution.ast_check import all_ops, assert_no_disabled, derive_canonical_form_set, parse_pipeline
+from ..execution.ast_check import (
+    all_ops,
+    assert_no_disabled,
+    derive_canonical_form_set,
+    parse_pipeline,
+    root_ops,
+)
 from ..execution.mongo import MongoExecutor
 from ..execution.signature import (
     canonical_json,
@@ -75,6 +81,7 @@ _ACTIONS = (
     "reject",
 )
 _TRACKS = ("canonical", "colloquial")
+_SHAPE_POLICIES = {"preserve", "reshape", "reduce"}
 _MAX_SCHEMA_LIST_ITEMS = 24
 _MAX_SAMPLE_DOCS = 3
 _MAX_PROMPT_STRING_CHARS = 240
@@ -119,9 +126,7 @@ _REVIEW_SCHEMA: dict[str, Any] = {
 
 _SYSTEM_PROMPT = """You are repairing an NL2MQL benchmark record.
 
-The current MQL is NOT ground truth. Treat the current NLQs and the current MQL as
-suspect evidence. Your job is to decide whether this record is a genuine NLQ-first
-gold query or a template/pipeline-caption artifact.
+The current MQL is NOT ground truth. Treat the current NLQs and the current MQL as suspect evidence. Your job is to decide whether this record is a genuine NLQ-first gold query or a template/pipeline-caption artifact.
 
 Return only a JSON object. Do not use markdown.
 
@@ -129,25 +134,13 @@ Gold standard:
 - A gold NLQ should describe a realistic domain-facing information need.
 - A gold MQL should be the MongoDB aggregation that answers that NLQ.
 - Do not preserve a bad MQL merely because the NLQ was rewritten to match it.
-- Do not preserve pipeline-caption language such as "unwind", "project", "convert
-  object to key-value pairs", "native_context_bucket", "native_dynamic_entries",
-  "native_matching_dynamic_entries", "native_key", "native_value", or schema_state
-  unless the user question is explicitly about MongoDB internals.
-- Corrected NLQs must not name the physical collection, raw dotted field paths,
-  generated output aliases such as _id/above_threshold/observed, or exact pipeline
-  staging. Avoid snake_case schema or alias tokens; use ordinary English phrases.
-  They should use domain nouns such as members, events, schools, teams, molecules,
-  accounts, districts, cards, seasons, or patients.
-- Corrected MQL output should use user-facing field aliases where practical. Avoid
-  returning grouped _id objects or generated helper aliases in a repaired gold query.
-- If the current record is template/archetype-captioned, propose a repaired
-  NLQ/MQL pair from the domain intent, using the same database and preferably the
-  same broad collection/complexity when that remains meaningful.
-- Corrected MQL must be a single read-only string of the form
-  db.<collection>.aggregate([...]).
+- Do not preserve pipeline-caption language such as "unwind", "project", "convert object to key-value pairs", "native_context_bucket", "native_dynamic_entries", "native_matching_dynamic_entries", "native_key", "native_value", or schema_state unless the user question is explicitly about MongoDB internals.
+- Corrected NLQs must not name the physical collection, raw dotted field paths, generated output aliases such as _id/above_threshold/observed, or exact pipeline staging. Avoid snake_case schema or alias tokens; use ordinary English phrases. They should use domain nouns such as members, events, schools, teams, molecules, accounts, districts, cards, seasons, or patients.
+- Corrected MQL output should use user-facing field aliases where practical. Avoid returning grouped _id objects or generated helper aliases in a repaired gold query.
+- If the current record is template/archetype-captioned, propose a repaired NLQ/MQL pair from the domain intent, using the same database and preferably the same broad collection/complexity when that remains meaningful.
+- Corrected MQL must be a single read-only string of the form db.<collection>.aggregate([...]).
 - Never use $sample, $rand, $$NOW, $out, $merge, or $function.
-- If you are not confident the corrected MQL is semantically valid, set
-  requires_human_review=true and repair_action="manual_only".
+- If you are not confident the corrected MQL is semantically valid, set requires_human_review=true and repair_action="manual_only".
 
 Required JSON shape:
 {
@@ -1212,7 +1205,8 @@ def _apply_safe_repairs(
         if action in {"replace_mql", "replace_both"}:
             new_mql = str(review.get("corrected_mql") or "").strip()
             record["MQL"] = new_mql
-            shape_policy = str(record.get("shape_policy") or "reshape")
+            shape_policy = _shape_policy_for_mql(new_mql, fallback=str(record.get("shape_policy") or "reshape"))
+            record["shape_policy"] = shape_policy
             record["canonical_form_set"] = derive_canonical_form_set(new_mql, shape_policy)
             record["mql_signature"] = mql_signature(new_mql)
             record["mql_skeleton_signature"] = mql_skeleton_signature(new_mql)
@@ -1242,6 +1236,7 @@ def _record_patch_snapshot(record: dict[str, Any]) -> dict[str, Any]:
         "MQL": record.get("MQL", ""),
         "canonical": nlq.get("canonical", ""),
         "colloquial": nlq.get("colloquial", ""),
+        "shape_policy": record.get("shape_policy", ""),
         "mql_signature": record.get("mql_signature", ""),
         "mql_skeleton_signature": record.get("mql_skeleton_signature", ""),
         "mql_skeleton_summary": record.get("mql_skeleton_summary", ""),
@@ -1250,6 +1245,19 @@ def _record_patch_snapshot(record: dict[str, Any]) -> dict[str, Any]:
         "native_metadata": record.get("native_metadata", {}),
         "native_verification": record.get("native_verification", {}),
     }
+
+
+def _shape_policy_for_mql(mql: str, *, fallback: str) -> str:
+    try:
+        _, pipeline = parse_pipeline(mql)
+    except Exception:
+        return fallback if fallback in _SHAPE_POLICIES else "reshape"
+    roots = root_ops(pipeline)
+    if "$group" in roots:
+        return "reduce"
+    if "$unwind" in roots:
+        return "reshape"
+    return "preserve"
 
 
 def _safe_to_apply(

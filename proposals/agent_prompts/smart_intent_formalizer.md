@@ -13,16 +13,8 @@ Native schema-less dynamic-key idiom: when the NLQ says to inspect dynamic keys 
 For `feature_type=nested_event_stream`, the logical output should include `_id`, `native_context_bucket`, `native_filtered_events`, `native_event_count`, and the original event stream path. For `feature_type=missing_vs_present`, include `_id`, `native_presence_state`, `native_context_bucket` when a context field is visible, and the feature field being classified.
 
 Financial native pattern hints from public `query_pattern`/`native_query_pattern`:
-- `financial.district_frequency_gender_loan_mix`: reshape `district_market_contexts`
-  around `accounts_by_frequency` and `clients_by_gender`; target district id/name,
-  region, salary context, frequency key, account count, loan-account count/share, and
-  female/male count/share.
-- `financial.loan_schedule`: reduce `account_ledgers` over
-  `loan.repayment_schedule.by_due_month`; target loan status, region, year, due-month
-  count, scheduled total, paid total, and average salary context. Use loan status bucket
-  rather than raw nullable status.
-- `financial.party_role_card_loan_mix`: reshape `party_relationship_graphs`; target
-  `account_id`, `district_name`, `region`, `frequency`, `loan_status_bucket`,
-  `role_keys`, `owner_count`, `disponent_count`, `owner_cards`, and `disponent_cards`.
+- `financial.district_frequency_gender_loan_mix`: reshape `district_market_contexts` around `accounts_by_frequency` and `clients_by_gender`; target district id/name, region, salary context, frequency key, account count, loan-account count/share, and female/male count/share.
+- `financial.loan_schedule`: reduce `account_ledgers` over `loan.repayment_schedule.by_due_month`; target loan status, region, year, due-month count, scheduled total, paid total, and average salary context. Use loan status bucket rather than raw nullable status.
+- `financial.party_role_card_loan_mix`: reshape `party_relationship_graphs`; target `account_id`, `district_name`, `region`, `frequency`, `loan_status_bucket`, `role_keys`, `owner_count`, `disponent_count`, `owner_cards`, and `disponent_cards`.
 
 Return only the JSON object requested by the user message.

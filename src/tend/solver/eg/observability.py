@@ -8,9 +8,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-MAX_INLINE_JSON_CHARS = 12_000
-MAX_INLINE_TEXT_CHARS = 12_000
-
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
@@ -94,7 +91,6 @@ def _append_quote(lines: list[str], text: str) -> None:
     if not text:
         lines += ["> (empty)", ""]
         return
-    text = _truncate_text(text, MAX_INLINE_TEXT_CHARS)
     for raw_line in text.splitlines():
         lines.append(f"> {raw_line}" if raw_line else ">")
     lines.append("")
@@ -116,22 +112,60 @@ def _tool_arguments(event: dict[str, Any]) -> Any:
     return {}
 
 
-def _inline_value(value: Any, *, max_chars: int = 180) -> str:
+def _json_argument_value(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def _tool_call_payload(event: dict[str, Any]) -> dict[str, Any]:
+    raw = event.get("raw_tool_call")
+    if isinstance(raw, dict):
+        payload = dict(raw)
+        function = payload.get("function")
+        if isinstance(function, dict):
+            function_payload = dict(function)
+            if "arguments" in function_payload:
+                function_payload["arguments"] = _json_argument_value(
+                    function_payload["arguments"]
+                )
+            payload["function"] = function_payload
+        return payload
+    return {
+        "id": event.get("tool_call_id"),
+        "type": "function",
+        "function": {
+            "name": _tool_name(event),
+            "arguments": _tool_arguments(event),
+        },
+    }
+
+
+def _tool_result_payload(event: dict[str, Any]) -> dict[str, Any]:
+    content = event.get("content")
+    if content is None:
+        content = {
+            key: value
+            for key, value in event.items()
+            if key not in {"ts", "event", "turn_index"}
+        }
+    return {
+        "role": "tool",
+        "tool_call_id": event.get("tool_call_id"),
+        "name": _tool_name(event),
+        "content": content,
+    }
+
+
+def _inline_value(value: Any) -> str:
     if isinstance(value, (dict, list)):
         text = json.dumps(value, ensure_ascii=False, default=str)
     else:
         text = str(value)
-    text = " ".join(text.split())
-    if len(text) > max_chars:
-        return f"{text[: max_chars - 1]}..."
-    return text
-
-
-def _truncate_text(text: str, max_chars: int) -> str:
-    if len(text) <= max_chars:
-        return text
-    omitted = len(text) - max_chars
-    return f"{text[:max_chars]}\n... truncated {omitted} chars; see sidecar/raw event for full payload ..."
+    return " ".join(text.split())
 
 
 def _format_cost_value(value: Any) -> str | None:
@@ -167,6 +201,15 @@ def _assistant_reasoning(response: dict[str, Any] | None) -> str:
         ]
         if chunks:
             return "\n".join(chunks)
+    if response:
+        reasoning = response.get("reasoning") or response.get("reasoning_content")
+        if isinstance(reasoning, str) and reasoning.strip():
+            return reasoning
+        usage = response.get("usage")
+        if isinstance(usage, dict):
+            reasoning = usage.get("reasoning_content") or usage.get("reasoning_preview")
+            if isinstance(reasoning, str) and reasoning.strip():
+                return reasoning
     return ""
 
 
@@ -176,30 +219,6 @@ def _assistant_content(response: dict[str, Any] | None) -> str:
     if not content and response:
         content = response.get("content") or response.get("response_text")
     return str(content) if isinstance(content, str) and content.strip() else ""
-
-
-def _append_tool_result_payload(lines: list[str], tool_name: str, content: Any) -> None:
-    lines += ["", f"> ### Tool Result: `{tool_name}`", ">"]
-    if isinstance(content, dict):
-        scalar_rows: list[tuple[str, Any]] = []
-        for key, value in content.items():
-            if isinstance(value, (dict, list)):
-                continue
-            scalar_rows.append((str(key), value))
-            if len(scalar_rows) >= 8:
-                break
-        if scalar_rows:
-            table_lines: list[str] = []
-            _append_table(table_lines, scalar_rows)
-            for line in table_lines:
-                lines.append(f"> {line}" if line else ">")
-    lines += [">", "> **Payload**", ">"]
-    rendered = json.dumps(content, indent=2, ensure_ascii=False, default=str)
-    rendered = _truncate_text(rendered, MAX_INLINE_JSON_CHARS)
-    lines.append("> ```json")
-    for raw_line in rendered.splitlines():
-        lines.append(f"> {raw_line}" if raw_line else ">")
-    lines += ["> ```", ""]
 
 
 class SmartEGObserver:
@@ -365,7 +384,7 @@ class SmartEGObserver:
         record = {"ts": _utcnow(), "solver_id": "smart-eg", **dict(payload)}
         line_no = self._append_jsonl(self.progress_path, record)
         ref = self._ref(self.progress_path, line_no)
-        self._emit_run_event("smart_eg_progress", record, artifact_ref=ref)
+        self._emit_run_event("progress", record, artifact_ref=ref)
         return ref
 
     def finalize_markdown(self, *, final_status: str, state_summary: dict[str, Any]) -> None:
@@ -505,46 +524,22 @@ class SmartEGObserver:
             name = _tool_name(event)
             call_id = str(event.get("tool_call_id") or "unknown_call")
             lines += [f"#### {name} (`{call_id}`)", ""]
-            _append_json_complete(lines, _tool_arguments(event))
+            _append_json_complete(lines, _tool_call_payload(event))
 
     def _append_tool_results(
         self,
         lines: list[str],
         tool_results: list[dict[str, Any]],
-        tool_calls: list[dict[str, Any]],
+        _tool_calls: list[dict[str, Any]],
     ) -> None:
         if not tool_results:
             return
         lines += ["### Tool Results", ""]
-        args_by_call = {
-            str(event.get("tool_call_id") or ""): _tool_arguments(event)
-            for event in tool_calls
-        }
         for event in tool_results:
             name = _tool_name(event)
             call_id = str(event.get("tool_call_id") or "unknown_call")
-            signature = _tool_signature(name, args_by_call.get(call_id, {}))
-            content = event.get("content")
-            evidence_ids = _evidence_ids(content)
-            error_refs = _error_refs(event, content)
-            lines += [f"#### {signature} (`{call_id}`)", ""]
-            _append_table(
-                lines,
-                [
-                    ("Time", event.get("ts")),
-                    ("OK", event.get("ok")),
-                    ("Gate", event.get("gate_ref")),
-                    ("Evidence", ", ".join(evidence_ids) if evidence_ids else None),
-                    ("Error Refs", ", ".join(error_refs) if error_refs else None),
-                ],
-            )
-            if content is None:
-                content = {
-                    key: value
-                    for key, value in event.items()
-                    if key not in {"ts", "event", "turn_index"}
-                }
-            _append_tool_result_payload(lines, name, content)
+            lines += [f"#### {name} (`{call_id}`)", ""]
+            _append_json_complete(lines, _tool_result_payload(event))
 
     def _append_unhandled_turn_events(
         self,
@@ -566,7 +561,11 @@ class SmartEGObserver:
         lines: list[str],
         response: dict[str, Any] | None,
     ) -> None:
-        usage = response.get("usage") if response and isinstance(response.get("usage"), dict) else {}
+        usage = (
+            response.get("usage")
+            if response and isinstance(response.get("usage"), dict)
+            else {}
+        )
         cost = response.get("cost") if response and isinstance(response.get("cost"), dict) else {}
         rows = [
             ("Prompt Tokens", usage.get("prompt_tokens")),
@@ -594,43 +593,21 @@ class SmartEGObserver:
                     ("Time", event.get("ts")),
                     ("Mode", event.get("mode")),
                     ("Terminal Only", event.get("terminal_only")),
-                    ("Tool Turn", event.get("tool_turn")),
+                    ("LLM Turns Completed", event.get("llm_turns_completed")),
+                    ("Max Turns", event.get("max_turns")),
+                    ("Remaining Agent Turns", event.get("remaining_agent_turns")),
+                    ("Tool Calls Seen", event.get("tool_calls_seen")),
                     ("Debt Count", event.get("debt_count")),
                 ],
             )
             return
         if name == "tool_call":
             lines += [f"### Tool Call: {_tool_name(event)}", ""]
-            _append_table(
-                lines,
-                [
-                    ("Time", event.get("ts")),
-                    ("Tool Call ID", event.get("tool_call_id")),
-                ],
-            )
-            lines += _json_block(_tool_arguments(event))
+            lines += _json_block(_tool_call_payload(event))
             return
         if name == "tool_observation":
             lines += [f"### Tool Result: {_tool_name(event)}", ""]
-            content = event.get("content")
-            error_refs = _error_refs(event, content)
-            _append_table(
-                lines,
-                [
-                    ("Time", event.get("ts")),
-                    ("Tool Call ID", event.get("tool_call_id")),
-                    ("OK", event.get("ok")),
-                    ("Gate", event.get("gate_ref")),
-                    ("Error Refs", ", ".join(error_refs) if error_refs else None),
-                ],
-            )
-            if content is None:
-                content = {
-                    key: value
-                    for key, value in event.items()
-                    if key not in {"ts", "event"}
-                }
-            lines += _json_block(content)
+            lines += _json_block(_tool_result_payload(event))
             return
         if name == "error_recorded":
             lines += ["### Error Recorded", ""]
@@ -742,64 +719,7 @@ def _display_max_turns(max_turns: Any, turn_index: int) -> int | None:
         value = int(max_turns)
     except (TypeError, ValueError):
         return None
-    return max(value, turn_index)
-
-
-def _tool_signature(name: str, args: Any) -> str:
-    if not isinstance(args, dict) or not args:
-        return f"{name}()"
-    parts: list[str] = []
-    for key, value in list(args.items())[:3]:
-        parts.append(f"{key}={_argument_preview(value)}")
-    suffix = ", ..." if len(args) > 3 else ""
-    return f"{name}({', '.join(parts)}{suffix})"
-
-
-def _argument_preview(value: Any) -> str:
-    if isinstance(value, str):
-        text = value
-    else:
-        text = json.dumps(value, ensure_ascii=False, default=str)
-    text = " ".join(text.split())
-    if len(text) > 90:
-        text = f"{text[:89]}..."
-    if isinstance(value, str):
-        return json.dumps(text, ensure_ascii=False)
-    return text
-
-
-def _evidence_ids(value: Any) -> list[str]:
-    if not isinstance(value, dict):
-        return []
-    ids: list[str] = []
-    evidence_id = value.get("evidence_id")
-    if evidence_id:
-        ids.append(str(evidence_id))
-    evidence_ids = value.get("evidence_ids")
-    if isinstance(evidence_ids, list):
-        ids.extend(str(item) for item in evidence_ids if item)
-    observation = value.get("observation")
-    if isinstance(observation, dict):
-        nested = observation.get("evidence_id")
-        if nested:
-            ids.append(str(nested))
-    return list(dict.fromkeys(ids))
-
-
-def _error_refs(event: dict[str, Any], content: Any) -> list[str]:
-    refs: list[str] = []
-    event_refs = event.get("error_refs")
-    if isinstance(event_refs, list):
-        refs.extend(str(item) for item in event_refs if item)
-    elif event_refs:
-        refs.append(str(event_refs))
-    if isinstance(content, dict):
-        content_refs = content.get("error_refs")
-        if isinstance(content_refs, list):
-            refs.extend(str(item) for item in content_refs if item)
-        elif content_refs:
-            refs.append(str(content_refs))
-    return list(dict.fromkeys(refs))
+    return value
 
 
 class SmartEGRecorder(SmartEGObserver):

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from tend.construction.audit import audit_database_structure, validate_structure_gate
 from tend.construction.designs.formula_1 import materialize_native_dataworld
 from tend.source import BirdSource
+
+pytestmark = pytest.mark.integration
 
 
 def _bird_source() -> BirdSource:
@@ -12,8 +17,13 @@ def _bird_source() -> BirdSource:
     return BirdSource(root)
 
 
-def test_formula_1_direct_materializer_builds_deep_race_weekends() -> None:
-    result = materialize_native_dataworld(_bird_source(), "formula_1")
+@pytest.fixture(scope="module")
+def formula_1_result() -> Any:
+    return materialize_native_dataworld(_bird_source(), "formula_1")
+
+
+def test_formula_1_direct_materializer_builds_deep_race_weekends(formula_1_result: Any) -> None:
+    result = formula_1_result
 
     assert "race_weekends_v2" in result.data
     race = next(doc for doc in result.data["race_weekends_v2"] if doc["_id"] == "race:19")
@@ -38,8 +48,8 @@ def test_formula_1_direct_materializer_builds_deep_race_weekends() -> None:
     assert audit.presence_state_counts["empty"] > 0
 
 
-def test_formula_1_direct_manifest_names_semantic_native_features() -> None:
-    result = materialize_native_dataworld(_bird_source(), "formula_1")
+def test_formula_1_direct_manifest_names_semantic_native_features(formula_1_result: Any) -> None:
+    result = formula_1_result
 
     features = {feature.id: feature for feature in result.manifest.features}
     assert "race_weekends_v2.results_by_status" in features

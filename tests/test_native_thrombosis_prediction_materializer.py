@@ -10,6 +10,8 @@ from tend.construction.designs.thrombosis_prediction import materialize_native_d
 from tend.source import BirdSource
 from tend.construction.phase_b import NativeCoverageSlot, pipeline_blueprint
 
+pytestmark = pytest.mark.integration
+
 
 def _bird_source() -> BirdSource:
     root = Path(__file__).resolve().parents[1] / "minidev" / "MINIDEV"

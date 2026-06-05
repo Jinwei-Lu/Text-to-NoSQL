@@ -32,7 +32,14 @@ def test_recorder_writes_session_scoped_artifacts(tmp_path) -> None:
         tools=[{"type": "function", "function": {"name": "list_collections"}}],
     )
 
-    recorder.agent_event("turn_start", mode="environment", tool_turn=0)
+    recorder.agent_event(
+        "turn_start",
+        mode="environment",
+        llm_turns_completed=0,
+        max_turns=100,
+        remaining_agent_turns=100,
+        tool_calls_seen=0,
+    )
     evidence_ref = recorder.write_evidence(
         {
             "evidence_id": "ev_1",
@@ -141,9 +148,11 @@ def test_history_enforces_assistant_tool_pairs_and_compacts_safely() -> None:
     assert history.validate_provider_invariants() is True
 
 
-def test_history_truncates_large_tool_results_before_provider_prompt() -> None:
+def test_history_keeps_large_tool_results_for_provider_prompt() -> None:
     history = SmartEGHistory(system_prompt="system")
     history.add_user("start")
+    large_value = "x" * 20_000
+    payload = {"observation": {"large": large_value}, "evidence_id": "ev_1"}
     history.add_assistant(
         {
             "role": "assistant",
@@ -153,17 +162,13 @@ def test_history_truncates_large_tool_results_before_provider_prompt() -> None:
             ],
         }
     )
-    history.add_tool_result(
-        "big_1",
-        "sample_documents",
-        {"observation": {"large": "x" * 200_000}, "evidence_id": "ev_1"},
-    )
+    history.add_tool_result("big_1", "sample_documents", payload)
 
     tool_message = history.messages[-1]
 
     assert tool_message["role"] == "tool"
-    assert len(tool_message["content"]) < 15_000
-    assert "truncated_for_prompt" in tool_message["content"]
+    assert json.loads(tool_message["content"]) == payload
+    assert "truncated" not in tool_message["content"]
     assert "ev_1" in tool_message["content"]
     assert history.validate_provider_invariants() is True
 
@@ -175,7 +180,7 @@ def test_history_does_not_append_runtime_state_to_provider_prompt() -> None:
     messages = history.build_messages(
         {
             "mode": "environment",
-            "budgets": {"max_tool_turns": 48},
+            "budgets": {"max_turns": 48},
             "counters": {"llm_turns": 0},
         }
     )
@@ -266,7 +271,12 @@ def test_recorder_keeps_live_markdown_with_llm_turn_and_tool_observation(tmp_pat
             "tool_call_id": "tool-1",
             "tool": "list_collections",
             "ok": True,
-            "content": {"ok": True, "tool": "list_collections", "collections": ["account"]},
+            "content": {
+                "ok": True,
+                "tool": "list_collections",
+                "collections": ["account"],
+                "payload": {"large_result": "tool-result-" + ("x" * 13_000) + "-end"},
+            },
         },
     )
 
@@ -287,13 +297,23 @@ def test_recorder_keeps_live_markdown_with_llm_turn_and_tool_observation(tmp_pat
     assert "NLQ: list accounts" in md
     assert "truncated" not in md
     assert "x" * 500 in md
+    assert "tool-result-" + ("x" * 13_000) + "-end" in md
     assert "### Tool Calls" in md
     assert "### Tool Results" in md
     assert "### Metrics" in md
     assert "#### list_collections (`tool-1`)" in md
-    assert "#### list_collections() (`tool-1`)" in md
-    assert "### Tool Result: `list_collections`" in md
+    assert '"id": "tool-1"' in md
+    assert '"type": "function"' in md
+    assert '"function": {' in md
+    assert '"name": "list_collections"' in md
+    assert '"arguments": {}' in md
+    assert '"role": "tool"' in md
+    assert '"tool_call_id": "tool-1"' in md
+    assert '"content": {' in md
     assert '"collections": [' in md
+    assert "**Payload**" not in md
+    assert "### Tool Result: `list_collections`" not in md
+    assert "#### list_collections() (`tool-1`)" not in md
     assert "| Prompt Tokens | 12 |" in md
     assert "| Completion Tokens | 3 |" in md
     assert "| Cost (USD) | 0.001 |" in md
@@ -353,7 +373,7 @@ def test_record_error_refs_are_visible_in_turn_markdown(tmp_path) -> None:
     assert (tmp_path / session_ref / "errors.jsonl").exists()
     assert (tmp_path / "errors.jsonl").exists()
     assert "## Turn 1" in md
-    assert "Error Refs" in md
+    assert '"error_refs": [' in md
     assert error_ref in md
     assert "catalog unavailable" in md
 

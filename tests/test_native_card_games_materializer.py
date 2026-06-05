@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from tend.construction.audit import audit_database_structure, validate_structure_gate
 from tend.construction.designs.card_games import materialize_native_dataworld
 from tend.source import BirdSource
+
+pytestmark = pytest.mark.integration
 
 
 def _bird_source() -> BirdSource:
@@ -12,8 +17,15 @@ def _bird_source() -> BirdSource:
     return BirdSource(root)
 
 
-def test_card_games_direct_materializer_builds_deep_card_print_dossiers() -> None:
-    result = materialize_native_dataworld(_bird_source(), "card_games")
+@pytest.fixture(scope="module")
+def card_games_result() -> Any:
+    return materialize_native_dataworld(_bird_source(), "card_games")
+
+
+def test_card_games_direct_materializer_builds_deep_card_print_dossiers(
+    card_games_result: Any,
+) -> None:
+    result = card_games_result
 
     assert "card_print_dossiers" in result.data
     assert "set_release_ecosystems" in result.data
@@ -39,8 +51,10 @@ def test_card_games_direct_materializer_builds_deep_card_print_dossiers() -> Non
     assert audit.presence_state_counts["missing"] > 0
 
 
-def test_card_games_direct_manifest_exposes_semantic_query_blueprints() -> None:
-    result = materialize_native_dataworld(_bird_source(), "card_games")
+def test_card_games_direct_manifest_exposes_semantic_query_blueprints(
+    card_games_result: Any,
+) -> None:
+    result = card_games_result
 
     features = {feature.id: feature for feature in result.manifest.features}
     assert "card_print_dossiers.legality_by_format" in features

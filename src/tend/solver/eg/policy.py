@@ -18,7 +18,7 @@ class SmartEGPolicy:
         self,
         budgets: SmartEGBudgets | None = None,
         *,
-        max_tool_turns: int = 48,
+        max_turns: int | None = None,
         max_revisits: int = 4,
         evidence_gate: bool = True,
         counterexample_gate: bool = True,
@@ -35,7 +35,7 @@ class SmartEGPolicy:
         enable_final_sanity_execution: bool = True,
     ) -> None:
         self.budgets = budgets or SmartEGBudgets(
-            max_tool_turns=max(1, max_tool_turns),
+            max_turns=max(1, int(max_turns if max_turns is not None else 100)),
             max_revisits=max(0, max_revisits),
             max_tokens=token_budget,
             max_cost_usd=cost_budget_usd,
@@ -90,8 +90,8 @@ class SmartEGConvergenceChecker:
     def check(self, state: SmartEGState) -> ConvergenceResult:
         budgets = state.budgets
         counters = state.counters
-        if counters.tool_turns >= budgets.max_tool_turns:
-            return ConvergenceResult(hard_stop=True, reason="max_tool_turns")
+        if counters.llm_turns >= budgets.max_turns:
+            return ConvergenceResult(hard_stop=True, reason="max_turns")
         if budgets.max_tokens is not None and counters.tokens >= budgets.max_tokens:
             return ConvergenceResult(hard_stop=True, reason="max_tokens")
         if budgets.max_cost_usd is not None and counters.cost_usd >= budgets.max_cost_usd:
@@ -100,7 +100,7 @@ class SmartEGConvergenceChecker:
             return ConvergenceResult(terminal_only=True, reason="protocol_invalid_repeated")
         if counters.submit_rejections >= budgets.max_repeated_submit_rejections:
             return ConvergenceResult(terminal_only=True, reason="submit_rejected_repeated")
-        remaining = budgets.max_tool_turns - counters.tool_turns
+        remaining = budgets.max_turns - counters.llm_turns
         if remaining <= budgets.terminal_turn_window:
             return ConvergenceResult(terminal_only=True, reason="final_turn_window")
         return ConvergenceResult()

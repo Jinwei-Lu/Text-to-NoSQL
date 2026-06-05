@@ -36,4 +36,8 @@ target-version = "py311"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m 'not integration and not release'"
+markers = [
+    "integration: tests that require real BIRD data or direct native materializers",
+    "release: heavyweight release/package validation tests excluded from default local pytest",
+]

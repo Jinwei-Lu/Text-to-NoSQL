@@ -7,9 +7,10 @@ from types import SimpleNamespace
 
 from tend.config import LLMSettings, Paths, Settings
 from tend.llm.types import ToolCall, ToolLLMResult
-from tend.observability import setup_logging
+from tend.observability import ProgressReporter, setup_logging
 from tend.solver.eg import SmartEGPolicy, smart_solve_nlq_db_eg
-from tend.solver.eg.contracts import SmartEGFailure, SmartEGPrediction
+from tend.solver.eg.contracts import SmartEGFailure, SmartEGPrediction, SmartEGState
+from tend.solver.eg.policy import SmartEGConvergenceChecker
 from tend.solver.eg.runtime import (
     SYSTEM_PROMPT,
     _compact_evidence_summary,
@@ -34,6 +35,21 @@ class _Mongo:
 
     def aggregate_readonly_bounded(self, _db_id, _mql, limit=50):
         return {"collection": "account", "count": min(2, limit), "sample": [{"_id": 1}]}
+
+
+def test_max_turns_limits_agent_iterations_not_tool_calls() -> None:
+    policy = SmartEGPolicy(max_turns=3)
+    state = SmartEGState(nlq="question", db_id="financial", budgets=policy.budgets)
+    state.counters.tool_calls = 99
+    state.counters.llm_turns = 2
+
+    assert not SmartEGConvergenceChecker(policy).check(state).hard_stop
+
+    state.counters.llm_turns = 3
+    result = SmartEGConvergenceChecker(policy).check(state)
+
+    assert result.hard_stop
+    assert result.reason == "max_turns"
 
 
 class _FailingMongo(_Mongo):
@@ -90,6 +106,17 @@ class _LLM:
             diagnostics_ref="llm/smart_eg/call.diagnostics.json",
             provider_metadata={},
         )
+
+
+class _ReasoningLLM(_LLM):
+    async def complete_with_tools(self, **kwargs):
+        result = await super().complete_with_tools(**kwargs)
+        result.assistant_message["reasoning_content"] = "I should use the typed failure tool."
+        result.usage = {
+            **result.usage,
+            "reasoning_content": "I should use the typed failure tool.",
+        }
+        return result
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -161,7 +188,7 @@ def test_direct_first_turn_submit_final_mql_is_rejected(tmp_path: Path) -> None:
             db_id="financial",
             nlq="list accounts",
             record_id=1,
-            policy=SmartEGPolicy(max_tool_turns=4),
+            policy=SmartEGPolicy(max_turns=4),
         )
     )
 
@@ -269,7 +296,7 @@ def test_full_staged_submit_final_mql_succeeds_with_refs_and_executor(tmp_path: 
             db_id="financial",
             nlq="list accounts",
             record_id=2,
-            policy=SmartEGPolicy(max_tool_turns=12),
+            policy=SmartEGPolicy(max_turns=12),
         )
     )
 
@@ -297,7 +324,7 @@ def test_abandon_with_failure_is_normal_failure_exit(tmp_path: Path) -> None:
             db_id="financial",
             nlq="ambiguous",
             record_id=9,
-            policy=SmartEGPolicy(max_tool_turns=4),
+            policy=SmartEGPolicy(max_turns=4),
         )
     )
 
@@ -340,7 +367,7 @@ def test_complete_with_tools_receives_session_bound_logger_context(tmp_path: Pat
             nlq="logger context",
             record_id=14,
             session_id="session-bound-test",
-            policy=SmartEGPolicy(max_tool_turns=4),
+            policy=SmartEGPolicy(max_turns=4),
         )
     )
 
@@ -359,6 +386,112 @@ def test_complete_with_tools_receives_session_bound_logger_context(tmp_path: Pat
     assert logger_context["batch_index"] == 3
     assert logger_context["work_item_id"] == "ablation:3:smart_eg_no_revisit:financial:14"
     assert logger_context["solver_variant"] == "smart-eg/no-revisit"
+
+
+def test_complete_with_tools_receives_work_item_from_bound_context(
+    tmp_path: Path,
+) -> None:
+    llm = _LLM(
+        [
+            ToolCall(
+                id="call_1",
+                name="abandon_with_failure",
+                raw_arguments='{"message":"done"}',
+                arguments={"message": "done"},
+            )
+        ]
+    )
+    wf = _workflow(tmp_path, llm)
+    wf.ctx.group = "solve:financial"
+    wf.ctx.work_item_id = "solve:0:financial:15"
+
+    result = asyncio.run(
+        smart_solve_nlq_db_eg(
+            wf,
+            db_id="financial",
+            nlq="logger context",
+            record_id=15,
+            session_id="context-work-item-test",
+            policy=SmartEGPolicy(max_turns=4),
+        )
+    )
+
+    logger_context_value = llm.requests[0]["logger"].context
+    logger_context = (
+        logger_context_value() if callable(logger_context_value) else logger_context_value
+    )
+
+    assert logger_context["group"] == "solve:financial"
+    assert logger_context["work_item_id"] == "solve:0:financial:15"
+    run_dir = _settings(tmp_path).run_dir
+    cost_path = run_dir / Path(result.agent_session_ref).parent / "cost_summary.jsonl"
+    cost_rows = [json.loads(line) for line in cost_path.read_text(encoding="utf-8").splitlines()]
+    assert cost_rows[0]["cost_usd"] is None
+    assert cost_rows[0]["tracked_cost_usd"] == 0.0
+    assert cost_rows[0]["cost_source"] == "unavailable"
+
+
+def test_smart_eg_events_update_root_progress_reporter(tmp_path: Path) -> None:
+    llm = _LLM(
+        [
+            ToolCall(
+                id="call_1",
+                name="abandon_with_failure",
+                raw_arguments='{"message":"done"}',
+                arguments={"message": "done"},
+            )
+        ]
+    )
+    settings = _settings(tmp_path)
+    log = setup_logging(settings.run_dir, console=False)
+    progress = ProgressReporter(settings.run_id, log, enabled=False)
+    ctx = SimpleNamespace(
+        settings=settings,
+        llm=llm,
+        log=log,
+        progress=progress,
+        mongo=_Mongo(),
+        source=None,
+        extra={"batch_index": 0, "work_item_id": "solve:0:financial:17"},
+    )
+    wf = SimpleNamespace(ctx=ctx)
+
+    progress.phase("SOLVE")
+    result = asyncio.run(
+        smart_solve_nlq_db_eg(
+            wf,
+            db_id="financial",
+            nlq="progress chain",
+            record_id=17,
+            session_id="progress-chain-test",
+            policy=SmartEGPolicy(max_turns=4),
+        )
+    )
+    summary = progress.summary()
+    log.close()
+
+    assert isinstance(result, SmartEGFailure)
+    events = [
+        json.loads(line)
+        for line in (settings.run_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    progress_events = [event for event in events if event["event"] == "smart_eg_progress"]
+    final_events = [event for event in events if event["event"] == "smart_eg_final_outcome"]
+    assert progress_events
+    assert final_events
+    assert progress_events[0]["work_item_id"] == "solve:0:financial:17"
+    assert progress_events[0]["batch_index"] == 0
+    assert progress_events[0]["agent_session_ref"] == result.agent_session_ref
+    assert progress_events[0]["agent_jsonl_ref"].endswith("/progress.jsonl#1")
+    assert final_events[-1]["work_item_id"] == "solve:0:financial:17"
+    snapshots = [
+        json.loads(line)
+        for line in (settings.run_dir / "progress.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert any(item["reason"] == "smart_eg_progress" for item in snapshots)
+    assert any(item["reason"] == "smart_eg_final_outcome" for item in snapshots)
+    assert summary["tasks"]["started"] == 1
+    assert summary["tasks"]["fail"] == 1
 
 
 def test_tool_error_refs_are_propagated_to_observation_and_markdown(tmp_path: Path) -> None:
@@ -380,7 +513,7 @@ def test_tool_error_refs_are_propagated_to_observation_and_markdown(tmp_path: Pa
             db_id="financial",
             nlq="list accounts",
             record_id=15,
-            policy=SmartEGPolicy(max_tool_turns=4),
+            policy=SmartEGPolicy(max_turns=4),
         )
     )
 
@@ -404,7 +537,7 @@ def test_tool_error_refs_are_propagated_to_observation_and_markdown(tmp_path: Pa
     assert (run_dir / error_refs[0].split("#", 1)[0]).exists()
     assert (run_dir / "errors.jsonl").exists()
     md = (run_dir / result.agent_session_ref).read_text(encoding="utf-8")
-    assert "Error Refs" in md
+    assert '"error_refs": [' in md
     assert error_refs[0] in md
     assert "catalog unavailable" in md
 
@@ -426,12 +559,41 @@ def test_natural_language_response_never_counts_as_success(tmp_path: Path) -> No
             _workflow(tmp_path, llm),
             db_id="financial",
             nlq="answer without tools",
-            policy=SmartEGPolicy(max_tool_turns=4),
+            policy=SmartEGPolicy(max_turns=4),
         )
     )
 
     assert isinstance(result, SmartEGFailure)
     assert len(llm.requests) == 2
+
+
+def test_agent_markdown_renders_llm_reasoning(tmp_path: Path) -> None:
+    llm = _ReasoningLLM(
+        [
+            ToolCall(
+                id="call_1",
+                name="abandon_with_failure",
+                raw_arguments='{"message":"not enough evidence"}',
+                arguments={"message": "not enough evidence"},
+            )
+        ]
+    )
+
+    result = asyncio.run(
+        smart_solve_nlq_db_eg(
+            _workflow(tmp_path, llm),
+            db_id="financial",
+            nlq="ambiguous",
+            record_id=16,
+            policy=SmartEGPolicy(max_turns=2),
+        )
+    )
+    md = (_settings(tmp_path).run_dir / result.agent_session_ref).read_text(encoding="utf-8")
+
+    assert isinstance(result, SmartEGFailure)
+    assert "### Reasoning" in md
+    assert "> I should use the typed failure tool." in md
+    assert all("reasoning_content" not in message for message in llm.requests[-1]["messages"])
 
 
 def test_terminal_only_mode_exposes_current_stage_submit_tools(tmp_path: Path) -> None:
@@ -450,7 +612,7 @@ def test_terminal_only_mode_exposes_current_stage_submit_tools(tmp_path: Path) -
             _workflow(tmp_path, llm),
             db_id="financial",
             nlq="terminal",
-            policy=SmartEGPolicy(max_tool_turns=2),
+            policy=SmartEGPolicy(max_turns=2),
         )
     )
 
@@ -463,7 +625,7 @@ def test_terminal_only_mode_exposes_current_stage_submit_tools(tmp_path: Path) -
     }
 
 
-def test_terminal_only_known_wrong_tool_does_not_consume_tool_budget(tmp_path: Path) -> None:
+def test_max_turns_counts_llm_turns_even_when_wrong_tool_is_called(tmp_path: Path) -> None:
     llm = _LLM(
         [
             ToolCall(
@@ -485,13 +647,13 @@ def test_terminal_only_known_wrong_tool_does_not_consume_tool_budget(tmp_path: P
             _workflow(tmp_path, llm),
             db_id="financial",
             nlq="terminal",
-            policy=SmartEGPolicy(max_tool_turns=1),
+            policy=SmartEGPolicy(max_turns=1),
         )
     )
 
     assert isinstance(result, SmartEGFailure)
-    assert result.error_code == "NO_VALID_QUERY_FOUND"
-    assert len(llm.requests) == 2
+    assert result.error_code == "AGENT_ITERATION_LIMIT_EXHAUSTED"
+    assert len(llm.requests) == 1
 
 
 def test_submit_ready_turn_compacts_provider_history(tmp_path: Path) -> None:
@@ -536,7 +698,7 @@ def test_submit_ready_turn_compacts_provider_history(tmp_path: Path) -> None:
             db_id="financial",
             nlq="list accounts",
             record_id=3,
-            policy=SmartEGPolicy(max_tool_turns=8),
+            policy=SmartEGPolicy(max_turns=8),
         )
     )
 
@@ -565,9 +727,15 @@ def test_submit_ready_turn_compacts_provider_history(tmp_path: Path) -> None:
     assert "### Tool Calls" in md
     assert "### Tool Results" in md
     assert "## Session Complete" in md
-    assert md.count("#### list_collections()") == 1
-    assert md.count('#### sample_documents(collection="account")') == 1
-    assert "### Tool Result:" in md
+    assert '"id": "call_1"' in md
+    assert '"tool_call_id": "call_1"' in md
+    assert '"role": "tool"' in md
+    assert '"arguments": {}' in md
+    assert '"name": "sample_documents"' in md
+    assert '"collection": "account"' in md
+    assert "#### list_collections()" not in md
+    assert "sample_documents(collection=" not in md
+    assert "### Tool Result:" not in md
 
 
 def test_submit_focus_summary_preserves_query_plan_for_final_submit() -> None:
@@ -587,7 +755,7 @@ def test_submit_focus_summary_preserves_query_plan_for_final_submit() -> None:
             records={},
             blocking_debts=lambda: [],
         ),
-        counters=SimpleNamespace(to_json=lambda: {"llm_turns": 3, "tool_turns": 2}),
+        counters=SimpleNamespace(to_json=lambda: {"llm_turns": 3, "tool_calls": 2}),
     )
 
     summary = _submit_focus_summary(state, "submit_final_mql")
