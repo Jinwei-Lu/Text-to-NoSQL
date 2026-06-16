@@ -1,0 +1,1757 @@
+"""Proposal 05 evaluator for TEND solver, baseline, and ablation outputs.
+
+The evaluator is deliberately file-first:
+
+* per-record fingerprints are written as JSONL and CSV for tooling;
+* a compact ``report.json`` carries aggregate and slice scores;
+* ``report.md`` is readable by a human or an agent during run triage.
+
+Operational failures such as missing predictions, missing witness data, or MongoDB
+unavailability are logged as anomalies. Bad model predictions are scored as 0 where the
+proposal says so and are kept in the diagnostic counters rather than aborting the run.
+"""
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+import os
+import platform
+import sys
+import traceback
+from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Protocol
+
+from ..errors import Anomaly, TendError, wrap_unexpected
+from ..execution.ast_check import ast_check, parse_pipeline, root_ops, scan_disabled
+from ..execution.mongo import equiv_rec_values_superset, row_values_key
+from ..execution.signature import canonical_json
+from ..observability import RunLogger
+from ..release_layout import resolve_release_dataset_layout
+
+# Headline correctness is ``EXC`` = bounded column-tolerant execution accuracy: result-set
+# equivalence IGNORING output field names (the Spider/BIRD convention — result tables are
+# scored by value, not by output column label), tolerating at most ``EXC_SURPLUS_BOUND``
+# superfluous predicted top-level columns per row. MongoDB aggregation has exactly two
+# mechanical surplus channels (a leftover synthetic ``$group`` ``_id`` and a retained
+# helper/sort key), so β=2 forgives pipeline mechanics while a projection-free document
+# dump still fails. Headline preconditions are parse_ok ∧ banned-operator-clean (execution
+# is gated on both); ``AST_check`` is deliberately NOT a headline conjunct (idiom-locking
+# false-negative risk) and stays a per-record diagnostic (``ast_ok``/``ast_reasons``).
+# The metric suite is exactly the paper panel — nothing else is computed:
+#   EXC      headline (binary)
+#   EXF1     graded companion: name-insensitive row-multiset F1, grades distance from gold
+#            where the binary headline can only say 0
+#   outcome  every record lands in exactly one ``OUTCOME_BUCKETS`` bucket, so per-system
+#            fractions form the loss-accounting identity (correct + Σ failure modes = 1)
+#   slices   claim-axis reporting (schema_flex / anti_sql_transfer_level / …)
+#   McNemar  ablation reports carry an exact paired test of each arm's headline against
+#            ``REFERENCE_ABLATION_SYSTEM``
+# The legacy diagnostic columns (EM exact-match, strict EX, unbounded EXC_spider, EFM/EVM
+# naming checks, QSM/QFC query-form checks) were removed 2026-06: zero discriminative
+# power between independent systems (query-form ≈ 0 structurally; naming is
+# underdetermined by the NLQ). Historic runs that still carry them remain readable —
+# absent metrics render as missing.
+HEADLINE_METRIC = "EXC"
+# β: per-row tolerated extra top-level values. Frozen by the M2 null-probe sweep
+# (docs/experiment_design_2026-06.md §1.3): the minimal bound that covers the observed
+# benign surplus families (one ``_id`` leak + one helper column) while every
+# projection-stripped dump probe still fails.
+EXC_SURPLUS_BOUND = 2
+EVALUATION_METRICS: tuple[str, ...] = (HEADLINE_METRIC,)
+# Graded (non-binary) companions to the binary fingerprint metrics. ``EXF1`` is the
+# name-insensitive row-multiset F1 between predicted and gold results: row identity is
+# ``row_values_key`` (top-level column labels cosmetic, nested keys significant — the same
+# contract as ≡_val), so it grades HOW FAR a wrong answer is from the gold result set
+# without crediting projection dumps (precision collapses). Graded metrics are averaged
+# into scores but stay OUT of the binary fingerprint.
+GRADED_METRICS: tuple[str, ...] = ("EXF1",)
+ALL_METRICS: tuple[str, ...] = (*EVALUATION_METRICS, *GRADED_METRICS)
+DIAGNOSTIC_METRICS: tuple[str, ...] = tuple(
+    metric for metric in ALL_METRICS if metric != HEADLINE_METRIC
+)
+# Execution-outcome decomposition: every scored release record falls into EXACTLY ONE
+# bucket, so per-system fractions sum to 1 (the loss-accounting identity:
+# EXC + Σ non-correct buckets = 1). Buckets are keyed on the same row identity as EXF1.
+OUTCOME_BUCKETS: tuple[str, ...] = (
+    "correct",        # headline EXC = 1
+    "no_submission",  # typed *_failure artifact or missing prediction
+    "invalid",        # parse failure or banned operator (validity gate)
+    "exec_error",     # parsed and clean, but execution raised
+    "empty",          # executed to an empty result against a non-empty gold
+    "order_only",     # right row multiset, wrong order on an order-sensitive gold
+    "row_subset",     # predicted rows are a proper sub-multiset of gold rows
+    "row_superset",   # gold rows are a proper sub-multiset of predicted rows
+    "value_mismatch", # overlapping/disjoint rows: at least one row's values are wrong
+)
+SLICE_AXES: tuple[str, ...] = (
+    "domain",
+    "join_depth",
+    "aggregation_depth",
+    "schema_pattern",
+    "schema_flex",
+    "difficulty_tier",
+    "anti_sql_transfer_level",
+)
+DIAGNOSTIC_SLICE_AXES: tuple[str, ...] = (
+    "functional_sql_solvable",
+    "structural_sql_solvable",
+    "sql_infeasibility_class",
+)
+FAILURE_RESULT_TYPES = frozenset({
+    "solver_failure",
+    "baseline_failure",
+    "ablation_failure",
+})
+DIAGNOSTIC_REF_KEYS: tuple[str, ...] = (
+    "transcript_refs",
+    "diagnostics_refs",
+    "agent_session_ref",
+    "evidence_ledger_ref",
+    "execution_trace_ref",
+    "error_refs",
+    "last_candidate_ref",
+    "unresolved_debts",
+)
+PROVENANCE_REF_KEYS: tuple[str, ...] = (
+    "input_mode",
+    "nlq_track",
+    "nlq_hash",
+    "witness_k",
+    "evaluation_skip_reason",
+)
+REFERENCE_ABLATION_SYSTEM = "sag_full"
+ORDER_SENSITIVE_ROOT_OPS = {"$sort", "$limit", "$skip", "$setWindowFields"}
+
+
+class EvaluationExecutor(Protocol):
+    def load_witness(self, db_id: str, collections: dict[str, list[dict[str, Any]]]) -> None:
+        ...
+
+    def norm_exec(self, db_id: str, mql: str) -> list[dict[str, Any]]:
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationPaths:
+    out_dir: Path
+    per_record_jsonl: Path
+    per_record_csv: Path
+    report_json: Path
+    report_md: Path
+
+    @classmethod
+    def under(cls, out_dir: Path) -> "EvaluationPaths":
+        return cls(
+            out_dir=out_dir,
+            per_record_jsonl=out_dir / "per_record_metrics.jsonl",
+            per_record_csv=out_dir / "per_record_metrics.csv",
+            report_json=out_dir / "report.json",
+            report_md=out_dir / "report.md",
+        )
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "out_dir": str(self.out_dir),
+            "per_record_jsonl": str(self.per_record_jsonl),
+            "per_record_csv": str(self.per_record_csv),
+            "report_json": str(self.report_json),
+            "report_md": str(self.report_md),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationOutput:
+    status: str
+    report: dict[str, Any]
+    paths: EvaluationPaths
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "ok"
+
+
+@dataclass(frozen=True, slots=True)
+class _GoldRecord:
+    record: dict[str, Any]
+    gold_mql: str
+    canonical_form_set: dict[str, Any]
+    parsed: tuple[str, list[dict[str, Any]]] | None
+    order_sensitive: bool
+    gold_result: list[dict[str, Any]] | None = None
+
+
+def evaluate_predictions(
+    *,
+    dataset_dir: Path,
+    predictions_path: Path,
+    out_dir: Path,
+    experiment_kind: str,
+    run_id: str,
+    logger: RunLogger,
+    progress: Any = None,
+    executor: EvaluationExecutor | None = None,
+    max_workers: int = 8,
+) -> EvaluationOutput:
+    """Evaluate a prediction JSONL file against a release dataset.
+
+    ``experiment_kind`` is used only for artifact naming and system id extraction. It
+    should be one of ``solver``, ``baseline``, ``ablation``, or a custom label.
+    """
+    paths = EvaluationPaths.under(out_dir)
+    paths.out_dir.mkdir(parents=True, exist_ok=True)
+    log = logger.bind(component="evaluator", experiment_kind=experiment_kind)
+    if progress:
+        progress.phase("EVAL")
+
+    log.info(
+        "evaluation_start",
+        dataset_dir=str(dataset_dir),
+        predictions_path=str(predictions_path),
+        out_dir=str(paths.out_dir),
+        max_workers=max_workers,
+    )
+
+    try:
+        records = _load_records(dataset_dir)
+        predictions = _load_predictions(predictions_path)
+    except TendError as err:
+        err.with_context(
+            dataset_dir=str(dataset_dir),
+            predictions_path=str(predictions_path),
+            experiment_kind=experiment_kind,
+        )
+        log.anomaly(err)
+        return _write_failed_report(
+            paths,
+            run_id=run_id,
+            experiment_kind=experiment_kind,
+            message=err.message,
+            error_code=err.anomaly.value if err.anomaly else Anomaly.INTERNAL.value,
+            logger=log,
+        )
+    except Exception as exc:  # noqa: BLE001 - final evaluation boundary
+        err = wrap_unexpected(
+            exc,
+            stage="evaluation_load",
+            dataset_dir=str(dataset_dir),
+            predictions_path=str(predictions_path),
+            traceback="".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+        )
+        log.anomaly(err)
+        return _write_failed_report(
+            paths,
+            run_id=run_id,
+            experiment_kind=experiment_kind,
+            message=err.message,
+            error_code=Anomaly.INTERNAL.value,
+            logger=log,
+        )
+
+    if not predictions:
+        log.anomaly(
+            kind=Anomaly.SUPPLY_EXHAUSTED,
+            message="prediction file contains no scorable predictions",
+            predictions_path=str(predictions_path),
+        )
+        return _write_failed_report(
+            paths,
+            run_id=run_id,
+            experiment_kind=experiment_kind,
+            message="prediction file contains no scorable predictions",
+            error_code=Anomaly.SUPPLY_EXHAUSTED.value,
+            logger=log,
+        )
+
+    if executor is None:
+        available, unavailable_reason = False, "no evaluation executor was provided"
+    else:
+        available, unavailable_reason = _executor_available(executor)
+    if not available:
+        message = "evaluation executor unavailable; cannot run proposal 05 NormExec"
+        log.anomaly(
+            kind=Anomaly.EXEC_ERROR,
+            message=message,
+            predictions_path=str(predictions_path),
+            reason=unavailable_reason,
+        )
+        return _write_failed_report(
+            paths,
+            run_id=run_id,
+            experiment_kind=experiment_kind,
+            message=f"{message} ({unavailable_reason})" if unavailable_reason else message,
+            error_code=Anomaly.EXEC_ERROR.value,
+            logger=log,
+        )
+
+    record_index = {_record_key(record): record for record in records}
+    scorable_records = _records_for_predictions(records, predictions)
+    log.info(
+        "evaluation_scope_selected",
+        predictions=len(predictions),
+        release_records=len(records),
+        scorable_records=len(scorable_records),
+        db_ids=sorted({str(record.get("db_id") or "") for record in scorable_records}),
+    )
+    try:
+        _load_witnesses(dataset_dir, scorable_records, executor, log)
+        gold = _prepare_gold_records(scorable_records, executor, log)
+    except TendError as err:
+        if not err.logged:
+            log.anomaly(err)
+        return _write_failed_report(
+            paths,
+            run_id=run_id,
+            experiment_kind=experiment_kind,
+            message=err.message,
+            error_code=err.anomaly.value if err.anomaly else Anomaly.EXEC_ERROR.value,
+            logger=log,
+        )
+    except Exception as exc:  # noqa: BLE001 - final evaluation boundary
+        err = wrap_unexpected(
+            exc,
+            stage="evaluation_prepare",
+            traceback="".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+        )
+        log.anomaly(err)
+        return _write_failed_report(
+            paths,
+            run_id=run_id,
+            experiment_kind=experiment_kind,
+            message=err.message,
+            error_code=Anomaly.INTERNAL.value,
+            logger=log,
+        )
+
+    if progress:
+        progress.add_group(
+            f"eval:{experiment_kind}",
+            f"eval {experiment_kind}",
+            phase="EVAL",
+            total=len(predictions),
+        )
+
+    rows = _score_predictions_concurrently(
+        predictions,
+        record_index=record_index,
+        gold=gold,
+        executor=executor,
+        experiment_kind=experiment_kind,
+        run_id=run_id,
+        logger=log,
+        progress=progress,
+        max_workers=max_workers,
+    )
+    missing_rows = _missing_prediction_rows(
+        records,
+        predictions,
+        run_id=run_id,
+        experiment_kind=experiment_kind,
+    )
+    if missing_rows:
+        log.warning(
+            "evaluation_missing_predictions",
+            missing=len(missing_rows),
+            systems=sorted({str(row.get("system_id")) for row in missing_rows}),
+            missing_records_sample=[
+                {
+                    "system_id": row.get("system_id"),
+                    "db_id": row.get("db_id"),
+                    "record_id": row.get("record_id"),
+                }
+                for row in missing_rows[:20]
+            ],
+            per_record_jsonl=str(paths.per_record_jsonl),
+            report_json=str(paths.report_json),
+        )
+        rows.extend(missing_rows)
+    rows.sort(
+        key=lambda row: (
+            str(row.get("system_id")),
+            str(row.get("db_id")),
+            row.get("record_id") or -1,
+            row.get("prediction_index") or 0,
+        )
+    )
+
+    _write_per_record(paths, rows)
+    report = _build_report(
+        rows,
+        records=record_index,
+        run_id=run_id,
+        experiment_kind=experiment_kind,
+        dataset_dir=dataset_dir,
+        predictions_path=predictions_path,
+        paths=paths,
+    )
+    paths.report_json.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    paths.report_md.write_text(_render_markdown_report(report), encoding="utf-8")
+    log.info(
+        "evaluation_done",
+        status=report["status"],
+        predictions=len(predictions),
+        rows=len(rows),
+        headline_score=report["scores"].get(HEADLINE_METRIC),
+        headline_metric=HEADLINE_METRIC,
+        report_json=str(paths.report_json),
+        report_md=str(paths.report_md),
+    )
+    return EvaluationOutput(status=str(report["status"]), report=report, paths=paths)
+
+
+def _load_records(dataset_dir: Path) -> list[dict[str, Any]]:
+    path = resolve_release_dataset_layout(dataset_dir).test_path
+    if not path.exists():
+        raise TendError(
+            "dataset test.json not found",
+            anomaly=Anomaly.SUPPLY_EXHAUSTED,
+            context={"path": str(path)},
+        )
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        raise TendError(
+            "dataset test.json must be a list",
+            anomaly=Anomaly.INTERNAL,
+            context={"path": str(path), "got_type": type(raw).__name__},
+        )
+    records = [record for record in raw if isinstance(record, dict)]
+    _merge_record_metadata(records, dataset_dir)
+    return records
+
+
+def _merge_record_metadata(records: list[dict[str, Any]], dataset_dir: Path) -> None:
+    """Join slice metadata from an optional ``record_metadata.json`` sidecar.
+
+    Lean release/shadow ``test.json`` files carry only the solver-visible fields
+    (NLQ + gold MQL), which leaves every slice axis degenerate. The sidecar restores the
+    EVALUATION-ONLY per-record metadata (schema_flex, mechanism, difficulty, …) without
+    widening what solvers/baselines can see — it is read here, after prediction time.
+    Existing record fields always win over sidecar fields.
+    """
+    sidecar = Path(dataset_dir) / "record_metadata.json"
+    if not sidecar.exists():
+        return
+    try:
+        payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(payload, list):
+        return
+    index = {
+        (str(item.get("db_id") or ""), item.get("record_id")): item
+        for item in payload
+        if isinstance(item, dict)
+    }
+    for record in records:
+        meta = index.get(_record_key(record))
+        if not meta:
+            continue
+        for key, value in meta.items():
+            if key in ("db_id", "record_id"):
+                continue
+            record.setdefault(key, value)
+
+
+def _load_predictions(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        raise TendError(
+            "prediction file not found",
+            anomaly=Anomaly.SUPPLY_EXHAUSTED,
+            context={"path": str(path)},
+        )
+    out: list[dict[str, Any]] = []
+    for line_no, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not raw.strip():
+            continue
+        try:
+            item = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise TendError(
+                "prediction JSONL contains an invalid JSON line",
+                anomaly=Anomaly.PARSE_ERROR,
+                context={"path": str(path), "line_no": line_no, "error": str(exc)},
+            ) from exc
+        if isinstance(item, dict):
+            item["_prediction_line"] = line_no
+            out.append(item)
+    return out
+
+
+def _executor_available(executor: EvaluationExecutor) -> tuple[bool, str | None]:
+    """Return ``(available, reason)``; ``reason`` carries WHY the executor is unusable."""
+    available = getattr(executor, "available", None)
+    if callable(available):
+        try:
+            if available():
+                return True, None
+            return False, "executor.available() returned False"
+        except Exception as exc:  # noqa: BLE001 - surface the cause to errors.jsonl
+            return False, f"{type(exc).__name__}: {exc}"
+    return True, None
+
+
+def _records_for_predictions(
+    records: list[dict[str, Any]],
+    predictions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    record_index = {_record_key(record): record for record in records}
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, Any]] = set()
+    for prediction in predictions:
+        key = (str(prediction.get("db_id") or ""), prediction.get("record_id"))
+        if key in seen:
+            continue
+        seen.add(key)
+        record = record_index.get(key)
+        if record is not None:
+            out.append(record)
+    return out
+
+
+def _load_witnesses(
+    dataset_dir: Path,
+    records: list[dict[str, Any]],
+    executor: EvaluationExecutor,
+    log: RunLogger,
+) -> None:
+    layout = resolve_release_dataset_layout(dataset_dir)
+    db_ids = sorted({str(record.get("db_id") or "") for record in records if record.get("db_id")})
+    for db_id in db_ids:
+        data_path = layout.mongodb_data_dir / f"{db_id}.json"
+        if not data_path.exists():
+            raise TendError(
+                "mongodb witness data not found",
+                anomaly=Anomaly.EXEC_ERROR,
+                context={"db_id": db_id, "path": str(data_path)},
+            )
+        data = json.loads(data_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise TendError(
+                "mongodb witness data must be a collection mapping",
+                anomaly=Anomaly.EXEC_ERROR,
+                context={"db_id": db_id, "path": str(data_path), "got_type": type(data).__name__},
+            )
+        executor.load_witness(db_id, data)
+    log.info("evaluation_witnesses_loaded", db_ids=db_ids, db_count=len(db_ids))
+
+
+def _prepare_gold_records(
+    records: list[dict[str, Any]],
+    executor: EvaluationExecutor,
+    log: RunLogger,
+) -> dict[tuple[str, Any], _GoldRecord]:
+    gold: dict[tuple[str, Any], _GoldRecord] = {}
+    for record in records:
+        db_id = str(record.get("db_id") or "")
+        record_id = record.get("record_id")
+        mql = str(record.get("MQL") or "")
+        cfs = record.get("canonical_form_set") if isinstance(record.get("canonical_form_set"), dict) else {}
+        try:
+            parsed = parse_pipeline(mql)
+            disabled = scan_disabled(mql)
+        except Exception as exc:  # noqa: BLE001 - release defects must be surfaced as eval faults
+            raise TendError(
+                "gold MQL is not parseable",
+                anomaly=Anomaly.PARSE_ERROR,
+                context={"db_id": db_id, "record_id": record_id, "message": str(exc)[:500]},
+            ) from exc
+        if disabled:
+            raise TendError(
+                "gold MQL contains disabled operators",
+                anomaly=Anomaly.DISABLED_OPERATOR,
+                context={"db_id": db_id, "record_id": record_id, "hits": disabled},
+            )
+        try:
+            result = executor.norm_exec(db_id, mql)
+        except Exception as exc:  # noqa: BLE001 - executor wraps most failures as TendError
+            err = wrap_unexpected(
+                exc,
+                stage="gold_norm_exec",
+                db_id=db_id,
+                record_id=record_id,
+                traceback="".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+            )
+            err.anomaly = Anomaly.EXEC_ERROR
+            log.anomaly(err)
+            raise err from exc
+        gold[_record_key(record)] = _GoldRecord(
+            record=record,
+            gold_mql=mql,
+            canonical_form_set=_normalize_cfs_against_gold(cfs, parsed),
+            parsed=parsed,
+            order_sensitive=_order_sensitive(parsed),
+            gold_result=result,
+        )
+    return gold
+
+
+def _normalize_cfs_against_gold(
+    cfs: dict[str, Any],
+    parsed: tuple[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    """Drop stale root-op prohibitions that contradict the released gold pipeline."""
+
+    out = dict(cfs)
+    gold_root_ops = root_ops(parsed[1])
+    must_not_root = out.get("must_not_contain_at_root")
+    if isinstance(must_not_root, list):
+        out["must_not_contain_at_root"] = [
+            str(op) for op in must_not_root
+            if str(op) not in gold_root_ops
+        ]
+    return out
+
+
+def _score_predictions_concurrently(
+    predictions: list[dict[str, Any]],
+    *,
+    record_index: dict[tuple[str, Any], dict[str, Any]],
+    gold: dict[tuple[str, Any], _GoldRecord],
+    executor: EvaluationExecutor,
+    experiment_kind: str,
+    run_id: str,
+    logger: RunLogger,
+    progress: Any,
+    max_workers: int,
+) -> list[dict[str, Any]]:
+    workers = max(1, max_workers)
+    rows: list[dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="tend-eval") as pool:
+        futures = {
+            pool.submit(
+                _score_one_prediction,
+                prediction,
+                prediction_index=index,
+                record_index=record_index,
+                gold=gold,
+                executor=executor,
+                experiment_kind=experiment_kind,
+                run_id=run_id,
+                logger=logger,
+                progress=progress,
+            ): index
+            for index, prediction in enumerate(predictions)
+        }
+        for future in as_completed(futures):
+            rows.append(future.result())
+    return rows
+
+
+def _missing_prediction_rows(
+    records: list[dict[str, Any]],
+    predictions: list[dict[str, Any]],
+    *,
+    run_id: str,
+    experiment_kind: str,
+) -> list[dict[str, Any]]:
+    """Return zero-score rows for release records not predicted by each system."""
+
+    system_ids = sorted({_system_id(prediction, experiment_kind) for prediction in predictions})
+    if not system_ids:
+        return []
+    record_index = {_record_key(record): record for record in records}
+    predicted_by_system: dict[str, set[tuple[str, Any]]] = defaultdict(set)
+    for prediction in predictions:
+        system_id = _system_id(prediction, experiment_kind)
+        key = (str(prediction.get("db_id") or ""), prediction.get("record_id"))
+        if key in record_index:
+            predicted_by_system[system_id].add(key)
+
+    rows: list[dict[str, Any]] = []
+    for system_id in system_ids:
+        predicted_keys = predicted_by_system.get(system_id, set())
+        for record in records:
+            key = _record_key(record)
+            if key in predicted_keys:
+                continue
+            rows.append(_missing_prediction_row(
+                record,
+                run_id=run_id,
+                experiment_kind=experiment_kind,
+                system_id=system_id,
+            ))
+    return rows
+
+
+def _zero_metrics() -> dict[str, Any]:
+    metrics: dict[str, Any] = dict.fromkeys(EVALUATION_METRICS, 0)
+    for name in GRADED_METRICS:
+        metrics[name] = 0.0
+    return metrics
+
+
+def _missing_prediction_row(
+    record: dict[str, Any],
+    *,
+    run_id: str,
+    experiment_kind: str,
+    system_id: str,
+) -> dict[str, Any]:
+    metrics = _zero_metrics()
+    return {
+        "result_type": "evaluation_record",
+        "status": "failed",
+        "run_id": run_id,
+        "experiment_kind": experiment_kind,
+        "system_id": system_id,
+        "prediction_index": None,
+        "prediction_line": None,
+        "record_id": record.get("record_id"),
+        "db_id": record.get("db_id"),
+        "metrics": metrics,
+        "outcome": "no_submission",
+        "fingerprint": [0 for _ in EVALUATION_METRICS],
+        "fingerprint_order": list(EVALUATION_METRICS),
+        "diagnostics": {
+            "error_code": "missing_prediction",
+            "message": "system did not produce a prediction for this release record",
+        },
+        "slice_keys": _slice_keys(record, None),
+        "prediction_ref": {
+            "line": None,
+            "work_item_id": None,
+            "batch_index": None,
+            "result_type": "missing_prediction",
+        },
+    }
+
+
+def _score_one_prediction(
+    prediction: dict[str, Any],
+    *,
+    prediction_index: int,
+    record_index: dict[tuple[str, Any], dict[str, Any]],
+    gold: dict[tuple[str, Any], _GoldRecord],
+    executor: EvaluationExecutor,
+    experiment_kind: str,
+    run_id: str,
+    logger: RunLogger,
+    progress: Any,
+) -> dict[str, Any]:
+    db_id = str(prediction.get("db_id") or "")
+    record_id = prediction.get("record_id")
+    system_id = _system_id(prediction, experiment_kind)
+    task_id = f"eval:{experiment_kind}:{prediction_index}:{system_id}:{db_id}:{record_id}"
+    group = f"eval:{experiment_kind}"
+    if progress:
+        progress.start_task(task_id, f"{system_id} {db_id}/{record_id}", group=group)
+    log = logger.bind(
+        system_id=system_id,
+        db_id=db_id,
+        record_id=record_id,
+        prediction_index=prediction_index,
+    )
+    log.info("evaluation_record_start")
+    try:
+        row = _score_one_prediction_inner(
+            prediction,
+            prediction_index=prediction_index,
+            record_index=record_index,
+            gold=gold,
+            executor=executor,
+            experiment_kind=experiment_kind,
+            run_id=run_id,
+            system_id=system_id,
+        )
+        if (row.get("diagnostics") or {}).get("error_code") == "record_not_found":
+            log.anomaly(
+                kind=Anomaly.INTERNAL,
+                message="prediction does not match a release record",
+                error_code="record_not_found",
+                db_id=db_id,
+                record_id=record_id,
+                system_id=system_id,
+            )
+        if progress:
+            metrics = row.get("metrics", {})
+            progress.finish_task(
+                task_id,
+                ok=True,
+                detail=(
+                    f"{HEADLINE_METRIC}={metrics.get(HEADLINE_METRIC, 0)} "
+                    f"EXF1={metrics.get('EXF1', 0)} "
+                    f"outcome={row.get('outcome', '')}"
+                ),
+            )
+        log.info(
+            "evaluation_record_done",
+            status=row.get("status"),
+            metrics=row.get("metrics"),
+            diagnostics=row.get("diagnostics"),
+        )
+        return row
+    except Exception as exc:  # noqa: BLE001 - one evaluator bug should not drop all rows
+        err = wrap_unexpected(
+            exc,
+            stage="evaluation_record",
+            system_id=system_id,
+            db_id=db_id,
+            record_id=record_id,
+            prediction_index=prediction_index,
+            traceback="".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+        )
+        logger.anomaly(err)
+        if progress:
+            progress.finish_task(task_id, ok=False, anomaly=Anomaly.INTERNAL.value)
+        return _failed_record_row(
+            prediction,
+            run_id=run_id,
+            experiment_kind=experiment_kind,
+            system_id=system_id,
+            prediction_index=prediction_index,
+            error_code=Anomaly.INTERNAL.value,
+            message=err.message,
+        )
+
+
+def _score_one_prediction_inner(
+    prediction: dict[str, Any],
+    *,
+    prediction_index: int,
+    record_index: dict[tuple[str, Any], dict[str, Any]],
+    gold: dict[tuple[str, Any], _GoldRecord],
+    executor: EvaluationExecutor,
+    experiment_kind: str,
+    run_id: str,
+    system_id: str,
+) -> dict[str, Any]:
+    key = (str(prediction.get("db_id") or ""), prediction.get("record_id"))
+    record = record_index.get(key)
+    if record is None or key not in gold:
+        return _failed_record_row(
+            prediction,
+            run_id=run_id,
+            experiment_kind=experiment_kind,
+            system_id=system_id,
+            prediction_index=prediction_index,
+            error_code="record_not_found",
+            message="prediction does not match a release record",
+        )
+    gold_record = gold[key]
+    failure_type = _typed_failure_type(prediction)
+    if failure_type is not None:
+        return _failure_artifact_row(
+            prediction,
+            record=record,
+            gold_record=gold_record,
+            run_id=run_id,
+            experiment_kind=experiment_kind,
+            system_id=system_id,
+            prediction_index=prediction_index,
+            failure_type=failure_type,
+        )
+    mql = str(prediction.get("MQL") or "")
+    diagnostics: dict[str, Any] = {}
+    metrics = _zero_metrics()
+
+    parsed: tuple[str, list[dict[str, Any]]] | None = None
+    parse_error: str | None = None
+    disabled: list[str] = []
+    try:
+        parsed = parse_pipeline(mql)
+        disabled = scan_disabled(mql)
+    except Exception as exc:  # noqa: BLE001 - scoring diagnostics should keep going
+        parse_error = str(exc)
+
+    if parse_error:
+        diagnostics["parse_error"] = parse_error[:500]
+    if disabled:
+        diagnostics["forbidden_op_hit"] = disabled
+
+    ast_ok = False
+    ast_reasons: list[str] = []
+    if parsed is not None:
+        ast_ok, ast_reasons = ast_check(mql, gold_record.canonical_form_set)
+    if ast_reasons:
+        diagnostics["ast_reasons"] = ast_reasons
+
+    diagnostics["parse_ok"] = parsed is not None
+    diagnostics["ast_ok"] = ast_ok
+
+    predicted_result: list[dict[str, Any]] | None = None
+    if parsed is not None and not disabled:
+        try:
+            predicted_result = executor.norm_exec(str(record.get("db_id") or ""), mql)
+        except Exception as exc:  # noqa: BLE001 - bad predictions score 0 but remain scorable
+            diagnostics["exec_error"] = str(exc)[:700]
+
+    gold_result = gold_record.gold_result
+    if predicted_result is not None and gold_result is not None:
+        order_sensitive = gold_record.order_sensitive
+        # Headline EXC: bounded column tolerance (β=EXC_SURPLUS_BOUND, gold is first arg).
+        # parse_ok ∧ banned-op-clean preconditions are already enforced by the execution
+        # gate above; ast_ok is deliberately not a conjunct (see module header).
+        metrics["EXC"] = int(
+            equiv_rec_values_superset(
+                gold_result,
+                predicted_result,
+                order_sensitive=order_sensitive,
+                max_surplus=EXC_SURPLUS_BOUND,
+            )
+        )
+        metrics["EXF1"] = exf1(predicted_result, gold_result)
+        diagnostics["result_rows"] = {
+            "predicted": len(predicted_result),
+            "gold": len(gold_result),
+            "order_sensitive": order_sensitive,
+        }
+        diagnostics["result_hash"] = {
+            "predicted": _hash_result(predicted_result),
+            "gold": _hash_result(gold_result),
+        }
+
+    fingerprint = [metrics[name] for name in EVALUATION_METRICS]
+    outcome = _classify_outcome(
+        exc=bool(metrics["EXC"]),
+        parsed=parsed is not None,
+        disabled=bool(disabled),
+        predicted_result=predicted_result,
+        gold_result=gold_result,
+        order_sensitive=gold_record.order_sensitive,
+    )
+    return {
+        "result_type": "evaluation_record",
+        "status": "scored",
+        "run_id": run_id,
+        "experiment_kind": experiment_kind,
+        "system_id": system_id,
+        "prediction_index": prediction_index,
+        "prediction_line": prediction.get("_prediction_line"),
+        "record_id": record.get("record_id"),
+        "db_id": record.get("db_id"),
+        "metrics": metrics,
+        "outcome": outcome,
+        "fingerprint": fingerprint,
+        "fingerprint_order": list(EVALUATION_METRICS),
+        "diagnostics": diagnostics,
+        "slice_keys": _slice_keys(record, gold_record.parsed),
+        "prediction_ref": _prediction_ref(prediction),
+    }
+
+
+def _failed_record_row(
+    prediction: dict[str, Any],
+    *,
+    run_id: str,
+    experiment_kind: str,
+    system_id: str,
+    prediction_index: int,
+    error_code: str,
+    message: str,
+) -> dict[str, Any]:
+    metrics = _zero_metrics()
+    return {
+        "result_type": "evaluation_record",
+        "status": "failed",
+        "run_id": run_id,
+        "experiment_kind": experiment_kind,
+        "system_id": system_id,
+        "prediction_index": prediction_index,
+        "prediction_line": prediction.get("_prediction_line"),
+        "record_id": prediction.get("record_id"),
+        "db_id": prediction.get("db_id"),
+        "metrics": metrics,
+        "outcome": "no_submission",
+        "fingerprint": [0 for _ in EVALUATION_METRICS],
+        "fingerprint_order": list(EVALUATION_METRICS),
+        "diagnostics": {"error_code": error_code, "message": message},
+        "slice_keys": {},
+        "prediction_ref": _prediction_ref(prediction),
+    }
+
+
+def _typed_failure_type(prediction: dict[str, Any]) -> str | None:
+    result_type = prediction.get("result_type")
+    if isinstance(result_type, str) and result_type in FAILURE_RESULT_TYPES:
+        return result_type
+    return None
+
+
+def _failure_artifact_row(
+    prediction: dict[str, Any],
+    *,
+    record: dict[str, Any],
+    gold_record: _GoldRecord,
+    run_id: str,
+    experiment_kind: str,
+    system_id: str,
+    prediction_index: int,
+    failure_type: str,
+) -> dict[str, Any]:
+    metrics = _zero_metrics()
+    return {
+        "result_type": "evaluation_record",
+        "status": "failed",
+        "run_id": run_id,
+        "experiment_kind": experiment_kind,
+        "system_id": system_id,
+        "prediction_index": prediction_index,
+        "prediction_line": prediction.get("_prediction_line"),
+        "record_id": record.get("record_id"),
+        "db_id": record.get("db_id"),
+        "metrics": metrics,
+        "outcome": "no_submission",
+        "fingerprint": [0 for _ in EVALUATION_METRICS],
+        "fingerprint_order": list(EVALUATION_METRICS),
+        "diagnostics": {
+            "error_code": str(prediction.get("error_code") or failure_type),
+            "failure_type": failure_type,
+            "message": str(prediction.get("message") or "system reported a failure"),
+        },
+        "slice_keys": _slice_keys(record, gold_record.parsed),
+        "prediction_ref": _prediction_ref(prediction),
+    }
+
+
+def _record_key(record: dict[str, Any]) -> tuple[str, Any]:
+    return (str(record.get("db_id") or ""), record.get("record_id"))
+
+
+def _system_id(prediction: dict[str, Any], experiment_kind: str) -> str:
+    for key in ("ablation_id", "baseline_id", "solver_variant", "system_id"):
+        value = prediction.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return {
+        "solver": "smart_solver",
+        "baseline": "baseline",
+        "ablation": "ablation",
+    }.get(experiment_kind, experiment_kind)
+
+
+def _prediction_ref(prediction: dict[str, Any]) -> dict[str, Any]:
+    ref = {
+        "line": prediction.get("_prediction_line"),
+        "work_item_id": prediction.get("work_item_id"),
+        "batch_index": prediction.get("batch_index"),
+        "result_type": prediction.get("result_type"),
+    }
+    for key in (*DIAGNOSTIC_REF_KEYS, *PROVENANCE_REF_KEYS):
+        value = prediction.get(key)
+        if _ref_value_present(value):
+            ref[key] = value
+
+    transcript_ref = prediction.get("transcript_ref")
+    if "transcript_refs" not in ref and isinstance(transcript_ref, str) and transcript_ref:
+        ref["transcript_refs"] = [transcript_ref]
+    diagnostics_ref = prediction.get("diagnostics_ref")
+    if "diagnostics_refs" not in ref and isinstance(diagnostics_ref, str) and diagnostics_ref:
+        ref["diagnostics_refs"] = [diagnostics_ref]
+    if _is_baseline_row(prediction):
+        step_transcripts, step_diagnostics = _legacy_step_refs(prediction)
+        if "transcript_refs" not in ref and step_transcripts:
+            ref["transcript_refs"] = step_transcripts
+        if "diagnostics_refs" not in ref and step_diagnostics:
+            ref["diagnostics_refs"] = step_diagnostics
+    return ref
+
+
+def _is_baseline_row(prediction: dict[str, Any]) -> bool:
+    result_type = prediction.get("result_type")
+    if isinstance(result_type, str) and result_type.startswith("baseline_"):
+        return True
+    return _ref_value_present(prediction.get("baseline_id"))
+
+
+def _legacy_step_refs(prediction: dict[str, Any]) -> tuple[list[str], list[str]]:
+    steps = prediction.get("steps")
+    if not isinstance(steps, list):
+        return [], []
+    transcripts: list[str] = []
+    diagnostics: list[str] = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        transcript_ref = step.get("transcript_ref")
+        if isinstance(transcript_ref, str) and transcript_ref:
+            transcripts.append(transcript_ref)
+        diagnostics_ref = step.get("diagnostics_ref")
+        if isinstance(diagnostics_ref, str) and diagnostics_ref:
+            diagnostics.append(diagnostics_ref)
+    return transcripts, diagnostics
+
+
+def _ref_value_present(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value)
+    if isinstance(value, list):
+        return any(item not in (None, "") for item in value)
+    return value is not None
+
+
+def _order_sensitive(parsed: tuple[str, list[dict[str, Any]]] | None) -> bool:
+    if parsed is None:
+        return False
+    _, pipeline = parsed
+    return bool(root_ops(pipeline) & ORDER_SENSITIVE_ROOT_OPS)
+
+
+def exf1(predicted: list[dict[str, Any]], gold: list[dict[str, Any]]) -> float:
+    """Name-insensitive row-multiset F1 between a predicted and a gold result.
+
+    Row identity is ``row_values_key`` — the exact-row contract (top-level column labels
+    cosmetic, nested keys significant, no surplus tolerance), compared order-insensitively
+    as a multiset. Precision punishes dumps and extra rows, recall punishes missing rows;
+    F1 grades distance from gold where the binary headline can only say 0.
+    """
+    pred_counter = Counter(row_values_key(row) for row in predicted)
+    gold_counter = Counter(row_values_key(row) for row in gold)
+    if not pred_counter and not gold_counter:
+        return 1.0
+    if not pred_counter or not gold_counter:
+        return 0.0
+    overlap = sum((pred_counter & gold_counter).values())
+    if overlap == 0:
+        return 0.0
+    precision = overlap / sum(pred_counter.values())
+    recall = overlap / sum(gold_counter.values())
+    return round(2 * precision * recall / (precision + recall), 6)
+
+
+def _classify_outcome(
+    *,
+    exc: bool,
+    parsed: bool,
+    disabled: bool,
+    predicted_result: list[dict[str, Any]] | None,
+    gold_result: list[dict[str, Any]] | None,
+    order_sensitive: bool,
+) -> str:
+    """Assign a scored prediction to exactly one ``OUTCOME_BUCKETS`` bucket."""
+    if exc:
+        return "correct"
+    if not parsed or disabled:
+        return "invalid"
+    if predicted_result is None or gold_result is None:
+        return "exec_error"
+    if not predicted_result and gold_result:
+        return "empty"
+    pred_counter = Counter(row_values_key(row) for row in predicted_result)
+    gold_counter = Counter(row_values_key(row) for row in gold_result)
+    if pred_counter == gold_counter:
+        # The multiset matches but EXC said no — only possible when gold order matters.
+        return "order_only" if order_sensitive else "value_mismatch"
+    if not pred_counter - gold_counter:
+        return "row_subset"
+    if not gold_counter - pred_counter:
+        return "row_superset"
+    return "value_mismatch"
+
+
+def _hash_result(value: Any) -> str:
+    data = canonical_json(value).encode("utf-8")
+    return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def _slice_keys(
+    record: dict[str, Any],
+    parsed: tuple[str, list[dict[str, Any]]] | None,
+) -> dict[str, str]:
+    return {
+        "domain": str(record.get("domain_id") or record.get("db_id") or "unknown"),
+        "join_depth": _join_depth(record, parsed),
+        "aggregation_depth": _aggregation_depth(record, parsed),
+        "schema_pattern": str(
+            record.get("schema_pattern")
+            or record.get("mechanism")
+            or record.get("sql_infeasibility_class")
+            or "unknown"
+        ),
+        "schema_flex": str(record.get("schema_flex") or "none"),
+        "difficulty_tier": str(record.get("difficulty_tier") or record.get("difficulty") or "unknown"),
+        "anti_sql_transfer_level": str(record.get("anti_sql_transfer_level") or "unknown"),
+        "functional_sql_solvable": str(record.get("functional_sql_solvable", "unknown")),
+        "structural_sql_solvable": str(record.get("structural_sql_solvable", "unknown")),
+        "sql_infeasibility_class": str(record.get("sql_infeasibility_class") or "unknown"),
+    }
+
+
+def _join_depth(record: dict[str, Any], parsed: tuple[str, list[dict[str, Any]]] | None) -> str:
+    raw = record.get("join_depth")
+    if raw is not None:
+        try:
+            n = int(raw)
+            return "3+" if n >= 3 else str(n)
+        except (TypeError, ValueError):
+            return str(raw)
+    if parsed is None:
+        return "unknown"
+    _, pipeline = parsed
+    n = 0
+    for stage in pipeline:
+        if isinstance(stage, dict):
+            n += sum(1 for op in stage if op in {"$lookup", "$graphLookup", "$unionWith"})
+    return "3+" if n >= 3 else str(n)
+
+
+def _aggregation_depth(
+    record: dict[str, Any],
+    parsed: tuple[str, list[dict[str, Any]]] | None,
+) -> str:
+    raw = record.get("aggregation_depth")
+    if raw is not None:
+        return str(raw)
+    if parsed is None:
+        return "unknown"
+    _, pipeline = parsed
+    root = root_ops(pipeline)
+    agg_ops = root & {"$group", "$bucket", "$bucketAuto", "$facet", "$setWindowFields"}
+    if not agg_ops:
+        return "shallow"
+    if len(pipeline) <= 4:
+        return "medium"
+    return "deep"
+
+
+def _write_per_record(paths: EvaluationPaths, rows: list[dict[str, Any]]) -> None:
+    with paths.per_record_jsonl.open("w", encoding="utf-8") as fp:
+        for row in rows:
+            fp.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+
+    columns = [
+        "run_id",
+        "experiment_kind",
+        "system_id",
+        "db_id",
+        "record_id",
+        "prediction_index",
+        "status",
+        *ALL_METRICS,
+        "outcome",
+        "fingerprint",
+        "error_code",
+    ]
+    with paths.per_record_csv.open("w", newline="", encoding="utf-8") as fp:
+        writer = csv.DictWriter(fp, fieldnames=columns)
+        writer.writeheader()
+        for row in rows:
+            metrics = row.get("metrics") or {}
+            diagnostics = row.get("diagnostics") or {}
+            writer.writerow({
+                "run_id": row.get("run_id"),
+                "experiment_kind": row.get("experiment_kind"),
+                "system_id": row.get("system_id"),
+                "db_id": row.get("db_id"),
+                "record_id": row.get("record_id"),
+                "prediction_index": row.get("prediction_index"),
+                "status": row.get("status"),
+                **{name: metrics.get(name, 0) for name in ALL_METRICS},
+                "outcome": row.get("outcome") or "",
+                "fingerprint": "".join(str(metrics.get(name, 0)) for name in EVALUATION_METRICS),
+                "error_code": diagnostics.get("error_code")
+                or _diagnostic_error_code(diagnostics),
+            })
+
+
+def _diagnostic_error_code(diagnostics: dict[str, Any]) -> str:
+    for key in ("parse_error", "forbidden_op_hit", "exec_error", "ast_reasons"):
+        if diagnostics.get(key):
+            return key
+    return ""
+
+
+def _build_report(
+    rows: list[dict[str, Any]],
+    *,
+    records: dict[tuple[str, Any], dict[str, Any]],
+    run_id: str,
+    experiment_kind: str,
+    dataset_dir: Path,
+    predictions_path: Path,
+    paths: EvaluationPaths,
+) -> dict[str, Any]:
+    scores = _aggregate(rows)
+    by_system: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        by_system[str(row.get("system_id"))].append(row)
+    systems = {
+        system_id: {
+            "record_count": len(items),
+            "scores": _aggregate(items),
+            "outcome_distribution": _outcome_distribution(items),
+            "diagnostics": _diagnostic_counts(items),
+            "diagnostic_artifact_refs": _diagnostic_artifact_refs(items),
+        }
+        for system_id, items in sorted(by_system.items())
+    }
+    mcnemar = (
+        _mcnemar_vs_reference(rows, reference_system_id=REFERENCE_ABLATION_SYSTEM)
+        if experiment_kind == "ablation"
+        else {}
+    )
+    headline = _headline_summary(
+        experiment_kind=experiment_kind,
+        overall_scores=scores,
+        systems=systems,
+        mcnemar=mcnemar,
+    )
+
+    diagnostics = _diagnostic_counts(rows)
+    status = "ok"
+    if any(row.get("status") == "failed" for row in rows):
+        status = "partial"
+
+    return {
+        "result_type": "evaluation_report",
+        "status": status,
+        "run_id": run_id,
+        "experiment_kind": experiment_kind,
+        "headline_metric": headline["headline_metric"],
+        "headline": headline,
+        "metrics_order": list(ALL_METRICS),
+        "diagnostic_metrics_order": list(DIAGNOSTIC_METRICS),
+        "outcome_buckets_order": list(OUTCOME_BUCKETS),
+        "outcome_distribution": _outcome_distribution(rows),
+        "record_count": len(rows),
+        "scored_row_count": len(rows),
+        "release_record_count": len(records),
+        "denominator": _denominator_summary(
+            rows=rows,
+            records=records,
+            dataset_dir=dataset_dir,
+        ),
+        "scores": scores,
+        "systems": systems,
+        "slice_aggregates": _aggregate_slices(rows, SLICE_AXES),
+        "diagnostic_slice_aggregates": _aggregate_slices(rows, DIAGNOSTIC_SLICE_AXES),
+        "diagnostics": diagnostics,
+        "diagnostic_artifact_refs": _diagnostic_artifact_refs(rows),
+        "disclosure": {
+            "proposal": "05_evaluation_methodology",
+            "disclosure_status": "analysis_report_not_official_leaderboard_submission",
+            "per_record_fingerprint_csv": str(paths.per_record_csv),
+            "per_record_fingerprint_jsonl": str(paths.per_record_jsonl),
+            "environment_digest": _environment_digest(),
+        },
+        "artifacts": paths.as_dict(),
+        "inputs": {
+            "dataset_dir": str(dataset_dir),
+            "predictions_path": str(predictions_path),
+        },
+    }
+
+
+def _headline_summary(
+    *,
+    experiment_kind: str,
+    overall_scores: dict[str, float],
+    systems: dict[str, dict[str, Any]],
+    mcnemar: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if experiment_kind != "ablation":
+        return {
+            "mode": "overall",
+            "headline_metric": HEADLINE_METRIC,
+            "metric": HEADLINE_METRIC,
+            "scores": overall_scores,
+        }
+
+    reference = systems.get(REFERENCE_ABLATION_SYSTEM)
+    reference_scores = reference.get("scores") if isinstance(reference, dict) else None
+    if not isinstance(reference_scores, dict):
+        reference_scores = None
+
+    per_system: dict[str, dict[str, Any]] = {}
+    for system_id, payload in systems.items():
+        scores = payload.get("scores") if isinstance(payload.get("scores"), dict) else {}
+        item: dict[str, Any] = {
+            "record_count": payload.get("record_count", 0),
+            "scores": scores,
+        }
+        if reference_scores is not None:
+            item["delta_vs_reference"] = {
+                metric: round(
+                    float(scores.get(metric, 0.0)) - float(reference_scores.get(metric, 0.0)),
+                    6,
+                )
+                for metric in ALL_METRICS
+            }
+        if mcnemar and system_id in mcnemar:
+            item["mcnemar_vs_reference"] = mcnemar[system_id]
+        per_system[system_id] = item
+
+    return {
+        "mode": "per_system",
+        "headline_metric": f"per_system_{HEADLINE_METRIC}",
+        "metric": HEADLINE_METRIC,
+        "reference_system_id": (
+            REFERENCE_ABLATION_SYSTEM if REFERENCE_ABLATION_SYSTEM in systems else None
+        ),
+        "mixed_overall_scores_are_diagnostic": True,
+        "overall_scores": overall_scores,
+        "systems": per_system,
+    }
+
+
+def _aggregate(rows: list[dict[str, Any]]) -> dict[str, float]:
+    if not rows:
+        return {name: 0.0 for name in ALL_METRICS}
+    return {
+        name: round(
+            sum(float((row.get("metrics") or {}).get(name, 0)) for row in rows) / len(rows),
+            6,
+        )
+        for name in ALL_METRICS
+    }
+
+
+def _outcome_distribution(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Counts and fractions per outcome bucket; fractions sum to 1 over scored rows."""
+    counts = Counter(str(row.get("outcome") or "no_submission") for row in rows)
+    total = len(rows)
+    return {
+        "total": total,
+        "counts": {bucket: counts.get(bucket, 0) for bucket in OUTCOME_BUCKETS},
+        "fractions": {
+            bucket: round(counts.get(bucket, 0) / total, 6) if total else 0.0
+            for bucket in OUTCOME_BUCKETS
+        },
+    }
+
+
+def _mcnemar_exact(b: int, c: int) -> float:
+    """Two-sided exact McNemar p-value over the discordant pair counts ``b`` and ``c``.
+
+    Under H0 the b discordant wins and c discordant losses are Binomial(b+c, 0.5);
+    the exact two-sided p is twice the smaller tail, capped at 1. With no discordant
+    pairs the systems are identical on every record and p is 1 by convention.
+    """
+    import math
+
+    n = b + c
+    if n == 0:
+        return 1.0
+    k = min(b, c)
+    tail = sum(math.comb(n, i) for i in range(k + 1)) / (2 ** n)
+    return round(min(1.0, 2 * tail), 6)
+
+
+def _mcnemar_vs_reference(
+    rows: list[dict[str, Any]],
+    *,
+    reference_system_id: str,
+) -> dict[str, dict[str, Any]]:
+    """Paired headline-EXC McNemar of every system against the reference system.
+
+    Pairs on (db_id, record_id); rows without a counterpart in the reference are
+    skipped (missing predictions still score 0 and so pair normally — only records the
+    reference itself never saw are dropped).
+    """
+    by_system: dict[str, dict[tuple[str, Any], int]] = defaultdict(dict)
+    for row in rows:
+        key = (str(row.get("db_id") or ""), row.get("record_id"))
+        exc = int(float((row.get("metrics") or {}).get(HEADLINE_METRIC, 0)))
+        by_system[str(row.get("system_id"))][key] = exc
+    reference = by_system.get(reference_system_id)
+    if not reference:
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for system_id, scores in by_system.items():
+        if system_id == reference_system_id:
+            continue
+        paired = [key for key in scores if key in reference]
+        b = sum(1 for key in paired if scores[key] and not reference[key])
+        c = sum(1 for key in paired if not scores[key] and reference[key])
+        out[system_id] = {
+            "paired_records": len(paired),
+            "wins_vs_reference": b,
+            "losses_vs_reference": c,
+            "p_value": _mcnemar_exact(b, c),
+        }
+    return out
+
+
+def _denominator_summary(
+    *,
+    rows: list[dict[str, Any]],
+    records: dict[tuple[str, Any], dict[str, Any]],
+    dataset_dir: Path,
+) -> dict[str, Any]:
+    manifest = _load_evaluation_selection_manifest(dataset_dir)
+    return {
+        "scope": "selected_release_records" if manifest else "dataset_records",
+        "release_record_count": len(records),
+        "scored_row_count": len(rows),
+        "system_count": len({str(row.get("system_id")) for row in rows}),
+        "selection": manifest,
+    }
+
+
+def _load_evaluation_selection_manifest(dataset_dir: Path) -> dict[str, Any] | None:
+    path = dataset_dir / "evaluation_selection.json"
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"manifest_path": str(path), "read_error": True}
+    if not isinstance(payload, dict):
+        return {"manifest_path": str(path), "invalid": True}
+    return {"manifest_path": str(path), **payload}
+
+
+def _aggregate_slices(rows: list[dict[str, Any]], axes: tuple[str, ...]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for axis in axes:
+        buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in rows:
+            slice_keys = row.get("slice_keys") if isinstance(row.get("slice_keys"), dict) else {}
+            value = str(slice_keys.get(axis, "unknown"))
+            buckets[value].append(row)
+        out[axis] = {
+            value: {
+                "record_count": len(items),
+                "scores": _aggregate(items),
+            }
+            for value, items in sorted(buckets.items())
+        }
+    return out
+
+
+def _diagnostic_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for row in rows:
+        diagnostics = row.get("diagnostics") if isinstance(row.get("diagnostics"), dict) else {}
+        if row.get("status") == "failed":
+            counts["record_failed"] += 1
+        error_code = diagnostics.get("error_code")
+        if isinstance(error_code, str) and error_code:
+            counts[error_code] += 1
+        failure_type = diagnostics.get("failure_type")
+        if isinstance(failure_type, str) and failure_type:
+            counts[failure_type] += 1
+        for key in ("parse_error", "forbidden_op_hit", "exec_error", "ast_reasons"):
+            if diagnostics.get(key):
+                counts[key] += 1
+    return dict(sorted(counts.items()))
+
+
+def _diagnostic_artifact_refs(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        prediction_ref = row.get("prediction_ref")
+        if not isinstance(prediction_ref, dict):
+            continue
+        trace = {
+            key: prediction_ref[key]
+            for key in DIAGNOSTIC_REF_KEYS
+            if key in prediction_ref and _ref_value_present(prediction_ref[key])
+        }
+        if not trace:
+            continue
+        items.append({
+            "system_id": row.get("system_id"),
+            "db_id": row.get("db_id"),
+            "record_id": row.get("record_id"),
+            "prediction_index": row.get("prediction_index"),
+            "prediction_line": row.get("prediction_line"),
+            "work_item_id": prediction_ref.get("work_item_id"),
+            "batch_index": prediction_ref.get("batch_index"),
+            "result_type": prediction_ref.get("result_type"),
+            **trace,
+        })
+    return {
+        "count": len(items),
+        "items": items[:200],
+        "truncated": len(items) > 200,
+    }
+
+
+def _environment_digest() -> dict[str, Any]:
+    return {
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "pid": os.getpid(),
+    }
+
+
+def _write_failed_report(
+    paths: EvaluationPaths,
+    *,
+    run_id: str,
+    experiment_kind: str,
+    message: str,
+    error_code: str,
+    logger: RunLogger,
+) -> EvaluationOutput:
+    report = {
+        "result_type": "evaluation_report",
+        "status": "failed",
+        "run_id": run_id,
+        "experiment_kind": experiment_kind,
+        "headline_metric": HEADLINE_METRIC,
+        "headline": {
+            "mode": "overall",
+            "headline_metric": HEADLINE_METRIC,
+            "metric": HEADLINE_METRIC,
+            "scores": {name: 0.0 for name in ALL_METRICS},
+        },
+        "metrics_order": list(ALL_METRICS),
+        "diagnostic_metrics_order": list(DIAGNOSTIC_METRICS),
+        "outcome_buckets_order": list(OUTCOME_BUCKETS),
+        "record_count": 0,
+        "scores": {name: 0.0 for name in ALL_METRICS},
+        "systems": {},
+        "slice_aggregates": {},
+        "diagnostic_slice_aggregates": {},
+        "diagnostics": {"error_code": error_code, "message": message},
+        "diagnostic_artifact_refs": {"count": 0, "items": [], "truncated": False},
+        "artifacts": paths.as_dict(),
+    }
+    paths.report_json.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    paths.report_md.write_text(_render_markdown_report(report), encoding="utf-8")
+    # Keep empty per-record artifacts present so automation can rely on paths.
+    _write_per_record(paths, [])
+    logger.error(
+        "evaluation_done",
+        status="failed",
+        error_code=error_code,
+        message=message,
+        report_json=str(paths.report_json),
+    )
+    return EvaluationOutput(status="failed", report=report, paths=paths)
+
+
+def _render_markdown_report(report: dict[str, Any]) -> str:
+    headline = report.get("headline") if isinstance(report.get("headline"), dict) else {}
+    headline_mode = str(headline.get("mode") or "overall")
+    lines = [
+        f"# TEND Evaluation Report: {report.get('experiment_kind')}",
+        "",
+        f"- run_id: `{report.get('run_id')}`",
+        f"- status: `{report.get('status')}`",
+        f"- records: `{report.get('record_count', 0)}`",
+        "",
+        "## Headline",
+        "",
+    ]
+    systems = report.get("systems") if isinstance(report.get("systems"), dict) else {}
+    if headline_mode == "per_system":
+        lines.insert(
+            4,
+            f"- headline: `per-system {HEADLINE_METRIC}; mixed overall is diagnostic`",
+        )
+        reference = headline.get("reference_system_id")
+        delta_header = f"Delta vs {reference}" if reference else "Delta"
+        lines += [
+            f"Reference system: `{reference or 'none'}`",
+            "",
+            f"| System | Records | {HEADLINE_METRIC} | EXF1 | {delta_header} | p (McNemar) |",
+            "|--------|---------|----|------|-------|-------------|",
+        ]
+        headline_systems = (
+            headline.get("systems") if isinstance(headline.get("systems"), dict) else {}
+        )
+        for system_id, payload in headline_systems.items():
+            scores = payload.get("scores", {}) if isinstance(payload, dict) else {}
+            deltas = (
+                payload.get("delta_vs_reference")
+                if isinstance(payload, dict) and isinstance(payload.get("delta_vs_reference"), dict)
+                else {}
+            )
+            delta_ex = deltas.get(HEADLINE_METRIC, "")
+            mcnemar = (
+                payload.get("mcnemar_vs_reference")
+                if isinstance(payload, dict) and isinstance(payload.get("mcnemar_vs_reference"), dict)
+                else {}
+            )
+            p_value = mcnemar.get("p_value", "")
+            lines.append(
+                f"| {system_id} | {payload.get('record_count', 0)} | "
+                f"{scores.get(HEADLINE_METRIC, 0.0)} | {scores.get('EXF1', 0.0)} | "
+                f"{delta_ex} | {p_value} |"
+            )
+        if not headline_systems:
+            lines.append("| (none) | 0 | 0 | 0 |  |  |")
+        lines += [
+            "",
+            "## Mixed Overall Scores (Diagnostic)",
+            "",
+            "| Metric | Mean |",
+            "|--------|------|",
+        ]
+        for metric in EVALUATION_METRICS:
+            lines.append(f"| {metric} | {report.get('scores', {}).get(metric, 0.0)} |")
+    else:
+        lines.insert(
+            4,
+            f"- headline: `{HEADLINE_METRIC} = {report.get('scores', {}).get(HEADLINE_METRIC, 0.0)}`",
+        )
+        lines += [
+            "| Metric | Mean |",
+            "|--------|------|",
+            f"| {HEADLINE_METRIC} | {report.get('scores', {}).get(HEADLINE_METRIC, 0.0)} |",
+        ]
+
+    lines += [
+        "",
+        "## Diagnostic Metrics",
+        "",
+        "| Metric | Mean |",
+        "|--------|------|",
+    ]
+    diagnostic_metrics = report.get("diagnostic_metrics_order")
+    if not isinstance(diagnostic_metrics, list):
+        diagnostic_metrics = list(DIAGNOSTIC_METRICS)
+    for metric in diagnostic_metrics:
+        lines.append(f"| {metric} | {report.get('scores', {}).get(metric, 0.0)} |")
+    lines += [
+        "",
+        "## Systems",
+        "",
+        f"| System | Records | {HEADLINE_METRIC} | EXF1 |",
+        "|--------|---------|----|------|",
+    ]
+    if systems:
+        for system_id, payload in systems.items():
+            scores = payload.get("scores", {})
+            lines.append(
+                f"| {system_id} | {payload.get('record_count', 0)} | "
+                f"{scores.get(HEADLINE_METRIC, 0.0)} | {scores.get('EXF1', 0.0)} |"
+            )
+    else:
+        lines.append("| (none) | 0 | 0 | 0 |")
+
+    outcome_systems = {
+        system_id: payload.get("outcome_distribution")
+        for system_id, payload in systems.items()
+        if isinstance(payload, dict) and isinstance(payload.get("outcome_distribution"), dict)
+    }
+    if outcome_systems:
+        buckets = report.get("outcome_buckets_order")
+        if not isinstance(buckets, list):
+            buckets = list(OUTCOME_BUCKETS)
+        lines += [
+            "",
+            "## Outcome Decomposition (fractions; rows sum to 1)",
+            "",
+            "| System | " + " | ".join(buckets) + " |",
+            "|--------|" + "----|" * len(buckets),
+        ]
+        for system_id, distribution in outcome_systems.items():
+            fractions = distribution.get("fractions", {})
+            cells = " | ".join(str(fractions.get(bucket, 0.0)) for bucket in buckets)
+            lines.append(f"| {system_id} | {cells} |")
+    diagnostics = report.get("diagnostics") if isinstance(report.get("diagnostics"), dict) else {}
+    lines += ["", "## Diagnostics", ""]
+    if diagnostics:
+        lines += ["| Key | Count / Value |", "|-----|---------------|"]
+        for key, value in diagnostics.items():
+            lines.append(f"| {key} | {value} |")
+    else:
+        lines.append("No diagnostic errors were recorded.")
+    artifacts = report.get("artifacts") if isinstance(report.get("artifacts"), dict) else {}
+    lines += ["", "## Artifacts", ""]
+    for key, value in artifacts.items():
+        lines.append(f"- {key}: `{value}`")
+    lines.append("")
+    return "\n".join(lines)

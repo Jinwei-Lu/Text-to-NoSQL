@@ -1,0 +1,153 @@
+# ============================================================
+# Local machine / editor state
+# ============================================================
+.DS_Store
+Thumbs.db
+/.vscode/
+/.idea/
+/.cursor/*
+!/.cursor/settings.json
+*.swp
+*.swo
+
+# Generated CodeGraph state and local Cursor settings (not tracked).
+/.codegraph/
+/.cursor/
+
+# ============================================================
+# Python bytecode, build output, and test caches
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+wheels/
+.eggs/
+*.egg-info/
+*.egg
+.installed.cfg
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.nox/
+.tox/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# ============================================================
+# Jupyter
+# ============================================================
+.ipynb_checkpoints/
+*.nbconvert.ipynb
+
+# ============================================================
+# Virtual environments and local secrets
+# ============================================================
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+ENV/
+env/
+
+*.key
+*.pem
+secrets.json
+
+# ============================================================
+# Logs and generic local caches
+# ============================================================
+*.log
+/checkpoints/
+.cache/
+cache/
+.uv-cache/
+
+# ============================================================
+# Local datasets and copied legacy artifacts
+# ============================================================
+/minidev/
+/dev_20240627/
+/spider/
+/data/
+
+/TEND/
+/mongodb_schema/
+/mongodb_data/
+/SLM_data/
+/SLM_prediction/
+/SLM_data_cross_domain/
+/SLM_prediction_cross_domain/
+/seq2seq_data/
+/transformer_data/
+/tend_src/
+/SMART/
+/NoSQL_Demo/
+/gnn_model/
+/project/
+/build_data/
+/debug/
+/method/
+
+# Paper assets live outside this source repo.
+/Paper/
+/paper/
+/paper_demo/
+/paper_WWW/
+/latex/
+/imgs/
+/review/
+
+# ============================================================
+# Model weights / large binary artifacts
+# ============================================================
+Llama-3.2-1B/*.bin
+Llama-3.2-1B/*.safetensors
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.gguf
+*.tar.zst
+
+# ============================================================
+# Generated benchmark, experiment, and analysis output
+# ============================================================
+/vector_store/
+/runs/
+/tests/
+/scripts/
+/docs/
+/proposals/
+/results/
+/error_case/
+/error_analysis/
+/output/
+/outputs/
+/drive_upload/
+
+# Dataset release packages live outside GitHub. Restore release/ from the
+# Google Drive dataset package documented in README.md.
+/release/
+
+# Local staging copies and intermediate generation runs.
+/datasets/
+/wandb/
+
+# OOM-workaround shadow dirs for TEND_USE_EXISTING_MONGO_DBS runs are covered by /release/.
+
+# Local-only development and legacy files not included in the public src package.
+/CLAUDE.md
+/requirements-legacy-smart.txt
+/uv.lock
+
+tmp/
