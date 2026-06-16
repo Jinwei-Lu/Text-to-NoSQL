@@ -244,10 +244,10 @@ connectivity and contract testing only.
 ## Citation
 
 ```bibtex
-@misc{lu2025bridginggapenablingnatural,
+@misc{lu2026bridginggapenablingnatural,
       title={Bridging the Gap: Enabling Natural Language Queries for NoSQL Databases through Text-to-NoSQL Translation}, 
-      author={Jinwei Lu and Yuanfeng Song and Zhiqian Qin and Haodi Zhang and Chen Zhang and Raymond Chi-Wing Wong},
-      year={2025},
+      author={Jinwei Lu and Jiawei Lu and Chen Zhang and Zhiqian Qin and Haodi Zhang and Yuanfeng Song and Raymond Chi-Wing Wong},
+      year={2026},
       eprint={2502.11201},
       archivePrefix={arXiv},
       primaryClass={cs.DB},
