@@ -1,85 +1,69 @@
-# TEND
+# TEND: Text-to-NoSQL Benchmark and QueryCraft Demonstration
 
-TEND is a submission repository for a Text-to-NoSQL benchmark and runtime
-centered on executable MongoDB aggregation pipelines.
+TEND is an execution-verified benchmark and runtime for Text-to-NoSQL:
+translating natural-language questions into executable MongoDB aggregation
+pipelines over MongoDB-native document databases. The benchmark is designed to
+evaluate reasoning over nested paths, arrays, optional and sparse fields,
+polymorphic document shapes, dynamic keys, and dependencies across aggregation
+stages.
 
-The public GitHub repository is intentionally lean. Apart from minimal root
-setup files such as this README, `pyproject.toml`, `requirements.txt`, and
-`.env.example`, the uploaded code surface is `src/tend/` plus the accepted
-VLDB demo implementation under `demonstration/`. Do not upload `tests/`,
-`scripts/`, `docs/`, `proposals/`, `release/`, `drive_upload/`, `runs/`,
-generated result folders, raw dataset payloads, or paper source directories to
-GitHub.
+This repository provides the public code artifact for the TEND benchmark, the
+SAG reference solver, and QueryCraft, an interactive demonstration system for
+natural-language MongoDB querying.
 
-## Dataset Download
+## Publications
 
-The TEND dataset is not stored in GitHub. Download it from Google Drive:
+| Work | Status | Link |
+| --- | --- | --- |
+| **Bridging the Gap: Enabling Natural Language Queries for NoSQL Databases through Text-to-NoSQL Translation** | Full paper | [arXiv:2502.11201](https://arxiv.org/abs/2502.11201) |
+| **QueryCraft: A Natural Language-Driven NoSQL Database Querying System Powered by Large Language Models** | Accepted to the VLDB 2026 Demo Track; proceedings citation forthcoming | Source code in [`demonstration/`](demonstration/) |
+
+Please cite the full paper for the benchmark, solver, and dataset. The
+QueryCraft demo paper has been accepted but has not yet appeared in the
+proceedings; this README will be updated with the official demo citation after
+publication.
+
+## Repository Contents
+
+| Path | Purpose |
+| --- | --- |
+| [`src/tend/`](src/tend/) | Public Python package for dataset handling, validation, solving, baselines, ablations, evaluation, and observability. |
+| [`demonstration/`](demonstration/) | QueryCraft Flask demo with database selection, schema browsing, generated-MQL inspection, optional execution, solver metadata, and query history. |
+| [`pyproject.toml`](pyproject.toml) | Package metadata, optional demo dependency group, and `tend` CLI entry point. |
+| [`requirements.txt`](requirements.txt) | Runtime dependency file for standard pip-based installation. |
+| [`.env.example`](.env.example) | Optional local configuration template. |
+
+Large release artifacts, MongoDB witness data, generated experiment outputs,
+and paper source directories are not stored in GitHub. They are restored or
+generated locally as described below.
+
+## Dataset Release
+
+The TEND dataset is hosted outside GitHub because the release contains large
+MongoDB witness data. Download the current native MongoDB release from:
 
 [Google Drive: TEND native variant final artifacts](https://drive.google.com/drive/folders/1s7LgW-zub1gIx9A1OpuWdx7lyNVwXhi5?usp=drive_link)
 
-The Drive release should contain exactly:
-
-```text
-TEND.json
-mongodb_data/
-```
-
-It should not contain schemas, paper statistics, value dictionaries, README
-files, checksum sidecars, archives, release helper folders, or any other
-generated payload.
-
-After downloading, restore the files locally with this layout:
+Restore the release under the repository root with this layout:
 
 ```text
 release/tend-native-mongodb-v1/
   data/TEND.json
+  schema/mongodb_schema/
   mongodb_data/
 ```
 
-`release/` and `drive_upload/` are local-only directories. They are ignored by
-Git and should not be uploaded to GitHub.
+The CLI and QueryCraft demo use `release/tend-native-mongodb-v1/` by default.
+Set `TEND_DEMO_DATASET_DIR` or pass `--dataset-dir` to use a different
+release-compatible location.
 
-## QueryCraft Demonstration
-
-This repository also includes `QueryCraft`, the browser-based TEND
-demonstration system accepted to the VLDB demo track. QueryCraft lets users ask
-natural language questions over MongoDB databases, inspect generated aggregation
-pipelines, optionally execute them against MongoDB, and review prior attempts in
-a local history panel. The interface is designed for Text-to-NoSQL behavior
-that Text-to-SQL demos usually hide: nested schema browsing, aggregation-stage
-debugging, execution feedback, and solver metadata inspection.
-
-The public demo source lives in:
-
-```text
-demonstration/
-```
-
-The demo is code-only. It reads the restored TEND release dataset from
-`release/tend-native-mongodb-v1/` by default and must not carry copied data
-payloads inside `demonstration/`. In particular, local folders such as
-`demonstration/mongodb_data/`, `demonstration/mongodb_schema/`, and
-`demonstration/schemas/` are intentionally ignored. The VLDB demo-paper source
-under `paper_demo/` is also local-only and should not be uploaded to GitHub.
-
-## Repository Layout
-
-| Path | Availability | Purpose |
-| --- | --- | --- |
-| `src/tend/` | GitHub | Public Python package: construction, validation, solver, baselines, ablations, evaluation, and observability. |
-| `README.md` | GitHub | Public setup, dataset-download, and command guide. |
-| `pyproject.toml` | GitHub | Package metadata and `tend` CLI entry point. |
-| `requirements.txt` | GitHub | The single pip dependency file for the public runtime package. |
-| `.env.example` | GitHub | Optional local configuration template. |
-| `demonstration/` | GitHub | QueryCraft Flask demo: schema browser, natural-language query UI, generated MQL view, execution feedback, and history panel. |
-| `release/tend-native-mongodb-v1/data/TEND.json` | Google Drive restore | Public NL-MQL task file after dataset restore. |
-| `release/tend-native-mongodb-v1/mongodb_data/` | Google Drive restore | Raw MongoDB witness JSON files after dataset restore. |
+`release/`, `runs/`, raw MongoDB payloads, local logs, and generated outputs are
+ignored by Git. They should remain local artifacts rather than repository
+contents.
 
 ## Benchmark Snapshot
 
-The current public release is `tend-native-mongodb-v1`. Download it from the
-Drive folder above, then restore it under `release/tend-native-mongodb-v1/`
-before running validation, solver evaluation, baselines, or ablations.
+The current public release is `tend-native-mongodb-v1`.
 
 | Metric | Value |
 | --- | ---: |
@@ -99,7 +83,7 @@ before running validation, solver evaluation, baselines, or ablations.
 | Nested dotted-path records | 1,164 (96.2%) |
 | Fresh exact MongoDB execution | 1,210 / 1,210 |
 
-The 11 database ids are:
+The release contains the following database ids:
 
 ```text
 california_schools
@@ -115,10 +99,10 @@ thrombosis_prediction
 toxicology
 ```
 
-## Public Record Format
+## Record Format
 
 After dataset restore, `release/tend-native-mongodb-v1/data/TEND.json` is the
-reviewer-facing task file. Each record has exactly five fields:
+benchmark task file. Each record contains:
 
 ```json
 {
@@ -131,7 +115,7 @@ reviewer-facing task file. Each record has exactly five fields:
 ```
 
 Use `NLQ` as the default evaluation utterance. `NLQ_colloquial` is a
-paraphrase/robustness track for the same MQL target, not a second independent
+paraphrase/robustness variant for the same MQL target, not a second independent
 task.
 
 ## Installation
@@ -139,15 +123,14 @@ task.
 Requirements:
 
 - Python 3.11 or newer.
-- MongoDB for live solver, baseline, ablation, and evaluation runs against
-  witness data.
+- MongoDB for live solver, baseline, ablation, QueryCraft execution, and
+  evaluation runs over witness data.
 - An OpenAI-compatible chat-completions provider for live LLM runs.
-- The downloaded TEND dataset package from Google Drive for full benchmark
-  execution.
-- BIRD mini-dev data only if you want to run the construction pipeline from
-  source; the frozen release can be inspected without BIRD.
+- The restored TEND release package for full benchmark execution.
+- BIRD mini-dev data only if reconstructing the benchmark from source; the
+  released benchmark can be inspected and evaluated without BIRD.
 
-Install with standard `venv` and `pip`:
+Create an environment and install the package:
 
 ```bash
 python3.11 -m venv .venv
@@ -157,13 +140,13 @@ python -m pip install -r requirements.txt
 python -m pip install -e .
 ```
 
-For the QueryCraft demo, install the optional Flask dependency:
+Install the optional QueryCraft dependency group when running the demo:
 
 ```bash
 python -m pip install -e '.[demo]'
 ```
 
-Optional local runtime configuration:
+Optional local configuration:
 
 ```bash
 cp .env.example .env
@@ -181,11 +164,27 @@ TEND_LLM_MAX_CONCURRENCY=0
 TEND_QUIET=0
 ```
 
-Stub-mode commands use deterministic fixed responses and do not call a live LLM.
+Commands that run in stub mode use deterministic local responses and do not
+call a live LLM provider.
 
-## Running QueryCraft
+## QueryCraft Demo
 
-Restore the dataset as described above, then start the Flask demo:
+QueryCraft is an interactive browser-based system for natural-language MongoDB
+querying. It presents the components needed to inspect Text-to-NoSQL behavior:
+
+- database selection and example NLQs;
+- hierarchical MongoDB schema browsing, including nested fields and field
+  types;
+- generated MongoDB aggregation pipelines;
+- optional execution feedback over MongoDB witness data;
+- solver metadata for debugging successful and failed generations;
+- local history for comparing previous attempts.
+
+The demo source is tracked in [`demonstration/`](demonstration/). The demo does
+not include copied dataset payloads; it reads the restored release directory
+described above.
+
+Start QueryCraft locally:
 
 ```bash
 TEND_DEMO_PORT=5050 ./.venv/bin/python -c "from demonstration.app import app; app.run(host='127.0.0.1', port=5050, debug=False, use_reloader=False)"
@@ -197,14 +196,22 @@ Open:
 http://127.0.0.1:5050
 ```
 
-By default, QueryCraft uses `TEND_DEMO_SOLVER_MODE=stub`, which exercises the
-SAG solver path with a deterministic local LLM stub. Set
-`TEND_DEMO_SOLVER_MODE=live` to use the configured OpenAI-compatible provider;
-live mode requires the usual `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and
-`TEND_MODEL` settings. Selecting execution in the UI also requires MongoDB via
+Useful demo settings:
+
+```dotenv
+TEND_DEMO_DATASET_DIR=release/tend-native-mongodb-v1
+TEND_DEMO_SOLVER_MODE=stub
+TEND_DEMO_SOLVE_TIMEOUT_S=90
+TEND_DEMO_MAX_RETRIES=...
+```
+
+`TEND_DEMO_SOLVER_MODE=stub` is the default and is appropriate for smoke tests
+and UI checks. Set `TEND_DEMO_SOLVER_MODE=live` to use the configured
+OpenAI-compatible provider. Live mode requires `OPENAI_API_KEY`,
+`OPENAI_BASE_URL`, and `TEND_MODEL`. Query execution also requires MongoDB via
 `TEND_MONGO_URI`.
 
-## CLI
+## Command Line Usage
 
 After installation, use either `tend ...` or `python -m tend ...`.
 
@@ -219,7 +226,7 @@ After installation, use either `tend ...` or `python -m tend ...`.
 .venv/bin/python -m tend evaluate --help
 ```
 
-Useful commands after restoring the Drive dataset:
+Useful commands after restoring the release:
 
 ```bash
 .venv/bin/python -m tend validate \
@@ -258,8 +265,9 @@ Evaluate saved predictions with:
   --workers 8
 ```
 
-Outputs are written under `runs/<run_id>/evaluation/<kind>/` by default. `runs/`
-is local runtime evidence and is not part of the GitHub upload surface.
+Outputs are written under `runs/<run_id>/evaluation/<kind>/` by default.
+`runs/` is local runtime evidence and is intentionally not part of the GitHub
+artifact.
 
 ## Reference Solver
 
@@ -270,10 +278,10 @@ implemented under:
 src/tend/solver/sag/
 ```
 
-SAG solves the task from `NLQ + read-only MongoDB world`. In release-record mode,
-the CLI selects the record and database, but the solver prompt does not receive
-gold MQL, difficulty, shape policy, canonical-form guards, private audit data, or
-training artifacts.
+SAG solves the task from `NLQ + read-only MongoDB world`. In release-record
+mode, the CLI selects the record and database, but the solver prompt does not
+receive gold MQL, difficulty, shape policy, canonical-form guards, private
+audit data, or training artifacts.
 
 Mechanism summary:
 
@@ -281,29 +289,34 @@ Mechanism summary:
 2. Render a closed lattice path card, including dynamic-key map collapse.
 3. Anchor NLQ literals to observed stored values and paths.
 4. Apply A_path and A_value alignment gates plus execution-grounded repair.
-5. Use result-space consistency clustering for the full `sag_full`/v3 arm.
+5. Use result-space consistency clustering for the full `sag_full` arm.
 
 ## Evaluation Metrics
 
-The current headline metric is `EXC`, a bounded column-tolerant execution
-accuracy with `beta=2`. Strict `EX`, unbounded `EXC_spider`, `EM`, `QSM`, `QFC`,
-`EFM`, and `EVM` are preserved as diagnostic columns. Missing predictions and
-typed `solver_failure`, `baseline_failure`, or `ablation_failure` rows remain in
-the denominator as zero-score rows.
+The headline metric is `EXC`, a bounded column-tolerant execution accuracy with
+`beta=2`. Strict `EX`, unbounded `EXC_spider`, `EM`, `QSM`, `QFC`, `EFM`, and
+`EVM` are preserved as diagnostic columns. Missing predictions and typed
+`solver_failure`, `baseline_failure`, or `ablation_failure` rows remain in the
+denominator as zero-score rows.
 
 Do not treat `--stub` runs as paper-score runs. Stub mode is for offline
-connectivity and contract testing only.
+connectivity, interface checks, and contract testing only.
 
 ## Citation
 
+Please cite the full paper:
+
 ```bibtex
 @misc{lu2026bridginggapenablingnatural,
-      title={Bridging the Gap: Enabling Natural Language Queries for NoSQL Databases through Text-to-NoSQL Translation}, 
+      title={Bridging the Gap: Enabling Natural Language Queries for NoSQL Databases through Text-to-NoSQL Translation},
       author={Jinwei Lu and Jiawei Lu and Chen Zhang and Zhiqian Qin and Haodi Zhang and Yuanfeng Song and Raymond Chi-Wing Wong},
       year={2026},
       eprint={2502.11201},
       archivePrefix={arXiv},
       primaryClass={cs.DB},
-      url={https://arxiv.org/abs/2502.11201}, 
+      url={https://arxiv.org/abs/2502.11201},
 }
 ```
+
+The QueryCraft demo citation will be added after the VLDB proceedings entry is
+available.
