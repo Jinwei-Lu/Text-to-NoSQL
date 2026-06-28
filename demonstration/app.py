@@ -522,6 +522,10 @@ def _collect_dynamic_maps(node: dict[str, Any], out: list[dict[str, Any]]) -> No
                 "key_samples": node.get("key_samples", []),
                 "value_types": value_node.get("types", []),
                 "value_kind": value_node.get("kind", "unknown"),
+                "value_shape": _shape_summary(
+                    value_node,
+                    denominator=max(value_node.get("presence_count", 1), 1),
+                ),
                 "value_fields": _dynamic_value_fields(value_node),
             }
         )
@@ -552,7 +556,16 @@ def _shape_summary(node: dict[str, Any], *, denominator: int) -> dict[str, Any]:
         "child_count": child_count,
         "key_count": node.get("key_count"),
         "key_samples": node.get("key_samples", []),
+        "value_path": node.get("value_path"),
+        "placeholder": node.get("placeholder"),
         "array": node.get("array"),
+        "children": [
+            _shape_summary(child, denominator=max(int(node.get("presence_count", 1)), 1))
+            for child in children[:MAX_SHAPE_CHILDREN]
+        ]
+        if isinstance(children, list)
+        else [],
+        "truncated_children": node.get("truncated_children", 0),
     }
 
 

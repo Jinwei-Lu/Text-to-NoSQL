@@ -653,27 +653,6 @@
             text-transform: uppercase;
         }
 
-        .type-chip-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            margin-top: 0.85rem;
-        }
-
-        .type-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.35rem;
-            max-width: 100%;
-            border-radius: 999px;
-            padding: 0.4rem 0.7rem;
-            background: rgba(16, 185, 129, 0.08);
-            color: #047857;
-            font-size: 0.78rem;
-            font-weight: 700;
-            white-space: nowrap;
-        }
-
         .sample-doc-preview {
             margin-top: 1rem;
             max-height: 22rem;
@@ -797,36 +776,59 @@
             border-radius: 0.65rem;
         }
 
-        .value-field-grid {
+        .shape-tree {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 0.6rem;
-            margin-top: 0.9rem;
+            gap: 0.55rem;
+            margin-top: 0.85rem;
         }
 
-        .value-field {
+        .shape-node {
             min-width: 0;
             border-radius: 0.75rem;
-            background: rgba(79, 70, 229, 0.045);
             border: 1px solid rgba(79, 70, 229, 0.08);
-            padding: 0.7rem 0.8rem;
+            background: rgba(255, 255, 255, 0.72);
+            padding: 0.75rem;
         }
 
-        .value-field-name {
-            color: #3730A3;
+        .shape-node.nested {
+            background: rgba(249, 250, 251, 0.82);
+        }
+
+        .shape-row {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.75rem;
+            min-width: 0;
+        }
+
+        .shape-name {
+            min-width: 0;
+            color: #312E81;
             font-family: 'Fira Code', monospace;
             font-size: 0.78rem;
             font-weight: 700;
+            line-height: 1.35;
             overflow-wrap: anywhere;
         }
 
-        .value-field-type {
-            margin-top: 0.35rem;
-            color: #6B7280;
-            font-size: 0.74rem;
+        .shape-children {
+            display: grid;
+            gap: 0.5rem;
+            margin-top: 0.65rem;
+            padding-left: 0.85rem;
+            border-left: 2px solid rgba(79, 70, 229, 0.12);
+        }
+
+        .shape-node details {
+            margin-top: 0.65rem;
+        }
+
+        .shape-node summary {
+            cursor: pointer;
+            color: #4F46E5;
+            font-size: 0.78rem;
             font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
         }
 
         .sample-details {
@@ -1524,6 +1526,72 @@
                 parent.appendChild(track);
             }
 
+            function appendShapeMeta(parent, node) {
+                const meta = make('div', 'field-meta-row');
+                appendMetaPill(meta, typeLabel(node.types));
+                if (Number.isFinite(Number(node.presence_count))) {
+                    appendMetaPill(meta, `${formatCount(node.presence_count)} samples`);
+                }
+                if (Number.isFinite(Number(node.presence_pct))) {
+                    appendMetaPill(meta, `${Number(node.presence_pct || 0).toFixed(0)}% present`);
+                }
+                if (node.key_count) {
+                    appendMetaPill(meta, pluralize(node.key_count, 'key', 'keys'));
+                }
+                if (node.array) {
+                    appendMetaPill(meta, `array ${node.array.min_length}-${node.array.max_length}`);
+                }
+                parent.appendChild(meta);
+            }
+
+            function nodeLabel(node, prefix) {
+                const path = relativeValuePath(node.path || node.name || '', prefix);
+                if (path && path !== '{value}') {
+                    return path;
+                }
+                return node.name || node.path || '{value}';
+            }
+
+            function appendShapeNode(parent, node, prefix, depth) {
+                const item = make('div', `shape-node ${depth > 0 ? 'nested' : ''}`);
+                const row = make('div', 'shape-row');
+                row.appendChild(make('div', 'shape-name', nodeLabel(node, prefix)));
+                appendKindBadge(row, node.kind);
+                item.appendChild(row);
+                appendShapeMeta(item, node);
+
+                const samples = Array.isArray(node.key_samples) ? node.key_samples : [];
+                if (samples.length) {
+                    const keyRow = make('div', 'key-sample-row');
+                    samples.slice(0, 6).forEach((sample) => {
+                        keyRow.appendChild(make('span', 'key-sample', sample));
+                    });
+                    item.appendChild(keyRow);
+                }
+
+                const children = Array.isArray(node.children) ? node.children : [];
+                if (children.length) {
+                    const childWrap = make('div', 'shape-children');
+                    children.forEach((child) => appendShapeNode(childWrap, child, prefix, depth + 1));
+                    item.appendChild(childWrap);
+                }
+
+                if (node.truncated_children) {
+                    item.appendChild(make('p', 'text-sm text-gray-500 mt-2', `${formatCount(node.truncated_children)} additional child fields hidden.`));
+                }
+                parent.appendChild(item);
+            }
+
+            function appendShapeTree(parent, nodes, prefix) {
+                if (!nodes.length) {
+                    parent.appendChild(make('div', 'empty-state mt-4', 'No sampled nested structure.'));
+                    return;
+                }
+                const tree = make('div', 'shape-tree');
+                nodes.forEach((node) => appendShapeNode(tree, node, prefix, 0));
+                parent.appendChild(tree);
+            }
+
             function appendTopLevelFields(parent, fields) {
                 appendSectionTitle(parent, 'Top-Level Fields', 'fas fa-diagram-project');
                 if (!fields.length) {
@@ -1552,6 +1620,9 @@
                     }
                     card.appendChild(meta);
                     appendPresence(card, field.presence_pct);
+                    if (field.kind !== 'dynamic_map' && Array.isArray(field.children) && field.children.length) {
+                        appendShapeTree(card, field.children, field.path);
+                    }
                     grid.appendChild(card);
                 });
                 parent.appendChild(grid);
@@ -1569,19 +1640,11 @@
                 return raw;
             }
 
-            function appendValueFields(parent, fields, prefix) {
-                if (!fields.length) {
-                    parent.appendChild(make('div', 'empty-state mt-4', 'No sampled value fields.'));
-                    return;
-                }
-                const grid = make('div', 'value-field-grid');
-                fields.forEach((field) => {
-                    const item = make('div', 'value-field');
-                    item.appendChild(make('div', 'value-field-name', relativeValuePath(field.path, prefix)));
-                    item.appendChild(make('div', 'value-field-type', `${kindLabel(field.kind)} · ${typeLabel(field.types)}`));
-                    grid.appendChild(item);
-                });
-                parent.appendChild(grid);
+            function appendValueShape(parent, mapInfo) {
+                const valueShape = mapInfo.value_shape && typeof mapInfo.value_shape === 'object' ? mapInfo.value_shape : null;
+                const children = valueShape && Array.isArray(valueShape.children) ? valueShape.children : [];
+                appendSectionTitle(parent, 'Value Shape', 'fas fa-sitemap');
+                appendShapeTree(parent, children, mapInfo.value_path);
             }
 
             function appendDynamicMaps(parent, maps) {
@@ -1612,7 +1675,7 @@
                         card.appendChild(keyRow);
                     }
 
-                    appendValueFields(card, Array.isArray(mapInfo.value_fields) ? mapInfo.value_fields : [], mapInfo.value_path);
+                    appendValueShape(card, mapInfo);
                     list.appendChild(card);
                 });
                 parent.appendChild(list);
