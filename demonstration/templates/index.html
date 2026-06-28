@@ -1,0 +1,1822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MongoDB Natural Language Query Interface</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5.15.4/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+            --secondary-gradient: linear-gradient(135deg, #f6f8fb 0%, #e9edf3 100%);
+            --success-gradient: linear-gradient(135deg, #10B981 0%, #059669 100%);
+            --danger-gradient: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+            --animation-timing: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--secondary-gradient);
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+            color: #1F2937;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(circle at 20% 20%, rgba(79, 70, 229, 0.15) 0%, transparent 25%),
+                radial-gradient(circle at 80% 80%, rgba(124, 58, 237, 0.15) 0%, transparent 25%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        button,
+        select,
+        textarea,
+        input {
+            font: inherit;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        button:disabled,
+        select:disabled,
+        textarea:disabled,
+        input:disabled {
+            cursor: not-allowed;
+            opacity: 0.65;
+        }
+
+        .sidebar {
+            width: 320px;
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            overflow-y: auto;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-right: 1px solid rgba(79, 70, 229, 0.1);
+            transition: all 0.3s ease;
+            box-shadow:
+                4px 0 24px -1px rgba(0, 0, 0, 0.05),
+                2px 0 8px -1px rgba(0, 0, 0, 0.03);
+            z-index: 40;
+        }
+
+        .main-content {
+            margin-left: 320px;
+        }
+
+        .sidebar::-webkit-scrollbar,
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        .sidebar::-webkit-scrollbar-track,
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .sidebar::-webkit-scrollbar-thumb,
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: linear-gradient(to bottom, #4F46E5, #7C3AED);
+            border-radius: 3px;
+        }
+
+        .sidebar-header {
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(79, 70, 229, 0.1);
+        }
+
+        .sidebar-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .sidebar-subtitle {
+            font-size: 0.875rem;
+            color: #6B7280;
+            margin-bottom: 1.5rem;
+        }
+
+        .btn-action {
+            position: relative;
+            min-height: 40px;
+            padding: 0.75rem 1rem;
+            font-weight: 600;
+            font-size: 0.875rem;
+            border-radius: 1rem;
+            transition: all 0.3s var(--animation-timing);
+            overflow: hidden;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-action::before,
+        .btn-modern::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: all 0.6s ease;
+        }
+
+        .btn-action:hover::before,
+        .btn-modern:hover::before {
+            left: 100%;
+        }
+
+        .btn-new-query {
+            background: var(--success-gradient);
+            color: white;
+            box-shadow:
+                0 4px 12px rgba(16, 185, 129, 0.2),
+                0 0 0 2px rgba(16, 185, 129, 0.1);
+        }
+
+        .btn-new-query:hover {
+            transform: translateY(-2px);
+            box-shadow:
+                0 8px 16px rgba(16, 185, 129, 0.3),
+                0 0 0 3px rgba(16, 185, 129, 0.2);
+        }
+
+        .btn-clear-history {
+            background: var(--danger-gradient);
+            color: white;
+            box-shadow:
+                0 4px 12px rgba(239, 68, 68, 0.2),
+                0 0 0 2px rgba(239, 68, 68, 0.1);
+        }
+
+        .btn-clear-history:hover {
+            transform: translateY(-2px);
+            box-shadow:
+                0 8px 16px rgba(239, 68, 68, 0.3),
+                0 0 0 3px rgba(239, 68, 68, 0.2);
+        }
+
+        .history-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(79, 70, 229, 0.1);
+            transition: all 0.3s var(--animation-timing);
+            border-radius: 1rem;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            box-shadow:
+                0 4px 6px -1px rgba(79, 70, 229, 0.02),
+                0 2px 4px -1px rgba(79, 70, 229, 0.01);
+        }
+
+        .history-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(to bottom, #4F46E5, #7C3AED);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+
+        .history-card:hover {
+            background: rgba(255, 255, 255, 0.95);
+            transform: translateY(-2px) translateX(2px);
+            box-shadow:
+                0 12px 24px -4px rgba(79, 70, 229, 0.08),
+                0 6px 12px -6px rgba(79, 70, 229, 0.06);
+        }
+
+        .history-card:hover::before {
+            opacity: 1;
+        }
+
+        .db-icon-container {
+            min-width: 2rem;
+            width: 2rem;
+            height: 2rem;
+            background: linear-gradient(135deg, rgba(79, 70, 229, 0.1) 0%, rgba(124, 58, 237, 0.1) 100%);
+            border-radius: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #4F46E5;
+        }
+
+        .db-name {
+            font-weight: 600;
+            color: #1F2937;
+            font-size: 0.9rem;
+            margin-left: 0.75rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .timestamp {
+            font-size: 0.7rem;
+            color: #6B7280;
+            font-feature-settings: "tnum";
+            font-variant-numeric: tabular-nums;
+            margin-left: 2.75rem;
+        }
+
+        .query-text {
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
+            color: #4B5563;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            word-break: break-word;
+        }
+
+        .rerun-button {
+            margin-top: 0.5rem;
+            padding: 0.35rem 0.75rem;
+            border-radius: 0.5rem;
+            color: #4F46E5;
+            font-size: 0.8rem;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            opacity: 0;
+            transform: translateY(5px);
+            transition: all 0.2s ease;
+            background: rgba(79, 70, 229, 0.05);
+            width: fit-content;
+        }
+
+        .history-card:hover .rerun-button {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .dynamic-bg {
+            background:
+                radial-gradient(circle at 0% 0%, rgba(79, 70, 229, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 100% 100%, rgba(124, 58, 237, 0.1) 0%, transparent 50%);
+            animation: bgShift 15s ease infinite;
+        }
+
+        @keyframes bgShift {
+            0%, 100% { background-position: 0% 0%, 100% 100%; }
+            50% { background-position: 100% 0%, 0% 100%; }
+        }
+
+        .floating {
+            animation: floating 3s ease-in-out infinite;
+        }
+
+        @keyframes floating {
+            0% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0); }
+        }
+
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .animate-gradient {
+            background-size: 200% 200%;
+            animation: gradientBG 15s ease infinite;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow:
+                0 8px 32px -4px rgba(79, 70, 229, 0.1),
+                0 4px 16px -2px rgba(79, 70, 229, 0.05);
+            transition: all 0.3s var(--animation-timing);
+        }
+
+        .glass-card:hover {
+            background: rgba(255, 255, 255, 0.95);
+            transform: translateY(-4px);
+            box-shadow:
+                0 20px 40px -8px rgba(79, 70, 229, 0.15),
+                0 10px 20px -5px rgba(79, 70, 229, 0.1);
+        }
+
+        .input-group {
+            position: relative;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .input-label {
+            position: relative;
+            display: flex;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding: 0.5rem 0;
+        }
+
+        .input-label::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 3.5rem;
+            width: 2rem;
+            height: 2px;
+            background: linear-gradient(to right, #4F46E5, #7C3AED);
+            border-radius: 1px;
+            opacity: 0;
+            transform: scaleX(0);
+            transition: all 0.3s ease;
+        }
+
+        .input-group:hover .input-label::after {
+            opacity: 1;
+            transform: scaleX(1);
+        }
+
+        .input-label span {
+            font-size: 1.1rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, #1F2937 0%, #4B5563 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            letter-spacing: 0.01em;
+        }
+
+        .input-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 2.5rem;
+            height: 2.5rem;
+            background: linear-gradient(135deg, rgba(79, 70, 229, 0.1) 0%, rgba(124, 58, 237, 0.1) 100%);
+            border-radius: 12px;
+            margin-right: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .input-icon i {
+            font-size: 1.1rem;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .input-group:hover .input-icon {
+            transform: scale(1.05);
+            background: linear-gradient(135deg, rgba(79, 70, 229, 0.15) 0%, rgba(124, 58, 237, 0.15) 100%);
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.1);
+        }
+
+        .input-field,
+        .custom-select {
+            width: 100%;
+            min-height: 56px;
+            padding: 0.95rem 1.25rem;
+            border-radius: 1rem;
+            border: 2px solid transparent;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(10px);
+            font-size: 0.95rem;
+            color: #4B5563;
+            transition: all 0.3s var(--animation-timing);
+            box-shadow:
+                0 4px 6px -1px rgba(0, 0, 0, 0.05),
+                0 2px 4px -1px rgba(0, 0, 0, 0.03);
+        }
+
+        textarea.input-field {
+            min-height: 144px;
+            resize: vertical;
+            line-height: 1.5;
+        }
+
+        .custom-select {
+            appearance: none;
+            cursor: pointer;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236B7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1.25rem center;
+            background-size: 1rem;
+            padding-right: 3rem;
+        }
+
+        .input-field:hover,
+        .custom-select:hover {
+            background: rgba(255, 255, 255, 0.92);
+            border-color: rgba(79, 70, 229, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .input-field:focus,
+        .custom-select:focus {
+            outline: none;
+            background: white;
+            border-color: rgba(79, 70, 229, 0.4);
+            box-shadow:
+                0 8px 16px -4px rgba(79, 70, 229, 0.1),
+                0 0 0 3px rgba(79, 70, 229, 0.08);
+            transform: translateY(-2px);
+        }
+
+        .btn-modern {
+            position: relative;
+            overflow: hidden;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            min-height: 44px;
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 1rem;
+            font-weight: 600;
+            font-size: 0.875rem;
+            color: white;
+            background: var(--primary-gradient);
+            transition: all 0.3s ease;
+            box-shadow:
+                0 4px 12px rgba(79, 70, 229, 0.25),
+                0 0 0 2px rgba(79, 70, 229, 0.1);
+        }
+
+        .btn-modern:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow:
+                0 8px 18px rgba(79, 70, 229, 0.3),
+                0 0 0 3px rgba(79, 70, 229, 0.18);
+        }
+
+        .btn-modern:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .btn-copy {
+            background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+            box-shadow:
+                0 4px 12px rgba(37, 99, 235, 0.22),
+                0 0 0 2px rgba(37, 99, 235, 0.1);
+        }
+
+        .btn-execute {
+            background: var(--success-gradient);
+            box-shadow:
+                0 4px 12px rgba(16, 185, 129, 0.25),
+                0 0 0 2px rgba(16, 185, 129, 0.1);
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .loading-spinner {
+            width: 1.25rem;
+            height: 1.25rem;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 999px;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(79, 70, 229, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
+        }
+
+        .typing-dots::after {
+            content: '...';
+            animation: typing 1.5s infinite;
+            display: inline-block;
+            width: 20px;
+            text-align: left;
+        }
+
+        @keyframes typing {
+            0% { content: '.'; }
+            33% { content: '..'; }
+            66%, 100% { content: '...'; }
+        }
+
+        .code-block {
+            background: rgba(17, 24, 39, 0.95) !important;
+            backdrop-filter: blur(4px);
+            color: #e0e0e0;
+            border-radius: 12px;
+            font-family: 'Fira Code', monospace;
+            position: relative;
+            overflow: auto;
+            margin: 0;
+        }
+
+        .code-block code {
+            font-size: 0.9rem;
+            line-height: 1.55;
+            tab-size: 4;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .result-card {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(10px);
+        }
+
+        .result-section {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.5s var(--animation-timing);
+        }
+
+        .result-section.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .collection-card {
+            background: rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(79, 70, 229, 0.1);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .collection-card:hover {
+            background: rgba(255, 255, 255, 0.95);
+            border-color: rgba(79, 70, 229, 0.2);
+            transform: translateY(-2px);
+            box-shadow:
+                0 8px 16px -4px rgba(79, 70, 229, 0.06),
+                0 4px 8px -2px rgba(79, 70, 229, 0.04);
+        }
+
+        .collection-meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 0.75rem;
+            margin-top: 1.25rem;
+        }
+
+        .collection-metric {
+            min-width: 0;
+            border-radius: 0.75rem;
+            background: rgba(79, 70, 229, 0.045);
+            border: 1px solid rgba(79, 70, 229, 0.08);
+            padding: 0.85rem 1rem;
+        }
+
+        .collection-metric-label {
+            color: #6B7280;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .collection-metric-value {
+            color: #1F2937;
+            font-size: 1rem;
+            font-weight: 700;
+            margin-top: 0.25rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .collection-section-title {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+            margin-top: 1.5rem;
+            color: #374151;
+            font-size: 0.9rem;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .type-chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.85rem;
+        }
+
+        .type-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            max-width: 100%;
+            border-radius: 999px;
+            padding: 0.4rem 0.7rem;
+            background: rgba(16, 185, 129, 0.08);
+            color: #047857;
+            font-size: 0.78rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .sample-doc-preview {
+            margin-top: 1rem;
+            max-height: 22rem;
+            overflow: auto;
+        }
+
+        .top-field-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 0.85rem;
+            margin-top: 1rem;
+        }
+
+        .top-field-card,
+        .dynamic-map-card {
+            min-width: 0;
+            border-radius: 1rem;
+            border: 1px solid rgba(79, 70, 229, 0.1);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(249, 250, 251, 0.88));
+            padding: 1rem;
+            box-shadow: 0 8px 20px rgba(31, 41, 55, 0.035);
+        }
+
+        .field-card-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.75rem;
+            min-width: 0;
+        }
+
+        .field-path {
+            min-width: 0;
+            color: #312E81;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.84rem;
+            font-weight: 700;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }
+
+        .kind-badge {
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            border-radius: 999px;
+            padding: 0.32rem 0.6rem;
+            background: rgba(37, 99, 235, 0.08);
+            color: #1D4ED8;
+            font-size: 0.72rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .kind-badge.map {
+            background: rgba(16, 185, 129, 0.1);
+            color: #047857;
+        }
+
+        .kind-badge.array {
+            background: rgba(245, 158, 11, 0.13);
+            color: #92400E;
+        }
+
+        .field-meta-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+            margin-top: 0.75rem;
+        }
+
+        .field-meta-pill,
+        .key-sample {
+            display: inline-flex;
+            align-items: center;
+            min-width: 0;
+            border-radius: 999px;
+            background: rgba(107, 114, 128, 0.08);
+            color: #4B5563;
+            padding: 0.35rem 0.6rem;
+            font-size: 0.78rem;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .presence-track {
+            height: 6px;
+            border-radius: 999px;
+            background: rgba(79, 70, 229, 0.09);
+            overflow: hidden;
+            margin-top: 0.85rem;
+        }
+
+        .presence-bar {
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #4F46E5, #10B981);
+        }
+
+        .dynamic-map-list {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .key-sample-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+            margin-top: 0.75rem;
+        }
+
+        .key-sample {
+            max-width: 100%;
+            font-family: 'Fira Code', monospace;
+            font-weight: 600;
+            overflow-wrap: anywhere;
+            border-radius: 0.65rem;
+        }
+
+        .value-field-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 0.6rem;
+            margin-top: 0.9rem;
+        }
+
+        .value-field {
+            min-width: 0;
+            border-radius: 0.75rem;
+            background: rgba(79, 70, 229, 0.045);
+            border: 1px solid rgba(79, 70, 229, 0.08);
+            padding: 0.7rem 0.8rem;
+        }
+
+        .value-field-name {
+            color: #3730A3;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.78rem;
+            font-weight: 700;
+            overflow-wrap: anywhere;
+        }
+
+        .value-field-type {
+            margin-top: 0.35rem;
+            color: #6B7280;
+            font-size: 0.74rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .sample-details {
+            margin-top: 1.5rem;
+            border-radius: 1rem;
+            border: 1px solid rgba(79, 70, 229, 0.1);
+            background: rgba(255, 255, 255, 0.72);
+            padding: 0.9rem;
+        }
+
+        .sample-details summary {
+            cursor: pointer;
+            color: #374151;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+        }
+
+        .scroll-to-top {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 3.5rem;
+            height: 3.5rem;
+            border-radius: 9999px;
+            background: var(--primary-gradient);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s var(--animation-timing);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(1rem) scale(0.8);
+            box-shadow:
+                0 4px 12px rgba(79, 70, 229, 0.25),
+                0 0 0 3px rgba(79, 70, 229, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            z-index: 9999;
+        }
+
+        .scroll-to-top.visible {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0) scale(1);
+        }
+
+        .scroll-to-top:hover {
+            transform: translateY(-0.25rem) scale(1.05);
+            box-shadow:
+                0 8px 20px rgba(79, 70, 229, 0.3),
+                0 0 0 4px rgba(79, 70, 229, 0.2);
+        }
+
+        .mobile-menu {
+            display: none;
+            position: fixed;
+            top: 1rem;
+            left: 1rem;
+            z-index: 60;
+            width: 44px;
+            height: 44px;
+            border-radius: 0.9rem;
+            color: white;
+            background: var(--primary-gradient);
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 8px 18px rgba(79, 70, 229, 0.24);
+        }
+
+        .empty-state {
+            border: 1px dashed rgba(79, 70, 229, 0.25);
+            color: #6B7280;
+            border-radius: 1rem;
+            padding: 1rem;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.55);
+        }
+
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.35rem 0.7rem;
+            border-radius: 999px;
+            background: rgba(79, 70, 229, 0.08);
+            color: #4F46E5;
+            font-weight: 600;
+            font-size: 0.8rem;
+        }
+
+        @media (max-width: 1024px) {
+            .sidebar {
+                transform: translateX(-100%);
+                z-index: 55;
+            }
+
+            .sidebar.active {
+                transform: translateX(0);
+            }
+
+            .main-content {
+                margin-left: 0 !important;
+                padding-top: 5rem;
+            }
+
+            .mobile-menu {
+                display: flex;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .main-content {
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+
+            .glass-card {
+                padding: 1.25rem !important;
+                border-radius: 1.25rem !important;
+            }
+
+            .sidebar {
+                width: min(320px, 88vw);
+            }
+
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <button id="mobileMenu" class="mobile-menu" title="Toggle history" aria-label="Toggle query history">
+        <i class="fas fa-bars" aria-hidden="true"></i>
+    </button>
+
+    <button id="scrollToTop" class="scroll-to-top" title="Back to top" aria-label="Back to top">
+        <i class="fas fa-arrow-up" aria-hidden="true"></i>
+    </button>
+
+    <aside class="sidebar custom-scrollbar" aria-label="Query history">
+        <div class="p-6">
+            <div class="sidebar-header">
+                <h2 class="sidebar-title">Query History</h2>
+                <p class="sidebar-subtitle">Your recent database queries</p>
+            </div>
+            <div class="sidebar-actions flex justify-end gap-3 py-2">
+                <button id="newQuery" class="btn-action btn-new-query" type="button">
+                    <i class="fas fa-plus text-sm" aria-hidden="true"></i>
+                    <span>New Query</span>
+                </button>
+                <button id="clearHistory" class="btn-action btn-clear-history" type="button">
+                    <i class="fas fa-trash-alt text-sm" aria-hidden="true"></i>
+                    <span>Clear History</span>
+                </button>
+            </div>
+            <div id="historyList" class="space-y-4 mt-4"></div>
+        </div>
+    </aside>
+
+    <main class="main-content min-h-screen py-8 px-6 lg:px-12 dynamic-bg">
+        <div class="max-w-5xl mx-auto">
+            <section class="text-center mb-12 space-y-4" aria-labelledby="pageTitle">
+                <div class="floating">
+                    <h1 id="pageTitle" class="text-4xl lg:text-5xl font-extrabold" style="line-height: 1.2;">
+                        <span class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600 animate-gradient pb-2 inline-block">
+                            Natural Language to MongoDB
+                        </span>
+                    </h1>
+                </div>
+                <p class="text-gray-600 text-lg max-w-2xl mx-auto leading-relaxed">
+                    Transform your natural language into powerful MongoDB queries with AI
+                    <span class="inline-block ml-2 transform hover:scale-125 transition-transform duration-300" aria-hidden="true">&#10024;</span>
+                </p>
+                <div class="flex flex-wrap justify-center gap-3 pt-2">
+                    <span id="datasetChip" class="status-chip">
+                        <i class="fas fa-layer-group" aria-hidden="true"></i>
+                        <span>Loading dataset...</span>
+                    </span>
+                    <span id="solverChip" class="status-chip">
+                        <i class="fas fa-project-diagram" aria-hidden="true"></i>
+                        <span>SAG Solver</span>
+                    </span>
+                </div>
+            </section>
+
+            <section class="glass-card rounded-3xl p-8 lg:p-10 mb-12" aria-label="Query builder">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="input-group relative">
+                        <label for="database" class="input-label">
+                            <div class="input-icon">
+                                <i class="fas fa-database" aria-hidden="true"></i>
+                            </div>
+                            <span>Database Name</span>
+                        </label>
+                        <div class="select-container">
+                            <select id="database" class="custom-select" aria-label="Select database" required>
+                                <option value="" disabled selected>Select a database...</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="query" class="input-label">
+                            <div class="input-icon">
+                                <i class="fas fa-search" aria-hidden="true"></i>
+                            </div>
+                            <span>Natural Language Query</span>
+                        </label>
+                        <textarea id="query" class="input-field" placeholder="Describe what you want to query in natural language..."></textarea>
+                    </div>
+                </div>
+
+                <div class="flex justify-center mt-8">
+                    <button id="generateQuery" class="btn-modern" type="button">
+                        <i class="fas fa-magic" aria-hidden="true"></i>
+                        <span>Generate Query</span>
+                    </button>
+                </div>
+            </section>
+
+            <section id="schemaSection" class="glass-card rounded-3xl p-8 lg:p-10 mb-12 hidden" aria-label="MongoDB collection explorer">
+                <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 space-y-4 md:space-y-0">
+                    <div class="flex flex-col space-y-2">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg transform -rotate-6 hover:rotate-0 transition-all duration-300">
+                                <i class="fas fa-cubes text-white text-xl" aria-hidden="true"></i>
+                            </div>
+                            <h3 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">
+                                MongoDB Collections
+                            </h3>
+                        </div>
+                        <div class="flex items-center space-x-2 ml-1">
+                            <div class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
+                            <p class="text-gray-600 font-medium" id="schemaDbName"></p>
+                        </div>
+                    </div>
+                    <button id="refreshSchema" class="btn-modern" type="button">
+                        <i class="fas fa-sync-alt" aria-hidden="true"></i>
+                        <span>Refresh Collections</span>
+                    </button>
+                </div>
+                <div class="bg-white rounded-2xl p-6 shadow-lg border border-indigo-50">
+                    <div id="schemaContent" class="space-y-6"></div>
+                </div>
+            </section>
+
+            <div id="loading" class="loading">
+                <div class="glass-card rounded-2xl p-8 inline-block backdrop-blur-lg">
+                    <div class="relative">
+                        <div class="animate-spin rounded-full h-16 w-16 border-4 border-indigo-600 border-t-transparent mx-auto"></div>
+                        <div class="absolute inset-0 flex items-center justify-center">
+                            <i class="fas fa-database text-indigo-600 text-lg pulse" aria-hidden="true"></i>
+                        </div>
+                    </div>
+                    <p class="text-gray-600 mt-6 font-medium text-lg animate-pulse">
+                        Transforming your query<span class="typing-dots"></span>
+                    </p>
+                </div>
+            </div>
+
+            <section id="generatedQuery" class="hidden space-y-8 transition-all duration-500 mb-8" aria-label="Generated query">
+                <div class="glass-card rounded-2xl p-8 result-card hover:shadow-2xl">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                        <div class="flex items-center">
+                            <i class="fas fa-code text-blue-600 text-xl mr-3" aria-hidden="true"></i>
+                            <h3 class="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-blue-800">
+                                Generated MongoDB Query
+                            </h3>
+                        </div>
+                        <button id="copyQuery" class="btn-modern btn-copy" type="button">
+                            <i class="fas fa-copy" aria-hidden="true"></i>
+                            <span>Copy</span>
+                        </button>
+                    </div>
+                    <pre class="code-block p-6 rounded-xl bg-gray-900 text-gray-100 custom-scrollbar"><code id="generatedMongoQuery" class="language-javascript"></code></pre>
+                    <div class="flex justify-end mt-6">
+                        <button id="executeQuery" class="btn-modern btn-execute" type="button" disabled>
+                            <i class="fas fa-play" aria-hidden="true"></i>
+                            <span>Execute Query</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section id="result" class="hidden space-y-8 transition-all duration-500 result-section" aria-label="Query results">
+                <div class="glass-card rounded-2xl p-8 result-card hover:shadow-2xl">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                        <div class="flex items-center">
+                            <i class="fas fa-table text-green-600 text-xl mr-3" aria-hidden="true"></i>
+                            <h3 class="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-green-600 to-green-800">
+                                Query Results
+                            </h3>
+                        </div>
+                        <button id="copyResults" class="btn-modern btn-execute" type="button">
+                            <i class="fas fa-copy" aria-hidden="true"></i>
+                            <span>Copy</span>
+                        </button>
+                    </div>
+                    <pre class="code-block p-6 rounded-xl bg-gray-900 text-gray-100 max-h-96 overflow-y-auto custom-scrollbar"><code id="queryResults" class="language-json"></code></pre>
+                </div>
+            </section>
+
+            <section id="solverDetails" class="hidden space-y-8 transition-all duration-500 mt-8" aria-label="Solver details">
+                <div class="glass-card rounded-2xl p-8 result-card hover:shadow-2xl">
+                    <div class="flex items-center mb-6">
+                        <i class="fas fa-stream text-purple-600 text-xl mr-3" aria-hidden="true"></i>
+                        <h3 class="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-indigo-700">
+                            Solver Details
+                        </h3>
+                    </div>
+                    <pre class="code-block p-6 rounded-xl bg-gray-900 text-gray-100 max-h-96 overflow-y-auto custom-scrollbar"><code id="solverJsonOutput" class="language-json"></code></pre>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const elements = {
+                database: document.getElementById('database'),
+                query: document.getElementById('query'),
+                generateQuery: document.getElementById('generateQuery'),
+                executeQuery: document.getElementById('executeQuery'),
+                copyQuery: document.getElementById('copyQuery'),
+                copyResults: document.getElementById('copyResults'),
+                generatedQuery: document.getElementById('generatedQuery'),
+                generatedMongoQuery: document.getElementById('generatedMongoQuery'),
+                result: document.getElementById('result'),
+                queryResults: document.getElementById('queryResults'),
+                solverDetails: document.getElementById('solverDetails'),
+                solverJsonOutput: document.getElementById('solverJsonOutput'),
+                schemaSection: document.getElementById('schemaSection'),
+                schemaDbName: document.getElementById('schemaDbName'),
+                schemaContent: document.getElementById('schemaContent'),
+                refreshSchema: document.getElementById('refreshSchema'),
+                loading: document.getElementById('loading'),
+                historyList: document.getElementById('historyList'),
+                clearHistory: document.getElementById('clearHistory'),
+                newQuery: document.getElementById('newQuery'),
+                scrollToTop: document.getElementById('scrollToTop'),
+                mobileMenu: document.getElementById('mobileMenu'),
+                datasetChip: document.getElementById('datasetChip'),
+                solverChip: document.getElementById('solverChip')
+            };
+
+            const historyKey = 'tendDemoHistory';
+            const state = {
+                databases: [],
+                selectedDatabase: '',
+                selectedRecordId: null,
+                currentMql: '',
+                currentSolve: null,
+                history: loadHistory(),
+                schemaRequestId: 0,
+                solveRequestId: 0,
+                busy: false
+            };
+
+            function loadHistory() {
+                try {
+                    const parsed = JSON.parse(localStorage.getItem(historyKey) || '[]');
+                    return Array.isArray(parsed) ? parsed.slice(0, 24) : [];
+                } catch (error) {
+                    return [];
+                }
+            }
+
+            function saveHistory() {
+                localStorage.setItem(historyKey, JSON.stringify(state.history.slice(0, 24)));
+            }
+
+            function clearNode(node) {
+                while (node.firstChild) {
+                    node.removeChild(node.firstChild);
+                }
+            }
+
+            function make(tagName, className, text) {
+                const node = document.createElement(tagName);
+                if (className) {
+                    node.className = className;
+                }
+                if (text !== undefined && text !== null) {
+                    node.textContent = text;
+                }
+                return node;
+            }
+
+            function icon(className) {
+                const node = document.createElement('i');
+                node.className = className;
+                node.setAttribute('aria-hidden', 'true');
+                return node;
+            }
+
+            function setButton(button, iconClass, label, busy) {
+                clearNode(button);
+                if (busy) {
+                    button.appendChild(make('span', 'loading-spinner'));
+                } else if (iconClass) {
+                    button.appendChild(icon(iconClass));
+                }
+                button.appendChild(make('span', '', label));
+            }
+
+            function highlight(node) {
+                if (window.Prism && node) {
+                    window.Prism.highlightElement(node);
+                }
+            }
+
+            async function fetchJson(url, options) {
+                const response = await fetch(url, options);
+                let data = null;
+                try {
+                    data = await response.json();
+                } catch (error) {
+                    throw new Error('The server returned an invalid JSON response.');
+                }
+                if (!response.ok || data.status === 'error') {
+                    throw new Error(data.message || 'Request failed.');
+                }
+                return data;
+            }
+
+            function option(value, label, disabled) {
+                const node = document.createElement('option');
+                node.value = value;
+                node.textContent = label;
+                if (disabled) {
+                    node.disabled = true;
+                }
+                return node;
+            }
+
+            function activeDatabaseMeta() {
+                return state.databases.find((db) => db.db_id === state.selectedDatabase) || null;
+            }
+
+            function renderHistory() {
+                clearNode(elements.historyList);
+                if (state.history.length === 0) {
+                    elements.historyList.appendChild(make('div', 'empty-state', 'No query history yet.'));
+                    return;
+                }
+
+                state.history.forEach((item) => {
+                    const card = make('button', 'history-card text-left w-full', '');
+                    card.type = 'button';
+
+                    const header = make('div', 'flex items-center min-w-0');
+                    const iconBox = make('div', 'db-icon-container');
+                    iconBox.appendChild(icon('fas fa-database'));
+                    header.appendChild(iconBox);
+                    header.appendChild(make('div', 'db-name', item.database || 'Unknown database'));
+                    card.appendChild(header);
+
+                    card.appendChild(make('div', 'timestamp', item.timestamp || ''));
+                    card.appendChild(make('div', 'query-text', item.query || ''));
+
+                    const rerun = make('div', 'rerun-button');
+                    rerun.appendChild(icon('fas fa-redo-alt'));
+                    rerun.appendChild(make('span', '', 'Rerun Query'));
+                    card.appendChild(rerun);
+
+                    card.addEventListener('click', () => applyHistoryItem(item));
+                    elements.historyList.appendChild(card);
+                });
+            }
+
+            function addHistory(response) {
+                const entry = {
+                    database: state.selectedDatabase,
+                    record_id: state.selectedRecordId,
+                    query: elements.query.value.trim(),
+                    mql: state.currentMql,
+                    solver: response || state.currentSolve,
+                    timestamp: new Date().toLocaleString()
+                };
+                state.history = [
+                    entry,
+                    ...state.history.filter((item) => !(item.database === entry.database && item.query === entry.query))
+                ].slice(0, 24);
+                saveHistory();
+                renderHistory();
+            }
+
+            async function applyHistoryItem(item) {
+                if (item.database && elements.database.value !== item.database) {
+                    elements.database.value = item.database;
+                    await selectDatabase(item.database, { keepQuery: true });
+                }
+                elements.query.value = item.query || '';
+                state.selectedRecordId = item.record_id || null;
+                state.currentMql = item.mql || '';
+                state.currentSolve = item.solver || null;
+                if (state.currentMql) {
+                    elements.generatedMongoQuery.textContent = state.currentMql;
+                    highlight(elements.generatedMongoQuery);
+                    elements.generatedQuery.classList.remove('hidden');
+                    elements.executeQuery.disabled = false;
+                }
+                if (state.currentSolve) {
+                    renderSolverDetails(state.currentSolve);
+                }
+                elements.generatedQuery.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+
+            function clearGenerated() {
+                state.currentMql = '';
+                state.currentSolve = null;
+                elements.generatedMongoQuery.textContent = '';
+                elements.queryResults.textContent = '';
+                elements.solverJsonOutput.textContent = '';
+                elements.generatedQuery.classList.add('hidden');
+                elements.result.classList.add('hidden');
+                elements.result.classList.remove('visible');
+                elements.solverDetails.classList.add('hidden');
+                elements.executeQuery.disabled = true;
+            }
+
+            function setBusy(isBusy, label) {
+                state.busy = isBusy;
+                elements.loading.classList.toggle('active', isBusy);
+                elements.generateQuery.disabled = isBusy;
+                elements.executeQuery.disabled = isBusy || !state.currentMql;
+                elements.database.disabled = isBusy;
+                elements.query.disabled = isBusy;
+                elements.refreshSchema.disabled = isBusy || !state.selectedDatabase;
+                setButton(elements.generateQuery, 'fas fa-magic', isBusy ? (label || 'Generating...') : 'Generate Query', isBusy);
+            }
+
+            function renderSolverDetails(data) {
+                elements.solverJsonOutput.textContent = JSON.stringify(data, null, 2);
+                highlight(elements.solverJsonOutput);
+                elements.solverDetails.classList.remove('hidden');
+            }
+
+            function renderExecution(execution) {
+                const payload = execution || { status: 'skipped', reason: 'Query generation completed without execution.' };
+                elements.queryResults.textContent = JSON.stringify(payload, null, 2);
+                highlight(elements.queryResults);
+                elements.result.classList.remove('hidden');
+                window.setTimeout(() => elements.result.classList.add('visible'), 25);
+            }
+
+            function renderSolveResponse(data, execute) {
+                const result = data.result || {};
+                const mql = String(result.MQL || result.mongo_query || '');
+                state.currentSolve = data;
+                state.currentMql = mql;
+                elements.generatedMongoQuery.textContent = mql || JSON.stringify(result, null, 2);
+                highlight(elements.generatedMongoQuery);
+                elements.generatedQuery.classList.remove('hidden');
+                elements.executeQuery.disabled = !mql;
+                renderSolverDetails(data);
+                if (execute) {
+                    renderExecution(data.execution);
+                }
+                addHistory(data);
+                elements.generatedQuery.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+
+            function renderError(error) {
+                const payload = {
+                    status: 'error',
+                    message: error && error.message ? error.message : String(error)
+                };
+                elements.queryResults.textContent = JSON.stringify(payload, null, 2);
+                highlight(elements.queryResults);
+                elements.result.classList.remove('hidden');
+                window.setTimeout(() => elements.result.classList.add('visible'), 25);
+                elements.result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+
+            async function runSolver(execute) {
+                const database = elements.database.value.trim();
+                const query = elements.query.value.trim();
+                if (!database) {
+                    elements.database.focus();
+                    renderError(new Error('Database is required.'));
+                    return;
+                }
+                if (!query) {
+                    elements.query.focus();
+                    renderError(new Error('Natural language query is required.'));
+                    return;
+                }
+
+                const requestId = ++state.solveRequestId;
+                if (!execute) {
+                    clearGenerated();
+                }
+                setBusy(true, execute ? 'Executing...' : 'Generating...');
+                try {
+                    const data = await fetchJson('/api/solve', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            database: database,
+                            query: query,
+                            record_id: state.selectedRecordId,
+                            execute: execute
+                        })
+                    });
+                    if (requestId !== state.solveRequestId) {
+                        return;
+                    }
+                    renderSolveResponse(data, execute);
+                } catch (error) {
+                    if (requestId === state.solveRequestId) {
+                        renderError(error);
+                    }
+                } finally {
+                    if (requestId === state.solveRequestId) {
+                        setBusy(false);
+                    }
+                }
+            }
+
+            function renderDatabaseOptions(databases, datasetDir) {
+                clearNode(elements.database);
+                elements.database.appendChild(option('', 'Select a database...', true));
+                databases.forEach((db) => {
+                    elements.database.appendChild(option(db.db_id, db.db_id));
+                });
+                if (databases.length > 0) {
+                    const preferred = databases.find((db) => db.db_id === 'california_schools') || databases[0];
+                    elements.database.value = preferred.db_id;
+                }
+                elements.datasetChip.querySelector('span').textContent = `${datasetDir || 'release dataset'} · ${databases.length} databases`;
+            }
+
+            function formatCount(value) {
+                const parsed = Number(value || 0);
+                return Number.isFinite(parsed) ? parsed.toLocaleString() : '0';
+            }
+
+            function pluralize(count, singular, plural) {
+                return `${formatCount(count)} ${Number(count) === 1 ? singular : plural}`;
+            }
+
+            function typeLabel(types) {
+                return Array.isArray(types) && types.length > 0 ? types.join(' | ') : 'unknown';
+            }
+
+            function kindLabel(kind) {
+                if (kind === 'dynamic_map') {
+                    return 'map';
+                }
+                return kind || 'field';
+            }
+
+            function appendMetric(grid, label, value) {
+                const metric = make('div', 'collection-metric');
+                metric.appendChild(make('div', 'collection-metric-label', label));
+                metric.appendChild(make('div', 'collection-metric-value', value));
+                grid.appendChild(metric);
+            }
+
+            function appendSectionTitle(parent, title, iconClass) {
+                const node = make('div', 'collection-section-title');
+                node.appendChild(icon(iconClass));
+                node.appendChild(make('span', '', title));
+                parent.appendChild(node);
+            }
+
+            function appendKindBadge(parent, kind) {
+                const badge = make('span', `kind-badge ${kind === 'dynamic_map' ? 'map' : kind === 'array' ? 'array' : ''}`);
+                if (kind === 'dynamic_map') {
+                    badge.appendChild(icon('fas fa-random'));
+                } else if (kind === 'array') {
+                    badge.appendChild(icon('fas fa-layer-group'));
+                } else if (kind === 'object') {
+                    badge.appendChild(icon('fas fa-cube'));
+                } else {
+                    badge.appendChild(icon('fas fa-circle'));
+                }
+                badge.appendChild(make('span', '', kindLabel(kind)));
+                parent.appendChild(badge);
+            }
+
+            function appendMetaPill(parent, value) {
+                parent.appendChild(make('span', 'field-meta-pill', value));
+            }
+
+            function appendPresence(parent, pct) {
+                const track = make('div', 'presence-track');
+                const bar = make('div', 'presence-bar');
+                const safePct = Math.max(0, Math.min(100, Number(pct || 0)));
+                bar.style.width = `${safePct}%`;
+                track.appendChild(bar);
+                parent.appendChild(track);
+            }
+
+            function appendTopLevelFields(parent, fields) {
+                appendSectionTitle(parent, 'Top-Level Fields', 'fas fa-diagram-project');
+                if (!fields.length) {
+                    parent.appendChild(make('div', 'empty-state mt-4', 'No sampled top-level fields.'));
+                    return;
+                }
+                const grid = make('div', 'top-field-grid');
+                fields.forEach((field) => {
+                    const card = make('div', 'top-field-card');
+                    const head = make('div', 'field-card-head');
+                    head.appendChild(make('div', 'field-path', field.path || field.name || 'field'));
+                    appendKindBadge(head, field.kind);
+                    card.appendChild(head);
+
+                    const meta = make('div', 'field-meta-row');
+                    appendMetaPill(meta, typeLabel(field.types));
+                    appendMetaPill(meta, `${formatCount(field.presence_count)} docs`);
+                    appendMetaPill(meta, `${Number(field.presence_pct || 0).toFixed(0)}% present`);
+                    if (field.key_count) {
+                        appendMetaPill(meta, `${formatCount(field.key_count)} keys`);
+                    } else if (field.child_count) {
+                        appendMetaPill(meta, `${formatCount(field.child_count)} child fields`);
+                    }
+                    if (field.array) {
+                        appendMetaPill(meta, `array ${field.array.min_length}-${field.array.max_length}`);
+                    }
+                    card.appendChild(meta);
+                    appendPresence(card, field.presence_pct);
+                    grid.appendChild(card);
+                });
+                parent.appendChild(grid);
+            }
+
+            function relativeValuePath(path, prefix) {
+                const raw = String(path || '');
+                const base = String(prefix || '');
+                if (base && raw.startsWith(`${base}.`)) {
+                    return raw.slice(base.length + 1);
+                }
+                if (raw === base) {
+                    return '{value}';
+                }
+                return raw;
+            }
+
+            function appendValueFields(parent, fields, prefix) {
+                if (!fields.length) {
+                    parent.appendChild(make('div', 'empty-state mt-4', 'No sampled value fields.'));
+                    return;
+                }
+                const grid = make('div', 'value-field-grid');
+                fields.forEach((field) => {
+                    const item = make('div', 'value-field');
+                    item.appendChild(make('div', 'value-field-name', relativeValuePath(field.path, prefix)));
+                    item.appendChild(make('div', 'value-field-type', `${kindLabel(field.kind)} · ${typeLabel(field.types)}`));
+                    grid.appendChild(item);
+                });
+                parent.appendChild(grid);
+            }
+
+            function appendDynamicMaps(parent, maps) {
+                if (!maps.length) {
+                    return;
+                }
+                appendSectionTitle(parent, 'Dynamic Key Maps', 'fas fa-code-branch');
+                const list = make('div', 'dynamic-map-list');
+                maps.forEach((mapInfo) => {
+                    const card = make('div', 'dynamic-map-card');
+                    const head = make('div', 'field-card-head');
+                    head.appendChild(make('div', 'field-path', mapInfo.value_path || mapInfo.path || 'map'));
+                    appendKindBadge(head, 'dynamic_map');
+                    card.appendChild(head);
+
+                    const meta = make('div', 'field-meta-row');
+                    appendMetaPill(meta, pluralize(mapInfo.key_count, 'observed key', 'observed keys'));
+                    appendMetaPill(meta, `${kindLabel(mapInfo.value_kind)} values`);
+                    appendMetaPill(meta, typeLabel(mapInfo.value_types));
+                    card.appendChild(meta);
+
+                    const samples = Array.isArray(mapInfo.key_samples) ? mapInfo.key_samples : [];
+                    if (samples.length) {
+                        const keyRow = make('div', 'key-sample-row');
+                        samples.forEach((sample) => {
+                            keyRow.appendChild(make('span', 'key-sample', sample));
+                        });
+                        card.appendChild(keyRow);
+                    }
+
+                    appendValueFields(card, Array.isArray(mapInfo.value_fields) ? mapInfo.value_fields : [], mapInfo.value_path);
+                    list.appendChild(card);
+                });
+                parent.appendChild(list);
+            }
+
+            function appendSampleDocument(parent, collection) {
+                const samples = Array.isArray(collection.sample_documents) ? collection.sample_documents : [];
+                if (samples.length === 0) {
+                    return;
+                }
+                const details = make('details', 'sample-details');
+                details.appendChild(make('summary', '', 'Sample Document'));
+                const pre = make('pre', 'code-block sample-doc-preview p-5 rounded-xl bg-gray-900 text-gray-100 custom-scrollbar');
+                const code = make('code', 'language-json', JSON.stringify(samples[0], null, 2));
+                pre.appendChild(code);
+                details.appendChild(pre);
+                parent.appendChild(details);
+                highlight(code);
+            }
+
+            function renderSchema(schema) {
+                clearNode(elements.schemaContent);
+                const collections = Array.isArray(schema.collections) ? schema.collections : [];
+                const header = make('div', 'flex flex-wrap gap-3 mb-6');
+                header.appendChild(make('span', 'status-chip', `${collections.length} collections`));
+                const totalDocuments = collections.reduce((sum, collection) => sum + Number(collection.document_count || 0), 0);
+                header.appendChild(make('span', 'status-chip', `${formatCount(totalDocuments)} documents`));
+                if (Array.isArray(schema.source_tables) && schema.source_tables.length > 0) {
+                    header.appendChild(make('span', 'status-chip', `${schema.source_tables.length} source tables`));
+                }
+                if (Array.isArray(schema.dynamic_key_paths) && schema.dynamic_key_paths.length > 0) {
+                    header.appendChild(make('span', 'status-chip', `${schema.dynamic_key_paths.length} dynamic keys`));
+                }
+                elements.schemaContent.appendChild(header);
+
+                if (collections.length === 0) {
+                    elements.schemaContent.appendChild(make('div', 'empty-state', 'No MongoDB collections found.'));
+                    return;
+                }
+
+                collections.forEach((collection) => {
+                    const card = make('article', 'collection-card');
+                    const topFields = Array.isArray(collection.top_level_fields) ? collection.top_level_fields : [];
+                    const dynamicMaps = Array.isArray(collection.dynamic_maps) ? collection.dynamic_maps : [];
+                    const sampleCount = Number(collection.sampled_shape_document_count || 0);
+                    const top = make('div', 'flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3');
+                    const titleWrap = make('div', 'min-w-0');
+                    const titleRow = make('div', 'flex items-center gap-3 min-w-0');
+                    const collectionIcon = make('div', 'db-icon-container flex-shrink-0');
+                    collectionIcon.appendChild(icon('fas fa-cube'));
+                    titleRow.appendChild(collectionIcon);
+                    const title = make('h4', 'text-xl font-bold text-gray-800 break-words', collection.name || 'collection');
+                    titleRow.appendChild(title);
+                    titleWrap.appendChild(titleRow);
+                    const subtitleParts = [];
+                    if (collection.root_entity) {
+                        subtitleParts.push(`entity: ${collection.root_entity}`);
+                    }
+                    if (Array.isArray(collection.source_tables) && collection.source_tables.length > 0) {
+                        subtitleParts.push(`source: ${collection.source_tables.join(', ')}`);
+                    }
+                    if (subtitleParts.length > 0) {
+                        titleWrap.appendChild(make('p', 'text-sm text-gray-500 mt-1', subtitleParts.join(' · ')));
+                    }
+                    top.appendChild(titleWrap);
+                    top.appendChild(make('span', 'status-chip flex-shrink-0', `${formatCount(collection.document_count)} docs`));
+                    card.appendChild(top);
+
+                    const metricGrid = make('div', 'collection-meta-grid');
+                    appendMetric(metricGrid, 'Documents', formatCount(collection.document_count));
+                    appendMetric(metricGrid, 'Sampled Docs', formatCount(sampleCount));
+                    appendMetric(metricGrid, 'Top-Level Fields', formatCount(topFields.length));
+                    appendMetric(metricGrid, 'Dynamic Maps', formatCount(dynamicMaps.length));
+                    card.appendChild(metricGrid);
+
+                    appendTopLevelFields(card, topFields);
+                    appendDynamicMaps(card, dynamicMaps);
+                    appendSampleDocument(card, collection);
+
+                    elements.schemaContent.appendChild(card);
+                });
+            }
+
+            async function loadSchema(dbId) {
+                const requestId = ++state.schemaRequestId;
+                elements.schemaSection.classList.remove('hidden');
+                elements.schemaDbName.textContent = dbId;
+                clearNode(elements.schemaContent);
+                elements.schemaContent.appendChild(make('div', 'empty-state', 'Loading MongoDB collections...'));
+                try {
+                    const data = await fetchJson(`/api/schema/${encodeURIComponent(dbId)}`);
+                    if (requestId !== state.schemaRequestId) {
+                        return;
+                    }
+                    renderSchema(data.schema || {});
+                } catch (error) {
+                    if (requestId === state.schemaRequestId) {
+                        clearNode(elements.schemaContent);
+                        elements.schemaContent.appendChild(make('div', 'empty-state', error.message));
+                    }
+                }
+            }
+
+            async function selectDatabase(dbId, options) {
+                const keepQuery = options && options.keepQuery;
+                state.selectedDatabase = dbId;
+                state.selectedRecordId = null;
+                const meta = activeDatabaseMeta();
+                elements.schemaDbName.textContent = meta ? meta.db_id : dbId;
+                if (!keepQuery) {
+                    clearGenerated();
+                }
+                await loadSchema(dbId);
+            }
+
+            async function loadInitialData() {
+                try {
+                    const data = await fetchJson('/api/databases');
+                    const databases = Array.isArray(data.databases) ? data.databases : [];
+                    state.databases = databases;
+                    renderDatabaseOptions(databases, data.dataset_dir);
+                    if (elements.database.value) {
+                        await selectDatabase(elements.database.value);
+                    }
+                } catch (error) {
+                    elements.datasetChip.querySelector('span').textContent = error.message;
+                    renderError(error);
+                }
+            }
+
+            async function copyText(button, text) {
+                const originalIcon = button.querySelector('i') ? button.querySelector('i').className : '';
+                const originalLabel = button.querySelector('span') ? button.querySelector('span').textContent : 'Copy';
+                try {
+                    await navigator.clipboard.writeText(text || '');
+                    setButton(button, 'fas fa-check', 'Copied', false);
+                } catch (error) {
+                    setButton(button, 'fas fa-exclamation-triangle', 'Copy failed', false);
+                } finally {
+                    window.setTimeout(() => setButton(button, originalIcon, originalLabel, false), 1200);
+                }
+            }
+
+            elements.database.addEventListener('change', () => {
+                const dbId = elements.database.value;
+                if (dbId) {
+                    selectDatabase(dbId);
+                }
+            });
+
+            elements.query.addEventListener('input', () => {
+                state.selectedRecordId = null;
+            });
+
+            elements.generateQuery.addEventListener('click', () => runSolver(false));
+            elements.executeQuery.addEventListener('click', () => runSolver(true));
+            elements.refreshSchema.addEventListener('click', () => {
+                if (state.selectedDatabase) {
+                    loadSchema(state.selectedDatabase);
+                }
+            });
+            elements.copyQuery.addEventListener('click', () => copyText(elements.copyQuery, elements.generatedMongoQuery.textContent));
+            elements.copyResults.addEventListener('click', () => copyText(elements.copyResults, elements.queryResults.textContent));
+
+            elements.newQuery.addEventListener('click', () => {
+                elements.query.value = '';
+                state.selectedRecordId = null;
+                clearGenerated();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+
+            elements.clearHistory.addEventListener('click', () => {
+                state.history = [];
+                saveHistory();
+                renderHistory();
+            });
+
+            elements.mobileMenu.addEventListener('click', () => {
+                document.querySelector('.sidebar').classList.toggle('active');
+            });
+
+            document.addEventListener('click', (event) => {
+                const sidebar = document.querySelector('.sidebar');
+                if (
+                    window.innerWidth <= 1024 &&
+                    sidebar.classList.contains('active') &&
+                    !event.target.closest('.sidebar') &&
+                    !event.target.closest('#mobileMenu')
+                ) {
+                    sidebar.classList.remove('active');
+                }
+            });
+
+            window.addEventListener('scroll', () => {
+                elements.scrollToTop.classList.toggle('visible', window.scrollY > 400);
+            });
+
+            elements.scrollToTop.addEventListener('click', () => {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+
+            renderHistory();
+            loadInitialData();
+        });
+    </script>
+</body>
+</html>

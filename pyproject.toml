@@ -19,6 +19,11 @@ dependencies = [
     "json5>=0.9",
 ]
 
+[project.optional-dependencies]
+demo = [
+    "flask>=3.0",
+]
+
 [project.scripts]
 tend = "tend.cli:main"
 

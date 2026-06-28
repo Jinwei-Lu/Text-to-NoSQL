@@ -83,6 +83,12 @@ cache/
 /TEND/
 /mongodb_schema/
 /mongodb_data/
+
+# QueryCraft demo source under /demonstration is public. Copied demo data and
+# generated schema payloads inside that directory are local-only.
+/demonstration/mongodb_data/
+/demonstration/mongodb_schema/
+/demonstration/schemas/
 /SLM_data/
 /SLM_prediction/
 /SLM_data_cross_domain/
@@ -92,6 +98,7 @@ cache/
 /tend_src/
 /SMART/
 /NoSQL_Demo/
+/NoSQL_Demo.zip
 /gnn_model/
 /project/
 /build_data/
@@ -131,6 +138,7 @@ Llama-3.2-1B/*.safetensors
 /results/
 /error_case/
 /error_analysis/
+/logs/
 /output/
 /outputs/
 /drive_upload/

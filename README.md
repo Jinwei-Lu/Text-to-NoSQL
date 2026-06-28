@@ -5,9 +5,11 @@ centered on executable MongoDB aggregation pipelines.
 
 The public GitHub repository is intentionally lean. Apart from minimal root
 setup files such as this README, `pyproject.toml`, `requirements.txt`, and
-`.env.example`, the uploaded code surface should be `src/tend/`. Do not upload
-`tests/`, `scripts/`, `docs/`, `proposals/`, `release/`, `drive_upload/`,
-`runs/`, generated result folders, or raw dataset payloads to GitHub.
+`.env.example`, the uploaded code surface is `src/tend/` plus the accepted
+VLDB demo implementation under `demonstration/`. Do not upload `tests/`,
+`scripts/`, `docs/`, `proposals/`, `release/`, `drive_upload/`, `runs/`,
+generated result folders, raw dataset payloads, or paper source directories to
+GitHub.
 
 ## Dataset Download
 
@@ -37,6 +39,29 @@ release/tend-native-mongodb-v1/
 `release/` and `drive_upload/` are local-only directories. They are ignored by
 Git and should not be uploaded to GitHub.
 
+## QueryCraft Demonstration
+
+This repository also includes `QueryCraft`, the browser-based TEND
+demonstration system accepted to the VLDB demo track. QueryCraft lets users ask
+natural language questions over MongoDB databases, inspect generated aggregation
+pipelines, optionally execute them against MongoDB, and review prior attempts in
+a local history panel. The interface is designed for Text-to-NoSQL behavior
+that Text-to-SQL demos usually hide: nested schema browsing, aggregation-stage
+debugging, execution feedback, and solver metadata inspection.
+
+The public demo source lives in:
+
+```text
+demonstration/
+```
+
+The demo is code-only. It reads the restored TEND release dataset from
+`release/tend-native-mongodb-v1/` by default and must not carry copied data
+payloads inside `demonstration/`. In particular, local folders such as
+`demonstration/mongodb_data/`, `demonstration/mongodb_schema/`, and
+`demonstration/schemas/` are intentionally ignored. The VLDB demo-paper source
+under `paper_demo/` is also local-only and should not be uploaded to GitHub.
+
 ## Repository Layout
 
 | Path | Availability | Purpose |
@@ -46,6 +71,7 @@ Git and should not be uploaded to GitHub.
 | `pyproject.toml` | GitHub | Package metadata and `tend` CLI entry point. |
 | `requirements.txt` | GitHub | The single pip dependency file for the public runtime package. |
 | `.env.example` | GitHub | Optional local configuration template. |
+| `demonstration/` | GitHub | QueryCraft Flask demo: schema browser, natural-language query UI, generated MQL view, execution feedback, and history panel. |
 | `release/tend-native-mongodb-v1/data/TEND.json` | Google Drive restore | Public NL-MQL task file after dataset restore. |
 | `release/tend-native-mongodb-v1/mongodb_data/` | Google Drive restore | Raw MongoDB witness JSON files after dataset restore. |
 
@@ -131,6 +157,12 @@ python -m pip install -r requirements.txt
 python -m pip install -e .
 ```
 
+For the QueryCraft demo, install the optional Flask dependency:
+
+```bash
+python -m pip install -e '.[demo]'
+```
+
 Optional local runtime configuration:
 
 ```bash
@@ -150,6 +182,27 @@ TEND_QUIET=0
 ```
 
 Stub-mode commands use deterministic fixed responses and do not call a live LLM.
+
+## Running QueryCraft
+
+Restore the dataset as described above, then start the Flask demo:
+
+```bash
+TEND_DEMO_PORT=5050 ./.venv/bin/python -c "from demonstration.app import app; app.run(host='127.0.0.1', port=5050, debug=False, use_reloader=False)"
+```
+
+Open:
+
+```text
+http://127.0.0.1:5050
+```
+
+By default, QueryCraft uses `TEND_DEMO_SOLVER_MODE=stub`, which exercises the
+SAG solver path with a deterministic local LLM stub. Set
+`TEND_DEMO_SOLVER_MODE=live` to use the configured OpenAI-compatible provider;
+live mode requires the usual `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and
+`TEND_MODEL` settings. Selecting execution in the UI also requires MongoDB via
+`TEND_MONGO_URI`.
 
 ## CLI
 
