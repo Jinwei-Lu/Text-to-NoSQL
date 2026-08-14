@@ -41,9 +41,7 @@ generated locally as described below.
 The TEND dataset is hosted outside GitHub because the release contains large
 MongoDB witness data. Download the current native MongoDB release from:
 
-*Download link withheld for double-blind review — the hosting account would
-identify the authors. An anonymous mirror is provided through the submission
-system.*
+[Google Drive: TEND native variant final artifacts](https://drive.google.com/drive/folders/1s7LgW-zub1gIx9A1OpuWdx7lyNVwXhi5?usp=drive_link)
 
 Restore the release under the repository root with this layout:
 
