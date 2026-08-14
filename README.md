@@ -15,13 +15,12 @@ natural-language MongoDB querying.
 
 | Work | Status | Link |
 | --- | --- | --- |
-| **Bridging the Gap: Enabling Natural Language Queries for NoSQL Databases through Text-to-NoSQL Translation** | Full paper | [arXiv:2502.11201](https://arxiv.org/abs/2502.11201) |
-| **QueryCraft: A Natural Language-Driven NoSQL Database Querying System Powered by Large Language Models** | Accepted to the VLDB 2026 Demo Track; proceedings citation forthcoming | Source code in [`demonstration/`](demonstration/) |
+| **Bridging the Gap: Enabling Natural Language Queries for NoSQL Databases through Text-to-NoSQL Translation** | Full paper | Reference withheld for double-blind review |
+| **QueryCraft: A Natural Language-Driven NoSQL Database Querying System Powered by Large Language Models** | Accepted to the VLDB 2026 Demo Track | Source code in [`demonstration/`](demonstration/) |
 
-Please cite the full paper for the benchmark, solver, and dataset. The
-QueryCraft demo paper has been accepted but has not yet appeared in the
-proceedings; this README will be updated with the official demo citation after
-publication.
+The demonstration system built on this work has been accepted to the VLDB 2026
+Demo Track. Author details and citations are withheld while the full paper is
+under double-blind review.
 
 ## Repository Contents
 
@@ -42,7 +41,9 @@ generated locally as described below.
 The TEND dataset is hosted outside GitHub because the release contains large
 MongoDB witness data. Download the current native MongoDB release from:
 
-[Google Drive: TEND native variant final artifacts](https://drive.google.com/drive/folders/1s7LgW-zub1gIx9A1OpuWdx7lyNVwXhi5?usp=drive_link)
+*Download link withheld for double-blind review — the hosting account would
+identify the authors. An anonymous mirror is provided through the submission
+system.*
 
 Restore the release under the repository root with this layout:
 
@@ -304,19 +305,5 @@ connectivity, interface checks, and contract testing only.
 
 ## Citation
 
-Please cite the full paper:
-
-```bibtex
-@misc{lu2026bridginggapenablingnatural,
-      title={Bridging the Gap: Enabling Natural Language Queries for NoSQL Databases through Text-to-NoSQL Translation},
-      author={Jinwei Lu and Jiawei Lu and Chen Zhang and Zhiqian Qin and Haodi Zhang and Yuanfeng Song and Raymond Chi-Wing Wong},
-      year={2026},
-      eprint={2502.11201},
-      archivePrefix={arXiv},
-      primaryClass={cs.DB},
-      url={https://arxiv.org/abs/2502.11201},
-}
-```
-
-The QueryCraft demo citation will be added after the VLDB proceedings entry is
-available.
+Citation details are withheld while this submission is under double-blind
+review, and will be restored in the camera-ready version.
