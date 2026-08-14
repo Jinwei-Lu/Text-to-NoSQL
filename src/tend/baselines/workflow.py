@@ -1,4 +1,5 @@
 """Runtime workflow for constrained LLM baselines."""
+
 from __future__ import annotations
 
 import asyncio
@@ -56,6 +57,12 @@ AGENTIC_MAX_TURNS = max(1, int(_os.environ.get("TEND_BASELINE_AGENTIC_MAX_TURNS"
 # Bound on the fair ReAct arms' JSON-action loop. Default 16 reproduces the published
 # fair-comparison measurement (react_naive 4/110, react_informed 25/110 on financial).
 REACT_MAX_STEPS = max(1, int(_os.environ.get("TEND_BASELINE_REACT_MAX_STEPS", "16")))
+# Fair-contract arm: give the baselines the same six output conventions SAG's prompt
+# states, so a measured margin reflects mechanism rather than instruction asymmetry.
+# Read here because this module already reads its knobs from the environment; the
+# prompt builders take it as data. Default off keeps frozen artifacts reproducible.
+OUTPUT_CONTRACT = _os.environ.get("TEND_BASELINE_OUTPUT_CONTRACT", "").strip().lower() in {
+    "1", "true", "yes"}
 
 # The fair ReAct arms see RAW first-N rows (the published measurement's observation
 # channel — disclosed in `_baseline_disclosure`, unlike every redacted baseline).
@@ -123,6 +130,7 @@ class BaselineStepTrace:
     title: str
     output: dict[str, Any]
     log_ref: str = ""
+    call_id: str = ""
     llm_attempts: int = 0
     transport_retries: int = 0
     json_repair_retries: int = BASELINE_JSON_REPAIR_RETRIES
@@ -374,8 +382,7 @@ async def run_baseline_suite(
             ).to_json()
         payload["batch_index"] = batch_index
         payload["work_item_id"] = (
-            f"baseline:{batch_index}:{spec.id}:{record.get('db_id')}:"
-            f"{record.get('record_id')}"
+            f"baseline:{batch_index}:{spec.id}:{record.get('db_id')}:{record.get('record_id')}"
         )
         return batch_index, payload
 
@@ -463,7 +470,9 @@ async def run_baseline_record(
     # sampled documents. `data_rich_direct` is the larger-sample contrast -- but the boost
     # only applies in a sampled regime. A `--witness-k 0` (no-sample / fairness) run forces
     # every baseline to 0 so none keeps a privileged raw-document view the solver is denied.
-    effective_witness_k = _BASELINE_WITNESS_K_OVERRIDE.get(spec.id, witness_k) if witness_k > 0 else 0
+    effective_witness_k = (
+        _BASELINE_WITNESS_K_OVERRIDE.get(spec.id, witness_k) if witness_k > 0 else 0
+    )
     disclosure = _baseline_disclosure(
         wf,
         spec,
@@ -519,9 +528,7 @@ async def run_baseline_record(
             evaluation_skip_reason=evaluation_skip_reason,
         )
     group_prefix = (
-        f"baseline:{batch_index}:{spec.id}"
-        if batch_index is not None
-        else f"baseline:{spec.id}"
+        f"baseline:{batch_index}:{spec.id}" if batch_index is not None else f"baseline:{spec.id}"
     )
     group = (
         f"{group_prefix}:{db_id}:{record_id}"
@@ -579,6 +586,7 @@ async def run_baseline_record(
         witness_digest=witness_digest,
         schema_summary=schema_summary,
         nlq=nlq,
+        output_contract=OUTPUT_CONTRACT,
     )
 
     state: dict[str, Any] = {}
@@ -703,6 +711,12 @@ async def run_baseline_record(
             static_feedback=final_feedback,
         )
     except TendError as err:
+        if spec.react_arm and not traces:
+            raw_traces = err.context.get("react_step_traces")
+            if isinstance(raw_traces, list):
+                traces = [
+                    BaselineStepTrace(**trace) for trace in raw_traces if isinstance(trace, dict)
+                ]
         err.with_context(baseline_id=spec.id, db_id=db_id, record_id=record_id)
         error_code = err.anomaly.value if err.anomaly else "tend_error"
         session_ref = _task_log_ref(log_mgr, task_log)
@@ -856,9 +870,7 @@ async def _run_consistency_baseline(
             state.update(output)
         return _extract_mql(state), traces
 
-    outcomes = await asyncio.gather(
-        *[one_attempt(i) for i in range(k)], return_exceptions=True
-    )
+    outcomes = await asyncio.gather(*[one_attempt(i) for i in range(k)], return_exceptions=True)
     candidates: list[tuple[int, str]] = []
     all_traces: list[BaselineStepTrace] = []
     first_error: BaseException | None = None
@@ -906,13 +918,10 @@ async def _run_step(
     task_log: TaskLogger,
 ) -> tuple[dict[str, Any], BaselineStepTrace]:
     prefix = (
-        f"baseline:{batch_index}:{spec.id}"
-        if batch_index is not None
-        else f"baseline:{spec.id}"
+        f"baseline:{batch_index}:{spec.id}" if batch_index is not None else f"baseline:{spec.id}"
     )
     task_id = (
-        f"{prefix}:{prompt_ctx.record.get('db_id')}:"
-        f"{prompt_ctx.record.get('record_id')}:{step.id}"
+        f"{prefix}:{prompt_ctx.record.get('db_id')}:{prompt_ctx.record.get('record_id')}:{step.id}"
     )
     if ctx.progress:
         ctx.progress.start_task(task_id, step.title, group=group)
@@ -954,6 +963,7 @@ async def _run_step(
             title=step.title,
             output=output,
             log_ref=log_ref,
+            call_id=result.call_id,
             llm_attempts=result.attempts,
             transport_retries=max(0, result.attempts - 1),
             json_repair_retries=BASELINE_JSON_REPAIR_RETRIES,
@@ -1001,9 +1011,7 @@ async def _run_preprocess_exploration(
         return {}
 
     prefix = (
-        f"baseline:{batch_index}:{spec.id}"
-        if batch_index is not None
-        else f"baseline:{spec.id}"
+        f"baseline:{batch_index}:{spec.id}" if batch_index is not None else f"baseline:{spec.id}"
     )
     progress_task_id = f"{prefix}:{db_id}:{record_id}:preprocess_explore"
     if ctx.progress:
@@ -1112,9 +1120,7 @@ def _preprocess_digest_from_probe(
         return digest
     collection = str(probe_result.get("collection") or "exploration")
     shape = probe_result.get("result_shape")
-    sample_documents = (
-        [shape] if isinstance(shape, dict) else []
-    )
+    sample_documents = [shape] if isinstance(shape, dict) else []
     entry: dict[str, Any] = {
         "sample_count": int(probe_result.get("result_count", 0) or 0),
         "sample_documents": sample_documents,
@@ -1195,9 +1201,7 @@ async def _run_react_baseline(
             )
             progress_task_id = f"{prefix}:{db_id}:{record_id}:{step_id}"
             if ctx.progress:
-                ctx.progress.start_task(
-                    progress_task_id, f"ReAct step {step_index}", group=group
-                )
+                ctx.progress.start_task(progress_task_id, f"ReAct step {step_index}", group=group)
             try:
                 result = await ctx.llm.complete(
                     agent=agent_name,
@@ -1259,9 +1263,7 @@ async def _run_react_baseline(
                         }
                     ],
                     tool_results=(
-                        [{"name": "execute_mql", "content": observation}]
-                        if observation
-                        else None
+                        [{"name": "execute_mql", "content": observation}] if observation else None
                     ),
                     usage=usage or None,
                     cost_usd=0.0,
@@ -1283,6 +1285,7 @@ async def _run_react_baseline(
                     title=f"ReAct step {step_index}",
                     output=output,
                     log_ref=session_ref,
+                    call_id=result.call_id,
                     llm_attempts=result.attempts,
                     transport_retries=max(0, result.attempts - 1),
                     json_repair_retries=BASELINE_JSON_REPAIR_RETRIES,
@@ -1290,7 +1293,7 @@ async def _run_react_baseline(
             )
             if submitted:
                 break
-    except Exception:
+    except Exception as exc:
         task_log.close_agent_session(
             turns=steps_taken,
             tool_calls_made=probes_made,
@@ -1298,6 +1301,8 @@ async def _run_react_baseline(
             completed=False,
             outcome="error",
         )
+        if isinstance(exc, TendError):
+            exc.with_context(react_step_traces=[asdict(trace) for trace in traces])
         raise
 
     if not final_mql:
@@ -1316,6 +1321,7 @@ async def _run_react_baseline(
                 "baseline_id": spec.id,
                 "db_id": db_id,
                 "max_steps": REACT_MAX_STEPS,
+                "react_step_traces": [asdict(trace) for trace in traces],
             },
         )
     task_log.close_agent_session(
@@ -1362,9 +1368,11 @@ async def _react_observation(
         mql = render_mql(collection, pipeline)
         rows = await asyncio.to_thread(mongo.norm_exec, db_id, mql)
     except Exception as exc:  # noqa: BLE001 - executor faults are model feedback
-        detail = getattr(exc, "context", {}).get("error") if isinstance(
-            getattr(exc, "context", None), dict
-        ) else None
+        detail = (
+            getattr(exc, "context", {}).get("error")
+            if isinstance(getattr(exc, "context", None), dict)
+            else None
+        )
         return f"ERROR: {str(detail or exc)[:200]}"
     head = json.dumps(rows[:REACT_OBSERVATION_ROWS], default=str)
     return (
@@ -1466,9 +1474,11 @@ def _baseline_disclosure(
             else {
                 "nlq_only": "none_nlq_only",
                 "public_schema": "released_public_schema_file",
+                "relational_source_schema": "bird_relational_ddl_plus_witness_samples",
             }.get(spec.prompt_channel, "witness_samples_only")
         ),
-        "schema_provided_to_model": spec.prompt_channel == "public_schema",
+        "schema_provided_to_model": spec.prompt_channel
+        in ("public_schema", "relational_source_schema"),
         "disjointness_ok": disjointness["ok"],
         "disjointness_detail": disjointness,
         "limitations": list(spec.limitations),
@@ -1484,7 +1494,8 @@ def _baseline_disclosure(
         "local_data_stripped_fields": list(local_data_stripped_fields or []),
         "schema_public_shape": schema_public_shape
         or {"format": "unknown", "collection_total": 0, "collections": []},
-        "uses_public_witness_digest": spec.prompt_channel == "sampled_docs",
+        "uses_public_witness_digest": spec.prompt_channel
+        in ("sampled_docs", "relational_source_schema"),
         "semantic_retry_budget": 0,
         "retry_contract": {
             "semantic_retry_budget": 0,
@@ -1535,10 +1546,14 @@ def _hash_nlq(nlq: str) -> str:
 
 
 def _json_block(value: Any) -> str:
-    return "```json\n" + json.dumps(
-        value,
-        ensure_ascii=False,
-        indent=2,
-        sort_keys=True,
-        default=str,
-    ) + "\n```"
+    return (
+        "```json\n"
+        + json.dumps(
+            value,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+            default=str,
+        )
+        + "\n```"
+    )

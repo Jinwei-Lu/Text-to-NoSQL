@@ -1,0 +1,63 @@
+{
+ "source": "https://huggingface.co/datasets/mongodb-eai/natural-language-to-mongosh",
+ "source_file": "atlas_sample_data_benchmark.flat.csv",
+ "downloaded": "2026-08-12",
+ "note": "Fixed DIN-SQL exemplars. Same for every question; never retrieved per question. All from MongoDB's public Atlas sample databases; none from any TEND database.",
+ "tend_databases_excluded": [
+  "california_schools",
+  "card_games",
+  "codebase_community",
+  "debit_card_specializing",
+  "european_football_2",
+  "financial",
+  "formula_1",
+  "student_club",
+  "superhero",
+  "thrombosis_prediction",
+  "toxicology"
+ ],
+ "exemplars": {
+  "nested_complex": [
+   {
+    "db": "sample_restaurants",
+    "question": "Which are the top 10 Italian restaurants with a history of 'A' grades and scores below 10?",
+    "query": "db.restaurants.aggregate([\n  { $match: { cuisine: 'Italian' } },\n  { $unwind: '$grades' },\n  { $match: { 'grades.grade': 'A', 'grades.score': { $lt: 10 } } },\n  { $group: {\n      _id: '$name',\n      name: { $first: '$name' },\n      address: { $first: '$address' }\n  } },\n  { $sort: { name: 1 } },\n  { $limit: 10 },\n  { $project: { _id: 0, name: 1, address: 1 } }\n])",
+    "complexity": "moderate"
+   },
+   {
+    "db": "sample_supplies",
+    "question": "Which product categories had the highest sales in October 2017?",
+    "query": "db.sales.aggregate([{\"$match\": {\"saleDate\": {\"$gte\": new Date(\"2017-10-01T00:00:00.000Z\"), \"$lt\": new Date(\"2017-11-01T00:00:00.000Z\")}}}, {\"$unwind\": \"$items\"}, {\"$unwind\": \"$items.tags\"}, {\"$group\": {\"_id\": \"$items.tags\", \"totalQuantity\": {\"$sum\": \"$items.quantity\"}}}, {\"$sort\": {\"totalQuantity\": -1}}, {\"$project\": {\"category\": \"$_id\", \"totalQuantity\": 1, \"_id\": 0}}])",
+    "complexity": "moderate"
+   }
+  ],
+  "easy": [
+   {
+    "db": "sample_geospatial",
+    "question": "Can you show me the chart information and coordinates for the shipwreck reported in 1995?",
+    "query": "db.shipwrecks.find({\"history\": /reported 1995/}, {\"chart\": 1, \"coordinates\": 1, \"_id\": 0})",
+    "complexity": "simple"
+   },
+   {
+    "db": "sample_mflix",
+    "question": "Which are the top 10 movies with the highest IMDb votes?",
+    "query": "db.movies.find({}, {title: 1, 'imdb.votes': 1, _id: 0}).sort({'imdb.votes': -1}).limit(10)",
+    "complexity": "simple"
+   }
+  ],
+  "non_nested_complex": [
+   {
+    "db": "sample_guides",
+    "question": "Provide detailed profiles of planets that have both carbon dioxide and nitrogen in their atmosphere.",
+    "query": "db.planets.aggregate([\n  {\n    $match: {\n      mainAtmosphere: { $all: [\"CO2\", \"N\"] }\n    }\n  },\n  {\n    $project: {\n      _id: 0,\n      name: 1,\n      mainAtmosphere: 1,\n      surfaceTemperatureC: 1,\n      hasRings: 1\n    }\n  }\n])",
+    "complexity": "complex"
+   },
+   {
+    "db": "sample_mflix",
+    "question": "Can you provide the average duration of films in the Drama category?",
+    "query": "db.movies.aggregate([\n  {\n    $match: {\n      genres: \"Drama\"\n    }\n  },\n  {\n    $group: {\n      _id: null,\n      averageRuntime: { $avg: \"$runtime\" }\n    }\n  },\n  {\n    $project: {\n      _id: 0,\n      averageRuntime: 1\n    }\n  }\n])",
+    "complexity": "simple"
+   }
+  ]
+ }
+}

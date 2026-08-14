@@ -57,6 +57,14 @@ def _baseline_stub(agent: str) -> dict[str, Any]:
             ),
             "notes": "Relational sketch used only by the SQL pivot baseline.",
         }
+    if agent.endswith("_link"):
+        return {
+            "collections": ["account"],
+            "paths": ["account._id"],
+            "id_links": [],
+        }
+    if agent.endswith("_classify"):
+        return {"label": "easy", "sub_questions": []}
     if agent.endswith("_plan"):
         return {
             "target_collection": "account",

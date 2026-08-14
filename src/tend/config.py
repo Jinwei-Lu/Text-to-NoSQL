@@ -7,6 +7,7 @@ than reading ``os.environ`` directly, so runs are reproducible and testable.
 Provider is OpenAI-compatible (DeepSeek by default, per .env). Model can be overridden
 globally (``TEND_MODEL``) or per-agent (``AgentModels``).
 """
+
 from __future__ import annotations
 
 import os
@@ -140,13 +141,33 @@ class LLMSettings:
     api_key: str
     model: str
     temperature: float = 0.0
+    # Some reasoning endpoints reject ``temperature`` rather than ignoring it.
+    # Keep the historical default request unchanged and let an experiment runner
+    # explicitly omit the field for those models.
+    omit_temperature: bool = False
     max_tokens: int = 8192
+    # Omit the provider max-token field for every completion. This lets a campaign
+    # match the published reasoning-method request shape across direct and agentic arms.
+    omit_max_tokens: bool = False
+    # Rebuttal sensitivity runs can impose one explicit per-call output budget across
+    # methods even when a method historically requested ``omit_max_tokens=True``.
+    # Default False preserves the published/native method request shape.
+    force_max_tokens: bool = False
     timeout_s: float = 120.0
     # Provider/transport faults (rate-limit, timeout, connection, empty/truncated) are
     # retried forever when ``max_retries < 0`` (the default): the provider is the only
     # thing that can recover, so we wait it out at ``retry_interval_s`` rather than giving
     # up. ``max_retries >= 0`` caps the attempts (used by tests for fast, bounded failure).
     max_retries: int = -1
+    # A provider-native ``finish_reason=length`` is NOT a transient transport fault: at
+    # temperature 0 the identical request tends to reproduce it, and each occurrence has
+    # already burned the provider's full completion budget (observed: 65,536 reasoning-only
+    # tokens, zero content). Re-issuing it under ``max_retries`` turns recovery into a cost
+    # amplifier. Truncation therefore gets its OWN small budget, counted per logical call
+    # and never shared with the transport budget. Measured on a real 30-record shard:
+    # budget 0 -> 26/30 records keep a usable candidate; budget 1 -> 29/30 (same coverage
+    # as the old unbounded behaviour) at 44% of the spend. Hence the default of 1.
+    max_truncation_retries: int = 1
     # Fixed delay between provider-fault retries (seconds). Output-quality faults
     # (JSON parse / schema) use the separate bounded json-repair loop, not this.
     retry_interval_s: float = 5.0
@@ -165,6 +186,14 @@ class LLMSettings:
     slow_call_warn_s: float = 45.0
     reasoning_effort: str | None = None
     thinking: str | None = None
+    # Optional OpenRouter routing controls.  They are inert unless explicitly enabled
+    # by an experiment runner, so native OpenAI/DeepSeek clients retain their existing
+    # request shape.  Pinning a provider is important for repeatability studies: without
+    # it, router-level endpoint changes are confounded with model nondeterminism.
+    openrouter_provider_only: tuple[str, ...] = ()
+    openrouter_allow_fallbacks: bool = False
+    openrouter_require_parameters: bool = True
+    openrouter_metadata: bool = False
     # DynaDB-style per-call markdown transcripts are the default human log surface.
     # Set TEND_LLM_TRANSCRIPT_MD=0 only for diagnostics-JSON-only CI runs.
     write_markdown_transcripts: bool = True
@@ -178,12 +207,12 @@ class LLMSettings:
 @dataclass(frozen=True)
 class Paths:
     repo_root: Path
-    bird_root: Path           # minidev/MINIDEV
+    bird_root: Path  # minidev/MINIDEV
     proposals: Path
-    agent_prompts: Path       # proposals/agent_prompts
-    schemas: Path             # proposals/schemas
-    runs: Path                # runs/   (run-scoped output: logs, artifacts)
-    dataset_out: Path         # construction dataset output (mongodb_schema/, test.json, ...)
+    agent_prompts: Path  # proposals/agent_prompts
+    schemas: Path  # proposals/schemas
+    runs: Path  # runs/   (run-scoped output: logs, artifacts)
+    dataset_out: Path  # construction dataset output (mongodb_schema/, test.json, ...)
 
     def ensure(self) -> None:
         for p in (self.runs, self.dataset_out):
@@ -195,15 +224,15 @@ class Settings:
     llm: LLMSettings
     paths: Paths
     mongo_uri: str
-    mongo_db_prefix: str = "tend_"   # working dbs are <prefix><db_id>
+    mongo_db_prefix: str = "tend_"  # working dbs are <prefix><db_id>
     use_existing_mongo_dbs: bool = False
     # High-concurrency suite runs push hundreds of concurrent Mongo aggregations through
     # asyncio.to_thread; pymongo's default pool (100) and asyncio's default thread pool
     # (min(32, cpus+4)) both silently serialize them. Sized for --workers 440 suites.
     mongo_max_pool_size: int = 200
     to_thread_workers: int = 128
-    stub: bool = False               # offline: deterministic fake LLM, no live calls
-    quiet: bool = False              # suppress the live progress UI (CI / logs only)
+    stub: bool = False  # offline: deterministic fake LLM, no live calls
+    quiet: bool = False  # suppress the live progress UI (CI / logs only)
     seed: int = 0
     run_id: str = field(default_factory=new_run_id)
 
@@ -244,16 +273,20 @@ class Settings:
             api_key=api_key or "stub",
             model=_env(envmap, "TEND_MODEL", "deepseek-v4-flash") or "deepseek-v4-flash",
             temperature=_env_float(envmap, sources, "TEND_TEMPERATURE", "0.0"),
+            omit_temperature=_env_bool(envmap, sources, "TEND_OMIT_TEMPERATURE", "0"),
             # reasoning models (deepseek-v4-flash) spend completion tokens on hidden
             # reasoning before the answer, so the budget must cover reasoning + output
             max_tokens=_env_int(envmap, sources, "TEND_MAX_TOKENS", "16384"),
+            omit_max_tokens=_env_bool(envmap, sources, "TEND_OMIT_MAX_TOKENS", "0"),
+            force_max_tokens=_env_bool(envmap, sources, "TEND_FORCE_MAX_TOKENS", "0"),
             timeout_s=_env_float(envmap, sources, "TEND_TIMEOUT_S", "120"),
             # TEND_MAX_RETRIES < 0 (default) retries provider faults forever; >= 0 caps them.
             max_retries=_env_int(envmap, sources, "TEND_MAX_RETRIES", "-1"),
-            # TEND_LLM_RETRY_INTERVAL_S is the fixed wait between provider-fault retries.
-            retry_interval_s=_env_float(
-                envmap, sources, "TEND_LLM_RETRY_INTERVAL_S", "5"
+            max_truncation_retries=_env_int(
+                envmap, sources, "TEND_MAX_TRUNCATION_RETRIES", "1"
             ),
+            # TEND_LLM_RETRY_INTERVAL_S is the fixed wait between provider-fault retries.
+            retry_interval_s=_env_float(envmap, sources, "TEND_LLM_RETRY_INTERVAL_S", "5"),
             # TEND_LLM_STREAM toggles streaming; TEND_LLM_FIRST_TOKEN_TIMEOUT_S sets the
             # first-token (provider-health) deadline that, when missed, triggers a retry.
             stream=_env_bool(envmap, sources, "TEND_LLM_STREAM", "1"),
@@ -265,13 +298,22 @@ class Settings:
             max_concurrency=_env_int(envmap, sources, "TEND_LLM_MAX_CONCURRENCY", "0"),
             slow_call_warn_s=_env_float(envmap, sources, "TEND_LLM_SLOW_WARN_S", "45"),
             reasoning_effort=(
-                _env(envmap, "TEND_REASONING_EFFORT")
-                or _env(envmap, "TEND_LLM_REASONING_EFFORT")
+                _env(envmap, "TEND_REASONING_EFFORT") or _env(envmap, "TEND_LLM_REASONING_EFFORT")
             ),
             thinking=(_env(envmap, "TEND_THINKING") or _env(envmap, "TEND_LLM_THINKING")),
-            write_markdown_transcripts=_env_bool(
-                envmap, sources, "TEND_LLM_TRANSCRIPT_MD", "1"
+            openrouter_provider_only=tuple(
+                item.strip()
+                for item in (_env(envmap, "TEND_OPENROUTER_PROVIDER_ONLY") or "").split(",")
+                if item.strip()
             ),
+            openrouter_allow_fallbacks=_env_bool(
+                envmap, sources, "TEND_OPENROUTER_ALLOW_FALLBACKS", "0"
+            ),
+            openrouter_require_parameters=_env_bool(
+                envmap, sources, "TEND_OPENROUTER_REQUIRE_PARAMETERS", "1"
+            ),
+            openrouter_metadata=_env_bool(envmap, sources, "TEND_OPENROUTER_METADATA", "0"),
+            write_markdown_transcripts=_env_bool(envmap, sources, "TEND_LLM_TRANSCRIPT_MD", "1"),
         )
         paths = Paths(
             repo_root=root,
@@ -280,21 +322,14 @@ class Settings:
             agent_prompts=root / "proposals" / "agent_prompts",
             schemas=root / "proposals" / "schemas",
             runs=root / "runs",
-            dataset_out=root / (
-                _env(envmap, "TEND_DATASET_OUT")
-                or f"runs/{run_id}/dataset"
-            ),
+            dataset_out=root / (_env(envmap, "TEND_DATASET_OUT") or f"runs/{run_id}/dataset"),
         )
         return cls(
             llm=llm,
             paths=paths,
             mongo_uri=_env(envmap, "TEND_MONGO_URI", "mongodb://localhost:27017") or "",
-            use_existing_mongo_dbs=_env_bool(
-                envmap, sources, "TEND_USE_EXISTING_MONGO_DBS", "0"
-            ),
-            mongo_max_pool_size=_env_int(
-                envmap, sources, "TEND_MONGO_MAX_POOL_SIZE", "200"
-            ),
+            use_existing_mongo_dbs=_env_bool(envmap, sources, "TEND_USE_EXISTING_MONGO_DBS", "0"),
+            mongo_max_pool_size=_env_int(envmap, sources, "TEND_MONGO_MAX_POOL_SIZE", "200"),
             to_thread_workers=_env_int(envmap, sources, "TEND_TO_THREAD_WORKERS", "128"),
             stub=stub,
             quiet=_env_bool(envmap, sources, "TEND_QUIET", "0"),

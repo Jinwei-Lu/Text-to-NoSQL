@@ -2,11 +2,14 @@ from __future__ import annotations
 
 # ruff: noqa: F403,F405
 
+import os
+
 from tend.utils.logging._config import *
 
 from tend.utils.logging._paths import *
 from tend.utils.logging._stage_logger import StageLogger
 from tend.utils.logging._task_logger import TaskLogger
+
 
 def _create_file_logger(
     name: str, path: Path, level: int = logging.DEBUG
@@ -25,6 +28,7 @@ def _create_file_logger(
     stdlib_logger.addHandler(handler)
 
     return structlog.get_logger(name)
+
 
 class _ErrorTeeFilter(logging.Filter):
     """Tee every ``tend.*`` ERROR+ record into the run ``errors.jsonl``.
@@ -53,6 +57,7 @@ class _ErrorTeeFilter(logging.Filter):
                 # the underlying logging call it is attached to.
                 pass
         return True
+
 
 class LogManager:
     """Manages per-run log directory tree and provides isolated loggers.
@@ -85,6 +90,19 @@ class LogManager:
         self._run_log_path = self.root / "run.log"
         self._cost_path = self.root / "cost_summary.jsonl"
         self._errors_path = self.root / "errors.jsonl"
+        # ``errors.jsonl`` is part of the run artifact contract even for a
+        # clean run.  Create it before any work starts so a verifier never has
+        # to infer that a missing file means zero errors.  ``O_APPEND`` keeps
+        # this compatible with the two serialized append paths below.
+        errors_fd = os.open(
+            self._errors_path,
+            os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+            0o600,
+        )
+        try:
+            os.fsync(errors_fd)
+        finally:
+            os.close(errors_fd)
         self._summary_path = self.root / "run_summary.json"
         self._error_count = 0
         self._error_lock = threading.Lock()
@@ -100,9 +118,7 @@ class LogManager:
         self._root_handler: logging.FileHandler | None = root_handler
         root_handler.setLevel(logging.WARNING)
         root_handler.setFormatter(_get_json_formatter())
-        root_handler.addFilter(
-            _RunContextFilter(run_id=self.run_id, command=self.command)
-        )
+        root_handler.addFilter(_RunContextFilter(run_id=self.run_id, command=self.command))
         root.addHandler(root_handler)
 
         # Milestones stream: a dedicated INFO-level sink that captures every
@@ -128,9 +144,7 @@ class LogManager:
         milestones_handler.setLevel(logging.INFO)
         milestones_handler.setFormatter(_get_json_formatter())
         milestones_handler.addFilter(_NamePrefixFilter("tend."))
-        milestones_handler.addFilter(
-            _RunContextFilter(run_id=self.run_id, command=self.command)
-        )
+        milestones_handler.addFilter(_RunContextFilter(run_id=self.run_id, command=self.command))
         # Tee ERROR+ records into errors.jsonl so it is the universal error
         # index, not just the subset that flows through log_exception_event.
         # Registered last so the run-context filter has already stamped the
@@ -201,13 +215,9 @@ class LogManager:
             log_path=log_path,
         )
 
-    def get_nested_task_logger(
-        self, stage: str, parent_id: str, task_id: str
-    ) -> TaskLogger:
+    def get_nested_task_logger(self, stage: str, parent_id: str, task_id: str) -> TaskLogger:
         """Logger for double-nested parallelism (e.g. instance/{id}/step_b/{model})."""
-        parent_parts = [
-            safe_dirname(p) for p in re.split(r"[\\/]+", parent_id) if p
-        ] or ["_"]
+        parent_parts = [safe_dirname(p) for p in re.split(r"[\\/]+", parent_id) if p] or ["_"]
         task_dir = self.root.joinpath(stage, *parent_parts)
         task_dir.mkdir(parents=True, exist_ok=True)
 

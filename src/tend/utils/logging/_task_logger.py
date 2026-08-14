@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+from uuid import uuid4
 
 import structlog
 
@@ -25,6 +28,23 @@ from tend.utils.logging._paths import _generate_call_id, _open_path
 
 if TYPE_CHECKING:
     from tend.utils.logging._log_manager import LogManager
+
+
+_RESPONSE_ANOMALY_SCHEMA = "tend.provider_response_anomaly.v1"
+_RESPONSE_ANOMALY_PREVIEW_CHARS = 1024
+_RESPONSE_SECRET_PATTERNS = (
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}"),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b"),
+    re.compile(
+        r"(?i)([\"']?(?:api[_-]?key|access[_-]?token|auth(?:orization)?|cookie|"
+        r"password|passwd|secret)[\"']?\s*[:=]\s*)([\"'])([^\"'\r\n]*)([\"'])"
+    ),
+    re.compile(
+        r"(?i)(\b(?:api[_-]?key|access[_-]?token|auth(?:orization)?|cookie|"
+        r"password|passwd|secret)\b\s*[:=]\s*)([^\s,;}\]]+)"
+    ),
+    re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)([^/@\s:]+):([^/@\s]+)@"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +75,67 @@ class ContextSnapshotLogPayload:
     pinned_facts: str = ""
     tail_messages: list[dict[str, Any]] | None = None
     compaction_path: str = "normal"
+
+
+def _redact_response_preview(text: str) -> str:
+    """Redact credential-shaped values from a bounded response excerpt."""
+
+    redacted = _RESPONSE_SECRET_PATTERNS[0].sub("Bearer [REDACTED]", text)
+    redacted = _RESPONSE_SECRET_PATTERNS[1].sub("[REDACTED]", redacted)
+    redacted = _RESPONSE_SECRET_PATTERNS[2].sub(
+        lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]{match.group(4)}",
+        redacted,
+    )
+    redacted = _RESPONSE_SECRET_PATTERNS[3].sub(
+        lambda match: f"{match.group(1)}[REDACTED]",
+        redacted,
+    )
+    return _RESPONSE_SECRET_PATTERNS[4].sub(
+        lambda match: f"{match.group(1)}[REDACTED]@",
+        redacted,
+    )
+
+
+def _safe_response_evidence_component(value: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._") or "_"
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    return f"{safe[:80]}-{digest}"
+
+
+def _atomic_private_json_write(path: Path, payload: dict[str, Any]) -> str:
+    """Atomically write canonical JSON with owner-only file permissions."""
+
+    encoded = (
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        + "\n"
+    ).encode("utf-8")
+    temporary = path.parent / f".{path.name}.{uuid4().hex}.tmp"
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            _open_path(temporary),
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = None
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(_open_path(temporary), _open_path(path))
+        os.chmod(_open_path(path), 0o600)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if temporary.exists():
+            temporary.unlink()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 class TaskLogger:
@@ -344,15 +425,12 @@ class TaskLogger:
         reduction = (
             0.0
             if payload.old_token_estimate <= 0
-            else (
-                payload.old_token_estimate - payload.new_token_estimate
-            )
+            else (payload.old_token_estimate - payload.new_token_estimate)
             / payload.old_token_estimate
             * 100
         )
         lines: list[str] = [
-            "## Context Compaction "
-            f"#{payload.compact_count} (during Turn {payload.turn})",
+            f"## Context Compaction #{payload.compact_count} (during Turn {payload.turn})",
             "",
             "| Metric | Value |",
             "|--------|-------|",
@@ -362,8 +440,7 @@ class TaskLogger:
             "| Messages | "
             f"{payload.old_message_count} -> {payload.new_message_count} "
             f"(removed {removed}) |",
-            "| Est. Tokens | "
-            f"{payload.old_token_estimate} -> {payload.new_token_estimate} |",
+            f"| Est. Tokens | {payload.old_token_estimate} -> {payload.new_token_estimate} |",
             f"| Reduction % | {reduction:.1f}% |",
         ]
         if payload.preserved_token_estimate is not None:
@@ -576,15 +653,15 @@ class TaskLogger:
                 status = f"abandoned ({reason})" if reason else "abandoned"
             elif outcome in ("submitted", "submitted_clean", "submitted_with_warnings"):
                 status = outcome
+            elif outcome in ("budget_exhausted", "error"):
+                status = outcome
             elif outcome.startswith("rejected_") or outcome.startswith("aborted_"):
                 status = f"{outcome} ({reason})" if reason else outcome
             else:
                 status = f"interrupted ({reason})" if reason else "interrupted"
         else:
             status = "completed" if completed else f"interrupted ({reason})"
-        resolved_cost = (
-            total_cost if total_cost is not None else self._agent_session_cost
-        )
+        resolved_cost = total_cost if total_cost is not None else self._agent_session_cost
         if total_cost_source is None:
             seen: set[str] = getattr(self, "_agent_session_cost_sources", set())
             if "api" in seen:
@@ -646,12 +723,8 @@ class TaskLogger:
     def _render_postmortem_md(pm: dict[str, Any]) -> str:
         evidence = pm.get("evidence") or []
         attempts = pm.get("attempted_approaches") or []
-        evidence_md = (
-            "\n".join(f"  - {e}" for e in evidence) if evidence else "  - (none)"
-        )
-        attempts_md = (
-            "\n".join(f"  - {a}" for a in attempts) if attempts else "  - (none)"
-        )
+        evidence_md = "\n".join(f"  - {e}" for e in evidence) if evidence else "  - (none)"
+        attempts_md = "\n".join(f"  - {a}" for a in attempts) if attempts else "  - (none)"
         confidence = pm.get("confidence", 0.0)
         try:
             confidence_str = f"{float(confidence):.2f}"
@@ -901,29 +974,49 @@ class TaskLogger:
         finish_reason: str,
         cost_usd: float,
         cost_source: str | None = None,
+        append_cost_record: bool = True,
     ) -> None:
         """Append response to ``llm/{call_id}.md``.
 
         During agent sessions, only records cost to ``cost_summary.jsonl``.
+
+        ``append_cost_record=False`` is used by the LLM client's logical-call
+        footer after every provider request has already been written as a
+        ``provider_attempt`` row.  Keeping the human-readable response/footer
+        separate from the billing ledger prevents the final response from being
+        charged twice.
         """
         timestamp = datetime.now(timezone.utc).isoformat()
         raw = response_raw if isinstance(response_raw, dict) else {}
 
-        self._manager.append_cost_record(
-            {
-                "call_id": call_id,
-                "timestamp": timestamp,
-                "model": raw.get("model", "unknown"),
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-                "cache_hit_tokens": usage.get("cache_hit_tokens", 0),
-                "cache_miss_tokens": usage.get("cache_miss_tokens", 0),
-                "cost_usd": cost_usd,
-                "cost_source": cost_source or "api",
-                "stage": self.stage,
-                "task_id": self.task_id,
-            }
-        )
+        if append_cost_record:
+            self._manager.append_cost_record(
+                {
+                    "call_id": call_id,
+                    "timestamp": timestamp,
+                    "model": raw.get("model", "unknown"),
+                    "prompt_tokens": usage.get("prompt_tokens", 0),
+                    "completion_tokens": usage.get("completion_tokens", 0),
+                    "cache_hit_tokens": usage.get("cache_hit_tokens", 0),
+                    "cache_miss_tokens": usage.get("cache_miss_tokens", 0),
+                    "cost_usd": cost_usd,
+                    "cost_source": cost_source or "api",
+                    "stage": self.stage,
+                    "task_id": self.task_id,
+                    "call_status": raw.get("call_status", "unknown"),
+                    "attempt_count": raw.get("attempt_count"),
+                    "error": raw.get("error"),
+                    # This is the durable per-call routing receipt for OpenRouter runs.
+                    # Agent-session calls intentionally do not write a separate response
+                    # markdown file, so cost_summary.jsonl must retain the selected
+                    # provider, model revision, router attempt count, and generation id.
+                    "provider_metadata": raw.get("provider_metadata"),
+                    # Preserve the effective wire-level request budget/configuration. This
+                    # distinguishes method-native omitted max_tokens from a campaign-enforced
+                    # common cap without reconstructing it from source after the fact.
+                    "request_config": raw.get("request_config"),
+                }
+            )
 
         if self._agent_session_active:
             self._log.debug(
@@ -951,4 +1044,158 @@ class TaskLogger:
             call_id=call_id,
             cost_usd=cost_usd,
             tokens=usage,
+        )
+
+    def write_llm_response_anomaly_evidence(
+        self,
+        call_id: str,
+        *,
+        provider_attempt_index: int,
+        transport_attempt: int,
+        repair_index: int,
+        response_text: str,
+        call_status: str,
+        failure_phase: str,
+        anomaly: str | None,
+        error_type: str | None,
+        finish_reason: str | None,
+    ) -> dict[str, Any]:
+        """Persist bounded evidence for a received response that was rejected.
+
+        The complete response is never copied into this artifact.  Its exact
+        UTF-8 digest and sizes make later byte-for-byte comparison possible,
+        while the only human-readable material is an owner-readable, bounded,
+        credential-redacted head/tail excerpt.
+        """
+
+        response_bytes = response_text.encode("utf-8")
+        response_chars = len(response_text)
+        limit = _RESPONSE_ANOMALY_PREVIEW_CHARS
+        if response_chars <= limit:
+            raw_head = response_text
+            raw_tail = ""
+        elif response_chars <= limit * 2:
+            raw_head = response_text[:limit]
+            raw_tail = response_text[limit:]
+        else:
+            raw_head = response_text[:limit]
+            raw_tail = response_text[-limit:]
+        head = _redact_response_preview(raw_head)[:limit]
+        tail = _redact_response_preview(raw_tail)[-limit:]
+
+        evidence_dir = self._llm_dir / "provider_response_anomalies"
+        manager_root = self._manager.root.resolve()
+        llm_root = self._llm_dir.resolve()
+        if not llm_root.is_relative_to(manager_root):
+            raise ValueError("LLM evidence directory escapes the run root")
+        if evidence_dir.exists() and not evidence_dir.resolve().is_relative_to(manager_root):
+            raise ValueError("provider response evidence directory escapes the run root")
+        evidence_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(_open_path(evidence_dir), 0o700)
+
+        safe_call_id = _safe_response_evidence_component(call_id)
+        path = evidence_dir / (
+            f"{safe_call_id}.provider-attempt-{int(provider_attempt_index):04d}.json"
+        )
+        payload = {
+            "schema": _RESPONSE_ANOMALY_SCHEMA,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "call_id": call_id,
+            "provider_attempt_index": int(provider_attempt_index),
+            "transport_attempt": int(transport_attempt),
+            "repair_index": int(repair_index),
+            "call_status": call_status,
+            "failure_phase": failure_phase,
+            "anomaly": anomaly,
+            "error_type": error_type,
+            "finish_reason": finish_reason,
+            "response_encoding": "utf-8",
+            "response_utf8_sha256": hashlib.sha256(response_bytes).hexdigest(),
+            "response_utf8_bytes": len(response_bytes),
+            "response_chars": response_chars,
+            "preview_limit_chars_per_edge": limit,
+            "preview_middle_omitted": response_chars > limit * 2,
+            "preview_redaction": "credential-patterns-v1",
+            "preview_redaction_applied": head != raw_head or tail != raw_tail,
+            "response_head": head,
+            "response_tail": tail,
+        }
+        sidecar_sha256 = _atomic_private_json_write(path, payload)
+        return {
+            "schema": _RESPONSE_ANOMALY_SCHEMA,
+            "path": path.relative_to(self._manager.root).as_posix(),
+            "sidecar_sha256": sidecar_sha256,
+            "response_utf8_sha256": payload["response_utf8_sha256"],
+            "response_utf8_bytes": payload["response_utf8_bytes"],
+            "response_chars": payload["response_chars"],
+        }
+
+    def log_llm_attempt(
+        self,
+        call_id: str,
+        *,
+        agent: str,
+        model: str,
+        provider_attempt_index: int,
+        transport_attempt: int,
+        repair_index: int,
+        call_status: str,
+        response_received: bool,
+        usage: dict[str, Any] | None,
+        finish_reason: str | None,
+        cost_usd: float | None,
+        cost_source: str,
+        provider_metadata: dict[str, Any] | None,
+        request_config: dict[str, Any],
+        retry_kind: str | None = None,
+        anomaly: str | None = None,
+        error: dict[str, Any] | None = None,
+        response_anomaly_evidence: dict[str, Any] | None = None,
+    ) -> None:
+        """Durably append one provider-request attempt to the campaign ledger.
+
+        There is exactly one row per request issued by :meth:`LLMClient.complete`.
+        A response-less transport failure is still a row, with ``cost_usd=None``
+        and ``cost_source='unknown'``; zero would incorrectly assert that the
+        provider did not bill it.  Rows are flushed by ``append_cost_record`` as
+        soon as an attempt settles, before retry sleeps or logical-call cleanup.
+        """
+
+        resolved_usage = usage if isinstance(usage, dict) else {}
+        self._manager.append_cost_record(
+            {
+                "record_type": "provider_attempt",
+                "call_id": call_id,
+                "agent": agent,
+                "provider_attempt_index": int(provider_attempt_index),
+                "transport_attempt": int(transport_attempt),
+                "repair_index": int(repair_index),
+                "request_kind": "initial" if repair_index == 0 else "json_repair",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "model": model,
+                "prompt_tokens": resolved_usage.get("prompt_tokens", 0),
+                "completion_tokens": resolved_usage.get("completion_tokens", 0),
+                "total_tokens": resolved_usage.get(
+                    "total_tokens",
+                    int(resolved_usage.get("prompt_tokens", 0) or 0)
+                    + int(resolved_usage.get("completion_tokens", 0) or 0),
+                ),
+                "cache_hit_tokens": resolved_usage.get("cache_hit_tokens", 0),
+                "cache_miss_tokens": resolved_usage.get("cache_miss_tokens", 0),
+                "cost_usd": cost_usd,
+                "cost_source": cost_source,
+                "stage": self.stage,
+                "task_id": self.task_id,
+                "call_status": call_status,
+                "response_received": bool(response_received),
+                "finish_reason": finish_reason,
+                "retry_kind": retry_kind,
+                "anomaly": anomaly,
+                "error": error,
+                "response_anomaly_evidence": response_anomaly_evidence,
+                "provider_metadata": provider_metadata,
+                "request_config": request_config,
+                "campaign_profile_name": os.environ.get("TEND_CAMPAIGN_PROFILE_NAME"),
+                "campaign_profile_sha256": os.environ.get("TEND_CAMPAIGN_PROFILE_SHA256"),
+            }
         )

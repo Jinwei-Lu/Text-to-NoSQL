@@ -18,6 +18,7 @@ record is ONE agent session in a :class:`TaskLogger` under
 ``<stage>/<db_id>/<record_id>`` — every decode/repair round is one agent turn, and
 anomalies land in ``errors.jsonl`` via ``LogManager.log_exception_event``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -150,6 +151,9 @@ class SAGPrediction:
     empty_final: bool
     exec_status: str  # "ok" | "skipped" (offline world)
     disclosure: dict[str, Any]
+    requested_k: int = 0
+    usable_k: int = 0
+    candidate_statuses: list[dict[str, Any]] = field(default_factory=list)
     agent_session_ref: str = ""
     result_type: str = "solver_prediction"
 
@@ -169,6 +173,10 @@ class SAGFailure:
     rounds: int = 0
     samples: int = 0
     disclosure: dict[str, Any] = field(default_factory=dict)
+    requested_k: int = 0
+    usable_k: int = 0
+    candidate_statuses: list[dict[str, Any]] = field(default_factory=list)
+    cluster_size: int = 0
     agent_session_ref: str = ""
     result_type: str = "solver_failure"
 
@@ -194,6 +202,14 @@ class AttemptOutcome:
     error_code: str | None = None
     error_message: str | None = None
     feedback_log: list[list[str]] = field(default_factory=list)
+
+
+@dataclass
+class AttemptBranch:
+    """One requested SAG consistency branch plus its auditable terminal state."""
+
+    outcome: AttemptOutcome | None
+    status: dict[str, Any]
 
 
 def select_best(cands: list[Candidate]) -> Candidate:
@@ -227,9 +243,7 @@ def cluster_attempts(outs: list[AttemptOutcome]) -> tuple[AttemptOutcome, int]:
         )
     )
     members = clusters[0]
-    best_i = min(
-        members, key=lambda i: (outs[i].candidate.violations, outs[i].candidate.empty, i)
-    )
+    best_i = min(members, key=lambda i: (outs[i].candidate.violations, outs[i].candidate.empty, i))
     return outs[best_i], len(members)
 
 
@@ -271,9 +285,7 @@ def log_sag_anomaly(
     if log_mgr is None:
         return
     extra = {
-        k: v
-        for k, v in getattr(exc, "context", {}).items()
-        if k not in _RESERVED_EXCEPTION_KW
+        k: v for k, v in getattr(exc, "context", {}).items() if k not in _RESERVED_EXCEPTION_KW
     }
     anomaly = getattr(exc, "anomaly", None)
     log_mgr.log_exception_event(
@@ -345,14 +357,25 @@ class GroundingIndexCache:
         self._entries: dict[
             tuple[str, int, int, str], tuple[GroundingIndex, ProbeCache, WorldAccess]
         ] = {}
-        self._locks: dict[tuple[str, int, int, str], asyncio.Lock] = {}
+        self._locks: dict[tuple, asyncio.Lock] = {}
         self._locks_guard = asyncio.Lock()
 
     @staticmethod
-    def _key(db_id: str, policy: SAGPolicy) -> tuple[str, int, int, str]:
-        return (db_id, policy.sample_docs, policy.card_cap, policy.card_mode)
+    def _key(db_id: str, policy: SAGPolicy) -> tuple[str, int, int, str, bool, bool]:
+        # induction-affecting process flags belong in the key: without them an
+        # in-process run that toggles either flag would serve a stale card.
+        from tend.solver.sag import induction as _ind, world as _wld
 
-    async def _lock_for(self, key: tuple[str, int, int, str]) -> asyncio.Lock:
+        return (
+            db_id,
+            policy.sample_docs,
+            policy.card_cap,
+            policy.card_mode,
+            bool(getattr(_ind, "KEYS_V2", False)),
+            bool(getattr(_wld, "SPREAD_SAMPLE", False)),
+        )
+
+    async def _lock_for(self, key: tuple) -> asyncio.Lock:
         async with self._locks_guard:
             return self._locks.setdefault(key, asyncio.Lock())
 
@@ -427,7 +450,7 @@ async def _run_attempt(
     attempt: int,
     task_log: TaskLogger | None = None,
     session: _SessionState | None = None,
-) -> AttemptOutcome | None:
+) -> AttemptBranch:
     msgs: list[dict[str, Any]] = [
         {"role": "system", "content": sys_text},
         {"role": "user", "content": user_text},
@@ -436,6 +459,7 @@ async def _run_attempt(
     cands: list[Candidate] = []
     feedback_log: list[list[str]] = []
     rounds = 0
+    terminal_error: LLMError | None = None
     max_rounds = policy.max_repair_rounds if (policy.use_repair and world.can_execute) else 1
     for rounds in range(1, max_rounds + 1):
         try:
@@ -447,8 +471,9 @@ async def _run_attempt(
                 omit_max_tokens=True,
                 task_logger=task_log,
             )
-        except LLMError:
+        except LLMError as err:
             # already logged as an anomaly by the LLM client
+            terminal_error = err
             break
         coll = str(res.data["collection"])
         pipe = list(res.data["pipeline"])
@@ -560,8 +585,38 @@ async def _run_attempt(
                 + "\nReturn corrected JSON (same task).",
             },
         ]
+    terminal_anomaly = (
+        terminal_error.anomaly.value
+        if terminal_error is not None and terminal_error.anomaly is not None
+        else None
+    )
+    terminal_context = terminal_error.context if terminal_error is not None else {}
+    branch_status: dict[str, Any] = {
+        "candidate_index": attempt,
+        "agent": agent,
+        "status": (
+            "failed"
+            if not cands
+            else ("usable_after_terminal_error" if terminal_error is not None else "usable")
+        ),
+        "usable": bool(cands),
+        "rounds_completed": len(cands),
+        "terminal_call_id": (
+            str(terminal_context.get("call_id"))
+            if terminal_context.get("call_id") is not None
+            else None
+        ),
+        "terminal_error_type": type(terminal_error).__name__ if terminal_error else None,
+        "terminal_anomaly": terminal_anomaly,
+        "failure_kind": (
+            "structured_output"
+            if terminal_anomaly
+            in {"parse_error", "schema_invalid", "refusal", "contract_violation"}
+            else ("provider_or_llm" if terminal_error is not None else None)
+        ),
+    }
     if not cands:
-        return None
+        return AttemptBranch(outcome=None, status=branch_status)
     best = select_best(cands)
     exec_status, result = "skipped", None
     error_code: str | None = None
@@ -586,14 +641,24 @@ async def _run_attempt(
                 exec_status = "error"
                 error_code = "PRED_EXEC_ERROR"
                 error_message = str(exc.context.get("error") or exc.message)[:300]
-    return AttemptOutcome(
-        candidate=best,
-        rounds=rounds,
-        result=result,
-        exec_status=exec_status,
-        error_code=error_code,
-        error_message=error_message,
-        feedback_log=feedback_log,
+    branch_status.update(
+        {
+            "status": "usable_after_terminal_error" if terminal_error else "usable",
+            "exec_status": exec_status,
+            "candidate_round": best.round,
+        }
+    )
+    return AttemptBranch(
+        outcome=AttemptOutcome(
+            candidate=best,
+            rounds=rounds,
+            result=result,
+            exec_status=exec_status,
+            error_code=error_code,
+            error_message=error_message,
+            feedback_log=feedback_log,
+        ),
+        status=branch_status,
     )
 
 
@@ -665,9 +730,7 @@ async def sag_solve_nlq_db(
             )
     except ExecutionError as err:
         if not err.logged:
-            log_sag_anomaly(
-                log_mgr, "sag_index_build_failed", err, stage=stage, task_id=task_id
-            )
+            log_sag_anomaly(log_mgr, "sag_index_build_failed", err, stage=stage, task_id=task_id)
         return SAGFailure(
             db_id=db_id,
             record_id=record_id,
@@ -713,8 +776,30 @@ async def sag_solve_nlq_db(
             for i in range(k)
         ]
     )
-    outs = [o for o in outs_raw if o is not None]
+    outs = [branch.outcome for branch in outs_raw if branch.outcome is not None]
+    candidate_statuses = [branch.status for branch in outs_raw]
+    # Per-candidate final queries and result digests, LOGGING ONLY: never read back by the
+    # solver, never shown to the model. Without this the candidate pool cannot be
+    # reconstructed offline (only the selected candidate's session is transcribed), which
+    # blocked every offline evaluation of the selection rule during the 2026-08 diagnosis.
+    candidate_pool = [
+        {
+            "attempt": i,
+            "round": o.candidate.round,
+            "violations": o.candidate.violations,
+            "empty": o.candidate.empty,
+            "collection": o.candidate.collection,
+            "MQL": f"db.{o.candidate.collection}.aggregate("
+            + json.dumps(o.candidate.pipeline, default=str)
+            + ")",
+            "exec_status": o.exec_status,
+            "result_rows": len(o.result) if o.result is not None else None,
+            "result_digest": json.dumps((o.result or [])[:5], default=str)[:2000],
+        }
+        for i, o in enumerate(outs)
+    ]
     disclosure = _disclosure(policy, index, len(enforce))
+    disclosure["candidate_pool"] = candidate_pool
 
     if not outs:
         best, cluster_size = None, 0
@@ -722,6 +807,15 @@ async def sag_solve_nlq_db(
         best, cluster_size = outs[0], 1
     else:
         best, cluster_size = cluster_attempts(outs)
+
+    disclosure.update(
+        {
+            "requested_k": k,
+            "usable_k": len(outs),
+            "candidate_statuses": candidate_statuses,
+            "cluster_size": cluster_size,
+        }
+    )
 
     outcome, completed = _session_outcome(outs, best)
     if task_log is not None:
@@ -748,6 +842,10 @@ async def sag_solve_nlq_db(
             solver_variant=policy.solver_variant,
             samples=0,
             disclosure=disclosure,
+            requested_k=k,
+            usable_k=0,
+            candidate_statuses=candidate_statuses,
+            cluster_size=0,
             agent_session_ref=session_ref,
         )
     mql = render_mql(best.candidate.collection, best.candidate.pipeline)
@@ -763,6 +861,10 @@ async def sag_solve_nlq_db(
             rounds=best.rounds,
             samples=len(outs),
             disclosure=disclosure,
+            requested_k=k,
+            usable_k=len(outs),
+            candidate_statuses=candidate_statuses,
+            cluster_size=cluster_size,
             agent_session_ref=session_ref,
         )
     prediction = SAGPrediction(
@@ -780,6 +882,9 @@ async def sag_solve_nlq_db(
         empty_final=bool(best.candidate.empty),
         exec_status=best.exec_status,
         disclosure=disclosure,
+        requested_k=k,
+        usable_k=len(outs),
+        candidate_statuses=candidate_statuses,
         agent_session_ref=session_ref,
     )
     lifecycle(
@@ -846,8 +951,17 @@ async def sag_solve_record(
 # internals
 # --------------------------------------------------------------------------- #
 def _disclosure(policy: SAGPolicy, index: GroundingIndex | None, witnessed: int) -> dict[str, Any]:
+    # the induction flags are read at MODULE IMPORT, so a paired comparison whose two arms
+    # share one process silently runs one configuration twice. Recording the resolved values
+    # here makes every prediction row carry its own witness — the audit's requirement after
+    # exactly that defect family produced a contaminated experiment.
+    from . import induction as _induction
+    from . import world as _world
+
     out: dict[str, Any] = {
         "uses_gold_mql": False,
+        "induction_keys_v2": bool(getattr(_induction, "KEYS_V2", False)),
+        "world_spread_sample": bool(getattr(_world, "SPREAD_SAMPLE", False)),
         "arm": policy.arm,
         "solver_variant": policy.solver_variant,
         "k_consistency": policy.effective_k,

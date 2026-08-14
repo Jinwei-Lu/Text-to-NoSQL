@@ -115,6 +115,9 @@ class BaselinePromptContext:
     witness_digest: JsonMap
     schema_summary: JsonMap
     nlq: str
+    # When true the baseline prompt carries the same six output conventions SAG's does.
+    # Default False keeps every frozen baseline artifact byte-reproducible.
+    output_contract: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,7 +227,36 @@ def resolve_baselines(selection: str | list[str] | tuple[str, ...] | None) -> li
     return specs
 
 
-def _system(title: str, constraints: str) -> str:
+# The six output conventions SAG's system prompt states, copied VERBATIM from
+# `tend.solver.sag.prompt.system_prompt` (the `Rules:` sentence). The baseline prompts
+# state none of them, and no disclosure field records that asymmetry -- so part of any
+# measured SAG margin is instruction asymmetry rather than mechanism. None of the six
+# belongs to a SAG mechanism claim; they are task conventions, and a baseline that is not
+# told them is being compared unfairly.
+#
+# Identifying the affected records post hoc is not a substitute: only two of the six
+# (boolean indicators, verbatim values) leave a detectable trace in the result, so an
+# exclusion-based correction systematically undercounts. The honest correction is to give
+# the baseline the same instructions and re-measure, which is what this enables.
+#
+# Kept behind an env flag so the DEFAULT prompt is byte-identical to the one that produced
+# every frozen baseline artifact -- those runs must stay reproducible. Only the fair arm
+# opts in, and the prediction rows record which contract was used.
+#
+# SAG's trailing presence-wrapped-field sentence is deliberately NOT copied: it is derived
+# from SAG's induced index and describes structure the baseline is not given.
+_OUTPUT_CONTRACT = (
+    "Rules: keep the `_id` KEY out of the output rows unless asked; honor 'top/first/up to "
+    "N' as $limit N; follow the exact projection fields, sort keys and tie-break order "
+    "stated in the question; string matches are EXACT and case-sensitive — copy stored "
+    "values verbatim. Output stored values AS-IS: never translate or re-label them unless "
+    "the question explicitly defines a label mapping (then use the question's exact label "
+    "strings); when the question asks 'whether ...' or for an indicator, output a boolean."
+)
+
+
+def _system(ctx: "BaselinePromptContext", title: str, constraints: str) -> str:
+    contract = f"{_OUTPUT_CONTRACT}\n" if getattr(ctx, "output_contract", False) else ""
     return (
         f"# {title}\n"
         "You are a baseline Text-to-NoSQL solver. Produce MongoDB aggregation syntax.\n"
@@ -233,6 +265,7 @@ def _system(title: str, constraints: str) -> str:
         "document shape, dynamic-key maps, polymorphic variants, and value domains from "
         "those samples alone. Never use hidden gold queries or evaluation output.\n"
         f"{constraints}\n"
+        f"{contract}"
         "Return only the requested JSON object."
     )
 
@@ -321,6 +354,7 @@ def _mql_user(
 def _direct_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
     return [
         {"role": "system", "content": _system(
+            ctx,
             "Direct NL-to-MQL baseline",
             "Make a one-shot translation from a small sample of documents. Do not "
             "explicitly reason through shape variants.",
@@ -408,6 +442,7 @@ def _schema_direct_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[
 def _data_rich_direct_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
     return [
         {"role": "system", "content": _system(
+            ctx,
             "Data-rich direct baseline",
             "You are given a larger sample of documents than the direct baseline, but "
             "still no schema and no tools, examples, or execution feedback. Infer the "
@@ -427,8 +462,228 @@ def _sql_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
     )
     return [
         {"role": "system", "content": _system(
+            ctx,
             "SQL pivot baseline step 1",
             "Prefer straightforward relational SQL even when it loses document-shape nuance.",
+        )},
+        {"role": "user", "content": body},
+    ]
+
+
+LINK_SCHEMA: JsonMap = {
+    "type": "object",
+    "required": ["collections", "paths"],
+    "properties": {
+        "collections": {"type": "array", "items": {"type": "string"}},
+        "paths": {"type": "array", "items": {"type": "string"}},
+        "id_links": {"type": "array", "items": {"type": "string"}},
+    },
+    "additionalProperties": False,
+}
+
+CLASSIFY_SCHEMA: JsonMap = {
+    "type": "object",
+    "required": ["label", "sub_questions"],
+    "properties": {
+        "label": {"type": "string", "enum": ["easy", "non_nested_complex", "nested_complex"]},
+        "sub_questions": {"type": "array", "items": {"type": "string"}},
+    },
+    "additionalProperties": False,
+}
+
+# DIN-SQL (Pourreza & Rafiei, NeurIPS 2023) exemplars, ported to MQL. The originals are
+# hand-written Spider SQL; ours are FIXED, identical for every question, and drawn only
+# from MongoDB's public Atlas sample databases -- never from a TEND database, question or
+# reference answer. Nothing here is retrieved per question: this arm is not RAG.
+_DINSQL_EXEMPLARS: dict | None = None
+
+
+def _dinsql_exemplars(label: str) -> str:
+    global _DINSQL_EXEMPLARS
+    if _DINSQL_EXEMPLARS is None:
+        import os as _os
+
+        path = _os.path.join(
+            _os.path.dirname(_os.path.abspath(__file__)), "assets",
+            "dinsql_mql_exemplars.json",
+        )
+        with open(path, encoding="utf-8") as fh:
+            _DINSQL_EXEMPLARS = json.load(fh)
+    blocks = []
+    for item in (_DINSQL_EXEMPLARS.get("exemplars") or {}).get(label, []):
+        blocks.append(
+            f"# database: {item['db']} (MongoDB public sample data)\n"
+            f"# question: {item['question']}\n{item['query']}"
+        )
+    return "\n\n".join(blocks)
+
+
+def _link_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
+    body = _base_user(ctx)
+    body += (
+        "\n\nSchema linking. List only the collections and document paths this question "
+        "needs, plus any id-link edges you can see in the data (a field in one collection "
+        "holding an identifier that appears in another). Do not write a query yet."
+        "\n\nReturn JSON with fields `collections`, `paths`, `id_links`."
+    )
+    return [
+        {"role": "system", "content": _system(
+            ctx,
+            "DIN-SQL module 1: schema linking",
+            "Select the relevant structure only. Do not generate a query.",
+        )},
+        {"role": "user", "content": body},
+    ]
+
+
+def _dinsql_body(ctx: BaselinePromptContext, link: JsonMap, blocks: list[str]) -> str:
+    """Context for DIN-SQL modules 2-4.
+
+    Module 1 reads the sampled documents and decides what matters; the later modules see
+    that pruned structure instead of the full document dump. That is the paper's design,
+    and it keeps these prompts small — passing the whole sample to every module produced
+    ~96k-token requests and provider timeouts.
+    """
+    kept = [str(c) for c in (link.get("collections") or [])]
+    digest = ctx.witness_digest or {}
+    pruned = {k: v for k, v in digest.items() if k in kept} or digest
+    parts = [
+        "# Released task",
+        f"db_id: {ctx.record.get('db_id')}",
+        f"record_id: {ctx.record.get('record_id')}",
+        "",
+        "## Natural language question",
+        ctx.nlq,
+        "",
+        "## Linked structure (module 1: the collections, paths and id-links it kept)",
+        json.dumps(link, ensure_ascii=False, indent=1),
+        "",
+        "## Sampled documents for the linked collections",
+        "These are the same public samples the other baselines see, restricted to the "
+        "collections module 1 kept. Collection names and paths must come from here.",
+        _json_block(pruned),
+    ]
+    parts.extend(blocks)
+    return "\n".join(parts)
+
+
+def _classify_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
+    link = state.get("link") or {}
+    body = _dinsql_body(ctx, link, [])
+    body += (
+        "\n\nClassify this question as `easy` (one collection, no nesting to traverse), "
+        "`non_nested_complex` (one collection but multi-stage aggregation), or "
+        "`nested_complex` (needs traversal of nested arrays/dynamic-key maps or a join "
+        "across collections). For the two complex classes, decompose it into ordered "
+        "sub-questions."
+        "\n\nReturn JSON with fields `label` and `sub_questions`."
+    )
+    return [
+        {"role": "system", "content": _system(
+            ctx,
+            "DIN-SQL module 2: classification and decomposition",
+            "Classify and decompose only. Do not generate a query.",
+        )},
+        {"role": "user", "content": body},
+    ]
+
+
+def _dinsql_generate_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
+    link = state.get("link") or {}
+    cls = state.get("classify") or {}
+    label = str(cls.get("label") or "non_nested_complex")
+    subs = cls.get("sub_questions") or []
+    blocks = []
+    if subs:
+        blocks.append("\n## Sub-questions (module 2)\n" + "\n".join(f"- {s}" for s in subs))
+    exemplars = _dinsql_exemplars(label)
+    if exemplars:
+        blocks.append(
+            f"\n## Examples of MongoDB queries ({label}; other databases, style only)\n"
+            f"{exemplars}"
+        )
+    body = _dinsql_body(ctx, link, blocks)
+    body += (
+        "\n\nWrite the MongoDB aggregation for the question, using only the linked paths."
+        "\n\nReturn JSON with fields `MQL`, `rationale`, and `assumptions`. "
+        "The MQL must be a single `db.<collection>.aggregate([...])` expression."
+    )
+    return [
+        {"role": "system", "content": _system(
+            ctx,
+            f"DIN-SQL module 3: generation ({label})",
+            "Follow the linked structure and the sub-questions. The examples come from "
+            "other databases and show query style only.",
+        )},
+        {"role": "user", "content": body},
+    ]
+
+
+def _dinsql_correct_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
+    link = state.get("link") or {}
+    draft = str((state.get("generate") or {}).get("MQL") or state.get("MQL") or "")
+    body = _dinsql_body(ctx, link, [f"\n## Draft query (module 3)\n{draft}"])
+    body += (
+        "\n\nCheck the draft for missing filters, wrong paths, the wrong grouping level or "
+        "unnecessary stages. Return the corrected query, or the draft unchanged if it is "
+        "already right."
+        "\n\nReturn JSON with fields `MQL`, `rationale`, and `assumptions`. "
+        "The MQL must be a single `db.<collection>.aggregate([...])` expression."
+    )
+    return [
+        {"role": "system", "content": _system(
+            ctx,
+            "DIN-SQL module 4: self-correction",
+            "Revise only what is wrong. Do not rewrite a correct query.",
+        )},
+        {"role": "user", "content": body},
+    ]
+
+
+_RELATIONAL_SCHEMAS: dict[str, str] | None = None
+
+
+def _relational_schema_for(db_id: str) -> str:
+    """The REAL relational DDL of the BIRD source database (reviewer-requested arm).
+
+    Loaded lazily from a repo asset extracted verbatim from the minidev sqlite files;
+    raising on a missing db is correct — this arm is meaningless without the schema.
+    """
+    global _RELATIONAL_SCHEMAS
+    if _RELATIONAL_SCHEMAS is None:
+        import os as _os
+
+        path = _os.path.join(
+            _os.path.dirname(_os.path.abspath(__file__)), "assets",
+            "bird_relational_schemas.json",
+        )
+        with open(path, encoding="utf-8") as fh:
+            _RELATIONAL_SCHEMAS = json.load(fh)
+    ddl = _RELATIONAL_SCHEMAS.get(str(db_id))
+    if not ddl:
+        raise SourceError(
+            "no relational schema for db", context={"db_id": str(db_id)}
+        )
+    return ddl
+
+
+def _sql_schema_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
+    db_id = str((ctx.record or {}).get("db_id") or "")
+    body = _base_user(ctx)
+    body += (
+        "\n\nThe documents you saw were derived from a relational source database. "
+        "Its REAL relational schema (verbatim DDL) is:\n\n"
+        + _relational_schema_for(db_id)
+        + "\n\nFirst express the intent as ordinary SQL over THIS relational schema. "
+        "This SQL is an intermediate sketch only."
+        "\n\nReturn JSON with fields `SQL` (the SQL sketch) and `notes` "
+        "(assumptions/caveats)."
+    )
+    return [
+        {"role": "system", "content": _system(
+            ctx,
+            "SQL pivot (real schema) baseline step 1",
+            "Write straightforward relational SQL against the provided real schema.",
         )},
         {"role": "user", "content": body},
     ]
@@ -437,6 +692,7 @@ def _sql_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
 def _sql_to_mql_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
     return [
         {"role": "system", "content": _system(
+            ctx,
             "SQL pivot baseline step 2",
             "Translate the SQL sketch to MongoDB without adding new schema-flex analysis.",
         )},
@@ -457,6 +713,7 @@ def _plan_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
     )
     return [
         {"role": "system", "content": _system(
+            ctx,
             "Plan-then-query baseline step 1",
             "Create a concise plan. Do not perform execution, mutation, or per-stage checks.",
         )},
@@ -467,6 +724,7 @@ def _plan_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
 def _plan_to_mql_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
     return [
         {"role": "system", "content": _system(
+            ctx,
             "Plan-then-query baseline step 2",
             "Translate the plan to MQL exactly once. Do not self-debug.",
         )},
@@ -487,6 +745,7 @@ def _react_reason_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[M
     )
     return [
         {"role": "system", "content": _system(
+            ctx,
             "Pure ReAct-lite baseline step 1",
             "Use exactly one thought/observation planning turn before final MQL.",
         )},
@@ -497,6 +756,7 @@ def _react_reason_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[M
 def _react_mql_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
     return [
         {"role": "system", "content": _system(
+            ctx,
             "Pure ReAct-lite baseline step 2",
             "The sampled documents below are your single observation packet. Do not run "
             "tools or execute MQL.",
@@ -512,6 +772,7 @@ def _react_mql_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Mess
 def _draft_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
     return [
         {"role": "system", "content": _system(
+            ctx,
             "Static self-debug baseline step 1",
             "Draft MQL directly. You will receive only static syntax feedback later.",
         )},
@@ -522,6 +783,7 @@ def _draft_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]
 def _repair_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
     return [
         {"role": "system", "content": _system(
+            ctx,
             "Static self-debug baseline step 2",
             "Revise once using only static parser/operator feedback, not execution feedback.",
         )},
@@ -629,6 +891,81 @@ _BASELINES: dict[str, BaselineSpec] = {
             ),
         ),
         limitations=("SQL bottleneck", "no schema-flex planner", "no execution feedback"),
+    ),
+    "dinsql_mql": BaselineSpec(
+        id="dinsql_mql",
+        title="DIN-SQL adapted to MQL",
+        description=(
+            "Reviewer-requested external pipeline (Pourreza & Rafiei, NeurIPS 2023) "
+            "ported to MongoDB: schema linking, classification and decomposition, "
+            "generation, self-correction. Exemplars are FIXED (identical for every "
+            "question, no retrieval) and come only from MongoDB's public Atlas sample "
+            "databases, never from a TEND database, question or reference answer. The "
+            "SQL-specific NatSQL intermediate is dropped; MQL is generated directly."
+        ),
+        steps=(
+            BaselineStep("link", "baseline_dinsql_link", "schema linking", LINK_SCHEMA, _link_messages),
+            BaselineStep(
+                "classify",
+                "baseline_dinsql_classify",
+                "classify and decompose",
+                CLASSIFY_SCHEMA,
+                _classify_messages,
+            ),
+            BaselineStep(
+                "generate",
+                "baseline_dinsql_generate",
+                "generate MQL",
+                MQL_SCHEMA,
+                _dinsql_generate_messages,
+            ),
+            BaselineStep(
+                "correct",
+                "baseline_dinsql_correct",
+                "self-correction",
+                MQL_SCHEMA,
+                _dinsql_correct_messages,
+            ),
+        ),
+        limitations=(
+            "fixed exemplars from public MongoDB sample data, no retrieval",
+            "no NatSQL intermediate representation (SQL-specific)",
+            "no execution feedback",
+        ),
+    ),
+    "sql_pivot_schema": BaselineSpec(
+        id="sql_pivot_schema",
+        title="SQL pivot with the real relational schema",
+        description=(
+            "Reviewer-requested variant: step 1 drafts SQL against the REAL relational "
+            "schema of the BIRD source database (verbatim DDL), step 2 translates that "
+            "sketch to MQL. Isolates whether a genuine relational intermediate helps "
+            "or hurts document-native reasoning, removing the schema-inference "
+            "confound of plain sql_pivot."
+        ),
+        steps=(
+            BaselineStep(
+                "sql",
+                "baseline_sql_pivot_schema_sql",
+                "SQL sketch (real schema)",
+                SQL_SCHEMA,
+                _sql_schema_messages,
+            ),
+            BaselineStep(
+                "mql",
+                "baseline_sql_pivot_schema_mql",
+                "SQL-to-MQL",
+                MQL_SCHEMA,
+                _sql_to_mql_messages,
+            ),
+        ),
+        limitations=(
+            "SQL bottleneck",
+            "no schema-flex planner",
+            "no execution feedback",
+            "sees the relational SOURCE schema — a channel no other arm has",
+        ),
+        prompt_channel="relational_source_schema",
     ),
     "plan_then_mql": BaselineSpec(
         id="plan_then_mql",

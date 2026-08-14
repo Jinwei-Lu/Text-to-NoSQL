@@ -12,6 +12,7 @@ a record's solve lives in ``<arm>/<db_id>/<record_id>.log`` with its agent sessi
 under ``<arm>/llm/``; suite lifecycle events go through the ``ablation`` stage
 logger and anomalies through ``LogManager.log_exception_event`` (errors.jsonl).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -60,6 +61,10 @@ class AblationPrediction:
     k_consistency: int
     max_repair_rounds: int
     disclosure: dict[str, Any]
+    requested_k: int = 0
+    usable_k: int = 0
+    candidate_statuses: list[dict[str, Any]] = field(default_factory=list)
+    cluster_size: int = 0
     feedback: list[dict[str, Any]] = field(default_factory=list)
     static_feedback: list[dict[str, Any]] = field(default_factory=list)
     agent_session_ref: str | None = None
@@ -94,6 +99,10 @@ class AblationFailure:
     k_consistency: int
     max_repair_rounds: int
     disclosure: dict[str, Any]
+    requested_k: int = 0
+    usable_k: int = 0
+    candidate_statuses: list[dict[str, Any]] = field(default_factory=list)
+    cluster_size: int = 0
     MQL: str = ""
     feedback: list[dict[str, Any]] = field(default_factory=list)
     static_feedback: list[dict[str, Any]] = field(default_factory=list)
@@ -388,9 +397,7 @@ async def _preload_ablation_witnesses(
         await asyncio.to_thread(wf.ctx.mongo.load_witness, db, data)
         return db
 
-    loaded = await asyncio.gather(
-        *(load_one(db, data) for db, data in sorted(by_db.items()))
-    )
+    loaded = await asyncio.gather(*(load_one(db, data) for db, data in sorted(by_db.items())))
     log.info("ablation_witness_preloaded", db_ids=list(loaded), db_count=len(loaded))
     return set(loaded)
 
@@ -563,9 +570,7 @@ def _runtime_options(
     evaluation_skip_reason: str | None = None,
 ) -> dict[str, Any]:
     prefix = (
-        f"ablation:{batch_index}:{spec.id}"
-        if batch_index is not None
-        else f"ablation:{spec.id}"
+        f"ablation:{batch_index}:{spec.id}" if batch_index is not None else f"ablation:{spec.id}"
     )
     work_item_id = _work_item_id(spec.id, batch_index, db_id, record_id)
     options = spec.to_runtime_options(
@@ -644,6 +649,10 @@ def _prediction_from_solver_payload(
         k_consistency=int(options["k_consistency"]),
         max_repair_rounds=int(options["max_repair_rounds"]),
         disclosure=_disclosure(spec, options, payload.get("disclosure") or {}),
+        requested_k=max(0, int(payload.get("requested_k") or 0)),
+        usable_k=max(0, int(payload.get("usable_k") or 0)),
+        candidate_statuses=_candidate_statuses(payload),
+        cluster_size=max(0, int(payload.get("cluster_size") or 0)),
         static_feedback=static_mql_feedback(mql),
         agent_session_ref=_optional_str(payload.get("agent_session_ref")),
     )
@@ -684,6 +693,10 @@ def _failure_from_solver_payload(
         k_consistency=int(options["k_consistency"]),
         max_repair_rounds=int(options["max_repair_rounds"]),
         disclosure=_disclosure(spec, options, payload.get("disclosure") or {}),
+        requested_k=max(0, int(payload.get("requested_k") or 0)),
+        usable_k=max(0, int(payload.get("usable_k") or 0)),
+        candidate_statuses=_candidate_statuses(payload),
+        cluster_size=max(0, int(payload.get("cluster_size") or 0)),
         MQL=mql,
         static_feedback=static_mql_feedback(mql),
         agent_session_ref=_optional_str(payload.get("agent_session_ref")),
@@ -755,8 +768,19 @@ def _disclosure(
         "disjointness_ok": solver_disclosure.get("disjointness_ok"),
         "s_solver": solver_disclosure.get("s_solver"),
         "no_training": solver_disclosure.get("no_training"),
+        "requested_k": solver_disclosure.get("requested_k", 0),
+        "usable_k": solver_disclosure.get("usable_k", 0),
+        "candidate_statuses": solver_disclosure.get("candidate_statuses", []),
+        "cluster_size": solver_disclosure.get("cluster_size", 0),
         "solver_disclosure": solver_disclosure,
     }
+
+
+def _candidate_statuses(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    statuses = payload.get("candidate_statuses")
+    if not isinstance(statuses, list):
+        return []
+    return [dict(item) for item in statuses if isinstance(item, dict)]
 
 
 def _attempt_count(payload: dict[str, Any] | None = None) -> int:

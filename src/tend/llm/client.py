@@ -15,9 +15,11 @@ Responsibilities (and *only* these — agent semantics live in tend/agents):
 Stub mode (``settings.stub``): no network; a registered ``stub_fn`` returns canned output
 so the whole pipeline is exercisable offline and deterministically in tests.
 """
+
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import json
 import time
@@ -54,8 +56,14 @@ if TYPE_CHECKING:
 StubFn = Callable[[str, list[Message], dict | None], "str | dict[str, Any]"]
 
 _REFUSAL_MARKERS = (
-    "i cannot help", "i can't help", "i cannot assist", "i'm unable to",
-    "i am unable to", "i won't", "i will not", "as an ai",
+    "i cannot help",
+    "i can't help",
+    "i cannot assist",
+    "i'm unable to",
+    "i am unable to",
+    "i won't",
+    "i will not",
+    "as an ai",
 )
 _ALLOWED_ROLES = {"system", "user", "assistant", "tool", "developer"}
 _ALLOWED_MESSAGE_KEYS = {
@@ -80,13 +88,13 @@ class LLMResult:
     call_id: str
     model: str
     text: str
-    parsed: Any | None                          # parsed JSON when expect_json/schema given
+    parsed: Any | None  # parsed JSON when expect_json/schema given
     finish_reason: str | None
     usage: dict[str, int]
     latency_s: float
     attempts: int
-    transcript_ref: str                         # primary call artifact ref under run dir
-    diagnostics_ref: str = ""                   # structured sidecar ref under run dir
+    transcript_ref: str  # primary call artifact ref under run dir
+    diagnostics_ref: str = ""  # structured sidecar ref under run dir
 
     def __post_init__(self) -> None:
         if not self.diagnostics_ref:
@@ -125,7 +133,7 @@ def _strip_code_fence(text: str) -> str:
     if s.startswith("```"):
         s = s.split("\n", 1)[-1] if "\n" in s else s
         if s.endswith("```"):
-            s = s[: -3]
+            s = s[:-3]
         # drop a leading ``json`` language tag if it survived
         if s.lstrip().lower().startswith("json"):
             s = s.lstrip()[4:]
@@ -195,7 +203,7 @@ def _json_safe(value: Any, *, max_depth: int = 8) -> Any:
 
 def _safe_repr(value: Any, limit: int = 1200) -> str:
     text = repr(value)
-    return text if len(text) <= limit else f"{text[:limit - 3]}..."
+    return text if len(text) <= limit else f"{text[: limit - 3]}..."
 
 
 def _provider_metadata(raw: Any, finish: str | None) -> dict[str, Any]:
@@ -215,7 +223,61 @@ def _provider_metadata(raw: Any, finish: str | None) -> dict[str, Any]:
         choices = safe.get("choices")
         if isinstance(choices, list):
             metadata["choices"] = [_choice_metadata(choice) for choice in choices]
+        # OpenRouter emits its opt-in routing receipt as a nested object.  For
+        # streaming chat completions it appears only on the terminal chunk, which
+        # ``_collect_completion_stream`` retains inside ``stream_chunk_samples``.
+        # Preserve it explicitly: the generic scalar-only metadata filter above is
+        # intentionally too conservative to retain arbitrary nested response data.
+        router_metadata = _openrouter_metadata_from_response(safe)
+        if router_metadata is not None:
+            metadata["openrouter_metadata"] = router_metadata
+        provider_usage = _provider_usage_from_response(safe)
+        if provider_usage is not None:
+            metadata["provider_usage"] = provider_usage
+        for key, value in _stream_response_scalars(safe).items():
+            metadata.setdefault(key, value)
     return metadata
+
+
+def _openrouter_metadata_from_response(safe: dict[str, Any]) -> dict[str, Any] | None:
+    direct = safe.get("openrouter_metadata")
+    if isinstance(direct, dict):
+        return direct
+    samples = safe.get("stream_chunk_samples")
+    if not isinstance(samples, list):
+        return None
+    for sample in reversed(samples):
+        if isinstance(sample, dict) and isinstance(sample.get("openrouter_metadata"), dict):
+            return sample["openrouter_metadata"]
+    return None
+
+
+def _provider_usage_from_response(safe: dict[str, Any]) -> dict[str, Any] | None:
+    direct = safe.get("provider_usage") or safe.get("usage")
+    if isinstance(direct, dict):
+        return direct
+    samples = safe.get("stream_chunk_samples")
+    if not isinstance(samples, list):
+        return None
+    for sample in reversed(samples):
+        if isinstance(sample, dict) and isinstance(sample.get("usage"), dict):
+            return sample["usage"]
+    return None
+
+
+def _stream_response_scalars(safe: dict[str, Any]) -> dict[str, Any]:
+    samples = safe.get("stream_chunk_samples")
+    if not isinstance(samples, list):
+        return {}
+    out: dict[str, Any] = {}
+    for sample in samples:
+        if not isinstance(sample, dict):
+            continue
+        for key in ("id", "model", "created", "provider"):
+            value = sample.get(key)
+            if _is_metadata_scalar(value) and value is not None:
+                out[key] = value
+    return out
 
 
 def _choice_metadata(choice: Any) -> dict[str, Any]:
@@ -315,9 +377,7 @@ class LLMClient:
             # at timeout_s (streaming stalls are the inter-token watchdog's job).
             ft = settings.llm.first_token_timeout_s
             connect_timeout_s = ft if ft and ft > 0 else settings.llm.timeout_s
-            request_timeout = httpx.Timeout(
-                settings.llm.timeout_s, connect=connect_timeout_s
-            )
+            request_timeout = httpx.Timeout(settings.llm.timeout_s, connect=connect_timeout_s)
             http_client = httpx.AsyncClient(
                 # HTTP/2: multiplex every stream over a handful of long-lived
                 # connections. The provider LB rate-limits NEW TCP connections per
@@ -408,8 +468,17 @@ class LLMClient:
         log = (logger or self._log).bind(agent=agent)
         call_id = task_logger.new_llm_call_id() if task_logger is not None else uuid4().hex[:12]
         model = model or self._s.llm.model_for(agent)
-        temperature = self._s.llm.temperature if temperature is None else temperature
-        max_tokens = None if omit_max_tokens else (max_tokens or self._s.llm.max_tokens)
+        temperature = (
+            None
+            if self._s.llm.omit_temperature
+            else (self._s.llm.temperature if temperature is None else temperature)
+        )
+        omit_effective_max_tokens = omit_max_tokens or self._s.llm.omit_max_tokens
+        max_tokens = (
+            max_tokens or self._s.llm.max_tokens
+            if self._s.llm.force_max_tokens or not omit_effective_max_tokens
+            else None
+        )
         reasoning_effort = reasoning_effort or self._s.llm.reasoning_effort
         thinking = thinking or self._s.llm.thinking
         stream = self._s.llm.stream if stream is None else stream
@@ -429,8 +498,11 @@ class LLMClient:
             thinking=thinking,
         )
         request_config = {
+            "provider_base_url": self._s.llm.base_url.rstrip("/"),
+            "provider_base_url_sha256": hashlib.sha256(
+                self._s.llm.base_url.rstrip("/").encode("utf-8")
+            ).hexdigest(),
             "temperature": temperature,
-            "max_tokens": max_tokens,
             "expect_json": expect_json,
             "schema": schema,
             "json_repair_retries": json_repair_retries,
@@ -438,6 +510,8 @@ class LLMClient:
             "stream": stream,
             "first_token_timeout_s": first_token_timeout_s,
         }
+        if max_tokens is not None:
+            request_config["max_tokens"] = max_tokens
         try:
             if task_logger is not None:
                 start_ref = ""
@@ -455,23 +529,32 @@ class LLMClient:
                 )
             else:
                 prompt_chars = sum(
-                    len(str(m.get("content", ""))) if isinstance(m, dict) else 0
-                    for m in convo
+                    len(str(m.get("content", ""))) if isinstance(m, dict) else 0 for m in convo
                 )
-                start_ref = log.save_transcript(agent, call_id, {
-                    "model": model,
-                    **request_config,
-                    "messages": convo,
-                    "attempts": attempts,
-                    "started": True,
-                })
+                start_ref = log.save_transcript(
+                    agent,
+                    call_id,
+                    {
+                        "model": model,
+                        **request_config,
+                        "messages": convo,
+                        "attempts": attempts,
+                        "started": True,
+                    },
+                )
                 start_diagnostics_ref = _llm_diagnostics_ref(
                     log, agent, call_id, transcript_ref=start_ref
                 )
-                log.info("llm_call_start", agent=agent, call_id=call_id, model=model,
-                         message_count=len(convo),
-                         prompt_chars=prompt_chars,
-                         transcript_ref=start_ref, diagnostics_ref=start_diagnostics_ref)
+                log.info(
+                    "llm_call_start",
+                    agent=agent,
+                    call_id=call_id,
+                    model=model,
+                    message_count=len(convo),
+                    prompt_chars=prompt_chars,
+                    transcript_ref=start_ref,
+                    diagnostics_ref=start_diagnostics_ref,
+                )
             # prompt validation is inside the try so prompt anomalies are captured too
             self._validate_prompt(messages, agent, call_id)
             for repair in range(json_repair_retries + 1):
@@ -490,12 +573,36 @@ class LLMClient:
                     transcript_ref=start_ref,
                     diagnostics_ref=start_diagnostics_ref,
                     task_logger=task_logger,
+                    request_config=request_config,
+                    repair_index=repair,
                 )
                 if not expect_json:
-                    return self._finish(agent, call_id, model, text, None, finish, usage,
-                                        t0, attempts, log, messages=convo,
-                                        request_config=request_config,
-                                        task_logger=task_logger)
+                    if task_logger is not None:
+                        self._task_logger_settle_received_attempt(
+                            task_logger,
+                            agent=agent,
+                            call_id=call_id,
+                            model=model,
+                            repair_index=repair,
+                            call_status="success",
+                            attempts=attempts,
+                            request_config=request_config,
+                        )
+                    return self._finish(
+                        agent,
+                        call_id,
+                        model,
+                        text,
+                        None,
+                        finish,
+                        usage,
+                        t0,
+                        attempts,
+                        log,
+                        messages=convo,
+                        request_config=request_config,
+                        task_logger=task_logger,
+                    )
                 try:
                     parsed = _extract_json(text)
                     if schema is not None:
@@ -505,36 +612,123 @@ class LLMClient:
                                 "output failed schema validation",
                                 context={"violations": errs},
                             )
-                    return self._finish(agent, call_id, model, text, parsed, finish, usage,
-                                        t0, attempts, log, messages=convo,
-                                        request_config=request_config,
-                                        task_logger=task_logger)
+                    if task_logger is not None:
+                        self._task_logger_settle_received_attempt(
+                            task_logger,
+                            agent=agent,
+                            call_id=call_id,
+                            model=model,
+                            repair_index=repair,
+                            call_status="success",
+                            attempts=attempts,
+                            request_config=request_config,
+                        )
+                    return self._finish(
+                        agent,
+                        call_id,
+                        model,
+                        text,
+                        parsed,
+                        finish,
+                        usage,
+                        t0,
+                        attempts,
+                        log,
+                        messages=convo,
+                        request_config=request_config,
+                        task_logger=task_logger,
+                    )
                 except (ResponseParseError, SchemaValidationError) as verr:
                     attempts[-1]["validation_error"] = verr.to_record()
-                    if repair >= json_repair_retries:
+                    will_repair = repair < json_repair_retries
+                    if task_logger is not None:
+                        self._task_logger_settle_received_attempt(
+                            task_logger,
+                            agent=agent,
+                            call_id=call_id,
+                            model=model,
+                            repair_index=repair,
+                            call_status="retry" if will_repair else "error",
+                            attempts=attempts,
+                            request_config=request_config,
+                            retry_kind="json_repair" if will_repair else None,
+                            error=verr,
+                            failure_phase="structured_output_validation",
+                        )
+                    if not will_repair:
                         raise
                     convo = convo + [
                         {"role": "assistant", "content": text},
                         {"role": "user", "content": self._repair_prompt(verr, schema)},
                     ]
                     if task_logger is not None:
-                        task_logger.warning("llm_repair_retry", agent=agent, call_id=call_id,
-                                            attempt=repair + 1, reason=verr.anomaly.value)
+                        raw_response = attempts[-1].get("raw_response")
+                        task_logger.warning(
+                            "llm_repair_retry",
+                            agent=agent,
+                            call_id=call_id,
+                            attempt=repair + 1,
+                            reason=verr.anomaly.value,
+                            validation_error=verr.to_record(),
+                            attempt_diagnostics={
+                                "finish_reason": attempts[-1].get("finish_reason"),
+                                "usage": attempts[-1].get("usage"),
+                                "latency_s": attempts[-1].get("latency_s"),
+                                "response_char_count": len(text),
+                                "provider_metadata": attempts[-1].get("provider_metadata"),
+                                "stream_chunk_count": (
+                                    raw_response.get("stream_chunk_count")
+                                    if isinstance(raw_response, dict)
+                                    else None
+                                ),
+                                "reasoning_char_count": (
+                                    raw_response.get("reasoning_char_count")
+                                    if isinstance(raw_response, dict)
+                                    else None
+                                ),
+                                "content_char_count": (
+                                    raw_response.get("content_char_count")
+                                    if isinstance(raw_response, dict)
+                                    else None
+                                ),
+                            },
+                            request_max_tokens=max_tokens,
+                        )
                     else:
-                        log.warning("llm_repair_retry", agent=agent, call_id=call_id,
-                                    attempt=repair + 1, reason=verr.anomaly.value,
-                                    transcript_ref=start_ref,
-                                    diagnostics_ref=start_diagnostics_ref)
+                        log.warning(
+                            "llm_repair_retry",
+                            agent=agent,
+                            call_id=call_id,
+                            attempt=repair + 1,
+                            reason=verr.anomaly.value,
+                            transcript_ref=start_ref,
+                            diagnostics_ref=start_diagnostics_ref,
+                        )
             raise LLMError("exhausted repair retries", context={"agent": agent})  # unreachable
         except LLMError as err:
             if task_logger is not None:
-                ref = self._task_logger_log_error(task_logger, call_id, model)
+                ref = self._task_logger_log_error(
+                    task_logger,
+                    call_id,
+                    model,
+                    attempts=attempts,
+                    request_config=request_config,
+                    error=err,
+                )
                 diagnostics_ref = ref
             else:
-                ref = log.save_transcript(agent, call_id, {
-                    "model": model, **request_config, "messages": convo, "attempts": attempts,
-                    "failed": True, "error": err.to_record(),
-                })
+                ref = log.save_transcript(
+                    agent,
+                    call_id,
+                    {
+                        "model": model,
+                        **request_config,
+                        "messages": convo,
+                        "attempts": attempts,
+                        "failed": True,
+                        "error": err.to_record(),
+                    },
+                )
                 diagnostics_ref = _llm_diagnostics_ref(log, agent, call_id, transcript_ref=ref)
             err.with_context(
                 agent=agent,
@@ -548,25 +742,40 @@ class LLMClient:
                 transcript_ref=ref,
                 diagnostics_ref=diagnostics_ref,
                 call_id=call_id,
+                task_id=(
+                    getattr(task_logger, "task_id", None) if task_logger is not None else None
+                ),
+                stage=(getattr(task_logger, "stage", None) if task_logger is not None else None),
             )
             raise
         except Exception as exc:  # noqa: BLE001 - preserve prompt context for LLM-layer bugs
             tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
             if task_logger is not None:
-                ref = self._task_logger_log_error(task_logger, call_id, model)
+                ref = self._task_logger_log_error(
+                    task_logger,
+                    call_id,
+                    model,
+                    attempts=attempts,
+                    request_config=request_config,
+                    error=exc,
+                )
             else:
-                ref = log.save_transcript(agent, call_id, {
-                    "model": model,
-                    **request_config,
-                    "messages": convo,
-                    "attempts": attempts,
-                    "failed": True,
-                    "unexpected_exception": {
-                        "exception_type": type(exc).__name__,
-                        "exception_message": str(exc),
-                        "traceback": tb,
+                ref = log.save_transcript(
+                    agent,
+                    call_id,
+                    {
+                        "model": model,
+                        **request_config,
+                        "messages": convo,
+                        "attempts": attempts,
+                        "failed": True,
+                        "unexpected_exception": {
+                            "exception_type": type(exc).__name__,
+                            "exception_message": str(exc),
+                            "traceback": tb,
+                        },
                     },
-                })
+                )
             err = LLMError(
                 f"unexpected LLM client error: {type(exc).__name__}: {exc}",
                 anomaly=Anomaly.INTERNAL,
@@ -588,6 +797,10 @@ class LLMClient:
                 transcript_ref=ref,
                 diagnostics_ref=_llm_diagnostics_ref(log, agent, call_id, transcript_ref=ref),
                 call_id=call_id,
+                task_id=(
+                    getattr(task_logger, "task_id", None) if task_logger is not None else None
+                ),
+                stage=(getattr(task_logger, "stage", None) if task_logger is not None else None),
             )
             raise err from exc
 
@@ -615,8 +828,16 @@ class LLMClient:
         log = (logger or self._log).bind(agent=agent)
         call_id = uuid4().hex[:12]
         model = model or self._s.llm.model_for(agent)
-        temperature = self._s.llm.temperature if temperature is None else temperature
-        max_tokens = max_tokens or self._s.llm.max_tokens
+        temperature = (
+            None
+            if self._s.llm.omit_temperature
+            else (self._s.llm.temperature if temperature is None else temperature)
+        )
+        max_tokens = (
+            max_tokens or self._s.llm.max_tokens
+            if self._s.llm.force_max_tokens or not self._s.llm.omit_max_tokens
+            else None
+        )
         stream = self._s.llm.stream if stream is None else stream
         first_token_timeout_s = (
             self._s.llm.first_token_timeout_s
@@ -637,8 +858,11 @@ class LLMClient:
         attempts: list[dict[str, Any]] = []
         t0 = time.monotonic()
         request_config = {
+            "provider_base_url": self._s.llm.base_url.rstrip("/"),
+            "provider_base_url_sha256": hashlib.sha256(
+                self._s.llm.base_url.rstrip("/").encode("utf-8")
+            ).hexdigest(),
             "temperature": temperature,
-            "max_tokens": max_tokens,
             "tools": tools,
             "tool_choice": tool_choice,
             "requested_tool_choice": requested_tool_choice,
@@ -648,18 +872,23 @@ class LLMClient:
             "stream": stream,
             "first_token_timeout_s": first_token_timeout_s,
         }
+        if max_tokens is not None:
+            request_config["max_tokens"] = max_tokens
         try:
             prompt_chars = sum(
-                len(str(m.get("content", ""))) if isinstance(m, dict) else 0
-                for m in convo
+                len(str(m.get("content", ""))) if isinstance(m, dict) else 0 for m in convo
             )
-            start_ref = log.save_transcript(agent, call_id, {
-                "model": model,
-                **request_config,
-                "messages": convo,
-                "attempts": attempts,
-                "started": True,
-            })
+            start_ref = log.save_transcript(
+                agent,
+                call_id,
+                {
+                    "model": model,
+                    **request_config,
+                    "messages": convo,
+                    "attempts": attempts,
+                    "started": True,
+                },
+            )
             start_diagnostics_ref = _llm_diagnostics_ref(
                 log, agent, call_id, transcript_ref=start_ref
             )
@@ -712,14 +941,18 @@ class LLMClient:
                 tool_choice_fallback=fallback,
             )
         except LLMError as err:
-            ref = log.save_transcript(agent, call_id, {
-                "model": model,
-                **request_config,
-                "messages": convo,
-                "attempts": attempts,
-                "failed": True,
-                "error": err.to_record(),
-            })
+            ref = log.save_transcript(
+                agent,
+                call_id,
+                {
+                    "model": model,
+                    **request_config,
+                    "messages": convo,
+                    "attempts": attempts,
+                    "failed": True,
+                    "error": err.to_record(),
+                },
+            )
             diagnostics_ref = _llm_diagnostics_ref(log, agent, call_id, transcript_ref=ref)
             err.with_context(
                 agent=agent,
@@ -737,18 +970,22 @@ class LLMClient:
             raise
         except Exception as exc:  # noqa: BLE001 - preserve prompt context for LLM-layer bugs
             tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-            ref = log.save_transcript(agent, call_id, {
-                "model": model,
-                **request_config,
-                "messages": convo,
-                "attempts": attempts,
-                "failed": True,
-                "unexpected_exception": {
-                    "exception_type": type(exc).__name__,
-                    "exception_message": str(exc),
-                    "traceback": tb,
+            ref = log.save_transcript(
+                agent,
+                call_id,
+                {
+                    "model": model,
+                    **request_config,
+                    "messages": convo,
+                    "attempts": attempts,
+                    "failed": True,
+                    "unexpected_exception": {
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                        "traceback": tb,
+                    },
                 },
-            })
+            )
             err = LLMError(
                 f"unexpected LLM tool client error: {type(exc).__name__}: {exc}",
                 anomaly=Anomaly.INTERNAL,
@@ -781,8 +1018,12 @@ class LLMClient:
             if not isinstance(m, dict):
                 raise PromptAnomalyError(
                     "message is not an object",
-                    context={"agent": agent, "call_id": call_id, "index": i,
-                             "message_type": type(m).__name__},
+                    context={
+                        "agent": agent,
+                        "call_id": call_id,
+                        "index": i,
+                        "message_type": type(m).__name__,
+                    },
                 )
             role = m.get("role")
             allows_empty_assistant_content = role == "assistant" and bool(m.get("tool_calls"))
@@ -816,9 +1057,8 @@ class LLMClient:
                 )
             content = m.get("content", "")
             if (
-                (not isinstance(content, str) or not content.strip())
-                and not allows_empty_assistant_content
-            ):
+                not isinstance(content, str) or not content.strip()
+            ) and not allows_empty_assistant_content:
                 raise PromptAnomalyError(
                     "message content empty or non-string",
                     context={
@@ -999,19 +1239,36 @@ class LLMClient:
             )
 
     async def _send_with_transport_retries(
-        self, agent: str, call_id: str, model: str, convo: list[Message],
-        temperature: float, max_tokens: int | None, provider_kwargs: dict[str, Any],
-        stream: bool, first_token_timeout_s: float,
+        self,
+        agent: str,
+        call_id: str,
+        model: str,
+        convo: list[Message],
+        temperature: float | None,
+        max_tokens: int | None,
+        provider_kwargs: dict[str, Any],
+        stream: bool,
+        first_token_timeout_s: float,
         attempts: list[dict[str, Any]],
         log: RunLogger,
         *,
         transcript_ref: str,
         diagnostics_ref: str,
         task_logger: "TaskLogger | None" = None,
+        request_config: dict[str, Any],
+        repair_index: int,
     ) -> tuple[str, str | None, dict[str, int]]:
         attempt = 0
+        # Provider-native truncation gets its own budget, separate from the transport
+        # budget: it is not a transient fault and each occurrence has already spent the
+        # full completion budget. Counted here so the enclosing json-repair loop cannot
+        # re-arm it (a repair round starts a new _send_with_transport_retries call, which
+        # is exactly the reset we must not allow to be unbounded).
+        truncations_seen = 0
         while True:
             t0 = time.monotonic()
+            provider_attempt: dict[str, Any] | None = None
+            provider_attempt_index = self._next_provider_attempt_index(attempts)
             try:
                 text, finish, usage, raw = await self._raw_call(
                     agent,
@@ -1024,9 +1281,14 @@ class LLMClient:
                     first_token_timeout_s,
                 )
                 provider_metadata = _provider_metadata(raw, finish)
-                attempts.append({
-                    "attempt": attempt, "kind": "send", "finish_reason": finish,
-                    "usage": usage, "latency_s": round(time.monotonic() - t0, 3),
+                provider_attempt = {
+                    "attempt": attempt,
+                    "provider_attempt_index": provider_attempt_index,
+                    "repair_index": repair_index,
+                    "kind": "send",
+                    "finish_reason": finish,
+                    "usage": usage,
+                    "latency_s": round(time.monotonic() - t0, 3),
                     "response": text,
                     "response_preview": text[:500],
                     "provider_kwargs": provider_kwargs,
@@ -1034,30 +1296,125 @@ class LLMClient:
                     "first_token_timeout_s": first_token_timeout_s,
                     "provider_metadata": provider_metadata,
                     "raw_response": _json_safe(raw),
-                })
+                }
+                attempts.append(provider_attempt)
                 self._check_response(text, finish, agent, provider_metadata=provider_metadata)
                 return text, finish, usage
             except LLMError as err:
-                attempts.append({
-                    "attempt": attempt, "kind": "send_error",
+                raw_response = (
+                    provider_attempt.get("raw_response") if provider_attempt is not None else None
+                )
+                attempt_diagnostics = {
+                    "response_received": provider_attempt is not None,
                     "latency_s": round(time.monotonic() - t0, 3),
-                    "error": err.to_record(),
-                    "stream": stream,
-                    "first_token_timeout_s": first_token_timeout_s,
-                })
-                if not err.retryable or self._retries_exhausted(attempt):
-                    raise
+                    "finish_reason": (
+                        provider_attempt.get("finish_reason")
+                        if provider_attempt is not None
+                        else None
+                    ),
+                    "usage": (
+                        provider_attempt.get("usage") if provider_attempt is not None else None
+                    ),
+                    "response_char_count": (
+                        len(str(provider_attempt.get("response") or ""))
+                        if provider_attempt is not None
+                        else 0
+                    ),
+                    "provider_metadata": (
+                        provider_attempt.get("provider_metadata")
+                        if provider_attempt is not None
+                        else None
+                    ),
+                    "stream_chunk_count": (
+                        raw_response.get("stream_chunk_count")
+                        if isinstance(raw_response, dict)
+                        else None
+                    ),
+                    "reasoning_char_count": (
+                        raw_response.get("reasoning_char_count")
+                        if isinstance(raw_response, dict)
+                        else None
+                    ),
+                    "content_char_count": (
+                        raw_response.get("content_char_count")
+                        if isinstance(raw_response, dict)
+                        else None
+                    ),
+                    "stream_ended_before_first_token": (
+                        raw_response.get("stream_ended_before_first_token")
+                        if isinstance(raw_response, dict)
+                        else None
+                    ),
+                    "stream_chunk_samples": (
+                        raw_response.get("stream_chunk_samples")
+                        if isinstance(raw_response, dict)
+                        else None
+                    ),
+                }
+                attempts.append(
+                    {
+                        "attempt": attempt,
+                        "provider_attempt_index": provider_attempt_index,
+                        "repair_index": repair_index,
+                        "kind": "send_error",
+                        "latency_s": round(time.monotonic() - t0, 3),
+                        "error": err.to_record(),
+                        "attempt_diagnostics": attempt_diagnostics,
+                        "stream": stream,
+                        "first_token_timeout_s": first_token_timeout_s,
+                    }
+                )
+                will_retry = err.retryable and not self._retries_exhausted(attempt)
+                if isinstance(err, TruncatedResponseError):
+                    truncations_seen += 1
+                    if truncations_seen > max(0, self._s.llm.max_truncation_retries):
+                        will_retry = False
                 delay = self._provider_retry_delay()
                 if task_logger is not None:
-                    task_logger.warning("llm_transport_retry", agent=agent, call_id=call_id,
-                                        attempt=attempt, anomaly=err.anomaly.value,
-                                        delay_s=round(delay, 2))
+                    self._task_logger_log_attempt(
+                        task_logger,
+                        agent=agent,
+                        call_id=call_id,
+                        model=model,
+                        provider_attempt_index=provider_attempt_index,
+                        transport_attempt=attempt + 1,
+                        repair_index=repair_index,
+                        call_status="retry" if will_retry else "error",
+                        provider_attempt=provider_attempt,
+                        request_config=request_config,
+                        retry_kind="transport" if will_retry else None,
+                        error=err,
+                        failure_phase="transport_validation",
+                    )
+                event = "llm_transport_retry" if will_retry else "llm_transport_terminal_failure"
+                if task_logger is not None:
+                    task_logger.warning(
+                        event,
+                        agent=agent,
+                        call_id=call_id,
+                        attempt=attempt,
+                        anomaly=err.anomaly.value if err.anomaly else None,
+                        error=err.to_record(),
+                        attempt_diagnostics=attempt_diagnostics,
+                        request_max_tokens=max_tokens,
+                        delay_s=round(delay, 2) if will_retry else 0.0,
+                    )
                 else:
-                    log.warning("llm_transport_retry", agent=agent, call_id=call_id,
-                                attempt=attempt, anomaly=err.anomaly.value,
-                                delay_s=round(delay, 2),
-                                transcript_ref=transcript_ref,
-                                diagnostics_ref=diagnostics_ref)
+                    log.warning(
+                        event,
+                        agent=agent,
+                        call_id=call_id,
+                        attempt=attempt,
+                        anomaly=err.anomaly.value if err.anomaly else None,
+                        error=err.to_record(),
+                        attempt_diagnostics=attempt_diagnostics,
+                        request_max_tokens=max_tokens,
+                        delay_s=round(delay, 2) if will_retry else 0.0,
+                        transcript_ref=transcript_ref,
+                        diagnostics_ref=diagnostics_ref,
+                    )
+                if not will_retry:
+                    raise
                 self._notify_retry_progress(err, attempt + 1, delay)
                 await asyncio.sleep(delay)
                 attempt += 1
@@ -1068,8 +1425,8 @@ class LLMClient:
         call_id: str,
         model: str,
         convo: list[Message],
-        temperature: float,
-        max_tokens: int,
+        temperature: float | None,
+        max_tokens: int | None,
         tools: list[ToolSchema],
         tool_choice: ToolChoice | None,
         provider_kwargs: dict[str, Any],
@@ -1086,6 +1443,10 @@ class LLMClient:
         fallback_used = False
         retries_used = 0
         send_index = 0
+        # Same separate truncation budget as the non-tool path; ReAct drives long
+        # multi-step traces through here, so an unbounded truncation retry is the most
+        # expensive failure mode in the agentic arm.
+        truncations_seen = 0
         while True:
             t0 = time.monotonic()
             try:
@@ -1102,21 +1463,23 @@ class LLMClient:
                     first_token_timeout_s,
                 )
                 provider_metadata = _provider_metadata(raw, finish)
-                attempts.append({
-                    "attempt": send_index,
-                    "kind": "tool_send",
-                    "finish_reason": finish,
-                    "usage": usage,
-                    "latency_s": round(time.monotonic() - t0, 3),
-                    "response": text,
-                    "response_preview": text[:500],
-                    "tool_calls": tool_calls,
-                    "provider_metadata": provider_metadata,
-                    "raw_response": _json_safe(raw),
-                    "stream": stream,
-                    "first_token_timeout_s": first_token_timeout_s,
-                    "tool_choice": active_tool_choice,
-                })
+                attempts.append(
+                    {
+                        "attempt": send_index,
+                        "kind": "tool_send",
+                        "finish_reason": finish,
+                        "usage": usage,
+                        "latency_s": round(time.monotonic() - t0, 3),
+                        "response": text,
+                        "response_preview": text[:500],
+                        "tool_calls": tool_calls,
+                        "provider_metadata": provider_metadata,
+                        "raw_response": _json_safe(raw),
+                        "stream": stream,
+                        "first_token_timeout_s": first_token_timeout_s,
+                        "tool_choice": active_tool_choice,
+                    }
+                )
                 self._check_tool_response(
                     text,
                     tool_calls,
@@ -1127,28 +1490,33 @@ class LLMClient:
                 return text, finish, usage, raw, tool_calls, fallback_used
             except LLMError as err:
                 last = err
-                attempts.append({
-                    "attempt": send_index,
-                    "kind": "tool_send_error",
-                    "latency_s": round(time.monotonic() - t0, 3),
-                    "error": err.to_record(),
-                    "stream": stream,
-                    "first_token_timeout_s": first_token_timeout_s,
-                    "tool_choice": active_tool_choice,
-                })
+                attempts.append(
+                    {
+                        "attempt": send_index,
+                        "kind": "tool_send_error",
+                        "latency_s": round(time.monotonic() - t0, 3),
+                        "error": err.to_record(),
+                        "stream": stream,
+                        "first_token_timeout_s": first_token_timeout_s,
+                        "tool_choice": active_tool_choice,
+                    }
+                )
                 if isinstance(err, LLMTimeoutError):
-                    timeout_event = (
-                        "llm_stream_first_token_timeout"
-                        if "first token" in err.message
-                        else "llm_stream_inter_token_timeout"
-                    )
+                    timeout_phase = str(err.context.get("timeout_phase") or "unknown")
+                    timeout_event = {
+                        "response_headers": "llm_stream_response_headers_timeout",
+                        "first_token": "llm_stream_first_token_timeout",
+                        "inter_token": "llm_stream_inter_token_timeout",
+                    }.get(timeout_phase, "llm_transport_timeout")
                     log.warning(
                         timeout_event,
                         agent=agent,
                         call_id=call_id,
                         model=model,
                         attempt=send_index,
+                        timeout_phase=timeout_phase,
                         first_token_timeout_s=first_token_timeout_s,
+                        inter_token_timeout_s=self._s.llm.timeout_s,
                         transcript_ref=transcript_ref,
                         diagnostics_ref=diagnostics_ref,
                     )
@@ -1172,6 +1540,10 @@ class LLMClient:
                     fallback_used = True
                     send_index += 1
                     continue
+                if isinstance(err, TruncatedResponseError):
+                    truncations_seen += 1
+                    if truncations_seen > max(0, self._s.llm.max_truncation_retries):
+                        raise
                 if not err.retryable or self._retries_exhausted(retries_used):
                     raise
                 delay = self._provider_retry_delay()
@@ -1193,18 +1565,21 @@ class LLMClient:
         raise last
 
     async def _raw_call(
-        self, agent: str, model: str, convo: list[Message],
-        temperature: float, max_tokens: int | None, provider_kwargs: dict[str, Any],
-        stream: bool, first_token_timeout_s: float,
+        self,
+        agent: str,
+        model: str,
+        convo: list[Message],
+        temperature: float | None,
+        max_tokens: int | None,
+        provider_kwargs: dict[str, Any],
+        stream: bool,
+        first_token_timeout_s: float,
     ) -> tuple[str, str | None, dict[str, int], Any]:
         if self._s.stub:
             return self._stub_call(agent, convo)
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "messages": convo,
-            "temperature": temperature,
-            **provider_kwargs,
-        }
+        kwargs: dict[str, Any] = {"model": model, "messages": convo, **provider_kwargs}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
         if stream:
@@ -1215,9 +1590,14 @@ class LLMClient:
         # wrapping only the create would release immediately and TEND_LLM_MAX_CONCURRENCY
         # would bound nothing — every queued work item's stream would run at once (the
         # connect-stampede / congestion failure mode observed at scale).
-        async with (self._sem or nullcontext()):
+        async with self._sem or nullcontext():
+            first_token_deadline = (
+                time.monotonic() + first_token_timeout_s
+                if stream and first_token_timeout_s > 0
+                else None
+            )
             try:
-                if stream and first_token_timeout_s > 0:
+                if first_token_deadline is not None:
                     # With stream=True the provider sends response headers on
                     # admission, so create() returning is part of the first-token
                     # contract. Under load the provider also throttles by ACCEPTING
@@ -1226,22 +1606,32 @@ class LLMClient:
                     # at the 1800s httpx read timeout) — bound the header wait by
                     # the first-token window. Non-stream calls legitimately block
                     # here for the whole generation and stay unbounded.
+                    remaining = first_token_deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError
                     resp = await asyncio.wait_for(
                         self._client.chat.completions.create(**kwargs),
-                        timeout=first_token_timeout_s,
+                        timeout=remaining,
                     )
                 else:
                     resp = await self._client.chat.completions.create(**kwargs)
             except asyncio.TimeoutError as exc:
                 raise LLMTimeoutError(
                     "provider response headers timeout",
-                    context={"first_token_timeout_s": first_token_timeout_s},
+                    context={
+                        "timeout_phase": "response_headers",
+                        "first_token_timeout_s": first_token_timeout_s,
+                    },
                 ) from exc
             except Exception as exc:  # noqa: BLE001 - mapped to typed anomalies below
                 raise self._map_provider_error(exc) from exc
             if stream:
                 try:
-                    return await self._collect_completion_stream(resp, first_token_timeout_s)
+                    return await self._collect_completion_stream(
+                        resp,
+                        first_token_timeout_s,
+                        first_token_deadline,
+                    )
                 except LLMError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - streaming iterator faults are provider faults
@@ -1254,11 +1644,15 @@ class LLMClient:
                     await self._close_stream(resp)
         choice = resp.choices[0]
         text = choice.message.content or ""
-        usage = {
-            "prompt_tokens": getattr(resp.usage, "prompt_tokens", 0),
-            "completion_tokens": getattr(resp.usage, "completion_tokens", 0),
-            "total_tokens": getattr(resp.usage, "total_tokens", 0),
-        } if resp.usage else {}
+        usage = (
+            {
+                "prompt_tokens": getattr(resp.usage, "prompt_tokens", 0),
+                "completion_tokens": getattr(resp.usage, "completion_tokens", 0),
+                "total_tokens": getattr(resp.usage, "total_tokens", 0),
+            }
+            if resp.usage
+            else {}
+        )
         # reasoning models (deepseek-v4-flash) return chain-of-thought separately; capture it
         # for the transcript so anomalies can be diagnosed against the model's actual reasoning
         reasoning = getattr(choice.message, "reasoning_content", None) or getattr(
@@ -1272,6 +1666,7 @@ class LLMClient:
         self,
         stream_resp: Any,
         first_token_timeout_s: float,
+        first_token_deadline: float | None,
     ) -> tuple[str, str | None, dict[str, int], Any]:
         iterator = stream_resp.__aiter__()
         text_parts: list[str] = []
@@ -1280,39 +1675,39 @@ class LLMClient:
         chunk_samples: list[Any] = []
         finish: str | None = None
         usage: dict[str, int] = {}
+        provider_usage: dict[str, Any] | None = None
         first_token_seen = False
-        deadline = (
-            time.monotonic() + first_token_timeout_s
-            if first_token_timeout_s > 0
-            else None
-        )
+        inter_token_timeout_s = self._s.llm.timeout_s
 
         while True:
             try:
-                if not first_token_seen and deadline is not None:
-                    remaining = deadline - time.monotonic()
+                if not first_token_seen and first_token_deadline is not None:
+                    remaining = first_token_deadline - time.monotonic()
                     if remaining <= 0:
                         raise asyncio.TimeoutError
                     chunk = await asyncio.wait_for(anext(iterator), timeout=remaining)
-                elif first_token_timeout_s > 0:
-                    # Inter-token stall watchdog (same contract as the tool stream): a
-                    # stream that stops producing chunks mid-generation is dead — retry
-                    # now instead of hanging on the 900s outer transport guard.
-                    chunk = await asyncio.wait_for(
-                        anext(iterator), timeout=first_token_timeout_s
-                    )
+                elif first_token_seen and inter_token_timeout_s > 0:
+                    # Once a real reasoning/content delta has arrived, the short
+                    # first-token health deadline is spent. A subsequent stream stall
+                    # uses the configured request timeout instead.
+                    chunk = await asyncio.wait_for(anext(iterator), timeout=inter_token_timeout_s)
                 else:
                     chunk = await anext(iterator)
             except StopAsyncIteration:
                 break
             except asyncio.TimeoutError as exc:
+                timeout_phase = "first_token" if not first_token_seen else "inter_token"
                 raise LLMTimeoutError(
                     (
                         "provider stream first token timeout"
                         if not first_token_seen
                         else "provider stream inter-token timeout"
                     ),
-                    context={"first_token_timeout_s": first_token_timeout_s},
+                    context={
+                        "timeout_phase": timeout_phase,
+                        "first_token_timeout_s": first_token_timeout_s,
+                        "inter_token_timeout_s": inter_token_timeout_s,
+                    },
                 ) from exc
 
             chunk_count += 1
@@ -1326,6 +1721,8 @@ class LLMClient:
             chunk_usage = self._usage_dict(self._get(chunk, "usage"))
             if chunk_usage:
                 usage = chunk_usage
+            if isinstance(safe_chunk, dict) and isinstance(safe_chunk.get("usage"), dict):
+                provider_usage = safe_chunk["usage"]
             for choice in self._get(chunk, "choices", []) or []:
                 finish = self._get(choice, "finish_reason") or finish
                 delta = self._get(choice, "delta", {}) or {}
@@ -1341,20 +1738,26 @@ class LLMClient:
                     first_token_seen = True
                     text_parts.append(str(content))
 
-        if not first_token_seen:
-            raise EmptyResponseError(
-                "provider stream ended before first token",
-                context={"first_token_timeout_s": first_token_timeout_s},
-            )
+        reasoning_text = "".join(reasoning_parts)
+        content_text = "".join(text_parts)
         if reasoning_parts:
-            usage["reasoning_preview"] = "".join(reasoning_parts)[:1200]
-        return "".join(text_parts), finish, usage, {
-            "stream_chunk_count": chunk_count,
-            "stream_chunk_samples": chunk_samples,
-        }
+            usage["reasoning_preview"] = reasoning_text[:1200]
+        return (
+            content_text,
+            finish,
+            usage,
+            {
+                "stream_chunk_count": chunk_count,
+                "stream_chunk_samples": chunk_samples,
+                "stream_ended_before_first_token": not first_token_seen,
+                "reasoning_char_count": len(reasoning_text),
+                "content_char_count": len(content_text),
+                "provider_usage": provider_usage,
+            },
+        )
 
-    @staticmethod
     def _provider_request_options(
+        self,
         *,
         response_format: dict[str, Any] | None,
         reasoning_effort: str | None,
@@ -1363,19 +1766,45 @@ class LLMClient:
         kwargs: dict[str, Any] = {}
         if response_format is not None:
             kwargs["response_format"] = response_format
-        if reasoning_effort:
+        extra_body: dict[str, Any] = {}
+        normalized_effort = (
+            str(reasoning_effort).strip().lower() if reasoning_effort is not None else ""
+        )
+        if normalized_effort == "none" and self._uses_openrouter_endpoint():
+            # OpenRouter's explicit disable contract is the reasoning object.  Sending
+            # only reasoning_effort="none" is not sufficient evidence that upstream
+            # reasoning was disabled (and some endpoints simply ignore that value).
+            extra_body["reasoning"] = {"enabled": False}
+        elif reasoning_effort:
             kwargs["reasoning_effort"] = str(reasoning_effort)
         if thinking:
-            kwargs["extra_body"] = {"thinking": {"type": str(thinking)}}
+            extra_body["thinking"] = {"type": str(thinking)}
+        provider_only = self._s.llm.openrouter_provider_only
+        if provider_only:
+            extra_body["provider"] = {
+                "only": list(provider_only),
+                "allow_fallbacks": self._s.llm.openrouter_allow_fallbacks,
+                "require_parameters": self._s.llm.openrouter_require_parameters,
+            }
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+        if self._s.llm.openrouter_metadata:
+            kwargs["extra_headers"] = {"X-OpenRouter-Metadata": "enabled"}
         return kwargs
+
+    def _uses_openrouter_endpoint(self) -> bool:
+        base_url = self._s.llm.base_url.strip()
+        parsed = urlparse(base_url if "://" in base_url else f"https://{base_url}")
+        host = (parsed.hostname or "").lower()
+        return host == "openrouter.ai" or host.endswith(".openrouter.ai")
 
     async def _raw_tool_call(
         self,
         agent: str,
         model: str,
         convo: list[Message],
-        temperature: float,
-        max_tokens: int,
+        temperature: float | None,
+        max_tokens: int | None,
         tools: list[ToolSchema],
         tool_choice: ToolChoice | None,
         provider_kwargs: dict[str, Any],
@@ -1387,12 +1816,14 @@ class LLMClient:
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": convo,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
             "tools": tools,
             "stream": stream,
             **provider_kwargs,
         }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        if temperature is not None:
+            kwargs["temperature"] = temperature
         if tool_choice is not None:
             kwargs["tool_choice"] = tool_choice
         if stream:
@@ -1402,25 +1833,40 @@ class LLMClient:
         # streaming create() must produce response headers within the first-token
         # window (accept-then-stall throttling otherwise hangs until the httpx read
         # timeout).
-        async with (self._sem or nullcontext()):
+        async with self._sem or nullcontext():
+            first_token_deadline = (
+                time.monotonic() + first_token_timeout_s
+                if stream and first_token_timeout_s > 0
+                else None
+            )
             try:
-                if stream and first_token_timeout_s > 0:
+                if first_token_deadline is not None:
+                    remaining = first_token_deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError
                     resp = await asyncio.wait_for(
                         self._client.chat.completions.create(**kwargs),
-                        timeout=first_token_timeout_s,
+                        timeout=remaining,
                     )
                 else:
                     resp = await self._client.chat.completions.create(**kwargs)
             except asyncio.TimeoutError as exc:
                 raise LLMTimeoutError(
                     "provider response headers timeout",
-                    context={"first_token_timeout_s": first_token_timeout_s},
+                    context={
+                        "timeout_phase": "response_headers",
+                        "first_token_timeout_s": first_token_timeout_s,
+                    },
                 ) from exc
             except Exception as exc:  # noqa: BLE001 - mapped to typed anomalies below
                 raise self._map_provider_error(exc) from exc
             if stream:
                 try:
-                    return await self._collect_tool_stream(resp, first_token_timeout_s)
+                    return await self._collect_tool_stream(
+                        resp,
+                        first_token_timeout_s,
+                        first_token_deadline,
+                    )
                 except LLMError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - streaming iterator faults are provider faults
@@ -1444,43 +1890,63 @@ class LLMClient:
         self,
         stream_resp: Any,
         first_token_timeout_s: float,
+        first_token_deadline: float | None,
     ) -> tuple[str, str | None, dict[str, int], Any, list[dict[str, Any]]]:
         iterator = stream_resp.__aiter__()
-        try:
-            if first_token_timeout_s > 0:
-                first_chunk = await asyncio.wait_for(
-                    anext(iterator),
-                    timeout=first_token_timeout_s,
-                )
-            else:
-                first_chunk = await anext(iterator)
-        except StopAsyncIteration as exc:
-            raise EmptyResponseError("provider stream ended before first token") from exc
-        except asyncio.TimeoutError as exc:
-            raise LLMTimeoutError(
-                "provider stream first token timeout",
-                context={"first_token_timeout_s": first_token_timeout_s},
-            ) from exc
-
-        chunks = [first_chunk]
+        chunks: list[Any] = []
+        first_token_seen = False
+        inter_token_timeout_s = self._s.llm.timeout_s
         while True:
             try:
-                if first_token_timeout_s > 0:
-                    chunk = await asyncio.wait_for(
-                        anext(iterator),
-                        timeout=first_token_timeout_s,
-                    )
+                if not first_token_seen and first_token_deadline is not None:
+                    remaining = first_token_deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError
+                    chunk = await asyncio.wait_for(anext(iterator), timeout=remaining)
+                elif first_token_seen and inter_token_timeout_s > 0:
+                    chunk = await asyncio.wait_for(anext(iterator), timeout=inter_token_timeout_s)
                 else:
                     chunk = await anext(iterator)
-            except StopAsyncIteration:
+            except StopAsyncIteration as exc:
+                if not first_token_seen:
+                    raise EmptyResponseError("provider stream ended before first token") from exc
                 break
             except asyncio.TimeoutError as exc:
+                timeout_phase = "first_token" if not first_token_seen else "inter_token"
                 raise LLMTimeoutError(
-                    "provider stream inter-token timeout",
-                    context={"first_token_timeout_s": first_token_timeout_s},
+                    (
+                        "provider stream first token timeout"
+                        if not first_token_seen
+                        else "provider stream inter-token timeout"
+                    ),
+                    context={
+                        "timeout_phase": timeout_phase,
+                        "first_token_timeout_s": first_token_timeout_s,
+                        "inter_token_timeout_s": inter_token_timeout_s,
+                    },
                 ) from exc
             chunks.append(chunk)
+            if self._tool_stream_chunk_has_token(chunk):
+                first_token_seen = True
         return self._assemble_tool_stream_chunks(chunks)
+
+    def _tool_stream_chunk_has_token(self, chunk: Any) -> bool:
+        """Return whether a chunk carries a real reasoning/content/tool delta."""
+        for choice in self._get(chunk, "choices", []) or []:
+            delta = self._get(choice, "delta", {}) or {}
+            if self._get(delta, "reasoning_content") or self._get(delta, "reasoning"):
+                return True
+            if self._get(delta, "content"):
+                return True
+            for call_delta in self._get(delta, "tool_calls", []) or []:
+                if self._get(call_delta, "id") or self._get(call_delta, "type"):
+                    return True
+                function = self._get(call_delta, "function")
+                if function is not None and (
+                    self._get(function, "name") or self._get(function, "arguments")
+                ):
+                    return True
+        return False
 
     def _assemble_tool_stream_chunks(
         self,
@@ -1566,17 +2032,29 @@ class LLMClient:
             text = str(payload.get("content") or "")
             tool_calls = self._normalize_tool_calls(payload.get("tool_calls"))
             finish = "tool_calls" if tool_calls else "stop"
-            return text, finish, {
+            return (
+                text,
+                finish,
+                {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                },
+                payload,
+                tool_calls,
+            )
+        text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+        return (
+            text,
+            "stop",
+            {
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "total_tokens": 0,
-            }, payload, tool_calls
-        text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
-        return text, "stop", {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        }, payload, []
+            },
+            payload,
+            [],
+        )
 
     @staticmethod
     async def _close_stream(stream_resp: Any) -> None:
@@ -1613,6 +2091,10 @@ class LLMClient:
             "completion_tokens": int(cls._get(usage, "completion_tokens", 0) or 0),
             "total_tokens": int(cls._get(usage, "total_tokens", 0) or 0),
         }
+        prompt_details = cls._get(usage, "prompt_tokens_details", {}) or {}
+        cached_tokens = int(cls._get(prompt_details, "cached_tokens", 0) or 0)
+        out["cache_hit_tokens"] = cached_tokens
+        out["cache_miss_tokens"] = max(0, out["prompt_tokens"] - cached_tokens)
         return out
 
     @classmethod
@@ -1650,7 +2132,13 @@ class LLMClient:
         msg = str(exc)[:400]
         if "RateLimit" in name:
             return RateLimitError(f"provider rate limit: {msg}")
-        if "Timeout" in name or "APIConnection" in name:
+        msg_lower = msg.lower()
+        if (
+            "Timeout" in name
+            or "APIConnection" in name
+            or "upstream idle timeout" in msg_lower
+            or "gateway timeout" in msg_lower
+        ):
             return LLMTimeoutError(f"provider timeout/connection: {msg}", retryable=True)
         # A stream the provider drops mid-body (RemoteProtocolError / incomplete chunked
         # read) is the same transient transport fault as a connect failure: the response
@@ -1676,14 +2164,33 @@ class LLMClient:
             return LLMTimeoutError(f"provider stream dropped: [{name}] {msg}", retryable=True)
         if "BadRequest" in name and ("context" in msg.lower() or "maximum" in msg.lower()):
             return ContextOverflowError(f"context length exceeded: {msg}")
-        status = getattr(exc, "status_code", None)
+        raw_status = getattr(exc, "status_code", None)
+        if raw_status is None:
+            response = getattr(exc, "response", None)
+            raw_status = getattr(response, "status_code", None)
+        if raw_status is None:
+            body = getattr(exc, "body", None)
+            if isinstance(body, dict):
+                raw_status = body.get("code")
+                body_error = body.get("error")
+                if raw_status is None and isinstance(body_error, dict):
+                    raw_status = body_error.get("code")
+        try:
+            status = int(raw_status) if raw_status is not None else None
+        except (TypeError, ValueError):
+            status = None
+        if status == 429:
+            return RateLimitError(f"provider rate limit: {msg}", context={"status_code": status})
         # 402 = insufficient balance. Under the retry-until-success policy (max_retries<0)
         # a mid-run balance lapse should PAUSE-and-resume (retry until the account is topped
         # up), not terminally fail records and silently corrupt results. So treat it as a
-        # transient fault alongside the 5xx server errors.
-        retryable = status in (402, 500, 502, 503, 504) if status else False
-        return LLMError(f"provider error [{name}]: {msg}",
-                        context={"status_code": status}, retryable=retryable)
+        # transient fault alongside provider/CDN 5xx errors. OpenRouter can surface
+        # upstream failures as non-standard 520/522/524/529 statuses; these are transport
+        # faults too and must not become model-quality failures after a single request.
+        retryable = status in (402, 408, 425, 500, 502, 503, 504, 520, 522, 524, 529)
+        return LLMError(
+            f"provider error [{name}]: {msg}", context={"status_code": status}, retryable=retryable
+        )
 
     @staticmethod
     def _check_response(
@@ -1703,25 +2210,39 @@ class LLMClient:
                     "refusal": _safe_repr(refusal, limit=500),
                 },
             )
-        if not text.strip():
-            raise EmptyResponseError("model returned empty content",
-                                     context={"agent": agent, "finish_reason": finish})
         if finish == "length":
-            raise TruncatedResponseError("response truncated (finish_reason=length)",
-                                         context={
-                                             "agent": agent,
-                                             "finish_reason": finish,
-                                             "truncation": (
-                                                 provider_metadata or {}
-                                             ).get("truncation"),
-                                             "incomplete_details": (
-                                                 provider_metadata or {}
-                                             ).get("incomplete_details"),
-                                         })
+            raise TruncatedResponseError(
+                "response truncated (finish_reason=length)",
+                context={
+                    "agent": agent,
+                    "finish_reason": finish,
+                    "truncation": (provider_metadata or {}).get("truncation"),
+                    "incomplete_details": (provider_metadata or {}).get("incomplete_details"),
+                },
+            )
+        if not text.strip():
+            metadata = provider_metadata or {}
+            if metadata.get("stream_ended_before_first_token"):
+                message = "provider stream ended before first token"
+            elif int(metadata.get("reasoning_char_count") or 0) > 0:
+                message = "model returned reasoning without answer content"
+            else:
+                message = "model returned empty content"
+            raise EmptyResponseError(
+                message,
+                context={
+                    "agent": agent,
+                    "finish_reason": finish,
+                    "stream_chunk_count": metadata.get("stream_chunk_count"),
+                    "reasoning_char_count": metadata.get("reasoning_char_count"),
+                    "content_char_count": metadata.get("content_char_count"),
+                },
+            )
         low = text.strip().lower()
         if len(low) < 120 and any(low.startswith(m) for m in _REFUSAL_MARKERS):
-            raise RefusalError("response looks like a refusal",
-                               context={"agent": agent, "preview": text[:200]})
+            raise RefusalError(
+                "response looks like a refusal", context={"agent": agent, "preview": text[:200]}
+            )
 
     @staticmethod
     def _check_tool_response(
@@ -1743,20 +2264,20 @@ class LLMClient:
                 },
             )
         if finish == "length":
-            raise TruncatedResponseError("response truncated (finish_reason=length)",
-                                         context={
-                                             "agent": agent,
-                                             "finish_reason": finish,
-                                             "truncation": (
-                                                 provider_metadata or {}
-                                             ).get("truncation"),
-                                             "incomplete_details": (
-                                                 provider_metadata or {}
-                                             ).get("incomplete_details"),
-                                         })
+            raise TruncatedResponseError(
+                "response truncated (finish_reason=length)",
+                context={
+                    "agent": agent,
+                    "finish_reason": finish,
+                    "truncation": (provider_metadata or {}).get("truncation"),
+                    "incomplete_details": (provider_metadata or {}).get("incomplete_details"),
+                },
+            )
         if not text.strip() and not tool_calls:
-            raise EmptyResponseError("model returned empty content and no tool calls",
-                                     context={"agent": agent, "finish_reason": finish})
+            raise EmptyResponseError(
+                "model returned empty content and no tool calls",
+                context={"agent": agent, "finish_reason": finish},
+            )
 
     @staticmethod
     def _should_fallback_tool_choice(err: LLMError) -> bool:
@@ -1808,15 +2329,230 @@ class LLMClient:
         return model_name != "deepseek-chat"
 
     @staticmethod
-    def _task_logger_log_error(task_logger: "TaskLogger", call_id: str, model: str) -> str:
+    def _next_provider_attempt_index(attempts: list[dict[str, Any]]) -> int:
+        indices: list[int] = []
+        for item in attempts:
+            raw_index = item.get("provider_attempt_index")
+            try:
+                if raw_index is not None:
+                    indices.append(int(raw_index))
+            except (TypeError, ValueError):
+                continue
+        return max(indices, default=0) + 1
+
+    @staticmethod
+    def _provider_attempt_count(attempts: list[dict[str, Any]]) -> int:
+        indices: set[int] = set()
+        for item in attempts:
+            raw_index = item.get("provider_attempt_index")
+            try:
+                if raw_index is not None:
+                    indices.add(int(raw_index))
+            except (TypeError, ValueError):
+                continue
+        if indices:
+            return len(indices)
+        # Backward-compatible fallback for diagnostics created before provider
+        # attempts carried a stable index.  A send followed by send_error is one
+        # provider request, not two.
+        sends = sum(1 for item in attempts if item.get("kind") == "send")
+        errors_without_response = sum(
+            1
+            for item in attempts
+            if item.get("kind") == "send_error"
+            and not (item.get("attempt_diagnostics") or {}).get("response_received")
+        )
+        return sends + errors_without_response
+
+    @staticmethod
+    def _task_logger_settle_received_attempt(
+        task_logger: "TaskLogger",
+        *,
+        agent: str,
+        call_id: str,
+        model: str,
+        repair_index: int,
+        call_status: str,
+        attempts: list[dict[str, Any]],
+        request_config: dict[str, Any],
+        retry_kind: str | None = None,
+        error: LLMError | None = None,
+        failure_phase: str | None = None,
+    ) -> None:
+        """Settle the latest received response after output validation.
+
+        A transport-successful response is not a successful provider attempt
+        until any requested JSON/schema validation also accepts it.  Deferring
+        this one ledger append lets rejected parse/schema responses carry their
+        anomaly evidence on the original provider-attempt row.
+        """
+
+        provider_attempt = next(
+            (
+                item
+                for item in reversed(attempts)
+                if item.get("kind") == "send"
+                and item.get("repair_index") == repair_index
+                and not item.get("provider_attempt_ledger_settled")
+            ),
+            None,
+        )
+        if provider_attempt is None:
+            raise RuntimeError(
+                f"no unsettled provider response for call={call_id} repair={repair_index}"
+            )
+        provider_attempt_index = int(provider_attempt["provider_attempt_index"])
+        transport_attempt = int(provider_attempt.get("attempt", 0)) + 1
+        LLMClient._task_logger_log_attempt(
+            task_logger,
+            agent=agent,
+            call_id=call_id,
+            model=model,
+            provider_attempt_index=provider_attempt_index,
+            transport_attempt=transport_attempt,
+            repair_index=repair_index,
+            call_status=call_status,
+            provider_attempt=provider_attempt,
+            request_config=request_config,
+            retry_kind=retry_kind,
+            error=error,
+            failure_phase=failure_phase,
+        )
+        provider_attempt["provider_attempt_ledger_settled"] = True
+
+    @staticmethod
+    def _task_logger_log_attempt(
+        task_logger: "TaskLogger",
+        *,
+        agent: str,
+        call_id: str,
+        model: str,
+        provider_attempt_index: int,
+        transport_attempt: int,
+        repair_index: int,
+        call_status: str,
+        provider_attempt: dict[str, Any] | None,
+        request_config: dict[str, Any],
+        retry_kind: str | None = None,
+        error: LLMError | None = None,
+        failure_phase: str | None = None,
+    ) -> None:
+        """Flush exactly one durable billing/routing row for a provider request."""
+
+        response_received = provider_attempt is not None
+        usage = provider_attempt.get("usage") if response_received else None
+        if not isinstance(usage, dict):
+            usage = None
+        provider_metadata = provider_attempt.get("provider_metadata") if response_received else None
+        if not isinstance(provider_metadata, dict):
+            provider_metadata = None
+        response_anomaly_evidence: dict[str, Any] | None = None
+        if response_received and call_status != "success":
+            existing_evidence = provider_attempt.get("response_anomaly_evidence")
+            if isinstance(existing_evidence, dict):
+                response_anomaly_evidence = existing_evidence
+            else:
+                response_text = str(provider_attempt.get("response") or "")
+                try:
+                    response_anomaly_evidence = task_logger.write_llm_response_anomaly_evidence(
+                        call_id,
+                        provider_attempt_index=provider_attempt_index,
+                        transport_attempt=transport_attempt,
+                        repair_index=repair_index,
+                        response_text=response_text,
+                        call_status=call_status,
+                        failure_phase=failure_phase or "provider_response_validation",
+                        anomaly=(
+                            error.anomaly.value if error is not None and error.anomaly else None
+                        ),
+                        error_type=(type(error).__name__ if error is not None else None),
+                        finish_reason=provider_attempt.get("finish_reason"),
+                    )
+                    response_anomaly_evidence["write_status"] = "written"
+                except Exception as evidence_error:  # noqa: BLE001 - preserve billing row
+                    response_anomaly_evidence = {
+                        "schema": "tend.provider_response_anomaly.v1",
+                        "write_status": "error",
+                        "error_type": type(evidence_error).__name__,
+                        "error_message": str(evidence_error),
+                    }
+                    task_logger.warning(
+                        "llm_response_anomaly_evidence_write_failed",
+                        call_id=call_id,
+                        provider_attempt_index=provider_attempt_index,
+                        repair_index=repair_index,
+                        error_type=type(evidence_error).__name__,
+                        error_message=str(evidence_error),
+                    )
+                provider_attempt["response_anomaly_evidence"] = response_anomaly_evidence
+        provider_cost = LLMClient._provider_cost_usd(provider_metadata)
+        if provider_cost is None:
+            cost_source = "unknown"
+        elif call_status == "retry":
+            cost_source = "provider_usage_retry"
+        elif call_status == "error":
+            cost_source = "provider_usage_error"
+        else:
+            cost_source = "provider_usage"
+        task_logger.log_llm_attempt(
+            call_id,
+            agent=agent,
+            model=model,
+            provider_attempt_index=provider_attempt_index,
+            transport_attempt=transport_attempt,
+            repair_index=repair_index,
+            call_status=call_status,
+            response_received=response_received,
+            usage=usage,
+            finish_reason=(provider_attempt.get("finish_reason") if response_received else None),
+            cost_usd=provider_cost,
+            cost_source=cost_source,
+            provider_metadata=provider_metadata,
+            request_config=request_config,
+            retry_kind=retry_kind,
+            anomaly=(error.anomaly.value if error is not None and error.anomaly else None),
+            error=error.to_record() if error is not None else None,
+            response_anomaly_evidence=response_anomaly_evidence,
+        )
+
+    @staticmethod
+    def _task_logger_log_error(
+        task_logger: "TaskLogger",
+        call_id: str,
+        model: str,
+        *,
+        attempts: list[dict[str, Any]],
+        request_config: dict[str, Any],
+        error: BaseException,
+    ) -> str:
         """Close out a failed TaskLogger-logged call, returning its ``llm/<call_id>.md`` ref."""
+        provider_attempt = next(
+            (item for item in reversed(attempts) if item.get("kind") == "send"),
+            {},
+        )
+        usage = provider_attempt.get("usage")
+        if not isinstance(usage, dict):
+            usage = {"prompt_tokens": 0, "completion_tokens": 0}
+        provider_metadata = provider_attempt.get("provider_metadata")
+        provider_cost = LLMClient._provider_cost_usd(provider_metadata)
         task_logger.log_llm_response(
             call_id,
-            response_raw={"model": model},
-            usage={"prompt_tokens": 0, "completion_tokens": 0},
+            response_raw={
+                "model": model,
+                "call_status": "error",
+                "attempt_count": LLMClient._provider_attempt_count(attempts),
+                "request_config": request_config,
+                "provider_metadata": provider_metadata,
+                "error": {
+                    "type": type(error).__name__,
+                    "message": str(error),
+                },
+            },
+            usage=usage,
             finish_reason="error",
-            cost_usd=0.0,
-            cost_source="error",
+            cost_usd=provider_cost or 0.0,
+            cost_source="provider_usage_error" if provider_cost is not None else "error",
+            append_cost_record=False,
         )
         return str(getattr(task_logger, "last_llm_call_path", None) or "")
 
@@ -1826,6 +2562,19 @@ class LLMClient:
         if any(int(usage.get(key, 0) or 0) > 0 for key in token_keys):
             return "token_usage_only"
         return "unavailable"
+
+    @staticmethod
+    def _provider_cost_usd(provider_metadata: Any) -> float | None:
+        if not isinstance(provider_metadata, dict):
+            return None
+        provider_usage = provider_metadata.get("provider_usage")
+        if not isinstance(provider_usage, dict):
+            return None
+        raw_cost = provider_usage.get("cost")
+        try:
+            return float(raw_cost) if raw_cost is not None else None
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _reasoning_content(usage: dict[str, Any]) -> str:
@@ -1887,9 +2636,7 @@ class LLMClient:
             reason = "network_transient"
         else:
             reason = "api_transient"
-        max_attempts = (
-            None if self._s.llm.max_retries < 0 else self._s.llm.max_retries + 1
-        )
+        max_attempts = None if self._s.llm.max_retries < 0 else self._s.llm.max_retries + 1
         try:
             callback(
                 reason,
@@ -1933,15 +2680,26 @@ class LLMClient:
         lines = "\n".join(f"  - {d}" for d in detail)
         tail = ""
         if schema is not None and err.anomaly == Anomaly.SCHEMA_INVALID:
-            tail = ("\nReturn ONLY a JSON object that conforms to the required schema. "
-                    "Do not include prose or code fences.")
-        return (f"Your previous reply was rejected:\n{lines}\n"
-                f"Fix it and reply again.{tail}")
+            tail = (
+                "\nReturn ONLY a JSON object that conforms to the required schema. "
+                "Do not include prose or code fences."
+            )
+        return f"Your previous reply was rejected:\n{lines}\nFix it and reply again.{tail}"
 
     def _finish(
-        self, agent: str, call_id: str, model: str, text: str, parsed: Any,
-        finish: str | None, usage: dict[str, int], t0: float,
-        attempts: list[dict[str, Any]], log: RunLogger, *, messages: list[Message],
+        self,
+        agent: str,
+        call_id: str,
+        model: str,
+        text: str,
+        parsed: Any,
+        finish: str | None,
+        usage: dict[str, int],
+        t0: float,
+        attempts: list[dict[str, Any]],
+        log: RunLogger,
+        *,
+        messages: list[Message],
         request_config: dict[str, Any],
         task_logger: "TaskLogger | None" = None,
     ) -> LLMResult:
@@ -1955,7 +2713,10 @@ class LLMClient:
             None,
         )
         if task_logger is not None:
-            cost_source = self._cost_source(usage)
+            provider_cost = self._provider_cost_usd(provider_metadata)
+            cost_source = (
+                "provider_usage" if provider_cost is not None else self._cost_source(usage)
+            )
             message: dict[str, Any] = {"role": "assistant", "content": text}
             reasoning_content = self._reasoning_content(usage)
             if reasoning_content:
@@ -1964,14 +2725,18 @@ class LLMClient:
                 call_id,
                 response_raw={
                     "model": model,
+                    "call_status": "success",
+                    "attempt_count": self._provider_attempt_count(attempts),
                     "choices": [{"message": message, "finish_reason": finish}],
                     "usage": usage,
                     "provider_metadata": provider_metadata,
+                    "request_config": request_config,
                 },
                 usage=usage,
                 finish_reason=finish or "unknown",
-                cost_usd=0.0,
+                cost_usd=provider_cost or 0.0,
                 cost_source=cost_source,
+                append_cost_record=False,
             )
             self._notify_usage_progress(
                 call_id=call_id,
@@ -1980,23 +2745,35 @@ class LLMClient:
             )
             ref = str(getattr(task_logger, "last_llm_call_path", None) or "")
             return LLMResult(
-                agent=agent, call_id=call_id, model=model, text=text, parsed=parsed,
-                finish_reason=finish, usage=usage, latency_s=latency,
-                attempts=len(attempts), transcript_ref=ref, diagnostics_ref=ref,
+                agent=agent,
+                call_id=call_id,
+                model=model,
+                text=text,
+                parsed=parsed,
+                finish_reason=finish,
+                usage=usage,
+                latency_s=latency,
+                attempts=self._provider_attempt_count(attempts),
+                transcript_ref=ref,
+                diagnostics_ref=ref,
             )
-        ref = log.save_transcript(agent, call_id, {
-            "model": model,
-            **request_config,
-            "messages": messages,
-            "attempts": attempts,
-            "response_text": text,
-            "parsed": parsed,
-            "finish_reason": finish,
-            "usage": usage,
-            "latency_s": latency,
-            "parsed_ok": parsed is not None,
-            "provider_metadata": provider_metadata,
-        })
+        ref = log.save_transcript(
+            agent,
+            call_id,
+            {
+                "model": model,
+                **request_config,
+                "messages": messages,
+                "attempts": attempts,
+                "response_text": text,
+                "parsed": parsed,
+                "finish_reason": finish,
+                "usage": usage,
+                "latency_s": latency,
+                "parsed_ok": parsed is not None,
+                "provider_metadata": provider_metadata,
+            },
+        )
         diagnostics_ref = _llm_diagnostics_ref(log, agent, call_id, transcript_ref=ref)
         if self._s.llm.slow_call_warn_s > 0 and latency >= self._s.llm.slow_call_warn_s:
             log.warning(
@@ -2010,19 +2787,34 @@ class LLMClient:
                 transcript_ref=ref,
                 diagnostics_ref=diagnostics_ref,
             )
-        log.info("llm_call_ok", agent=agent, call_id=call_id, model=model,
-                 attempts=len(attempts), latency_s=latency,
-                 total_tokens=usage.get("total_tokens", 0),
-                 transcript_ref=ref, diagnostics_ref=diagnostics_ref)
+        log.info(
+            "llm_call_ok",
+            agent=agent,
+            call_id=call_id,
+            model=model,
+            attempts=len(attempts),
+            latency_s=latency,
+            total_tokens=usage.get("total_tokens", 0),
+            transcript_ref=ref,
+            diagnostics_ref=diagnostics_ref,
+        )
         self._notify_usage_progress(
             call_id=call_id,
             usage=usage,
             cost_source=self._cost_source(usage),
         )
         return LLMResult(
-            agent=agent, call_id=call_id, model=model, text=text, parsed=parsed,
-            finish_reason=finish, usage=usage, latency_s=latency,
-            attempts=len(attempts), transcript_ref=ref, diagnostics_ref=diagnostics_ref,
+            agent=agent,
+            call_id=call_id,
+            model=model,
+            text=text,
+            parsed=parsed,
+            finish_reason=finish,
+            usage=usage,
+            latency_s=latency,
+            attempts=self._provider_attempt_count(attempts),
+            transcript_ref=ref,
+            diagnostics_ref=diagnostics_ref,
         )
 
     def _finish_tools(
@@ -2059,23 +2851,27 @@ class LLMClient:
             assistant_message["reasoning_content"] = reasoning_content
         if tool_calls:
             assistant_message["tool_calls"] = tool_calls
-        ref = log.save_transcript(agent, call_id, {
-            "model": model,
-            **request_config,
-            "messages": messages,
-            "tool_choice_fallback": tool_choice_fallback,
-            "attempts": attempts,
-            "assistant_message": assistant_message,
-            "response_text": text,
-            "tool_calls": tool_calls,
-            "finish_reason": finish,
-            "usage": usage,
-            "latency_s": latency,
-            "parsed_ok": None,
-            "provider_metadata": provider_metadata,
-            "raw_response": _json_safe(raw),
-            "cost_source": cost_source,
-        })
+        ref = log.save_transcript(
+            agent,
+            call_id,
+            {
+                "model": model,
+                **request_config,
+                "messages": messages,
+                "tool_choice_fallback": tool_choice_fallback,
+                "attempts": attempts,
+                "assistant_message": assistant_message,
+                "response_text": text,
+                "tool_calls": tool_calls,
+                "finish_reason": finish,
+                "usage": usage,
+                "latency_s": latency,
+                "parsed_ok": None,
+                "provider_metadata": provider_metadata,
+                "raw_response": _json_safe(raw),
+                "cost_source": cost_source,
+            },
+        )
         diagnostics_ref = _llm_diagnostics_ref(log, agent, call_id, transcript_ref=ref)
         if self._s.llm.slow_call_warn_s > 0 and latency >= self._s.llm.slow_call_warn_s:
             log.warning(
@@ -2089,12 +2885,19 @@ class LLMClient:
                 transcript_ref=ref,
                 diagnostics_ref=diagnostics_ref,
             )
-        log.info("llm_call_ok", agent=agent, call_id=call_id, model=model,
-                 attempts=len(attempts), latency_s=latency,
-                 total_tokens=usage.get("total_tokens", 0),
-                 tool_calls=len(tool_calls),
-                 cost_source=cost_source,
-                 transcript_ref=ref, diagnostics_ref=diagnostics_ref)
+        log.info(
+            "llm_call_ok",
+            agent=agent,
+            call_id=call_id,
+            model=model,
+            attempts=len(attempts),
+            latency_s=latency,
+            total_tokens=usage.get("total_tokens", 0),
+            tool_calls=len(tool_calls),
+            cost_source=cost_source,
+            transcript_ref=ref,
+            diagnostics_ref=diagnostics_ref,
+        )
         self._notify_usage_progress(
             call_id=call_id,
             usage=usage,

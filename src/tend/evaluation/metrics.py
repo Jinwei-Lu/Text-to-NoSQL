@@ -10,6 +10,7 @@ Operational failures such as missing predictions, missing witness data, or Mongo
 unavailability are logged as anomalies. Bad model predictions are scored as 0 where the
 proposal says so and are kept in the diagnostic counters rather than aborting the run.
 """
+
 from __future__ import annotations
 
 import csv
@@ -77,15 +78,15 @@ DIAGNOSTIC_METRICS: tuple[str, ...] = tuple(
 # bucket, so per-system fractions sum to 1 (the loss-accounting identity:
 # EXC + Σ non-correct buckets = 1). Buckets are keyed on the same row identity as EXF1.
 OUTCOME_BUCKETS: tuple[str, ...] = (
-    "correct",        # headline EXC = 1
+    "correct",  # headline EXC = 1
     "no_submission",  # typed *_failure artifact or missing prediction
-    "invalid",        # parse failure or banned operator (validity gate)
-    "exec_error",     # parsed and clean, but execution raised
-    "empty",          # executed to an empty result against a non-empty gold
-    "order_only",     # right row multiset, wrong order on an order-sensitive gold
-    "row_subset",     # predicted rows are a proper sub-multiset of gold rows
-    "row_superset",   # gold rows are a proper sub-multiset of predicted rows
-    "value_mismatch", # overlapping/disjoint rows: at least one row's values are wrong
+    "invalid",  # parse failure or banned operator (validity gate)
+    "exec_error",  # parsed and clean, but execution raised
+    "empty",  # executed to an empty result against a non-empty gold
+    "order_only",  # right row multiset, wrong order on an order-sensitive gold
+    "row_subset",  # predicted rows are a proper sub-multiset of gold rows
+    "row_superset",  # gold rows are a proper sub-multiset of predicted rows
+    "value_mismatch",  # overlapping/disjoint rows: at least one row's values are wrong
 )
 SLICE_AXES: tuple[str, ...] = (
     "domain",
@@ -101,11 +102,13 @@ DIAGNOSTIC_SLICE_AXES: tuple[str, ...] = (
     "structural_sql_solvable",
     "sql_infeasibility_class",
 )
-FAILURE_RESULT_TYPES = frozenset({
-    "solver_failure",
-    "baseline_failure",
-    "ablation_failure",
-})
+FAILURE_RESULT_TYPES = frozenset(
+    {
+        "solver_failure",
+        "baseline_failure",
+        "ablation_failure",
+    }
+)
 DIAGNOSTIC_REF_KEYS: tuple[str, ...] = (
     "transcript_refs",
     "diagnostics_refs",
@@ -128,11 +131,9 @@ ORDER_SENSITIVE_ROOT_OPS = {"$sort", "$limit", "$skip", "$setWindowFields"}
 
 
 class EvaluationExecutor(Protocol):
-    def load_witness(self, db_id: str, collections: dict[str, list[dict[str, Any]]]) -> None:
-        ...
+    def load_witness(self, db_id: str, collections: dict[str, list[dict[str, Any]]]) -> None: ...
 
-    def norm_exec(self, db_id: str, mql: str) -> list[dict[str, Any]]:
-        ...
+    def norm_exec(self, db_id: str, mql: str) -> list[dict[str, Any]]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -551,7 +552,11 @@ def _prepare_gold_records(
         db_id = str(record.get("db_id") or "")
         record_id = record.get("record_id")
         mql = str(record.get("MQL") or "")
-        cfs = record.get("canonical_form_set") if isinstance(record.get("canonical_form_set"), dict) else {}
+        cfs = (
+            record.get("canonical_form_set")
+            if isinstance(record.get("canonical_form_set"), dict)
+            else {}
+        )
         try:
             parsed = parse_pipeline(mql)
             disabled = scan_disabled(mql)
@@ -602,8 +607,7 @@ def _normalize_cfs_against_gold(
     must_not_root = out.get("must_not_contain_at_root")
     if isinstance(must_not_root, list):
         out["must_not_contain_at_root"] = [
-            str(op) for op in must_not_root
-            if str(op) not in gold_root_ops
+            str(op) for op in must_not_root if str(op) not in gold_root_ops
         ]
     return out
 
@@ -670,12 +674,14 @@ def _missing_prediction_rows(
             key = _record_key(record)
             if key in predicted_keys:
                 continue
-            rows.append(_missing_prediction_row(
-                record,
-                run_id=run_id,
-                experiment_kind=experiment_kind,
-                system_id=system_id,
-            ))
+            rows.append(
+                _missing_prediction_row(
+                    record,
+                    run_id=run_id,
+                    experiment_kind=experiment_kind,
+                    system_id=system_id,
+                )
+            )
     return rows
 
 
@@ -684,6 +690,32 @@ def _zero_metrics() -> dict[str, Any]:
     for name in GRADED_METRICS:
         metrics[name] = 0.0
     return metrics
+
+
+def evaluation_input_sha256(prediction: dict[str, Any]) -> str:
+    """Hash the exact persisted evaluation-input row, excluding loader metadata.
+
+    ``_prediction_line`` is injected only after the JSONL row is read and therefore is
+    not part of the persisted scientific result.  Everything else, including MQL,
+    failure fields, disclosures, and step traces, is hash-bound.
+    """
+
+    persisted = {key: value for key, value in prediction.items() if key != "_prediction_line"}
+    encoded = json.dumps(
+        persisted,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _result_binding(prediction: dict[str, Any]) -> dict[str, str]:
+    digest = evaluation_input_sha256(prediction)
+    return {
+        "evaluation_input_sha256": digest,
+        "prediction_sha256": digest,
+    }
 
 
 def _missing_prediction_row(
@@ -719,6 +751,8 @@ def _missing_prediction_row(
             "batch_index": None,
             "result_type": "missing_prediction",
         },
+        "evaluation_input_sha256": None,
+        "prediction_sha256": None,
     }
 
 
@@ -932,6 +966,7 @@ def _score_one_prediction_inner(
         "diagnostics": diagnostics,
         "slice_keys": _slice_keys(record, gold_record.parsed),
         "prediction_ref": _prediction_ref(prediction),
+        **_result_binding(prediction),
     }
 
 
@@ -963,6 +998,7 @@ def _failed_record_row(
         "diagnostics": {"error_code": error_code, "message": message},
         "slice_keys": {},
         "prediction_ref": _prediction_ref(prediction),
+        **_result_binding(prediction),
     }
 
 
@@ -1006,6 +1042,7 @@ def _failure_artifact_row(
         },
         "slice_keys": _slice_keys(record, gold_record.parsed),
         "prediction_ref": _prediction_ref(prediction),
+        **_result_binding(prediction),
     }
 
 
@@ -1164,7 +1201,9 @@ def _slice_keys(
             or "unknown"
         ),
         "schema_flex": str(record.get("schema_flex") or "none"),
-        "difficulty_tier": str(record.get("difficulty_tier") or record.get("difficulty") or "unknown"),
+        "difficulty_tier": str(
+            record.get("difficulty_tier") or record.get("difficulty") or "unknown"
+        ),
         "anti_sql_transfer_level": str(record.get("anti_sql_transfer_level") or "unknown"),
         "functional_sql_solvable": str(record.get("functional_sql_solvable", "unknown")),
         "structural_sql_solvable": str(record.get("structural_sql_solvable", "unknown")),
@@ -1233,20 +1272,24 @@ def _write_per_record(paths: EvaluationPaths, rows: list[dict[str, Any]]) -> Non
         for row in rows:
             metrics = row.get("metrics") or {}
             diagnostics = row.get("diagnostics") or {}
-            writer.writerow({
-                "run_id": row.get("run_id"),
-                "experiment_kind": row.get("experiment_kind"),
-                "system_id": row.get("system_id"),
-                "db_id": row.get("db_id"),
-                "record_id": row.get("record_id"),
-                "prediction_index": row.get("prediction_index"),
-                "status": row.get("status"),
-                **{name: metrics.get(name, 0) for name in ALL_METRICS},
-                "outcome": row.get("outcome") or "",
-                "fingerprint": "".join(str(metrics.get(name, 0)) for name in EVALUATION_METRICS),
-                "error_code": diagnostics.get("error_code")
-                or _diagnostic_error_code(diagnostics),
-            })
+            writer.writerow(
+                {
+                    "run_id": row.get("run_id"),
+                    "experiment_kind": row.get("experiment_kind"),
+                    "system_id": row.get("system_id"),
+                    "db_id": row.get("db_id"),
+                    "record_id": row.get("record_id"),
+                    "prediction_index": row.get("prediction_index"),
+                    "status": row.get("status"),
+                    **{name: metrics.get(name, 0) for name in ALL_METRICS},
+                    "outcome": row.get("outcome") or "",
+                    "fingerprint": "".join(
+                        str(metrics.get(name, 0)) for name in EVALUATION_METRICS
+                    ),
+                    "error_code": diagnostics.get("error_code")
+                    or _diagnostic_error_code(diagnostics),
+                }
+            )
 
 
 def _diagnostic_error_code(diagnostics: dict[str, Any]) -> str:
@@ -1428,7 +1471,7 @@ def _mcnemar_exact(b: int, c: int) -> float:
     if n == 0:
         return 1.0
     k = min(b, c)
-    tail = sum(math.comb(n, i) for i in range(k + 1)) / (2 ** n)
+    tail = sum(math.comb(n, i) for i in range(k + 1)) / (2**n)
     return round(min(1.0, 2 * tail), 6)
 
 
@@ -1545,17 +1588,19 @@ def _diagnostic_artifact_refs(rows: list[dict[str, Any]]) -> dict[str, Any]:
         }
         if not trace:
             continue
-        items.append({
-            "system_id": row.get("system_id"),
-            "db_id": row.get("db_id"),
-            "record_id": row.get("record_id"),
-            "prediction_index": row.get("prediction_index"),
-            "prediction_line": row.get("prediction_line"),
-            "work_item_id": prediction_ref.get("work_item_id"),
-            "batch_index": prediction_ref.get("batch_index"),
-            "result_type": prediction_ref.get("result_type"),
-            **trace,
-        })
+        items.append(
+            {
+                "system_id": row.get("system_id"),
+                "db_id": row.get("db_id"),
+                "record_id": row.get("record_id"),
+                "prediction_index": row.get("prediction_index"),
+                "prediction_line": row.get("prediction_line"),
+                "work_item_id": prediction_ref.get("work_item_id"),
+                "batch_index": prediction_ref.get("batch_index"),
+                "result_type": prediction_ref.get("result_type"),
+                **trace,
+            }
+        )
     return {
         "count": len(items),
         "items": items[:200],
@@ -1661,7 +1706,8 @@ def _render_markdown_report(report: dict[str, Any]) -> str:
             delta_ex = deltas.get(HEADLINE_METRIC, "")
             mcnemar = (
                 payload.get("mcnemar_vs_reference")
-                if isinstance(payload, dict) and isinstance(payload.get("mcnemar_vs_reference"), dict)
+                if isinstance(payload, dict)
+                and isinstance(payload.get("mcnemar_vs_reference"), dict)
                 else {}
             )
             p_value = mcnemar.get("p_value", "")

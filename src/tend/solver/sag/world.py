@@ -11,6 +11,8 @@ need live probes fail open, execution-grounded repair is skipped).
 """
 from __future__ import annotations
 
+import os as _os
+
 from typing import Any, Protocol, runtime_checkable
 
 from ...errors import ExecutionError
@@ -41,6 +43,12 @@ class WorldAccess(Protocol):
     ) -> dict[str, Any] | None: ...
 
 
+SPREAD_SAMPLE = _os.environ.get("TEND_SAG_SPREAD_SAMPLE", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
 class MongoWorld:
     """Live world over the executor's working database.
 
@@ -63,12 +71,45 @@ class MongoWorld:
             ) from exc
 
     def sample_docs(self, collection: str, n: int) -> list[dict[str, Any]]:
+        """The sample the whole method is induced from.
+
+        ``$limit n`` takes the FRONT of the collection, and the front is not the collection.
+        `f1_actor_profiles` stores 840 drivers, then 208 constructors, then 72 circuits, in
+        that order: its first 400 documents are 400 drivers and contain not one constructor or
+        circuit. That is the entire cause of "the summary only ever describes one document
+        shape" — the other shapes were never read.
+
+        Under ``TEND_SAG_SPREAD_SAMPLE`` the same budget is spread over the collection with a
+        stride instead. Measured: of the 70 reference answers that need a field the front
+        sample misses, a spread sample shows it on 62. It KEEPS no more documents than the
+        budget — but the client-side stride streams the whole collection over the wire to do
+        it, with no time bound on this path, which is why the flag is off by default and the
+        review recorded it as out of scope for the solver (the baseline's sample is equally
+        front-biased, so a one-sided cure is a gift, not a method improvement).
+
+        The stride must be ``ceil(count/n)`` and the result must not then be truncated. Striding
+        by ``count // n`` and cutting to ``n`` walks only the first ``n * (count//n)`` documents,
+        which for 1,120 documents and a budget of 400 is the first 800 — still entirely inside
+        the drivers. That mistake makes the fix look useless.
+        """
         try:
-            return [
+            if not SPREAD_SAMPLE:
+                return [
+                    d
+                    for d in self._db[collection].aggregate([{"$limit": int(n)}], allowDiskUse=True)
+                    if isinstance(d, dict)
+                ]
+            total = int(self._db[collection].estimated_document_count() or 0)
+            if total <= int(n):
+                step = 1
+            else:
+                step = -(-total // int(n))  # ceil
+            out = [
                 d
-                for d in self._db[collection].aggregate([{"$limit": int(n)}], allowDiskUse=True)
-                if isinstance(d, dict)
+                for i, d in enumerate(self._db[collection].find({}))
+                if i % step == 0 and isinstance(d, dict)
             ]
+            return out
         except Exception as exc:  # noqa: BLE001
             raise ExecutionError(
                 "cannot sample documents",
