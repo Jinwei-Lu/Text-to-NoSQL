@@ -333,6 +333,13 @@ def _base_user(ctx: BaselinePromptContext) -> str:
     return "\n".join(lines)
 
 
+# Step ids the runner mirrors into state; see `_mql_user`.
+_STEP_SCOPED_KEYS = frozenset(
+    {"sql", "mql", "link", "classify", "generate", "correct", "plan", "think",
+     "draft", "repair"}
+)
+
+
 def _mql_user(
     ctx: BaselinePromptContext,
     state: JsonMap,
@@ -340,8 +347,12 @@ def _mql_user(
     extra: str = "",
 ) -> list[Message]:
     body = _base_user(ctx)
-    if state:
-        body += "\n\n## Prior baseline state\n" + _json_block(state)
+    # The runner keeps two copies of each step's output: the flat keys these arms have
+    # always read, and a step-scoped copy for arms that need to name which step they mean.
+    # Dump only the flat half, or every prompt would carry the same values twice.
+    visible = {k: v for k, v in state.items() if k not in _STEP_SCOPED_KEYS}
+    if visible:
+        body += "\n\n## Prior baseline state\n" + _json_block(visible)
     if extra:
         body += "\n\n## Additional instruction\n" + extra
     body += (
@@ -491,10 +502,10 @@ CLASSIFY_SCHEMA: JsonMap = {
     "additionalProperties": False,
 }
 
-# DIN-SQL (Pourreza & Rafiei, NeurIPS 2023) exemplars, ported to MQL. The originals are
-# hand-written Spider SQL; ours are FIXED, identical for every question, and drawn only
-# from MongoDB's public Atlas sample databases -- never from a TEND database, question or
-# reference answer. Nothing here is retrieved per question: this arm is not RAG.
+# Fixed examples for the DIN-SQL-inspired MQL adaptation. The predicted class selects one
+# of three two-example blocks, so the library is fixed but the injected block is
+# class-conditional. The examples were written from public MongoDB sample data and are not
+# retrieved per question. Disjointness from TEND text is audited outside this loader.
 _DINSQL_EXEMPLARS: dict | None = None
 
 
@@ -537,12 +548,11 @@ def _link_messages(ctx: BaselinePromptContext, state: JsonMap) -> list[Message]:
 
 
 def _dinsql_body(ctx: BaselinePromptContext, link: JsonMap, blocks: list[str]) -> str:
-    """Context for DIN-SQL modules 2-4.
+    """Context for the DIN-SQL-inspired modules 2-4.
 
-    Module 1 reads the sampled documents and decides what matters; the later modules see
-    that pruned structure instead of the full document dump. That is the paper's design,
-    and it keeps these prompts small — passing the whole sample to every module produced
-    ~96k-token requests and provider timeouts.
+    Later modules receive complete sampled documents for collections kept by module 1.
+    Individual fields are not removed according to the returned path list. If no linked
+    collection survives, the implementation falls back to the full witness digest.
     """
     kept = [str(c) for c in (link.get("collections") or [])]
     digest = ctx.witness_digest or {}
@@ -894,14 +904,15 @@ _BASELINES: dict[str, BaselineSpec] = {
     ),
     "dinsql_mql": BaselineSpec(
         id="dinsql_mql",
-        title="DIN-SQL adapted to MQL",
+        title="DIN-SQL-inspired MQL adaptation",
         description=(
-            "Reviewer-requested external pipeline (Pourreza & Rafiei, NeurIPS 2023) "
-            "ported to MongoDB: schema linking, classification and decomposition, "
-            "generation, self-correction. Exemplars are FIXED (identical for every "
-            "question, no retrieval) and come only from MongoDB's public Atlas sample "
-            "databases, never from a TEND database, question or reference answer. The "
-            "SQL-specific NatSQL intermediate is dropped; MQL is generated directly."
+            "Task-specific adaptation inspired by the four-stage DIN-SQL decomposition "
+            "(Pourreza & Rafiei, NeurIPS 2023): document linking, document-oriented "
+            "classification and decomposition, direct MQL generation, and self-correction. "
+            "Generation receives two fixed examples selected by the predicted class, with "
+            "no per-question retrieval. The relational schema channel, original class "
+            "taxonomy, and SQL-specific NatSQL intermediate are replaced rather than "
+            "ported unchanged."
         ),
         steps=(
             BaselineStep("link", "baseline_dinsql_link", "schema linking", LINK_SCHEMA, _link_messages),

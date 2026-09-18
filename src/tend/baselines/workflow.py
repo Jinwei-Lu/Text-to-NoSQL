@@ -641,7 +641,11 @@ async def run_baseline_record(
                     task_log=task_log,
                 )
                 traces.append(trace)
+                # Flat keys keep the single-step arms working; the step-scoped copy is what
+                # multi-step arms read, so a later step can name which earlier step it wants
+                # instead of hoping the key did not collide.
                 state.update(output)
+                state[step.id] = dict(output)
 
         mql = _extract_mql(state)
         final_feedback = static_mql_feedback(mql)
@@ -868,6 +872,7 @@ async def _run_consistency_baseline(
             )
             traces.append(trace)
             state.update(output)
+            state[step.id] = dict(output)
         return _extract_mql(state), traces
 
     outcomes = await asyncio.gather(*[one_attempt(i) for i in range(k)], return_exceptions=True)

@@ -56,6 +56,13 @@ class SagAblationSpec:
     bisection_override: bool | None = None
     card_mode: str = "lattice"
     variant_label: str = ""
+    database_context_mode: str = "induced"
+    use_gate_repair: bool | None = None
+    limit_contract_override: bool | None = None
+    synthetic_id_override: bool | None = None
+    card_literal_examples: bool = True
+    raw_docs_per_collection: int = 3
+    raw_doc_prefix_bytes: int = 12_288
 
     def to_policy(self, *, overrides: dict[str, Any] | None = None) -> SAGPolicy:
         policy = SAGPolicy(
@@ -65,6 +72,13 @@ class SagAblationSpec:
             bisection_override=self.bisection_override,
             card_mode=self.card_mode,
             variant_label=self.variant_label,
+            database_context_mode=self.database_context_mode,
+            use_gate_repair=self.use_gate_repair,
+            limit_contract_override=self.limit_contract_override,
+            synthetic_id_override=self.synthetic_id_override,
+            card_literal_examples=self.card_literal_examples,
+            raw_docs_per_collection=self.raw_docs_per_collection,
+            raw_doc_prefix_bytes=self.raw_doc_prefix_bytes,
         )
         if overrides:
             unknown = sorted(set(overrides) - set(SWEEP_OVERRIDE_KEYS))
@@ -94,6 +108,14 @@ class SagAblationSpec:
             "card_mode": policy.card_mode,
             "sample_docs": policy.sample_docs,
             "card_cap": policy.card_cap,
+            "database_context_mode": policy.database_context_mode,
+            "uses_value_witnesses": policy.use_value_witnesses,
+            "uses_gate_repair": policy.gate_repair_enabled,
+            "uses_limit_contract": policy.use_limit_contract,
+            "uses_card_literal_examples": bool(policy.card_literal_examples)
+            and policy.database_context_mode == "induced",
+            "raw_docs_per_collection": policy.raw_docs_per_collection,
+            "raw_doc_prefix_bytes": policy.raw_doc_prefix_bytes,
             "mechanism_claims": list(self.mechanism_claims),
             "disabled_vs_solver": [
                 name for name in _ALL_MECHANISMS if name not in self.mechanism_claims
@@ -115,6 +137,11 @@ def extended_ablation_ids() -> tuple[str, ...]:
     return tuple(_EXTENDED_ABLATIONS)
 
 
+def core_ablation_ids() -> tuple[str, ...]:
+    """The three new whole-component cells; reference rows are reused, not run."""
+    return tuple(_CORE_ABLATIONS)
+
+
 def resolve_ablations(
     selection: str | list[str] | tuple[str, ...] | None,
 ) -> list[SagAblationSpec]:
@@ -123,6 +150,8 @@ def resolve_ablations(
     if selection == "extended":
         # The knockouts plus the reference row the per-system deltas need.
         return [_ABLATIONS["sag_full"], *_EXTENDED_ABLATIONS.values()]
+    if selection == "core":
+        return list(_CORE_ABLATIONS.values())
     parts = selection if isinstance(selection, (list, tuple)) else selection.split(",")
     specs: list[SagAblationSpec] = []
     unknown: list[str] = []
@@ -130,7 +159,12 @@ def resolve_ablations(
         key = str(part).strip()
         if not key:
             continue
-        spec = _ABLATIONS.get(key) or _EXTENDED_ABLATIONS.get(key)
+        spec = (
+            _ABLATIONS.get(key)
+            or _EXTENDED_ABLATIONS.get(key)
+            or _CORE_ABLATIONS.get(key)
+            or _LEGACY_CORE_ABLATIONS.get(key)
+        )
         if spec is None:
             unknown.append(key)
         else:
@@ -138,7 +172,7 @@ def resolve_ablations(
     if unknown:
         raise SourceError(
             f"unknown ablations: {unknown}; "
-            f"known={list(_ABLATIONS) + list(_EXTENDED_ABLATIONS)}"
+            f"known={list(_ABLATIONS) + list(_EXTENDED_ABLATIONS) + list(_CORE_ABLATIONS) + list(_LEGACY_CORE_ABLATIONS)}"
         )
     if not specs:
         raise SourceError("ablation selection did not include any ablation ids")
@@ -301,17 +335,162 @@ _EXTENDED_ABLATIONS: dict[str, SagAblationSpec] = {
     ),
 }
 
+
+# Whole-core-component knockouts for the ICDE rebuttal.  These are deliberately
+# separate from the historical fine-grained panel above. ``core`` schedules only
+# these three new cells: sag_full and sag_v2 already have complete result ledgers.
+_CORE_ABLATIONS: dict[str, SagAblationSpec] = {
+    "sag_core_no_grounding": SagAblationSpec(
+        id="sag_core_no_grounding",
+        title="SAG minus Grounding Induction",
+        description=(
+            "Bypass the complete induced grounding front end. Supply the first "
+            "three bounded raw documents per collection; retain non-index-dependent "
+            "execution repair and k=3 result-space voting."
+        ),
+        arm="v3",
+        limitations=(
+            "no induced path card",
+            "no dynamic-key abstraction",
+            "no value witnesses",
+            "no A_path or A_value",
+        ),
+        mechanism_claims=(
+            "repair_loop",
+            "limit_contract",
+            "prefix_bisection",
+            "k_consistency",
+        ),
+        gate_override=False,
+        value_grounding_override=False,
+        bisection_override=True,
+        database_context_mode="raw3",
+        use_gate_repair=True,
+        limit_contract_override=True,
+        synthetic_id_override=True,
+        raw_docs_per_collection=3,
+        raw_doc_prefix_bytes=12_288,
+        variant_label="core_no_grounding",
+    ),
+    "sag_core_no_value_witness_strict": SagAblationSpec(
+        id="sag_core_no_value_witness_strict",
+        title="SAG minus Value Witness (strict)",
+        description=(
+            "Retain the induced path structure, A_path, limit contract, execution "
+            "repair with plain empty feedback, synthetic-id feedback, and k=3 "
+            "voting. Do not build a value index, emit witness lines, run A_value, "
+            "bisect empty results, or print stored-value examples on the card."
+        ),
+        arm="v3",
+        limitations=(
+            "no value index",
+            "no value witnesses",
+            "no A_value",
+            "plain empty feedback (no prefix bisection)",
+            "no stored-value examples on the card",
+        ),
+        mechanism_claims=tuple(
+            mechanism
+            for mechanism in _ALL_MECHANISMS
+            if mechanism not in ("value_witnesses", "a_value_gate", "prefix_bisection")
+        ),
+        value_grounding_override=False,
+        bisection_override=False,
+        use_gate_repair=True,
+        limit_contract_override=True,
+        synthetic_id_override=True,
+        card_literal_examples=False,
+        variant_label="core_no_value_witness_strict",
+    ),
+    "sag_core_generate_only": SagAblationSpec(
+        id="sag_core_generate_only",
+        title="SAG only Generate Query",
+        description=(
+            "Retain the full induced card and Value Witness in the initial prompt. "
+            "Decode one candidate once. Remove every model-visible gate, feedback, "
+            "repair, and result-space vote."
+        ),
+        arm="v2",
+        limitations=(
+            "single decode, no repair",
+            "no A_path or A_value",
+            "no limit contract",
+            "no execution feedback or repair",
+            "no consistency vote (k=1)",
+        ),
+        mechanism_claims=(
+            "path_card",
+            "dynamic_key_collapse",
+            "value_witnesses",
+        ),
+        use_gate_repair=False,
+        variant_label="core_generate_only",
+    ),
+}
+
+# v28 public-table predecessors. Resolvable by id for forensics; never scheduled.
+_LEGACY_CORE_ABLATIONS: dict[str, SagAblationSpec] = {
+    "sag_core_no_value_witness": SagAblationSpec(
+        id="sag_core_no_value_witness",
+        title="SAG minus Value Witness (v28, leaky)",
+        description=(
+            "Retain the complete induced card, A_path, limit contract, execution "
+            "repair, prefix bisection, synthetic-id feedback, and k=3 voting; do "
+            "not build a value index or run witnesses/A_value."
+        ),
+        arm="v3",
+        limitations=("no value index", "no value witnesses", "no A_value"),
+        mechanism_claims=tuple(
+            mechanism
+            for mechanism in _ALL_MECHANISMS
+            if mechanism not in ("value_witnesses", "a_value_gate")
+        ),
+        value_grounding_override=False,
+        bisection_override=True,
+        use_gate_repair=True,
+        limit_contract_override=True,
+        synthetic_id_override=True,
+        variant_label="core_no_value_witness",
+    ),
+    "sag_core_no_gate_repair": SagAblationSpec(
+        id="sag_core_no_gate_repair",
+        title="SAG minus Gate/Repair",
+        description=(
+            "Retain the full induced card, Value Witness prompt, and three initial "
+            "decodes. Remove every model-visible gate/feedback/repair operation; "
+            "execute candidates silently only for result-space voting."
+        ),
+        arm="v3",
+        limitations=(
+            "no A_path or A_value",
+            "no limit contract",
+            "no execution feedback or repair",
+        ),
+        mechanism_claims=(
+            "path_card",
+            "dynamic_key_collapse",
+            "value_witnesses",
+            "k_consistency",
+        ),
+        use_gate_repair=False,
+        variant_label="core_no_gate_repair",
+    ),
+}
+
 ABLATION_IDS = ablation_ids()
 EXTENDED_ABLATION_IDS = extended_ablation_ids()
+CORE_ABLATION_IDS = core_ablation_ids()
 
 
 __all__ = [
     "ABLATION_IDS",
+    "CORE_ABLATION_IDS",
     "EXTENDED_ABLATION_IDS",
     "SWEEP_OVERRIDE_KEYS",
     "AblationSpec",
     "SagAblationSpec",
     "ablation_ids",
+    "core_ablation_ids",
     "extended_ablation_ids",
     "resolve_ablations",
 ]

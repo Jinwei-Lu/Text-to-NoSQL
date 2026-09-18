@@ -30,8 +30,14 @@ if str(SRC_ROOT) not in sys.path:
 from tend.cli import build_solver_runtime  # noqa: E402
 from tend.config import Settings  # noqa: E402
 from tend.errors import TendError  # noqa: E402
+from tend.execution.ast_check import assert_no_disabled, parse_pipeline  # noqa: E402
 from tend.release_layout import resolve_release_dataset_layout  # noqa: E402
-from tend.solver.sag import GroundingIndexCache, SAGPolicy, sag_solve_record  # noqa: E402
+from tend.solver.sag import (  # noqa: E402
+    GroundingIndexCache,
+    SAGPolicy,
+    sag_solve_nlq_db,
+    sag_solve_record,
+)
 
 
 DEFAULT_DATASET_DIR = REPO_ROOT / "release" / "tend-native-mongodb-v1"
@@ -46,12 +52,41 @@ MAX_DYNAMIC_VALUE_FIELDS = 12
 MAX_DYNAMIC_KEY_SAMPLES = 8
 MAX_SHAPE_DEPTH = 5
 MAX_EXECUTION_ROWS = 50
+MAX_EXECUTION_ROW_LIMIT = 100
+EXECUTION_MAX_TIME_MS = 30_000
 SOLVE_TIMEOUT_S = max(1.0, float(os.environ.get("TEND_DEMO_SOLVE_TIMEOUT_S", "90")))
 POLICY_LIMITS = {
     "k_consistency": (1, 3),
     "max_repair_rounds": (1, 6),
     "sample_docs": (1, 400),
     "card_cap": (1, 400),
+}
+POLICY_DEFAULTS = {
+    "fast": {
+        "k_consistency": 1,
+        "max_repair_rounds": 1,
+        "sample_docs": 80,
+        "card_cap": 260,
+        "card_mode": "lattice",
+    },
+    "thorough": {
+        "k_consistency": 3,
+        "max_repair_rounds": 6,
+        "sample_docs": 400,
+        "card_cap": 400,
+        "card_mode": "lattice",
+    },
+}
+SITE_SAG_POLICY = {
+    "arm": "v3",
+    "k_consistency": 3,
+    # The initial decode is round 1, so round 2 permits at most one repair.
+    "max_repair_rounds": 2,
+    # Keep the live prompt bounded while retaining every SAG mechanism.
+    "sample_docs": 80,
+    "card_cap": 260,
+    "card_mode": "lattice",
+    "variant_label": "querycraft_live_k3_r2",
 }
 CARD_MODES = {"lattice", "toplevel", "nocollapse"}
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -82,8 +117,22 @@ class _RuntimeBundle:
             self.runtime.settings,
             self.runtime.log,
         )
+        self._site_index_cache: GroundingIndexCache | None = None
         self.loaded_witness_dbs: set[str] = set()
         self._witness_locks: dict[str, asyncio.Lock] = {}
+
+    def site_index_cache(self) -> GroundingIndexCache:
+        """Return the public Site's independently bounded Mongo/SAG cache."""
+
+        if self._site_index_cache is None:
+            from executor.public_sag_world import build_public_index_cache
+
+            self._site_index_cache = build_public_index_cache(
+                self.runtime.mongo,
+                self.runtime.settings,
+                self.runtime.log,
+            )
+        return self._site_index_cache
 
     async def ensure_witness_loaded(
         self,
@@ -145,15 +194,26 @@ class DemoSolverService:
         self._bundles: dict[str, _RuntimeBundle] = {}
 
     def solve(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._submit(lambda: _solve_with_solver(payload), "Solver")
+
+    def execute(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Run an already-generated pipeline without re-invoking the solver."""
+        return self._submit(lambda: _execute_mql(payload), "Execution")
+
+    def solve_site_workflow(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Run the fixed, gold-free SAG profile used by the public Site."""
+        return self._submit(lambda: _solve_site_workflow(payload), "SAG workflow")
+
+    def _submit(self, factory: Any, label: str) -> dict[str, Any]:
         self._ensure_loop()
         assert self._loop is not None
-        future = asyncio.run_coroutine_threadsafe(_solve_with_solver(payload), self._loop)
+        future = asyncio.run_coroutine_threadsafe(factory(), self._loop)
         try:
             return future.result(timeout=SOLVE_TIMEOUT_S)
         except FutureTimeoutError as exc:
             future.cancel()
             raise DemoError(
-                f"Solver timed out after {SOLVE_TIMEOUT_S:g} seconds.",
+                f"{label} timed out after {SOLVE_TIMEOUT_S:g} seconds.",
                 status_code=504,
             ) from exc
 
@@ -297,6 +357,106 @@ def _load_data(dataset_dir: str, db_id: str) -> dict[str, list[dict[str, Any]]]:
     return out
 
 
+@lru_cache(maxsize=1)
+def _read_only_settings() -> Settings:
+    """Env settings for read-only browsing; never requires an LLM provider."""
+    return Settings.from_env(
+        overrides={"TEND_QUIET": "1", "TEND_LLM_STUB": "1"},
+        require_bird=False,
+        require_llm=False,
+    )
+
+
+_SAMPLE_CLIENT_LOCK = threading.Lock()
+_SAMPLE_CLIENT: dict[str, Any] = {"resolved": False, "client": None}
+
+
+def _preloaded_mongo_client() -> Any | None:
+    """Read-only client for pre-loaded demo databases, or ``None``.
+
+    Schema browsing must not parse a multi-gigabyte witness file just to sample a
+    few documents. With ``TEND_USE_EXISTING_MONGO_DBS=1`` the physical databases
+    are named after ``db_id``, so a small read-only client can sample them
+    directly; any other configuration falls back to the witness files.
+    """
+    if not _read_only_settings().use_existing_mongo_dbs:
+        return None
+    with _SAMPLE_CLIENT_LOCK:
+        if not _SAMPLE_CLIENT["resolved"]:
+            _SAMPLE_CLIENT["resolved"] = True
+            try:
+                from pymongo import MongoClient
+
+                client = MongoClient(
+                    _read_only_settings().mongo_uri,
+                    serverSelectionTimeoutMS=3000,
+                    maxPoolSize=8,
+                )
+                client.admin.command("ping")
+                _SAMPLE_CLIENT["client"] = client
+            except Exception as exc:  # noqa: BLE001 - sampling degrades to witness files
+                app.logger.info("Demo schema sampling falls back to witness files: %s", exc)
+                _SAMPLE_CLIENT["client"] = None
+        return _SAMPLE_CLIENT["client"]
+
+
+def _close_sample_client() -> None:
+    client = _SAMPLE_CLIENT.get("client")
+    _SAMPLE_CLIENT["client"] = None
+    if client is not None:
+        try:
+            client.close()
+        except Exception as exc:  # noqa: BLE001 - best-effort cleanup
+            app.logger.warning("Demo sampling client cleanup failed: %s", exc)
+
+
+def _sample_from_mongo(
+    db_id: str,
+    names: list[str],
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int]] | None:
+    client = _preloaded_mongo_client()
+    if client is None:
+        return None
+    try:
+        from bson import json_util
+
+        database = client[db_id]
+        present = set(database.list_collection_names())
+        if not present:
+            return None
+        docs: dict[str, list[dict[str, Any]]] = {}
+        counts: dict[str, int] = {}
+        for name in names or sorted(present):
+            if name not in present:
+                continue
+            cursor = database[name].find({}, limit=MAX_FIELD_SHAPE_DOCS_PER_COLLECTION)
+            docs[name] = [
+                json.loads(json_util.dumps(doc, default=str))
+                for doc in cursor
+                if isinstance(doc, dict)
+            ]
+            counts[name] = int(database[name].estimated_document_count())
+        return (docs, counts) if docs else None
+    except Exception as exc:  # noqa: BLE001 - sampling degrades to witness files
+        app.logger.info("Demo Mongo sampling failed for %r: %s", db_id, exc)
+        return None
+
+
+def _collection_samples(
+    db_id: str,
+    names: list[str],
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int], str]:
+    """Return ``({collection: sampled_docs}, {collection: count}, source)``."""
+    sampled = _sample_from_mongo(db_id, names)
+    if sampled is not None:
+        return sampled[0], sampled[1], "mongodb"
+    data = _load_data(str(_dataset_dir()), db_id)
+    docs = {
+        name: rows[:MAX_FIELD_SHAPE_DOCS_PER_COLLECTION] for name, rows in data.items()
+    }
+    return docs, {name: len(rows) for name, rows in data.items()}, "witness_file"
+
+
 def _db_ids() -> list[str]:
     layout = _layout()
     from_schema = {path.stem for path in layout.mongodb_schema_dir.glob("*.json")}
@@ -313,14 +473,32 @@ def _record_counts_by_db() -> dict[str, int]:
     return counts
 
 
+def _witness_bytes(db_id: str) -> int | None:
+    """Size of the on-disk witness payload; shown so large databases are obvious."""
+    path = _layout().mongodb_data_dir / f"{db_id}.json"
+    try:
+        return path.stat().st_size
+    except OSError:
+        return None
+
+
 def _database_summary(db_id: str) -> dict[str, Any]:
     schema = _load_schema(str(_dataset_dir()), db_id)
     collections = schema.get("collections") if isinstance(schema, dict) else {}
+    audit = schema.get("structure_audit") if isinstance(schema, dict) else {}
+    audit = audit if isinstance(audit, dict) else {}
+    dynamic_paths = audit.get("dynamic_key_paths")
+    declared_counts = audit.get("collection_counts")
+    declared_counts = declared_counts if isinstance(declared_counts, dict) else {}
     return {
         "db_id": db_id,
         "record_count": _record_counts_by_db().get(db_id, 0),
         "collection_count": len(collections) if isinstance(collections, dict) else 0,
+        "document_count": sum(int(value or 0) for value in declared_counts.values()),
         "source_tables": schema.get("source_tables", []) if isinstance(schema, dict) else [],
+        "dynamic_key_path_count": len(dynamic_paths) if isinstance(dynamic_paths, list) else 0,
+        "max_depth": audit.get("max_depth"),
+        "witness_bytes": _witness_bytes(db_id),
     }
 
 
@@ -357,38 +535,48 @@ def _selected_record(db_id: str, record_id: Any | None, nlq: str) -> dict[str, A
 
 
 def _schema_payload(db_id: str) -> dict[str, Any]:
-    dataset_dir = str(_dataset_dir())
-    schema = _load_schema(dataset_dir, db_id)
-    data = _load_data(dataset_dir, db_id)
-    collections = schema.get("collections", {}) if isinstance(schema, dict) else {}
+    schema = _load_schema(str(_dataset_dir()), db_id)
+    declared = schema.get("collections", {}) if isinstance(schema, dict) else {}
+    declared = declared if isinstance(declared, dict) else {}
+    structure_audit = schema.get("structure_audit", {}) if isinstance(schema, dict) else {}
+    structure_audit = structure_audit if isinstance(structure_audit, dict) else {}
+    declared_counts = structure_audit.get("collection_counts")
+    declared_counts = declared_counts if isinstance(declared_counts, dict) else {}
+    sampled_docs, counts, sample_source = _collection_samples(db_id, sorted(declared))
+
     collection_payload = []
-    for name in sorted(data):
-        meta = collections.get(name, {}) if isinstance(collections, dict) else {}
-        docs = data.get(name, [])
-        sampled_docs = docs[:MAX_FIELD_SHAPE_DOCS_PER_COLLECTION]
-        inferred_profile = _collection_profile(sampled_docs)
+    for name in sorted(sampled_docs):
+        docs = sampled_docs[name]
+        meta = declared.get(name)
+        meta = meta if isinstance(meta, dict) else {}
         collection_payload.append(
             {
                 "name": name,
-                "document_count": len(docs),
-                "declared_document_count": meta.get("document_count"),
+                "document_count": counts.get(name, len(docs)),
+                "declared_document_count": meta.get("document_count", declared_counts.get(name)),
                 "root_entity": meta.get("root_entity"),
                 "source_tables": meta.get("source_tables", []),
-                "sampled_shape_document_count": len(sampled_docs),
-                "field_paths": _field_paths(sampled_docs),
-                **inferred_profile,
-                "sample_documents": [_compact_value(doc) for doc in docs[:MAX_SAMPLE_DOCS_PER_COLLECTION]],
+                "sampled_shape_document_count": len(docs),
+                "field_paths": _field_paths(docs),
+                **_collection_profile(docs),
+                "sample_documents": [
+                    _compact_value(doc) for doc in docs[:MAX_SAMPLE_DOCS_PER_COLLECTION]
+                ],
             }
         )
-    structure_audit = schema.get("structure_audit", {}) if isinstance(schema, dict) else {}
+
+    dynamic_key_paths = structure_audit.get("dynamic_key_paths")
+    dynamic_key_paths = dynamic_key_paths if isinstance(dynamic_key_paths, list) else []
     return {
         "db_id": db_id,
         "dataset_dir": _dataset_label(_dataset_dir()),
+        "sample_source": sample_source,
+        "sample_limit": MAX_FIELD_SHAPE_DOCS_PER_COLLECTION,
+        "max_depth": structure_audit.get("max_depth"),
         "source_tables": schema.get("source_tables", []) if isinstance(schema, dict) else [],
         "collections": collection_payload,
-        "dynamic_key_paths": structure_audit.get("dynamic_key_paths", [])[:24]
-        if isinstance(structure_audit, dict)
-        else [],
+        "dynamic_key_paths": dynamic_key_paths[:24],
+        "dynamic_key_path_count": len(dynamic_key_paths),
     }
 
 
@@ -734,13 +922,7 @@ def _solver_policy(payload: dict[str, Any]) -> SAGPolicy:
     unknown_options = sorted(str(key) for key in options if key not in allowed_options)
     if unknown_options:
         raise DemoError(f"Unsupported solver option(s): {', '.join(unknown_options)}")
-    defaults = {
-        "k_consistency": 1 if fast else 3,
-        "max_repair_rounds": 1 if fast else 6,
-        "sample_docs": 80 if fast else 400,
-        "card_cap": 260 if fast else 400,
-        "card_mode": "lattice",
-    }
+    defaults: dict[str, Any] = dict(POLICY_DEFAULTS["fast" if fast else "thorough"])
     defaults.update({key: value for key, value in options.items() if value not in (None, "")})
     card_mode = str(defaults["card_mode"])
     if card_mode not in CARD_MODES:
@@ -761,7 +943,9 @@ def _settings_for_mode(mode: str) -> Settings:
         "TEND_QUIET": "1",
         "TEND_LLM_TRANSCRIPT_MD": os.environ.get("TEND_DEMO_TRANSCRIPT_MD", "0"),
         "TEND_MAX_RETRIES": os.environ.get("TEND_DEMO_MAX_RETRIES", "0"),
-        "TEND_LLM_MAX_CONCURRENCY": "1",
+        "TEND_LLM_MAX_CONCURRENCY": os.environ.get(
+            "TEND_DEMO_LLM_MAX_CONCURRENCY", "3"
+        ),
     }
     if mode == "stub":
         overrides["TEND_LLM_STUB"] = "1"
@@ -775,6 +959,80 @@ def _settings_for_mode(mode: str) -> Settings:
     if mode == "live" and settings.stub:
         raise DemoError("Live solver mode cannot run with TEND_LLM_STUB enabled.", status_code=500)
     return settings
+
+
+def _site_sag_policy() -> SAGPolicy:
+    policy = SAGPolicy(**SITE_SAG_POLICY)
+    policy.validate()
+    return policy
+
+
+def _site_workflow_input(payload: dict[str, Any]) -> tuple[str, str, str]:
+    allowed = {"database", "query", "clientRequestId"}
+    unknown = sorted(str(key) for key in payload if key not in allowed)
+    if unknown:
+        raise DemoError(f"Unsupported workflow field(s): {', '.join(unknown)}")
+    db_id = str(payload.get("database") or "").strip()
+    nlq = str(payload.get("query") or "").strip()
+    request_id = str(payload.get("clientRequestId") or "").strip()
+    if not db_id or db_id not in _db_ids():
+        raise DemoError("Choose one of the available demo databases.", status_code=422)
+    if not nlq or len(nlq) > 1_200:
+        raise DemoError(
+            "Query must contain between 1 and 1,200 characters.", status_code=422
+        )
+    if not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise DemoError("The workflow request identifier is invalid.", status_code=422)
+    return db_id, nlq, request_id
+
+
+async def _solve_site_workflow(payload: dict[str, Any]) -> dict[str, Any]:
+    """Run the public, latency-bounded SAG profile without release-case hints.
+
+    The public path is deliberately stricter than the general Flask demo API:
+    it accepts only database, user question and an opaque request id; it also
+    refuses to fall back to an offline witness world because that would disable
+    execution-grounded repair and k-result consistency.
+    """
+
+    db_id, nlq, request_id = _site_workflow_input(payload)
+    bundle = SOLVER_SERVICE.runtime_for_mode("live")
+    rt = bundle.runtime
+    if not rt.settings.use_existing_mongo_dbs:
+        raise DemoError(
+            "The live SAG workflow requires pre-loaded read-only MongoDB databases.",
+            status_code=503,
+        )
+    if not await asyncio.to_thread(rt.mongo.available):
+        raise DemoError("The read-only MongoDB service is unavailable.", status_code=503)
+
+    policy = _site_sag_policy()
+    started = time.monotonic()
+    result = await sag_solve_nlq_db(
+        rt.workflow,
+        db_id=db_id,
+        nlq=nlq,
+        record_id=request_id,
+        policy=policy,
+        index_cache=bundle.site_index_cache(),
+        local_data=None,
+        stage="querycraft_sites",
+    )
+    return {
+        "database": db_id,
+        "model": rt.settings.llm.model,
+        "elapsed_s": round(time.monotonic() - started, 3),
+        "policy": {
+            "arm": policy.arm,
+            "k_consistency": policy.k_consistency,
+            "max_repair_rounds": policy.max_repair_rounds,
+            "sample_docs": policy.sample_docs,
+            "card_cap": policy.card_cap,
+            "card_mode": policy.card_mode,
+            "solver_variant": policy.solver_variant,
+        },
+        "result": result.to_json(),
+    }
 
 
 async def _solve_with_solver(payload: dict[str, Any]) -> dict[str, Any]:
@@ -791,9 +1049,9 @@ async def _solve_with_solver(payload: dict[str, Any]) -> dict[str, Any]:
     policy = _solver_policy(payload)
     record = _selected_record(db_id, payload.get("record_id"), nlq)
     schema = _load_schema(str(_dataset_dir()), db_id)
-    local_data = _load_data(str(_dataset_dir()), db_id)
     bundle = SOLVER_SERVICE.runtime_for_mode(mode)
     rt = bundle.runtime
+    local_data = await _witness_data_for(bundle, db_id)
     started = time.monotonic()
     witness_preloaded = False
     if local_data and not rt.settings.stub:
@@ -811,11 +1069,16 @@ async def _solve_with_solver(payload: dict[str, Any]) -> dict[str, Any]:
     result_payload = result.to_json()
     execution = None
     if _parse_bool(payload.get("execute"), default=False, field="execute") and result_payload.get("result_type") == "solver_prediction":
-        execution = await _execute_prediction(
+        execution = await _run_execution(
             bundle,
             db_id,
             str(result_payload.get("MQL") or ""),
-            local_data,
+            limit=_row_limit(payload.get("limit")),
+            include_probe=_parse_bool(
+                payload.get("include_probe"),
+                default=False,
+                field="include_probe",
+            ),
         )
     return {
         "mode": mode,
@@ -835,35 +1098,160 @@ async def _solve_with_solver(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def _execute_prediction(
+async def _witness_data_for(
+    bundle: _RuntimeBundle,
+    db_id: str,
+) -> dict[str, list[dict[str, Any]]]:
+    """Read the witness file only when the solver actually needs it.
+
+    Stub mode induces the grounding index offline from witness data, and a
+    run-scoped Mongo database has to be filled before it can answer anything.
+    With ``TEND_USE_EXISTING_MONGO_DBS=1`` and a reachable server neither holds,
+    so gigabyte-scale witness files stay on disk.
+    """
+    rt = bundle.runtime
+    needed = rt.settings.stub or not rt.settings.use_existing_mongo_dbs
+    if not needed:
+        needed = not await asyncio.to_thread(rt.mongo.available)
+    if not needed:
+        return {}
+    return await asyncio.to_thread(_load_data, str(_dataset_dir()), db_id)
+
+
+def _row_limit(value: Any) -> int:
+    if value in (None, "") or isinstance(value, bool):
+        return MAX_EXECUTION_ROWS
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise DemoError("limit must be an integer") from exc
+    return max(1, min(parsed, MAX_EXECUTION_ROW_LIMIT))
+
+
+def _execution_error_message(exc: Exception) -> str:
+    """Surface why a pipeline failed; the demo audience needs the real reason."""
+    if isinstance(exc, TendError):
+        context = exc.context if isinstance(getattr(exc, "context", None), dict) else {}
+        detail = str(context.get("error") or context.get("hits") or "").strip()
+        return f"{exc.message}: {detail[:300]}" if detail else exc.message
+    detail = str(exc).strip()
+    return f"Read-only execution failed: {detail[:300]}" if detail else "Read-only execution failed."
+
+
+def _bounded_rows(
+    bundle: _RuntimeBundle,
+    db_id: str,
+    collection: str,
+    pipeline: list[dict[str, Any]],
+    limit: int,
+) -> tuple[list[Any], bool]:
+    """Run one bounded read-only aggregate and return ``(rows, truncated)``."""
+    from bson import json_util
+
+    database = bundle.runtime.mongo.raw_database(db_id)
+    bounded = [*pipeline, {"$limit": limit + 1}]
+    cursor = database[collection].aggregate(bounded, maxTimeMS=EXECUTION_MAX_TIME_MS)
+    rows: list[Any] = []
+    for doc in cursor:
+        if not isinstance(doc, dict):
+            continue
+        rows.append(_compact_value(json.loads(json_util.dumps(doc, default=str))))
+        if len(rows) > limit:
+            break
+    truncated = len(rows) > limit
+    return rows[:limit], truncated
+
+
+async def _run_execution(
     bundle: _RuntimeBundle,
     db_id: str,
     mql: str,
-    local_data: dict[str, list[dict[str, Any]]],
+    *,
+    limit: int,
+    include_probe: bool = False,
 ) -> dict[str, Any]:
+    """Execute one pipeline read-only and return rows plus a result-shape summary."""
     rt = bundle.runtime
-    if not mql:
-        return {"status": "skipped", "reason": "solver did not produce MQL"}
+    if not mql.strip():
+        return {"status": "skipped", "reason": "no MQL to execute"}
+    try:
+        assert_no_disabled(mql)
+        collection, pipeline = parse_pipeline(mql)
+    except TendError as exc:
+        return {
+            "status": "error",
+            "message": _execution_error_message(exc),
+            "error_type": type(exc).__name__,
+        }
     if not await asyncio.to_thread(rt.mongo.available):
         return {"status": "skipped", "reason": "MongoDB is unavailable"}
+    started = time.monotonic()
     try:
         if not rt.settings.use_existing_mongo_dbs:
-            loaded = await bundle.ensure_witness_loaded(db_id, local_data)
-            if not loaded:
+            witness = await asyncio.to_thread(_load_data, str(_dataset_dir()), db_id)
+            if not await bundle.ensure_witness_loaded(db_id, witness):
                 return {"status": "skipped", "reason": "MongoDB is unavailable"}
-        probe = await asyncio.to_thread(rt.mongo.run_readonly_probe, db_id, mql, limit=MAX_EXECUTION_ROWS)
+        rows, truncated = await asyncio.to_thread(
+            _bounded_rows, bundle, db_id, collection, pipeline, limit
+        )
+        probe = (
+            await asyncio.to_thread(rt.mongo.run_readonly_probe, db_id, mql, limit=limit)
+            if include_probe
+            else None
+        )
     except Exception as exc:  # noqa: BLE001 - returned to the demo UI
         app.logger.exception("Demo read-only execution failed")
         return {
             "status": "error",
-            "message": "Read-only execution failed.",
+            "message": _execution_error_message(exc),
             "error_type": type(exc).__name__,
         }
-    return {
+    payload = {
         "status": "success",
-        "collection": probe.get("collection"),
-        "stage_count": probe.get("stage_count"),
-        "probe": probe,
+        "collection": collection,
+        "pipeline": pipeline,
+        "stage_count": len(pipeline),
+        "row_limit": limit,
+        "row_count": len(rows),
+        "truncated": truncated,
+        "elapsed_s": round(time.monotonic() - started, 3),
+        "rows": rows,
+        "result_fields": _collection_profile(
+            [row for row in rows if isinstance(row, dict)]
+        )["top_level_fields"],
+    }
+    if probe is not None:
+        payload["probe"] = probe
+    return payload
+
+
+async def _execute_mql(payload: dict[str, Any]) -> dict[str, Any]:
+    db_id = str(payload.get("database") or payload.get("db_id") or "").strip()
+    mql = str(payload.get("mql") or payload.get("MQL") or "").strip()
+    if not db_id:
+        raise DemoError("Database is required")
+    if db_id not in _db_ids():
+        raise DemoError(f"Unknown database {db_id!r}", status_code=404)
+    if not mql:
+        raise DemoError("An MQL pipeline is required")
+    mode = _solver_mode(payload.get("mode"))
+    bundle = SOLVER_SERVICE.runtime_for_mode(mode)
+    started = time.monotonic()
+    execution = await _run_execution(
+        bundle,
+        db_id,
+        mql,
+        limit=_row_limit(payload.get("limit")),
+        include_probe=_parse_bool(
+            payload.get("include_probe"),
+            default=False,
+            field="include_probe",
+        ),
+    )
+    return {
+        "mode": mode,
+        "elapsed_s": round(time.monotonic() - started, 3),
+        "execution": execution,
     }
 
 
@@ -885,6 +1273,12 @@ def health():
         record_count=len(_records()),
         database_count=len(_db_ids()),
         default_mode=DEFAULT_SOLVER_MODE,
+        use_existing_mongo_dbs=_read_only_settings().use_existing_mongo_dbs,
+        max_execution_rows=MAX_EXECUTION_ROWS,
+        policy_defaults=POLICY_DEFAULTS,
+        site_sag_policy=SITE_SAG_POLICY,
+        policy_limits={key: list(value) for key, value in POLICY_LIMITS.items()},
+        card_modes=sorted(CARD_MODES),
     )
 
 
@@ -920,6 +1314,15 @@ def solve():
     return _json_success(**SOLVER_SERVICE.solve(payload))
 
 
+@app.route("/api/execute", methods=["POST"])
+def execute():
+    """Run a pipeline the UI already holds, without re-invoking the solver."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        raise DemoError("Request body must be a JSON object")
+    return _json_success(**SOLVER_SERVICE.execute(payload))
+
+
 # Backward-compatible endpoints for older bookmarks/scripts.
 @app.route("/get_databases")
 def legacy_databases():
@@ -942,6 +1345,7 @@ def legacy_query():
         default=False,
         field="generateOnly",
     )
+    payload["include_probe"] = True
     response = SOLVER_SERVICE.solve(payload)
     result = response.get("result", {})
     execution = response.get("execution") or {}
@@ -977,6 +1381,7 @@ def handle_unexpected_error(exc: Exception):
 
 SOLVER_SERVICE = DemoSolverService()
 atexit.register(SOLVER_SERVICE.shutdown)
+atexit.register(_close_sample_client)
 
 
 if __name__ == "__main__":

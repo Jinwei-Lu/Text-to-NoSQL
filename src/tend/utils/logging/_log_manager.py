@@ -370,18 +370,41 @@ class LogManager:
             json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
             f.write("\n")
 
-    def append_cost_record(self, record: dict[str, Any]) -> None:
+    def append_cost_record(
+        self,
+        record: dict[str, Any],
+        *,
+        durable: bool = False,
+    ) -> None:
+        """Append one cost row, optionally waiting for durable storage.
+
+        Historical callers retain flush-only behavior. Formal paid campaigns pass
+        ``durable=True`` so a successful return means the row reached ``fsync``; a
+        final write/fsync failure is raised to the campaign pause boundary.
+        """
+
         line = json.dumps(record, default=str) + "\n"
         last_err: OSError | None = None
         with self._cost_lock:
             for attempt in range(_COST_APPEND_RETRIES):
+                payload_written = False
                 try:
                     with open(self._cost_path, "a", encoding="utf-8") as f:
                         f.write(line)
+                        payload_written = True
                         f.flush()
+                        if durable:
+                            os.fsync(f.fileno())
                     return
-                except PermissionError as err:
+                except OSError as err:
+                    if not durable and not isinstance(err, PermissionError):
+                        raise
                     last_err = err
+                    # Once append returned, retrying after a flush/fsync failure could
+                    # create two provider-attempt rows. Fail closed with one uncertain
+                    # row instead; only pre-write admission/open failures are retryable.
+                    if durable and payload_written:
+                        break
                     if attempt == _COST_APPEND_RETRIES - 1:
                         break
                     time.sleep(_COST_APPEND_RETRY_BASE_SECONDS * (attempt + 1))
@@ -394,3 +417,5 @@ class LogManager:
             )
         except Exception:
             pass
+        if durable and last_err is not None:
+            raise last_err

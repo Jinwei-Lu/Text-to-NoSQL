@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 from dataclasses import dataclass
@@ -1141,16 +1142,23 @@ class TaskLogger:
         repair_index: int,
         call_status: str,
         response_received: bool,
+        latency_s: float,
         usage: dict[str, Any] | None,
         finish_reason: str | None,
         cost_usd: float | None,
         cost_source: str,
+        provider_cost_observed: Any,
         provider_metadata: dict[str, Any] | None,
         request_config: dict[str, Any],
         retry_kind: str | None = None,
         anomaly: str | None = None,
         error: dict[str, Any] | None = None,
         response_anomaly_evidence: dict[str, Any] | None = None,
+        budget_reservation: dict[str, Any] | None = None,
+        budget_settlement: dict[str, Any] | None = None,
+        attempt_receipt_id: str | None = None,
+        attempt_receipt_sha256: str | None = None,
+        durable: bool = False,
     ) -> None:
         """Durably append one provider-request attempt to the campaign ledger.
 
@@ -1161,10 +1169,26 @@ class TaskLogger:
         soon as an attempt settles, before retry sleeps or logical-call cleanup.
         """
 
+        resolved_latency_s = float(latency_s)
+        if not math.isfinite(resolved_latency_s) or resolved_latency_s < 0:
+            raise ValueError("provider-attempt latency_s must be finite and non-negative")
+        if not str(call_status).strip():
+            raise ValueError("provider-attempt call_status must be non-empty")
+        if not response_received and not str(anomaly or "").strip():
+            raise ValueError("response-less provider attempt must record an anomaly")
+
         resolved_usage = usage if isinstance(usage, dict) else {}
+        resolved_provider_metadata = (
+            provider_metadata if isinstance(provider_metadata, dict) else {}
+        )
+        resolved_budget_settlement = (
+            budget_settlement if isinstance(budget_settlement, dict) else {}
+        )
         self._manager.append_cost_record(
             {
                 "record_type": "provider_attempt",
+                "attempt_receipt_id": attempt_receipt_id,
+                "attempt_receipt_sha256": attempt_receipt_sha256,
                 "call_id": call_id,
                 "agent": agent,
                 "provider_attempt_index": int(provider_attempt_index),
@@ -1187,15 +1211,28 @@ class TaskLogger:
                 "stage": self.stage,
                 "task_id": self.task_id,
                 "call_status": call_status,
+                "status": call_status,
                 "response_received": bool(response_received),
+                "latency_s": resolved_latency_s,
                 "finish_reason": finish_reason,
                 "retry_kind": retry_kind,
                 "anomaly": anomaly,
                 "error": error,
                 "response_anomaly_evidence": response_anomaly_evidence,
                 "provider_metadata": provider_metadata,
+                "provider": resolved_provider_metadata.get("provider"),
+                "openrouter_metadata": resolved_provider_metadata.get(
+                    "openrouter_metadata"
+                ),
+                "provider_cost_observed": provider_cost_observed,
+                "settled_cost_usd": resolved_budget_settlement.get(
+                    "settled_cost_usd"
+                ),
                 "request_config": request_config,
+                "budget_reservation": budget_reservation,
+                "budget_settlement": budget_settlement,
                 "campaign_profile_name": os.environ.get("TEND_CAMPAIGN_PROFILE_NAME"),
                 "campaign_profile_sha256": os.environ.get("TEND_CAMPAIGN_PROFILE_SHA256"),
-            }
+            },
+            durable=durable,
         )

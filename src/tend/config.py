@@ -10,9 +10,12 @@ globally (``TEND_MODEL``) or per-agent (``AgentModels``).
 
 from __future__ import annotations
 
+import math
 import os
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from urllib.parse import urlparse
 
 from .errors import ConfigError
 from .run_ids import new_run_id
@@ -168,9 +171,16 @@ class LLMSettings:
     # budget 0 -> 26/30 records keep a usable candidate; budget 1 -> 29/30 (same coverage
     # as the old unbounded behaviour) at 44% of the spend. Hence the default of 1.
     max_truncation_retries: int = 1
-    # Fixed delay between provider-fault retries (seconds). Output-quality faults
-    # (JSON parse / schema) use the separate bounded json-repair loop, not this.
+    # Ordinary callers retain the historical fixed ``retry_interval_s``. Formal
+    # OpenRouter campaigns use full jitter from the configured initial window up to
+    # ``retry_jitter_cap_s`` so many workers do not synchronize their retries.
     retry_interval_s: float = 5.0
+    retry_jitter_initial_min_s: float = 0.25
+    retry_jitter_initial_max_s: float = 1.0
+    retry_jitter_cap_s: float = 8.0
+    # Only the most recent provider attempts stay in RAM once TaskLogger has durably
+    # appended every attempt to cost_summary.jsonl.  The count/index summary remains.
+    attempt_memory_limit: int = 32
     # Stream responses by default and treat the first streamed token as the provider
     # health signal: if it does not arrive within ``first_token_timeout_s`` the provider
     # is considered stalled and the call is retried (forever, per ``max_retries``).
@@ -194,6 +204,23 @@ class LLMSettings:
     openrouter_allow_fallbacks: bool = False
     openrouter_require_parameters: bool = True
     openrouter_metadata: bool = False
+    # Cross-process campaign budget.  A zero cap disables enforcement for ordinary
+    # non-campaign use.  Formal OpenRouter campaigns must call
+    # ``validate_openrouter_campaign`` and provide one shared ledger path plus a frozen
+    # worst-case reservation for every provider request.
+    openrouter_campaign_budget_usd: float = 0.0
+    openrouter_budget_ledger: str = ""
+    openrouter_request_reservation_usd: float = 0.0
+    openrouter_pricing_profile_sha256: str = ""
+    # OpenRouter provider.max_price prompt/completion values are USD per 1M tokens;
+    # request is USD per request. Negative defaults mean "not configured" and are
+    # never sent in ordinary mode.
+    openrouter_max_price_prompt_usd_per_million: float = -1.0
+    openrouter_max_price_completion_usd_per_million: float = -1.0
+    openrouter_max_price_request_usd: float = -1.0
+    # Formal campaign provider-attempt rows must survive a host crash after the
+    # append returns. Ordinary runs keep the historical flush-only behavior.
+    openrouter_durable_cost_ledger: bool = False
     # DynaDB-style per-call markdown transcripts are the default human log surface.
     # Set TEND_LLM_TRANSCRIPT_MD=0 only for diagnostics-JSON-only CI runs.
     write_markdown_transcripts: bool = True
@@ -202,6 +229,86 @@ class LLMSettings:
 
     def model_for(self, agent_id: str) -> str:
         return self.agent_models.get(agent_id, self.model)
+
+    def uses_openrouter_endpoint(self) -> bool:
+        """Return whether ``base_url`` addresses OpenRouter."""
+
+        parsed = urlparse(self.base_url if "://" in self.base_url else f"https://{self.base_url}")
+        host = (parsed.hostname or "").lower()
+        return host == "openrouter.ai" or host.endswith(".openrouter.ai")
+
+    def validate_openrouter_campaign(self, *, require_budget: bool = True) -> None:
+        """Fail closed for the reroutable, receipt-bearing campaign configuration."""
+
+        problems: list[str] = []
+        if not self.uses_openrouter_endpoint():
+            problems.append("base_url is not an OpenRouter endpoint")
+        if self.openrouter_provider_only:
+            problems.append("TEND_OPENROUTER_PROVIDER_ONLY must be empty")
+        if not self.openrouter_allow_fallbacks:
+            problems.append("TEND_OPENROUTER_ALLOW_FALLBACKS must be 1")
+        if not self.openrouter_metadata:
+            problems.append("TEND_OPENROUTER_METADATA must be 1")
+        if require_budget and not self.openrouter_durable_cost_ledger:
+            problems.append("TEND_OPENROUTER_DURABLE_COST_LEDGER must be 1")
+        if require_budget:
+            if (
+                not math.isfinite(self.openrouter_campaign_budget_usd)
+                or self.openrouter_campaign_budget_usd <= 0
+            ):
+                problems.append("TEND_OPENROUTER_CAMPAIGN_BUDGET_USD must be positive")
+            if not self.openrouter_budget_ledger.strip():
+                problems.append("TEND_OPENROUTER_BUDGET_LEDGER must be a shared path")
+            elif not Path(self.openrouter_budget_ledger).expanduser().is_absolute():
+                problems.append("TEND_OPENROUTER_BUDGET_LEDGER must be an absolute path")
+            if (
+                not math.isfinite(self.openrouter_request_reservation_usd)
+                or self.openrouter_request_reservation_usd <= 0
+            ):
+                problems.append("TEND_OPENROUTER_REQUEST_RESERVATION_USD must be positive")
+            elif self.openrouter_request_reservation_usd > self.openrouter_campaign_budget_usd:
+                problems.append(
+                    "TEND_OPENROUTER_REQUEST_RESERVATION_USD cannot exceed campaign budget"
+                )
+            if not re.fullmatch(
+                r"[0-9a-fA-F]{64}", self.openrouter_pricing_profile_sha256.strip()
+            ):
+                problems.append("TEND_OPENROUTER_PRICING_PROFILE_SHA256 must be 64 hex characters")
+            for name, value in (
+                (
+                    "TEND_OPENROUTER_MAX_PRICE_PROMPT_USD_PER_MILLION",
+                    self.openrouter_max_price_prompt_usd_per_million,
+                ),
+                (
+                    "TEND_OPENROUTER_MAX_PRICE_COMPLETION_USD_PER_MILLION",
+                    self.openrouter_max_price_completion_usd_per_million,
+                ),
+                (
+                    "TEND_OPENROUTER_MAX_PRICE_REQUEST_USD",
+                    self.openrouter_max_price_request_usd,
+                ),
+            ):
+                if not math.isfinite(value) or value < 0:
+                    problems.append(f"{name} must be finite and non-negative")
+        if not math.isfinite(self.retry_jitter_initial_min_s) or self.retry_jitter_initial_min_s < 0:
+            problems.append("retry jitter minimum must be non-negative")
+        if (
+            not math.isfinite(self.retry_jitter_initial_max_s)
+            or self.retry_jitter_initial_max_s < self.retry_jitter_initial_min_s
+        ):
+            problems.append("retry jitter maximum must be at least the minimum")
+        if (
+            not math.isfinite(self.retry_jitter_cap_s)
+            or self.retry_jitter_cap_s < self.retry_jitter_initial_max_s
+        ):
+            problems.append("retry jitter cap must be at least the initial maximum")
+        if self.attempt_memory_limit < 1:
+            problems.append("attempt memory limit must be at least 1")
+        if problems:
+            raise ConfigError(
+                "OpenRouter campaign preflight failed: " + "; ".join(problems),
+                context={"problems": problems},
+            )
 
 
 @dataclass(frozen=True)
@@ -285,8 +392,18 @@ class Settings:
             max_truncation_retries=_env_int(
                 envmap, sources, "TEND_MAX_TRUNCATION_RETRIES", "1"
             ),
-            # TEND_LLM_RETRY_INTERVAL_S is the fixed wait between provider-fault retries.
+            # Legacy interval remains parseable; resilient campaigns use jitter settings.
             retry_interval_s=_env_float(envmap, sources, "TEND_LLM_RETRY_INTERVAL_S", "5"),
+            retry_jitter_initial_min_s=_env_float(
+                envmap, sources, "TEND_LLM_RETRY_INITIAL_MIN_S", "0.25"
+            ),
+            retry_jitter_initial_max_s=_env_float(
+                envmap, sources, "TEND_LLM_RETRY_INITIAL_MAX_S", "1"
+            ),
+            retry_jitter_cap_s=_env_float(envmap, sources, "TEND_LLM_RETRY_CAP_S", "8"),
+            attempt_memory_limit=_env_int(
+                envmap, sources, "TEND_LLM_ATTEMPT_MEMORY_LIMIT", "32"
+            ),
             # TEND_LLM_STREAM toggles streaming; TEND_LLM_FIRST_TOKEN_TIMEOUT_S sets the
             # first-token (provider-health) deadline that, when missed, triggers a retry.
             stream=_env_bool(envmap, sources, "TEND_LLM_STREAM", "1"),
@@ -313,6 +430,42 @@ class Settings:
                 envmap, sources, "TEND_OPENROUTER_REQUIRE_PARAMETERS", "1"
             ),
             openrouter_metadata=_env_bool(envmap, sources, "TEND_OPENROUTER_METADATA", "0"),
+            openrouter_campaign_budget_usd=_env_float(
+                envmap, sources, "TEND_OPENROUTER_CAMPAIGN_BUDGET_USD", "0"
+            ),
+            openrouter_budget_ledger=(
+                _env(envmap, "TEND_OPENROUTER_BUDGET_LEDGER") or ""
+            ).strip(),
+            openrouter_request_reservation_usd=_env_float(
+                envmap, sources, "TEND_OPENROUTER_REQUEST_RESERVATION_USD", "0"
+            ),
+            openrouter_pricing_profile_sha256=(
+                _env(envmap, "TEND_OPENROUTER_PRICING_PROFILE_SHA256") or ""
+            ).strip(),
+            openrouter_max_price_prompt_usd_per_million=_env_float(
+                envmap,
+                sources,
+                "TEND_OPENROUTER_MAX_PRICE_PROMPT_USD_PER_MILLION",
+                "-1",
+            ),
+            openrouter_max_price_completion_usd_per_million=_env_float(
+                envmap,
+                sources,
+                "TEND_OPENROUTER_MAX_PRICE_COMPLETION_USD_PER_MILLION",
+                "-1",
+            ),
+            openrouter_max_price_request_usd=_env_float(
+                envmap,
+                sources,
+                "TEND_OPENROUTER_MAX_PRICE_REQUEST_USD",
+                "-1",
+            ),
+            openrouter_durable_cost_ledger=_env_bool(
+                envmap,
+                sources,
+                "TEND_OPENROUTER_DURABLE_COST_LEDGER",
+                "0",
+            ),
             write_markdown_transcripts=_env_bool(envmap, sources, "TEND_LLM_TRANSCRIPT_MD", "1"),
         )
         paths = Paths(

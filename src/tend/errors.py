@@ -32,6 +32,7 @@ class Anomaly(str, enum.Enum):
     EMPTY_RESPONSE = "empty_response"      # model returned no content
     TRUNCATED = "truncated"                # finish_reason=length (cut off mid-answer)
     REFUSAL = "refusal"                    # model refused / safety stop
+    CAMPAIGN_PAUSED = "campaign_paused"    # operator action required (budget/balance)
     # --- LLM output well-formedness ("prompt anomalies") ---
     PROMPT_MALFORMED = "prompt_malformed"  # we built an invalid prompt (pre-send)
     CONTEXT_OVERFLOW = "context_overflow"  # prompt too large for the model window
@@ -125,6 +126,20 @@ class LLMError(TendError):
     default_anomaly = Anomaly.API_ERROR
 
 
+class CampaignPauseError(LLMError):
+    """The campaign must pause without converting infrastructure state into a bad answer.
+
+    This is deliberately non-retryable inside one logical LLM call.  A supervisor may
+    resume the campaign after the operator restores balance or raises an explicit budget.
+    """
+
+    default_anomaly = Anomaly.CAMPAIGN_PAUSED
+
+    def __init__(self, message: str, **kw: Any) -> None:
+        kw.setdefault("retryable", False)
+        super().__init__(message, **kw)
+
+
 class RateLimitError(LLMError):
     default_anomaly = Anomaly.RATE_LIMIT
 
@@ -213,6 +228,16 @@ class ExecutionError(TendError):
     """MongoDB / mongosh execution failure (NormExec, witness probe, bridge run)."""
 
     default_anomaly = Anomaly.EXEC_ERROR
+
+
+class ResultResourceUnavailableError(ExecutionError):
+    """Exact result evidence could not be produced because local resources failed.
+
+    This is infrastructure state, not evidence that a generated query is wrong.  Solver
+    and evaluator boundaries must therefore fail-stop and preserve resumability instead
+    of converting it into a scored zero.  Typical causes are an unwritable/full spill
+    directory or a failed bounded result stream.
+    """
 
 
 class DisabledOperatorError(TendError):

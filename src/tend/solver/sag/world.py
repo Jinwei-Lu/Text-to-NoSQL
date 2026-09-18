@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os as _os
 
+from collections.abc import Iterator
 from typing import Any, Protocol, runtime_checkable
 
 from ...errors import ExecutionError
@@ -32,6 +33,10 @@ class WorldAccess(Protocol):
     def aggregate(
         self, collection: str, pipeline: list[dict[str, Any]], *, max_time_ms: int
     ) -> list[dict[str, Any]]: ...
+
+    def iter_aggregate(
+        self, collection: str, pipeline: list[dict[str, Any]], *, max_time_ms: int
+    ) -> Iterator[dict[str, Any]]: ...
 
     def find_one(
         self,
@@ -131,6 +136,38 @@ class MongoWorld:
                 context={"db_id": self.db_id, "collection": collection, "error": str(exc)[:300]},
             ) from exc
 
+    def iter_aggregate(
+        self, collection: str, pipeline: list[dict[str, Any]], *, max_time_ms: int
+    ) -> Iterator[dict[str, Any]]:
+        """Stream an aggregate cursor without retaining the result set in Python.
+
+        The cursor remains strictly read-only and uses the same server-side timeout as
+        :meth:`aggregate`.  It is consumed inside one worker thread by the exact result
+        fingerprint builder; callers must not move the iterator across threads.
+        """
+
+        cursor: Any = None
+        try:
+            cursor = self._db[collection].aggregate(
+                pipeline, allowDiskUse=True, maxTimeMS=int(max_time_ms)
+            )
+            for document in cursor:
+                if isinstance(document, dict):
+                    yield document
+        except Exception as exc:  # noqa: BLE001
+            raise ExecutionError(
+                "aggregate streaming execution failed",
+                context={
+                    "db_id": self.db_id,
+                    "collection": collection,
+                    "error": str(exc)[:300],
+                },
+            ) from exc
+        finally:
+            close = getattr(cursor, "close", None)
+            if callable(close):
+                close()
+
     def find_one(
         self,
         collection: str,
@@ -180,6 +217,15 @@ class LocalWorld:
     ) -> list[dict[str, Any]]:
         raise ExecutionError(
             "offline world cannot execute pipelines",
+            context={"db_id": self.db_id, "collection": collection},
+        )
+
+    def iter_aggregate(
+        self, collection: str, pipeline: list[dict[str, Any]], *, max_time_ms: int
+    ) -> Iterator[dict[str, Any]]:
+        del pipeline, max_time_ms
+        raise ExecutionError(
+            "offline world cannot stream pipelines",
             context={"db_id": self.db_id, "collection": collection},
         )
 

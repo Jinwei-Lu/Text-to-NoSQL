@@ -406,6 +406,7 @@ def render_path_card(
     collapse: bool = True,
     id_examples: tuple[Any, ...] = (),
     id_field_examples: dict[str, tuple[Any, ...]] | None = None,
+    include_literal_examples: bool = True,
 ) -> str:
     """Render the ENTIRE induced lattice: every path (dynmap children collapsed to
     ``<*>``), with type, array markers, dynmap markers + example keys + value shape.
@@ -456,11 +457,17 @@ def render_path_card(
         + ("(`[]` = array element, `<*>` = dynamic DATA key):"
            if collapse else "(`[]` = array element):")
     ]
-    if id_examples:
+    if include_literal_examples and id_examples:
         lines.append(
             f"  _id: DOCUMENT KEY — a stored, readable field and usually this entity's "
             f"identifier, e.g. {list(id_examples[:3])}; read it as `$_id` when the "
             f"question asks for this entity's id/identifier/code"
+        )
+    elif not include_literal_examples:
+        lines.append(
+            "  _id: DOCUMENT KEY — a stored, readable field and usually this entity's "
+            "identifier; read it as `$_id` when the question asks for this entity's "
+            "id/identifier/code"
         )
     keys = sorted(rows)
     dropped = 0
@@ -472,14 +479,21 @@ def render_path_card(
         r = rows[d]
         if r["isdyn"]:
             shape = value_shapes.get(r["np"], "?")
-            lines.append(
-                f"  {d}: DYNAMIC-KEY MAP — keys are data values, e.g. "
-                f"{r['keys'][:4]}; {shape}; "
-                f"enumerate with $objectToArray -> {{k,v}}"
-            )
+            if include_literal_examples:
+                lines.append(
+                    f"  {d}: DYNAMIC-KEY MAP — keys are data values, e.g. "
+                    f"{r['keys'][:4]}; {shape}; "
+                    f"enumerate with $objectToArray -> {{k,v}}"
+                )
+            else:
+                lines.append(
+                    f"  {d}: DYNAMIC-KEY MAP — keys are data values; {shape}; "
+                    f"enumerate with $objectToArray -> {{k,v}}"
+                )
         else:
-            ex = (id_field_examples or {}).get(r["np"])
-            lines.append(f"  {d}: {r['ty']}" + (f", e.g. {list(ex)}" if ex else ""))
+            ex = (id_field_examples or {}).get(r["np"]) if include_literal_examples else None
+            extra = f", e.g. {list(ex)}" if ex else ""
+            lines.append(f"  {d}: {r['ty']}" + extra)
     if dropped:
         lines.append(f"  ... ({dropped} deepest paths elided)")
     return "\n".join(lines)
@@ -545,13 +559,16 @@ def build_grounding_index(
     sample_docs: int = 400,
     card_cap: int = 400,
     card_mode: str = "lattice",
+    build_value_index: bool = True,
+    include_literal_examples: bool = True,
 ) -> GroundingIndex:
     """Build the per-db grounding index in ONE bounded sample pass per collection.
 
     ``card_mode`` varies ONLY the rendered card text (the decoding hypothesis space
     shown to the model) for the card-representation ablations; the lattice, path
-    sets, dynamic maps, and value index — everything the gates and witnesses use —
-    are identical across modes:
+    sets, and dynamic maps are identical across modes. ``build_value_index=False``
+    is the whole Value-Witness knockout: it preserves structural induction while
+    avoiding even the construction of the question-independent value lookup.
 
     - ``lattice`` (solver default): the full collapsed lattice card.
     - ``toplevel``: top-level fields only (the early prototype's grounding).
@@ -570,8 +587,16 @@ def build_grounding_index(
         lattice[coll] = lat
         valid[coll], top[coll], dyn[coll] = derive_path_sets(lat)
         shapes = {np_: _dynmap_value_shape(docs, np_) for np_ in dyn[coll]}
-        id_examples = _id_examples(docs)
-        id_fields = _id_field_examples(docs, valid[coll])
+        id_examples = _id_examples(docs) if include_literal_examples else ()
+        id_fields = (
+            _id_field_examples(docs, valid[coll]) if include_literal_examples else {}
+        )
+        card_kwargs = {
+            "cap": card_cap,
+            "id_examples": id_examples,
+            "id_field_examples": id_fields,
+            "include_literal_examples": include_literal_examples,
+        }
         if card_mode == "toplevel":
             card_lat = {p: nd for p, nd in lat.items() if "." not in p.lstrip(".")}
             card_dyn = {np_: keys for np_, keys in dyn[coll].items() if "." not in np_}
@@ -581,9 +606,7 @@ def build_grounding_index(
                     card_lat,
                     card_dyn,
                     shapes,
-                    cap=card_cap,
-                    id_examples=id_examples,
-                    id_field_examples=id_fields,
+                    **card_kwargs,
                 )
             )
         elif card_mode == "nocollapse":
@@ -593,10 +616,8 @@ def build_grounding_index(
                     lat,
                     dyn[coll],
                     shapes,
-                    cap=card_cap,
                     collapse=False,
-                    id_examples=id_examples,
-                    id_field_examples=id_fields,
+                    **card_kwargs,
                 )
             )
         else:
@@ -606,14 +627,13 @@ def build_grounding_index(
                     lat,
                     dyn[coll],
                     shapes,
-                    cap=card_cap,
-                    id_examples=id_examples,
-                    id_field_examples=id_fields,
+                    **card_kwargs,
                 )
             )
-        dynset = set(dyn[coll])
-        for d in docs:
-            _vwalk(vidx, d, coll, "", "", dynset)
+        if build_value_index:
+            dynset = set(dyn[coll])
+            for d in docs:
+                _vwalk(vidx, d, coll, "", "", dynset)
     card_text = "\n\n".join(cards)
     value_index = {n: tuple(sorted(hits)) for n, hits in vidx.items()}
     has_presence = any(p.endswith(".presence_state") for c in colls for p in valid[c])
@@ -634,5 +654,6 @@ def build_grounding_index(
             "path_count": sum(len(v) for v in valid.values()),
             "card_chars": len(card_text),
             "value_count": len(value_index),
+            "value_index_built": int(build_value_index),
         },
     )

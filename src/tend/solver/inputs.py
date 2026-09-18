@@ -68,10 +68,22 @@ def load_solver_release_inputs(
     record_id: int | None = None,
     limit: int | None = None,
     nlq_track: NlqTrack = "record",
+    load_data: bool = True,
 ) -> list[tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]]:
-    """Load release records plus public schema/data assets."""
+    """Load release records plus public schema/data assets.
+
+    Schema and data files are database-scoped assets.  A full database cell has
+    many records, so parsing those files for every record needlessly multiplies
+    resident memory.  Load each asset at most once and share the resulting
+    immutable-by-convention objects across that database's records.
+
+    ``load_data=False`` is the live-Mongo execution path: the working database
+    is already authoritative, so the large release witness JSON must not be
+    materialized merely to pass ``None``-equivalent data into the solver.
+    """
     layout = resolve_release_dataset_layout(dataset_dir)
     out: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]] = []
+    assets_by_db: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
     for record in select_solver_release_records(
         dataset_dir,
         db_id=db_id,
@@ -80,14 +92,25 @@ def load_solver_release_inputs(
         nlq_track=nlq_track,
     ):
         rid = record["db_id"]
-        schema_path = layout.mongodb_schema_dir / f"{rid}.json"
-        schema = (
-            json.loads(schema_path.read_text(encoding="utf-8"))
-            if schema_path.exists()
-            else {}
-        )
-        data_path = layout.mongodb_data_dir / f"{rid}.json"
-        data = json.loads(data_path.read_text(encoding="utf-8")) if data_path.exists() else None
+        cached = assets_by_db.get(rid)
+        if cached is None:
+            schema_path = layout.mongodb_schema_dir / f"{rid}.json"
+            schema = (
+                json.loads(schema_path.read_text(encoding="utf-8"))
+                if schema_path.exists()
+                else {}
+            )
+            data: dict[str, Any] | None = None
+            if load_data:
+                data_path = layout.mongodb_data_dir / f"{rid}.json"
+                data = (
+                    json.loads(data_path.read_text(encoding="utf-8"))
+                    if data_path.exists()
+                    else None
+                )
+            cached = (schema, data)
+            assets_by_db[rid] = cached
+        schema, data = cached
         out.append((record, schema, data))
     return out
 

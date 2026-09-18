@@ -10,13 +10,14 @@ stub/offline runs that never execute don't require a reachable server.
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 import hashlib
 import json
 import threading
-from typing import Any
+from typing import Any, Iterator
 
 from ..config import Settings
-from ..errors import ExecutionError
+from ..errors import ExecutionError, ResultResourceUnavailableError
 from ..observability import RunLogger
 from .ast_check import assert_no_disabled, parse_pipeline
 from .signature import _canon, _FLOAT_NDIGITS
@@ -56,6 +57,26 @@ _PROBE_WORK_BOUNDARY_STAGES = frozenset(
         "$unwind",
     }
 )
+
+
+@dataclass(frozen=True, slots=True)
+class BoundedExecutionResult:
+    """A normalized result prefix with exact evidence about row-count overflow.
+
+    When ``overflowed`` is false, ``rows`` is the complete result.  When it is true,
+    ``rows`` contains exactly ``max_rows + 1`` rows: the smallest prefix that proves the
+    result has a different row count from an expected result of ``max_rows`` rows.  The
+    server cursor is closed immediately after that proof, so an accidental document dump
+    cannot grow evaluator memory with the collection size.
+    """
+
+    rows: list[dict[str, Any]]
+    overflowed: bool
+    max_rows: int
+
+    @property
+    def observed_rows(self) -> int:
+        return len(self.rows)
 
 
 def _scoped_db_name(*, prefix: str, run_id: str, db_id: str) -> str:
@@ -317,17 +338,113 @@ class MongoExecutor:
 
     def norm_exec(self, db_id: str, mql: str) -> list[dict[str, Any]]:
         """Execute an MQL aggregate and return the *normalized* result documents."""
+        return list(self.norm_exec_iter(db_id, mql))
+
+    def norm_exec_iter(self, db_id: str, mql: str) -> Iterator[dict[str, Any]]:
+        """Execute an aggregate as a normalized, closeable result stream.
+
+        ``norm_exec`` remains the compatibility API for callers that genuinely need the
+        complete result.  Evaluators and voters that already know an admissible row bound
+        should use this stream, or :meth:`norm_exec_bounded`, so a projection-free query
+        cannot materialize an entire large collection in process memory.
+
+        Query/operator failures remain :class:`ExecutionError` and may be scored as a bad
+        generated query.  A connection/cursor/normalization failure after execution starts
+        is instead :class:`ResultResourceUnavailableError`: the result evidence is
+        incomplete, so callers must fail-stop rather than turn it into an incorrect answer.
+        """
         assert_no_disabled(mql)
         collection, pipeline = parse_pipeline(mql)
         client = self._connect()
         db = client[self._db_name(db_id)]
         try:
-            raw = list(db[collection].aggregate(pipeline, maxTimeMS=_EXEC_MAX_TIME_MS))
+            cursor = db[collection].aggregate(pipeline, maxTimeMS=_EXEC_MAX_TIME_MS)
         except Exception as exc:  # noqa: BLE001 - pymongo/operator errors -> typed anomaly
-            raise ExecutionError("aggregate execution failed",
-                                 context={"db_id": db_id, "collection": collection,
-                                          "error": str(exc)[:300]}) from exc
-        return [_normalize_doc(d) for d in raw]
+            raise _aggregate_error(
+                exc,
+                db_id=db_id,
+                collection=collection,
+                phase="open",
+            ) from exc
+
+        def _normalized_rows() -> Iterator[dict[str, Any]]:
+            try:
+                for document in cursor:
+                    try:
+                        normalized = _normalize_doc(document)
+                    except Exception as exc:  # noqa: BLE001 - exact evidence is unavailable
+                        raise ResultResourceUnavailableError(
+                            "aggregate result normalization failed",
+                            context={
+                                "db_id": db_id,
+                                "collection": collection,
+                                "phase": "normalize",
+                                "error": str(exc)[:300],
+                            },
+                        ) from exc
+                    yield normalized
+            except ResultResourceUnavailableError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - cursor errors need typed classification
+                raise _aggregate_error(
+                    exc,
+                    db_id=db_id,
+                    collection=collection,
+                    phase="iterate",
+                ) from exc
+            finally:
+                close = getattr(cursor, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception as exc:  # noqa: BLE001 - cursor cleanup is evidence state
+                        raise ResultResourceUnavailableError(
+                            "aggregate result cursor could not be closed",
+                            context={
+                                "db_id": db_id,
+                                "collection": collection,
+                                "phase": "close",
+                                "error": str(exc)[:300],
+                            },
+                        ) from exc
+
+        return _normalized_rows()
+
+    def norm_exec_bounded(
+        self,
+        db_id: str,
+        mql: str,
+        *,
+        max_rows: int,
+    ) -> BoundedExecutionResult:
+        """Return a complete result up to ``max_rows``, or a ``max_rows + 1`` proof.
+
+        The extra row is intentional: reading exactly ``max_rows`` rows does not prove the
+        cursor is exhausted.  Once the extra row arrives, the result cannot have the same
+        cardinality as a ``max_rows``-row gold result, and the cursor is closed immediately.
+        """
+        if isinstance(max_rows, bool) or not isinstance(max_rows, int) or max_rows < 0:
+            raise ValueError("max_rows must be a non-negative integer")
+        stream = self.norm_exec_iter(db_id, mql)
+        rows: list[dict[str, Any]] = []
+        try:
+            for row in stream:
+                rows.append(row)
+                if len(rows) > max_rows:
+                    return BoundedExecutionResult(
+                        rows=rows,
+                        overflowed=True,
+                        max_rows=max_rows,
+                    )
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                close()
+        return BoundedExecutionResult(
+            rows=rows,
+            overflowed=False,
+            max_rows=max_rows,
+        )
 
     def raw_database(self, db_id: str) -> Any:
         """Raw pymongo ``Database`` handle for the working db (read-only use).
@@ -342,6 +459,67 @@ class MongoExecutor:
         if self._client is not None:
             self._client.close()
             self._client = None
+
+
+def _aggregate_error(
+    exc: Exception,
+    *,
+    db_id: str,
+    collection: str,
+    phase: str,
+) -> ExecutionError:
+    """Separate a bad query from missing/incomplete execution evidence.
+
+    MongoDB can report a malformed or resource-heavy generated pipeline lazily while the
+    cursor is first consumed; those ``OperationFailure`` instances preserve the historical
+    ``ExecutionError`` scoring path.  Transport loss, cursor loss, local memory/I/O faults,
+    and unknown mid-stream faults mean the evaluator did not observe the query's result and
+    therefore must fail-stop.
+    """
+    context = {
+        "db_id": db_id,
+        "collection": collection,
+        "phase": phase,
+        "error": str(exc)[:300],
+        "exception_type": type(exc).__name__,
+    }
+    if isinstance(exc, ResultResourceUnavailableError):
+        return exc.with_context(**context)
+
+    operation_failure: type[Exception] | tuple[()] = ()
+    infrastructure_errors: tuple[type[BaseException], ...] = (MemoryError, OSError)
+    try:
+        from pymongo.errors import (
+            AutoReconnect,
+            ConnectionFailure,
+            CursorNotFound,
+            NetworkTimeout,
+            OperationFailure,
+            ServerSelectionTimeoutError,
+        )
+
+        operation_failure = OperationFailure
+        infrastructure_errors = infrastructure_errors + (
+            AutoReconnect,
+            ConnectionFailure,
+            CursorNotFound,
+            NetworkTimeout,
+            ServerSelectionTimeoutError,
+        )
+    except ImportError:  # pragma: no cover - MongoExecutor requires pymongo at runtime
+        pass
+
+    if isinstance(exc, infrastructure_errors):
+        return ResultResourceUnavailableError(
+            "aggregate result stream unavailable",
+            context=context,
+        )
+    if phase != "open" and not isinstance(exc, operation_failure):
+        return ResultResourceUnavailableError(
+            "aggregate result stream failed before exact evidence was available",
+            context=context,
+        )
+    return ExecutionError("aggregate execution failed", context=context)
 
 
 def _normalize_doc(doc: Any) -> Any:

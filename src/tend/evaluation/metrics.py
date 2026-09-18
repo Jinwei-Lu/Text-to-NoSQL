@@ -26,9 +26,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from ..errors import Anomaly, TendError, wrap_unexpected
+from ..errors import Anomaly, ResultResourceUnavailableError, TendError, wrap_unexpected
 from ..execution.ast_check import ast_check, parse_pipeline, root_ops, scan_disabled
-from ..execution.mongo import equiv_rec_values_superset, row_values_key
+from ..execution.mongo import (
+    BoundedExecutionResult,
+    MongoExecutor,
+    equiv_rec_values_superset,
+    row_values_key,
+)
 from ..execution.signature import canonical_json
 from ..observability import RunLogger
 from ..release_layout import resolve_release_dataset_layout
@@ -62,6 +67,10 @@ HEADLINE_METRIC = "EXC"
 # benign surplus families (one ``_id`` leak + one helper column) while every
 # projection-stripped dump probe still fails.
 EXC_SURPLUS_BOUND = 2
+# Formal Mongo evaluation never needs to retain more than this many gold rows.
+# financial/3458765 gold is 46,988 rows; exceeding this ceiling is an
+# infrastructure/preflight failure, never a scored model zero.
+EVALUATION_GOLD_RESULT_MAX_ROWS = 100_000
 EVALUATION_METRICS: tuple[str, ...] = (HEADLINE_METRIC,)
 # Graded (non-binary) companions to the binary fingerprint metrics. ``EXF1`` is the
 # name-insensitive row-multiset F1 between predicted and gold results: row identity is
@@ -87,6 +96,9 @@ OUTCOME_BUCKETS: tuple[str, ...] = (
     "row_subset",  # predicted rows are a proper sub-multiset of gold rows
     "row_superset",  # gold rows are a proper sub-multiset of predicted rows
     "value_mismatch",  # overlapping/disjoint rows: at least one row's values are wrong
+    # Prediction produced more than |gold| rows.  The evaluator stopped at |gold|+1,
+    # because EXC=0 was already proven and consuming a document dump would be unsafe.
+    "row_count_exceeded",
 )
 SLICE_AXES: tuple[str, ...] = (
     "domain",
@@ -134,6 +146,14 @@ class EvaluationExecutor(Protocol):
     def load_witness(self, db_id: str, collections: dict[str, list[dict[str, Any]]]) -> None: ...
 
     def norm_exec(self, db_id: str, mql: str) -> list[dict[str, Any]]: ...
+
+    def norm_exec_bounded(
+        self,
+        db_id: str,
+        mql: str,
+        *,
+        max_rows: int,
+    ) -> BoundedExecutionResult: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,6 +320,10 @@ def evaluate_predictions(
     try:
         _load_witnesses(dataset_dir, scorable_records, executor, log)
         gold = _prepare_gold_records(scorable_records, executor, log)
+    except ResultResourceUnavailableError as err:
+        if not err.logged:
+            log.anomaly(err)
+        raise
     except TendError as err:
         if not err.logged:
             log.anomaly(err)
@@ -335,17 +359,22 @@ def evaluate_predictions(
             total=len(predictions),
         )
 
-    rows = _score_predictions_concurrently(
-        predictions,
-        record_index=record_index,
-        gold=gold,
-        executor=executor,
-        experiment_kind=experiment_kind,
-        run_id=run_id,
-        logger=log,
-        progress=progress,
-        max_workers=max_workers,
-    )
+    try:
+        rows = _score_predictions_concurrently(
+            predictions,
+            record_index=record_index,
+            gold=gold,
+            executor=executor,
+            experiment_kind=experiment_kind,
+            run_id=run_id,
+            logger=log,
+            progress=progress,
+            max_workers=max_workers,
+        )
+    except ResultResourceUnavailableError as err:
+        if not err.logged:
+            log.anomaly(err)
+        raise
     missing_rows = _missing_prediction_rows(
         records,
         predictions,
@@ -573,7 +602,30 @@ def _prepare_gold_records(
                 context={"db_id": db_id, "record_id": record_id, "hits": disabled},
             )
         try:
-            result = executor.norm_exec(db_id, mql)
+            if isinstance(executor, MongoExecutor):
+                bounded_gold = _norm_exec_prediction_bounded(
+                    executor,
+                    db_id,
+                    mql,
+                    max_rows=EVALUATION_GOLD_RESULT_MAX_ROWS,
+                )
+                if bounded_gold.overflowed:
+                    raise ResultResourceUnavailableError(
+                        "gold result exceeds the frozen evaluator safety limit",
+                        context={
+                            "db_id": db_id,
+                            "record_id": record_id,
+                            "max_rows": EVALUATION_GOLD_RESULT_MAX_ROWS,
+                        },
+                    )
+                result = bounded_gold.rows
+            else:
+                # Test/custom executors retain their historical interface.  The formal
+                # campaign constructs MongoExecutor directly and therefore always takes
+                # the bounded branch above.
+                result = executor.norm_exec(db_id, mql)
+        except ResultResourceUnavailableError:
+            raise
         except Exception as exc:  # noqa: BLE001 - executor wraps most failures as TendError
             err = wrap_unexpected(
                 exc,
@@ -820,6 +872,10 @@ def _score_one_prediction(
             diagnostics=row.get("diagnostics"),
         )
         return row
+    except ResultResourceUnavailableError:
+        if progress:
+            progress.finish_task(task_id, ok=False, anomaly=Anomaly.EXEC_ERROR.value)
+        raise
     except Exception as exc:  # noqa: BLE001 - one evaluator bug should not drop all rows
         err = wrap_unexpected(
             exc,
@@ -908,37 +964,72 @@ def _score_one_prediction_inner(
     diagnostics["parse_ok"] = parsed is not None
     diagnostics["ast_ok"] = ast_ok
 
+    gold_result = gold_record.gold_result
     predicted_result: list[dict[str, Any]] | None = None
+    predicted_result_overflowed = False
     if parsed is not None and not disabled:
         try:
-            predicted_result = executor.norm_exec(str(record.get("db_id") or ""), mql)
+            if gold_result is None:
+                predicted_result = executor.norm_exec(str(record.get("db_id") or ""), mql)
+            else:
+                bounded = _norm_exec_prediction_bounded(
+                    executor,
+                    str(record.get("db_id") or ""),
+                    mql,
+                    max_rows=len(gold_result),
+                )
+                predicted_result = bounded.rows
+                predicted_result_overflowed = bounded.overflowed
+        except ResultResourceUnavailableError:
+            raise
         except Exception as exc:  # noqa: BLE001 - bad predictions score 0 but remain scorable
             diagnostics["exec_error"] = str(exc)[:700]
 
-    gold_result = gold_record.gold_result
     if predicted_result is not None and gold_result is not None:
         order_sensitive = gold_record.order_sensitive
-        # Headline EXC: bounded column tolerance (β=EXC_SURPLUS_BOUND, gold is first arg).
-        # parse_ok ∧ banned-op-clean preconditions are already enforced by the execution
-        # gate above; ast_ok is deliberately not a conjunct (see module header).
-        metrics["EXC"] = int(
-            equiv_rec_values_superset(
-                gold_result,
-                predicted_result,
-                order_sensitive=order_sensitive,
-                max_surplus=EXC_SURPLUS_BOUND,
+        if predicted_result_overflowed:
+            # Seeing |gold|+1 rows is already a strict proof that row-count equality, and
+            # therefore EXC, is impossible.  Do not consume a potentially million-row dump
+            # merely to compute diagnostics.  EXF1 and a full-result hash are deliberately
+            # unavailable rather than fabricated from the bounded prefix.
+            metrics["EXC"] = 0
+            metrics["EXF1"] = None
+            diagnostics["EXF1_status"] = "not_computed_after_proven_row_count_mismatch"
+            diagnostics["result_rows"] = {
+                "predicted": None,
+                "consumed_rows": len(predicted_result),
+                "gold": len(gold_result),
+                "order_sensitive": order_sensitive,
+                "exact_predicted_row_count": False,
+                "stopped_early": True,
+            }
+            diagnostics["result_hash"] = {
+                "predicted": None,
+                "predicted_prefix": _hash_result(predicted_result),
+                "gold": _hash_result(gold_result),
+            }
+        else:
+            # Headline EXC: bounded column tolerance (β=EXC_SURPLUS_BOUND, gold first).
+            # parse_ok ∧ banned-op-clean preconditions are already enforced by the
+            # execution gate; ast_ok is deliberately not a conjunct (see module header).
+            metrics["EXC"] = int(
+                equiv_rec_values_superset(
+                    gold_result,
+                    predicted_result,
+                    order_sensitive=order_sensitive,
+                    max_surplus=EXC_SURPLUS_BOUND,
+                )
             )
-        )
-        metrics["EXF1"] = exf1(predicted_result, gold_result)
-        diagnostics["result_rows"] = {
-            "predicted": len(predicted_result),
-            "gold": len(gold_result),
-            "order_sensitive": order_sensitive,
-        }
-        diagnostics["result_hash"] = {
-            "predicted": _hash_result(predicted_result),
-            "gold": _hash_result(gold_result),
-        }
+            metrics["EXF1"] = exf1(predicted_result, gold_result)
+            diagnostics["result_rows"] = {
+                "predicted": len(predicted_result),
+                "gold": len(gold_result),
+                "order_sensitive": order_sensitive,
+            }
+            diagnostics["result_hash"] = {
+                "predicted": _hash_result(predicted_result),
+                "gold": _hash_result(gold_result),
+            }
 
     fingerprint = [metrics[name] for name in EVALUATION_METRICS]
     outcome = _classify_outcome(
@@ -948,6 +1039,7 @@ def _score_one_prediction_inner(
         predicted_result=predicted_result,
         gold_result=gold_result,
         order_sensitive=gold_record.order_sensitive,
+        row_count_exceeded=predicted_result_overflowed,
     )
     return {
         "result_type": "evaluation_record",
@@ -968,6 +1060,64 @@ def _score_one_prediction_inner(
         "prediction_ref": _prediction_ref(prediction),
         **_result_binding(prediction),
     }
+
+
+def _norm_exec_prediction_bounded(
+    executor: EvaluationExecutor,
+    db_id: str,
+    mql: str,
+    *,
+    max_rows: int,
+) -> BoundedExecutionResult:
+    """Use an executor's bounded interface without breaking legacy test executors.
+
+    Production ``MongoExecutor`` implements ``norm_exec_bounded``.  Older/custom
+    executors that expose only ``norm_exec`` retain their historical full-result behavior;
+    this compatibility path is not used by the formal MongoDB evaluator.
+    """
+    bounded_exec = getattr(executor, "norm_exec_bounded", None)
+    if not callable(bounded_exec):
+        rows = executor.norm_exec(db_id, mql)
+        return BoundedExecutionResult(rows=rows, overflowed=False, max_rows=max_rows)
+    result = bounded_exec(db_id, mql, max_rows=max_rows)
+    if not isinstance(result, BoundedExecutionResult):
+        raise ResultResourceUnavailableError(
+            "bounded execution returned an invalid evidence object",
+            context={
+                "db_id": db_id,
+                "max_rows": max_rows,
+                "got_type": type(result).__name__,
+            },
+        )
+    if result.max_rows != max_rows:
+        raise ResultResourceUnavailableError(
+            "bounded execution evidence used the wrong row limit",
+            context={
+                "db_id": db_id,
+                "expected_max_rows": max_rows,
+                "actual_max_rows": result.max_rows,
+            },
+        )
+    expected_size = max_rows + 1
+    if result.overflowed and len(result.rows) != expected_size:
+        raise ResultResourceUnavailableError(
+            "bounded execution overflow proof has an invalid prefix length",
+            context={
+                "db_id": db_id,
+                "max_rows": max_rows,
+                "observed_rows": len(result.rows),
+            },
+        )
+    if not result.overflowed and len(result.rows) > max_rows:
+        raise ResultResourceUnavailableError(
+            "bounded execution exceeded its limit without an overflow proof",
+            context={
+                "db_id": db_id,
+                "max_rows": max_rows,
+                "observed_rows": len(result.rows),
+            },
+        )
+    return result
 
 
 def _failed_record_row(
@@ -1159,6 +1309,7 @@ def _classify_outcome(
     predicted_result: list[dict[str, Any]] | None,
     gold_result: list[dict[str, Any]] | None,
     order_sensitive: bool,
+    row_count_exceeded: bool = False,
 ) -> str:
     """Assign a scored prediction to exactly one ``OUTCOME_BUCKETS`` bucket."""
     if exc:
@@ -1167,6 +1318,8 @@ def _classify_outcome(
         return "invalid"
     if predicted_result is None or gold_result is None:
         return "exec_error"
+    if row_count_exceeded:
+        return "row_count_exceeded"
     if not predicted_result and gold_result:
         return "empty"
     pred_counter = Counter(row_values_key(row) for row in predicted_result)
@@ -1317,6 +1470,7 @@ def _build_report(
         system_id: {
             "record_count": len(items),
             "scores": _aggregate(items),
+            "metric_coverage": _metric_coverage(items),
             "outcome_distribution": _outcome_distribution(items),
             "diagnostics": _diagnostic_counts(items),
             "diagnostic_artifact_refs": _diagnostic_artifact_refs(items),
@@ -1360,6 +1514,7 @@ def _build_report(
             dataset_dir=dataset_dir,
         ),
         "scores": scores,
+        "metric_coverage": _metric_coverage(rows),
         "systems": systems,
         "slice_aggregates": _aggregate_slices(rows, SLICE_AXES),
         "diagnostic_slice_aggregates": _aggregate_slices(rows, DIAGNOSTIC_SLICE_AXES),
@@ -1383,7 +1538,7 @@ def _build_report(
 def _headline_summary(
     *,
     experiment_kind: str,
-    overall_scores: dict[str, float],
+    overall_scores: dict[str, float | None],
     systems: dict[str, dict[str, Any]],
     mcnemar: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -1406,13 +1561,11 @@ def _headline_summary(
         item: dict[str, Any] = {
             "record_count": payload.get("record_count", 0),
             "scores": scores,
+            "metric_coverage": payload.get("metric_coverage", {}),
         }
         if reference_scores is not None:
             item["delta_vs_reference"] = {
-                metric: round(
-                    float(scores.get(metric, 0.0)) - float(reference_scores.get(metric, 0.0)),
-                    6,
-                )
+                metric: _metric_delta(scores.get(metric), reference_scores.get(metric))
                 for metric in ALL_METRICS
             }
         if mcnemar and system_id in mcnemar:
@@ -1432,16 +1585,41 @@ def _headline_summary(
     }
 
 
-def _aggregate(rows: list[dict[str, Any]]) -> dict[str, float]:
+def _aggregate(rows: list[dict[str, Any]]) -> dict[str, float | None]:
     if not rows:
         return {name: 0.0 for name in ALL_METRICS}
+    scores: dict[str, float | None] = {}
+    for name in ALL_METRICS:
+        values = [
+            float(value)
+            for row in rows
+            if (value := (row.get("metrics") or {}).get(name, 0)) is not None
+        ]
+        scores[name] = round(sum(values) / len(values), 6) if values else None
+    return scores
+
+
+def _metric_coverage(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Say exactly which metric means are based on complete per-record evidence."""
+    total = len(rows)
     return {
-        name: round(
-            sum(float((row.get("metrics") or {}).get(name, 0)) for row in rows) / len(rows),
-            6,
-        )
+        name: {
+            "computed_rows": sum(
+                1 for row in rows if (row.get("metrics") or {}).get(name, 0) is not None
+            ),
+            "total_rows": total,
+            "complete": all(
+                (row.get("metrics") or {}).get(name, 0) is not None for row in rows
+            ),
+        }
         for name in ALL_METRICS
     }
+
+
+def _metric_delta(left: Any, right: Any) -> float | None:
+    if left is None or right is None:
+        return None
+    return round(float(left) - float(right), 6)
 
 
 def _outcome_distribution(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1569,6 +1747,9 @@ def _diagnostic_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
         failure_type = diagnostics.get("failure_type")
         if isinstance(failure_type, str) and failure_type:
             counts[failure_type] += 1
+        exf1_status = diagnostics.get("EXF1_status")
+        if isinstance(exf1_status, str) and exf1_status:
+            counts[exf1_status] += 1
         for key in ("parse_error", "forbidden_op_hit", "exec_error", "ast_reasons"):
             if diagnostics.get(key):
                 counts[key] += 1
@@ -1666,6 +1847,27 @@ def _write_failed_report(
     return EvaluationOutput(status="failed", report=report, paths=paths)
 
 
+def _format_metric(value: Any) -> str:
+    return "not computed" if value is None else str(value)
+
+
+def _format_payload_metric(payload: dict[str, Any], metric: str) -> str:
+    scores = payload.get("scores") if isinstance(payload.get("scores"), dict) else {}
+    rendered = _format_metric(scores.get(metric, 0.0))
+    coverage_by_metric = (
+        payload.get("metric_coverage")
+        if isinstance(payload.get("metric_coverage"), dict)
+        else {}
+    )
+    coverage = coverage_by_metric.get(metric)
+    if isinstance(coverage, dict) and not coverage.get("complete", True):
+        return (
+            f"{rendered} ({coverage.get('computed_rows', 0)}/"
+            f"{coverage.get('total_rows', 0)} exact)"
+        )
+    return rendered
+
+
 def _render_markdown_report(report: dict[str, Any]) -> str:
     headline = report.get("headline") if isinstance(report.get("headline"), dict) else {}
     headline_mode = str(headline.get("mode") or "overall")
@@ -1697,7 +1899,6 @@ def _render_markdown_report(report: dict[str, Any]) -> str:
             headline.get("systems") if isinstance(headline.get("systems"), dict) else {}
         )
         for system_id, payload in headline_systems.items():
-            scores = payload.get("scores", {}) if isinstance(payload, dict) else {}
             deltas = (
                 payload.get("delta_vs_reference")
                 if isinstance(payload, dict) and isinstance(payload.get("delta_vs_reference"), dict)
@@ -1713,8 +1914,9 @@ def _render_markdown_report(report: dict[str, Any]) -> str:
             p_value = mcnemar.get("p_value", "")
             lines.append(
                 f"| {system_id} | {payload.get('record_count', 0)} | "
-                f"{scores.get(HEADLINE_METRIC, 0.0)} | {scores.get('EXF1', 0.0)} | "
-                f"{delta_ex} | {p_value} |"
+                f"{_format_payload_metric(payload, HEADLINE_METRIC)} | "
+                f"{_format_payload_metric(payload, 'EXF1')} | "
+                f"{_format_metric(delta_ex)} | {p_value} |"
             )
         if not headline_systems:
             lines.append("| (none) | 0 | 0 | 0 |  |  |")
@@ -1749,7 +1951,30 @@ def _render_markdown_report(report: dict[str, Any]) -> str:
     if not isinstance(diagnostic_metrics, list):
         diagnostic_metrics = list(DIAGNOSTIC_METRICS)
     for metric in diagnostic_metrics:
-        lines.append(f"| {metric} | {report.get('scores', {}).get(metric, 0.0)} |")
+        lines.append(
+            f"| {metric} | {_format_metric(report.get('scores', {}).get(metric, 0.0))} |"
+        )
+    metric_coverage = (
+        report.get("metric_coverage")
+        if isinstance(report.get("metric_coverage"), dict)
+        else {}
+    )
+    incomplete_metrics = {
+        metric: coverage
+        for metric, coverage in metric_coverage.items()
+        if isinstance(coverage, dict) and not coverage.get("complete", True)
+    }
+    if incomplete_metrics:
+        lines += [
+            "",
+            "Metric means exclude rows whose exact result evidence was intentionally not "
+            "computed after EXC=0 was already proven:",
+        ]
+        for metric, coverage in incomplete_metrics.items():
+            lines.append(
+                f"- {metric}: {coverage.get('computed_rows', 0)}/"
+                f"{coverage.get('total_rows', 0)} rows with exact evidence"
+            )
     lines += [
         "",
         "## Systems",
@@ -1759,10 +1984,10 @@ def _render_markdown_report(report: dict[str, Any]) -> str:
     ]
     if systems:
         for system_id, payload in systems.items():
-            scores = payload.get("scores", {})
             lines.append(
                 f"| {system_id} | {payload.get('record_count', 0)} | "
-                f"{scores.get(HEADLINE_METRIC, 0.0)} | {scores.get('EXF1', 0.0)} |"
+                f"{_format_payload_metric(payload, HEADLINE_METRIC)} | "
+                f"{_format_payload_metric(payload, 'EXF1')} |"
             )
     else:
         lines.append("| (none) | 0 | 0 | 0 |")

@@ -206,18 +206,22 @@ class RunLoggerFacade:
         from datetime import datetime, timezone
 
         usage = dict(fields.pop("usage", {}) or {})
+        durable = bool(fields.pop("durable", False))
+        cost_usd = fields.pop("cost_usd", 0.0)
         row = {
             "call_id": fields.pop("call_id", None),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "model": fields.pop("model", None),
             "prompt_tokens": usage.get("prompt_tokens", 0),
             "completion_tokens": usage.get("completion_tokens", 0),
-            "cost_usd": fields.pop("cost_usd", 0.0) or 0.0,
+            # ``None`` means an ambiguous provider attempt whose reservation was
+            # charged as unknown; coercing it to zero would understate paid risk.
+            "cost_usd": cost_usd,
             "cost_source": fields.pop("cost_source", None) or "unavailable",
             "agent": fields.pop("agent", None),
         }
         row.update({k: v for k, v in fields.items() if v is not None})
-        self.manager.append_cost_record(row)
+        self.manager.append_cost_record(row, durable=durable)
         return row
 
     # ------------------------------------------------------------------ #

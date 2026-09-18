@@ -17,12 +17,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import traceback
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from ..errors import SourceError, TendError, wrap_unexpected
+from ..errors import CampaignPauseError, SourceError, TendError, wrap_unexpected
 from ..execution.ast_check import static_mql_feedback
 from ..solver.inputs import (
     DEFAULT_INPUT_SAMPLE_SIZE,
@@ -135,16 +137,28 @@ async def run_ablation_suite(
     nlq: str | None = None,
     nlq_track: NlqTrack = "record",
     record_id: int | None = None,
-    limit: int = 1,
+    limit: int | None = 1,
     witness_k: int = DEFAULT_INPUT_SAMPLE_SIZE,
     workers: int = 1,
     policy_overrides: dict[str, Any] | None = None,
+    result_sink: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
+    should_skip: Callable[[SagAblationSpec, dict[str, Any]], bool] | None = None,
+    admission_gate: Callable[[], Awaitable[None] | None] | None = None,
+    telemetry_sink: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
+    retain_outputs: bool = True,
+    strict_failure_mode: bool = False,
+    terminal_failure_classifier: Callable[[dict[str, Any]], bool] | None = None,
 ) -> list[dict[str, Any]]:
+    if strict_failure_mode and terminal_failure_classifier is None:
+        raise SourceError(
+            "strict ablation failure mode requires an explicit terminal-failure classifier"
+        )
     specs = resolve_ablations(ablation_selection)
     suite_workers = max(1, int(workers))
     input_mode = "nlq_db" if nlq is not None else "release"
     effective_nlq_track: NlqTrack = "canonical" if nlq is not None else nlq_track
     evaluation_skip_reason = "no_release_dataset" if nlq is not None else None
+    live_mongo = await _uses_live_mongo(wf)
     if nlq is not None:
         if not db_id:
             raise SourceError("NLQ+DB ablation mode requires --db-id")
@@ -163,6 +177,7 @@ async def run_ablation_suite(
             record_id=record_id,
             limit=limit,
             nlq_track=effective_nlq_track,
+            load_data=not live_mongo,
         )
     nlq_hash = _nlq_hash(nlq) if nlq is not None else None
     log_mgr = getattr(wf.ctx, "log_mgr", None)
@@ -181,6 +196,9 @@ async def run_ablation_suite(
         nlq_hash=nlq_hash,
         witness_k=witness_k,
         workers=suite_workers,
+        queue_capacity=2 * suite_workers,
+        retain_outputs=retain_outputs,
+        live_mongo=live_mongo,
         evaluation_skip_reason=evaluation_skip_reason,
     )
     if not inputs:
@@ -209,20 +227,19 @@ async def run_ablation_suite(
     if wf.ctx.progress:
         wf.ctx.progress.phase("ABLATION")
 
-    if nlq is not None and db_id:
+    if live_mongo:
+        preloaded_dbs = {
+            str(record.get("db_id") or "")
+            for record, _schema, _data in inputs
+            if record.get("db_id")
+        }
+    elif nlq is not None and db_id:
         preloaded_dbs = {str(db_id)}
     else:
         preloaded_dbs = await _preload_ablation_witnesses(wf, inputs, suite_log)
 
     # One induced index per db for the whole suite: every arm shares it.
     index_cache = GroundingIndexCache(wf.ctx.mongo, wf.ctx.settings, suite_log)
-
-    work: list[
-        tuple[int, SagAblationSpec, dict[str, Any], dict[str, Any], dict[str, Any] | None]
-    ] = []
-    for record, schema, data in inputs:
-        for spec in specs:
-            work.append((len(work), spec, record, schema, data))
 
     async def run_one(
         batch_index: int,
@@ -250,13 +267,25 @@ async def run_ablation_suite(
                 witness_k=witness_k,
                 evaluation_skip_reason=evaluation_skip_reason,
                 policy_overrides=policy_overrides,
+                strict_failure_mode=strict_failure_mode,
+                terminal_failure_classifier=terminal_failure_classifier,
             )
             payload = result.to_json() if hasattr(result, "to_json") else dict(result)
             if not isinstance(payload, dict):
                 raise TypeError(
                     f"ablation result serialized to {type(payload).__name__}, expected dict"
                 )
+        except CampaignPauseError:
+            # Budget exhaustion, balance/authentication pauses, and other
+            # campaign-state stops are never scored model failures.
+            raise
         except TendError as err:
+            if strict_failure_mode:
+                # Formal experiments default-deny exceptions.  Only a solver's
+                # explicit, classifier-approved terminal payload may become a
+                # fixed-denominator zero; source/config/Mongo/internal failures
+                # must stop the resumable cell without writing a checkpoint.
+                raise
             err.with_context(
                 ablation_id=spec.id,
                 db_id=db,
@@ -285,6 +314,8 @@ async def run_ablation_suite(
                 evaluation_skip_reason=evaluation_skip_reason,
             )
         except Exception as exc:  # noqa: BLE001 - one wrapper failure is one row
+            if strict_failure_mode:
+                raise
             err = wrap_unexpected(
                 exc,
                 stage="ablation_worker",
@@ -319,27 +350,152 @@ async def run_ablation_suite(
         payload.setdefault("session_id", _session_id(work_item_id))
         return batch_index, payload
 
-    semaphore = asyncio.Semaphore(suite_workers)
+    # Keep both pending work and completed-but-not-persisted rows bounded.  The
+    # previous gather-all implementation allocated one coroutine per record x
+    # arm before the first result could be released.
+    queue_capacity = 2 * suite_workers
+    work_queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=queue_capacity)
+    result_queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=queue_capacity)
+    work_done = object()
+    worker_done = object()
+    retained: dict[int, dict[str, Any]] = {}
+    counters = {"scheduled": 0, "skipped": 0, "completed": 0, "active_work": 0}
+    admission_stop: list[Exception] = []
 
-    async def run_guarded(
-        batch_index: int,
-        spec: SagAblationSpec,
-        record: dict[str, Any],
-        schema: dict[str, Any],
-        data: dict[str, list[dict[str, Any]]] | None,
-    ) -> tuple[int, dict[str, Any]]:
-        async with semaphore:
-            return await run_one(batch_index, spec, record, schema, data)
+    async def emit_telemetry(event: str) -> None:
+        if telemetry_sink is None:
+            return
+        snapshot = {
+            "event": event,
+            **counters,
+            "work_queue_depth": work_queue.qsize(),
+            "result_queue_depth": result_queue.qsize(),
+            "workers": suite_workers,
+        }
+        emitted = telemetry_sink(snapshot)
+        if inspect.isawaitable(emitted):
+            await emitted
 
-    completed = await asyncio.gather(
-        *(
-            run_guarded(batch_index, spec, record, schema, data)
-            for batch_index, spec, record, schema, data in work
-        )
+    async def produce() -> None:
+        batch_index = 0
+        for record, schema, data in inputs:
+            for spec in specs:
+                if admission_stop:
+                    break
+                if should_skip is not None and should_skip(spec, record):
+                    counters["skipped"] += 1
+                else:
+                    await work_queue.put((batch_index, spec, record, schema, data))
+                    counters["scheduled"] += 1
+                    await emit_telemetry("scheduled")
+                # The index is stable across resume: skipped checkpoint rows do
+                # not renumber later work items.
+                batch_index += 1
+            if admission_stop:
+                break
+        for _ in range(suite_workers):
+            await work_queue.put(work_done)
+
+    async def consume() -> None:
+        try:
+            while True:
+                item = await work_queue.get()
+                try:
+                    if item is work_done:
+                        return
+                    # Another worker observed critical memory pressure.  Drain
+                    # already-buffered lightweight work without starting more
+                    # model calls; in-flight workers may still finish and their
+                    # rows will reach the single result writer below.
+                    if admission_stop:
+                        continue
+                    if admission_gate is not None:
+                        try:
+                            admission = admission_gate()
+                            if inspect.isawaitable(admission):
+                                await admission
+                        except Exception as exc:  # graceful resumable stop
+                            if not admission_stop:
+                                admission_stop.append(exc)
+                            continue
+                    batch_index, spec, record, schema, data = item
+                    counters["active_work"] += 1
+                    await emit_telemetry("work_started")
+                    try:
+                        result = await run_one(batch_index, spec, record, schema, data)
+                    except Exception as exc:
+                        # Campaign pauses and formal fail-stop errors share the
+                        # same drain-before-raise path.  No new work is admitted,
+                        # while already-paid successful rows are allowed to reach
+                        # the serialized checkpoint writer.
+                        if not admission_stop:
+                            admission_stop.append(exc)
+                        continue
+                    finally:
+                        counters["active_work"] -= 1
+                        await emit_telemetry("work_finished")
+                    await result_queue.put(result)
+                    # Emit immediately after the bounded put.  A periodic
+                    # monitor can miss a short-lived full result queue when the
+                    # writer drains it between samples; the synchronous event
+                    # preserves that peak for memory-pilot receipts.
+                    await emit_telemetry("result_enqueued")
+                finally:
+                    work_queue.task_done()
+        finally:
+            await result_queue.put(worker_done)
+
+    async def persist_results() -> None:
+        finished_workers = 0
+        while finished_workers < suite_workers:
+            item = await result_queue.get()
+            try:
+                if item is worker_done:
+                    finished_workers += 1
+                    continue
+                batch_index, payload = item
+                if result_sink is not None:
+                    persisted = result_sink(payload)
+                    if inspect.isawaitable(persisted):
+                        await persisted
+                if retain_outputs:
+                    retained[batch_index] = payload
+                counters["completed"] += 1
+                await emit_telemetry("result_persisted")
+            finally:
+                result_queue.task_done()
+
+    async with asyncio.TaskGroup() as tasks:
+        tasks.create_task(produce(), name="ablation-producer")
+        for worker_index in range(suite_workers):
+            tasks.create_task(consume(), name=f"ablation-worker-{worker_index}")
+        tasks.create_task(persist_results(), name="ablation-result-writer")
+
+    outputs = [retained[index] for index in sorted(retained)]
+    suite_log.info(
+        "ablation_suite_done",
+        outputs=len(outputs),
+        completed=counters["completed"],
+        scheduled=counters["scheduled"],
+        skipped=counters["skipped"],
+        ablations=len(specs),
+        queue_capacity=queue_capacity,
     )
-    outputs = [payload for _, payload in sorted(completed, key=lambda item: item[0])]
-    suite_log.info("ablation_suite_done", outputs=len(outputs), ablations=len(specs))
+    if admission_stop:
+        raise admission_stop[0]
     return outputs
+
+
+async def _uses_live_mongo(wf: Workflow) -> bool:
+    """Return whether release witness JSON can be skipped safely."""
+    settings = getattr(wf.ctx, "settings", None)
+    mongo = getattr(wf.ctx, "mongo", None)
+    if not bool(getattr(settings, "use_existing_mongo_dbs", False)) or mongo is None:
+        return False
+    available = getattr(mongo, "available", None)
+    if not callable(available):
+        return False
+    return bool(await asyncio.to_thread(available))
 
 
 def _ablation_worker_failure_payload(
@@ -418,7 +574,13 @@ async def run_ablation_record(
     witness_k: int = DEFAULT_INPUT_SAMPLE_SIZE,
     evaluation_skip_reason: str | None = None,
     policy_overrides: dict[str, Any] | None = None,
+    strict_failure_mode: bool = False,
+    terminal_failure_classifier: Callable[[dict[str, Any]], bool] | None = None,
 ) -> AblationPrediction | AblationFailure:
+    if strict_failure_mode and terminal_failure_classifier is None:
+        raise SourceError(
+            "strict ablation failure mode requires an explicit terminal-failure classifier"
+        )
     db_id = str(record.get("db_id") or "")
     record_id = record.get("record_id")
     effective_nlq_hash = nlq_hash if nlq_hash is not None else _nlq_hash_from_record(record)
@@ -481,6 +643,16 @@ async def run_ablation_record(
         )
         payload = result.to_json() if hasattr(result, "to_json") else dict(result)
         if payload.get("result_type") == "solver_failure":
+            if strict_failure_mode and not terminal_failure_classifier(payload):
+                raise SourceError(
+                    "formal ablation rejected a non-model terminal failure",
+                    context={
+                        "ablation_id": spec.id,
+                        "db_id": db_id,
+                        "record_id": record_id,
+                        "error_code": payload.get("error_code"),
+                    },
+                )
             failure = _failure_from_solver_payload(wf, spec, options, payload)
             record_event(
                 "ablation_record_done",
@@ -501,7 +673,11 @@ async def run_ablation_record(
             agent_session_ref=prediction.agent_session_ref,
         )
         return prediction
+    except CampaignPauseError:
+        raise
     except TendError as err:
+        if strict_failure_mode:
+            raise
         err.with_context(ablation_id=spec.id, db_id=db_id, record_id=record_id)
         if not err.logged:
             log_sag_anomaly(
@@ -530,6 +706,8 @@ async def run_ablation_record(
         )
         return failure
     except Exception as exc:
+        if strict_failure_mode:
+            raise
         err = wrap_unexpected(
             exc,
             ablation_id=spec.id,

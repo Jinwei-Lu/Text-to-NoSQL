@@ -27,20 +27,47 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from ...errors import ConfigError, ExecutionError, LLMError, TendError
+from ...errors import (
+    CampaignPauseError,
+    ConfigError,
+    ExecutionError,
+    LLMError,
+    ResultResourceUnavailableError,
+    TendError,
+)
 from ...execution.ast_check import render_mql, scan_disabled
 from ...execution.mongo import equiv_rec_values
 from ...utils.logging import AgentTurnLogPayload, LogManager, TaskLogger
 from ..inputs import _canonical_nlq
 from .gates import ProbeCache, a_path, a_value, limit_contract
 from .induction import GroundingIndex, build_grounding_index
-from .prompt import response_schema, system_prompt, witness_block
-from .repair import bisect_empty, run_pipeline, synthetic_id_violation
+from .prompt import (
+    RawDocumentContext,
+    build_raw_document_context,
+    response_schema,
+    system_prompt,
+    witness_block,
+)
+from .repair import (
+    EXACT_RESULT_FINGERPRINT_BACKEND,
+    EXACT_RESULT_FINGERPRINT_SCHEMA,
+    EXACT_RESULT_MAX_ROWS,
+    EXACT_RESULT_PREVIEW_UTF8_BYTES,
+    EXACT_RESULT_SQLITE_CACHE_KIB,
+    REPAIR_RESULT_PREVIEW_ROWS,
+    ExactResultFingerprint,
+    bisect_empty,
+    run_pipeline,
+    run_pipeline_fingerprint,
+    run_pipeline_preview,
+    synthetic_id_violation,
+)
 from .witness import EnforcedLiteral, witnesses
 from .world import LocalWorld, MongoWorld, WorldAccess
 
 _ARMS = ("v3", "v2", "gate", "card1")
 _CARD_MODES = ("lattice", "toplevel", "nocollapse")
+_DATABASE_CONTEXT_MODES = ("induced", "raw3")
 
 
 @dataclass(frozen=True)
@@ -73,6 +100,14 @@ class SAGPolicy:
     bisection_override: bool | None = None  # rich empty feedback (prefix bisection)
     card_mode: str = "lattice"  # "lattice" | "toplevel" | "nocollapse" (card TEXT only)
     variant_label: str = ""  # distinguishes knockout arms in variants/transcripts
+    # --- whole-core-component experiment surface ------------------------- #
+    database_context_mode: str = "induced"  # "induced" | "raw3"
+    use_gate_repair: bool | None = None  # None preserves canonical arm behavior
+    limit_contract_override: bool | None = None
+    synthetic_id_override: bool | None = None
+    card_literal_examples: bool = True
+    raw_docs_per_collection: int = 3
+    raw_doc_prefix_bytes: int = 12_288
 
     def validate(self) -> None:
         if self.arm not in _ARMS:
@@ -84,6 +119,12 @@ class SAGPolicy:
             raise ConfigError(
                 f"unknown card_mode {self.card_mode!r}; valid modes: {sorted(_CARD_MODES)}",
                 context={"card_mode": self.card_mode},
+            )
+        if self.database_context_mode not in _DATABASE_CONTEXT_MODES:
+            raise ConfigError(
+                f"unknown database_context_mode {self.database_context_mode!r}; "
+                f"valid modes: {sorted(_DATABASE_CONTEXT_MODES)}",
+                context={"database_context_mode": self.database_context_mode},
             )
         if self.k_consistency < 1 or self.max_repair_rounds < 1:
             raise ConfigError(
@@ -98,29 +139,73 @@ class SAGPolicy:
                 "sample_docs and card_cap must be >= 1",
                 context={"sample_docs": self.sample_docs, "card_cap": self.card_cap},
             )
+        if self.raw_docs_per_collection < 1 or self.raw_doc_prefix_bytes < 1:
+            raise ConfigError(
+                "raw_docs_per_collection and raw_doc_prefix_bytes must be >= 1",
+                context={
+                    "raw_docs_per_collection": self.raw_docs_per_collection,
+                    "raw_doc_prefix_bytes": self.raw_doc_prefix_bytes,
+                },
+            )
+
+    @property
+    def gate_repair_enabled(self) -> bool:
+        if self.use_gate_repair is not None:
+            return self.use_gate_repair
+        return self.arm != "card1"
 
     @property
     def use_gate(self) -> bool:
+        if not self.gate_repair_enabled or self.database_context_mode == "raw3":
+            return False
         if self.gate_override is not None:
             return self.gate_override
         return self.arm != "card1"
 
     @property
     def use_repair(self) -> bool:
-        return self.arm != "card1"
+        return self.gate_repair_enabled
 
     @property
     def use_value_witnesses(self) -> bool:
         """Drives the 'smart' feedback set: A_value, limit contract, synthetic-_id
         (the prototype keyed them on the same arm membership)."""
+        if self.database_context_mode == "raw3":
+            return False
         if self.value_grounding_override is not None:
             return self.value_grounding_override
         return self.arm in ("v2", "v3")
 
     @property
+    def build_value_index(self) -> bool:
+        return self.database_context_mode == "induced" and self.use_value_witnesses
+
+    @property
+    def use_a_value_gate(self) -> bool:
+        return self.gate_repair_enabled and self.use_value_witnesses
+
+    @property
+    def use_limit_contract(self) -> bool:
+        if not self.gate_repair_enabled:
+            return False
+        if self.limit_contract_override is not None:
+            return self.limit_contract_override
+        return self.use_value_witnesses
+
+    @property
+    def use_synthetic_id_feedback(self) -> bool:
+        if not self.gate_repair_enabled:
+            return False
+        if self.synthetic_id_override is not None:
+            return self.synthetic_id_override
+        return self.use_value_witnesses
+
+    @property
     def use_bisection(self) -> bool:
         """Rich empty-result feedback content (prefix bisection + distinct values);
         when off, an empty result feeds back as a plain 'returns 0 rows'."""
+        if not self.gate_repair_enabled:
+            return False
         if self.bisection_override is not None:
             return self.bisection_override
         return self.use_value_witnesses
@@ -133,6 +218,22 @@ class SAGPolicy:
     def solver_variant(self) -> str:
         base = f"sag_{self.arm}"
         return f"{base}_{self.variant_label}" if self.variant_label else base
+
+    @property
+    def bounded_core_execution(self) -> bool:
+        """Whether this is a formal whole-component ablation.
+
+        The marker changes only local execution evidence retention.  It never enters a
+        model-visible prompt and deliberately leaves the submitted/full SAG path intact.
+        """
+
+        return self.variant_label in {
+            "core_no_grounding",
+            "core_no_value_witness",
+            "core_no_gate_repair",
+            "core_no_value_witness_strict",
+            "core_generate_only",
+        }
 
 
 @dataclass
@@ -197,7 +298,9 @@ class Candidate:
 class AttemptOutcome:
     candidate: Candidate
     rounds: int
-    result: list[dict[str, Any]] | None  # normalized final execution
+    # Full SAG retains its historically exact normalized list.  The no-Gate/Repair
+    # ablation uses a disk-backed exact multiset so an unbounded aggregate cannot OOM.
+    result: list[dict[str, Any]] | ExactResultFingerprint | None
     exec_status: str  # "ok" | "error" | "skipped"
     error_code: str | None = None
     error_message: str | None = None
@@ -226,11 +329,7 @@ def cluster_attempts(outs: list[AttemptOutcome]) -> tuple[AttemptOutcome, int]:
         placed = False
         for cl in clusters:
             ref = outs[cl[0]]
-            if (
-                o.result is not None
-                and ref.result is not None
-                and equiv_rec_values(o.result, ref.result, order_sensitive=False)
-            ):
+            if _result_values_equivalent(o.result, ref.result):
                 cl.append(i)
                 placed = True
                 break
@@ -245,6 +344,52 @@ def cluster_attempts(outs: list[AttemptOutcome]) -> tuple[AttemptOutcome, int]:
     members = clusters[0]
     best_i = min(members, key=lambda i: (outs[i].candidate.violations, outs[i].candidate.empty, i))
     return outs[best_i], len(members)
+
+
+def _result_values_equivalent(
+    left: list[dict[str, Any]] | ExactResultFingerprint | None,
+    right: list[dict[str, Any]] | ExactResultFingerprint | None,
+) -> bool:
+    if left is None or right is None:
+        return False
+    if isinstance(left, ExactResultFingerprint) and isinstance(
+        right, ExactResultFingerprint
+    ):
+        return left.equivalent(right)
+    if isinstance(left, list) and isinstance(right, list):
+        return equiv_rec_values(left, right, order_sensitive=False)
+    # One solve never mixes execution modes.  Refuse to infer equivalence across an
+    # unexpected mixed representation rather than weakening the voting contract.
+    return False
+
+
+def _result_row_count(
+    result: list[dict[str, Any]] | ExactResultFingerprint | None,
+) -> int | None:
+    return len(result) if result is not None else None
+
+
+def _result_preview(
+    result: list[dict[str, Any]] | ExactResultFingerprint | None,
+) -> str:
+    if result is None:
+        return "[]"
+    if isinstance(result, ExactResultFingerprint):
+        return result.preview
+    return json.dumps(result[:5], default=str)[:2000]
+
+
+def _result_fingerprint_receipt(
+    result: list[dict[str, Any]] | ExactResultFingerprint | None,
+) -> dict[str, Any] | None:
+    return result.receipt() if isinstance(result, ExactResultFingerprint) else None
+
+
+def _close_result(
+    result: list[dict[str, Any]] | ExactResultFingerprint | None,
+) -> None:
+    if isinstance(result, ExactResultFingerprint):
+        result.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -354,14 +499,13 @@ class GroundingIndexCache:
         self._log = log  # StageLogger (or anything with .info) for index-build events
         # Keyed by (db_id, card-affecting policy params): an ablation suite shares one
         # cache across arms, and card-mode/sample/cap variants must not poison each other.
-        self._entries: dict[
-            tuple[str, int, int, str], tuple[GroundingIndex, ProbeCache, WorldAccess]
-        ] = {}
+        self._entries: dict[tuple, tuple[GroundingIndex, ProbeCache, WorldAccess]] = {}
+        self._raw_entries: dict[tuple, tuple[RawDocumentContext, ProbeCache, WorldAccess]] = {}
         self._locks: dict[tuple, asyncio.Lock] = {}
         self._locks_guard = asyncio.Lock()
 
     @staticmethod
-    def _key(db_id: str, policy: SAGPolicy) -> tuple[str, int, int, str, bool, bool]:
+    def _key(db_id: str, policy: SAGPolicy) -> tuple:
         # induction-affecting process flags belong in the key: without them an
         # in-process run that toggles either flag would serve a stale card.
         from tend.solver.sag import induction as _ind, world as _wld
@@ -371,8 +515,19 @@ class GroundingIndexCache:
             policy.sample_docs,
             policy.card_cap,
             policy.card_mode,
+            policy.build_value_index,
+            bool(policy.card_literal_examples),
             bool(getattr(_ind, "KEYS_V2", False)),
             bool(getattr(_wld, "SPREAD_SAMPLE", False)),
+        )
+
+    @staticmethod
+    def _raw_key(db_id: str, policy: SAGPolicy) -> tuple[str, str, int, int]:
+        return (
+            db_id,
+            policy.database_context_mode,
+            policy.raw_docs_per_collection,
+            policy.raw_doc_prefix_bytes,
         )
 
     async def _lock_for(self, key: tuple) -> asyncio.Lock:
@@ -415,6 +570,8 @@ class GroundingIndexCache:
                     sample_docs=policy.sample_docs,
                     card_cap=policy.card_cap,
                     card_mode=policy.card_mode,
+                    build_value_index=policy.build_value_index,
+                    include_literal_examples=policy.card_literal_examples,
                 )
             except ExecutionError as err:
                 raise err.with_context(db_id=db_id, sag_error_code="INDEX_BUILD_FAILED")
@@ -431,6 +588,42 @@ class GroundingIndexCache:
             self._entries[key] = (index, ProbeCache(), world)
             return self._entries[key]
 
+    async def get_raw(
+        self,
+        db_id: str,
+        *,
+        policy: SAGPolicy,
+        local_data: dict[str, list[dict[str, Any]]] | None = None,
+    ) -> tuple[RawDocumentContext, ProbeCache, WorldAccess]:
+        """Return one frozen raw3 context per database and experiment profile."""
+        key = self._raw_key(db_id, policy)
+        lock = await self._lock_for(key)
+        async with lock:
+            if key in self._raw_entries:
+                return self._raw_entries[key]
+            world = await asyncio.to_thread(self._select_world, db_id, local_data)
+            t0 = time.monotonic()
+            try:
+                context = await asyncio.to_thread(
+                    build_raw_document_context,
+                    world,
+                    docs_per_collection=policy.raw_docs_per_collection,
+                    prefix_bytes=policy.raw_doc_prefix_bytes,
+                )
+            except ExecutionError as err:
+                raise err.with_context(db_id=db_id, sag_error_code="RAW_CONTEXT_BUILD_FAILED")
+            info = getattr(self._log, "info", None)
+            if callable(info):
+                info(
+                    "sag_raw_context_built",
+                    db_id=db_id,
+                    source=context.source,
+                    elapsed_s=round(time.monotonic() - t0, 3),
+                    **context.stats,
+                )
+            self._raw_entries[key] = (context, ProbeCache(), world)
+            return self._raw_entries[key]
+
 
 # --------------------------------------------------------------------------- #
 # one attempt = one full repair-loop decode
@@ -438,10 +631,11 @@ class GroundingIndexCache:
 async def _run_attempt(
     llm: Any,
     world: WorldAccess,
-    index: GroundingIndex,
+    index: GroundingIndex | None,
     cache: ProbeCache,
     policy: SAGPolicy,
     *,
+    collections: tuple[str, ...],
     sys_text: str,
     user_text: str,
     nlq: str,
@@ -455,11 +649,23 @@ async def _run_attempt(
         {"role": "system", "content": sys_text},
         {"role": "user", "content": user_text},
     ]
-    schema = response_schema(index)
+    schema = response_schema(collections)
     cands: list[Candidate] = []
     feedback_log: list[list[str]] = []
     rounds = 0
     terminal_error: LLMError | None = None
+    mechanism_receipt = {
+        "model_decodes": 0,
+        "feedback_generated": 0,
+        "feedback_sent_to_model": 0,
+        "a_path_checks": 0,
+        "a_value_checks": 0,
+        "limit_contract_checks": 0,
+        "pipeline_execution_attempts": 0,
+        "pipeline_execution_successes": 0,
+        "empty_bisections": 0,
+        "synthetic_id_checks": 0,
+    }
     max_rounds = policy.max_repair_rounds if (policy.use_repair and world.can_execute) else 1
     for rounds in range(1, max_rounds + 1):
         try:
@@ -471,10 +677,15 @@ async def _run_attempt(
                 omit_max_tokens=True,
                 task_logger=task_log,
             )
+        except CampaignPauseError:
+            # Budget exhaustion / OpenRouter 402 is campaign state, never a bad
+            # model answer. Let the cell supervisor checkpoint and pause cleanly.
+            raise
         except LLMError as err:
             # already logged as an anomaly by the LLM client
             terminal_error = err
             break
+        mechanism_receipt["model_decodes"] += 1
         coll = str(res.data["collection"])
         pipe = list(res.data["pipeline"])
 
@@ -514,6 +725,9 @@ async def _run_attempt(
 
         fb: list[str] = []
         if policy.use_gate:
+            if index is None:  # fail closed: raw3 must never silently acquire A_path
+                raise RuntimeError("A_path cannot run without a grounding index")
+            mechanism_receipt["a_path_checks"] += 1
             fb += a_path(
                 world,
                 index,
@@ -522,9 +736,15 @@ async def _run_attempt(
                 pipe,
                 edge_probe_timeout_ms=policy.edge_probe_timeout_ms,
             )
-        if policy.use_value_witnesses and not fb:
-            fb += a_value(index, coll, pipe, enforce)
-            fb += limit_contract(nlq, pipe)
+        if not fb:
+            if policy.use_a_value_gate:
+                if index is None:  # fail closed: witnesses/A_value require induction
+                    raise RuntimeError("A_value cannot run without a grounding index")
+                mechanism_receipt["a_value_checks"] += 1
+                fb += a_value(index, coll, pipe, enforce)
+            if policy.use_limit_contract:
+                mechanism_receipt["limit_contract_checks"] += 1
+                fb += limit_contract(nlq, pipe)
         emptied = 0
         if not policy.use_repair:  # card1: accept the single shot, no in-loop execution
             cands.append(Candidate(coll, pipe, 0, 0, rounds))
@@ -539,9 +759,16 @@ async def _run_attempt(
                 )
             elif world.can_execute:
                 try:
-                    r = await asyncio.to_thread(
-                        run_pipeline, world, coll, pipe, timeout_ms=policy.exec_timeout_ms
+                    mechanism_receipt["pipeline_execution_attempts"] += 1
+                    execution = (
+                        run_pipeline_preview
+                        if policy.bounded_core_execution
+                        else run_pipeline
                     )
+                    r = await asyncio.to_thread(
+                        execution, world, coll, pipe, timeout_ms=policy.exec_timeout_ms
+                    )
+                    mechanism_receipt["pipeline_execution_successes"] += 1
                     if not r:
                         emptied = 1
                         bs = (
@@ -557,13 +784,18 @@ async def _run_attempt(
                             if policy.use_bisection
                             else None
                         )
+                        if policy.use_bisection:
+                            mechanism_receipt["empty_bisections"] += 1
                         fb.append(
                             "the query executes but returns 0 rows." + (f" {bs}" if bs else "")
                         )
-                    elif policy.use_value_witnesses:
+                    elif policy.use_synthetic_id_feedback:
+                        mechanism_receipt["synthetic_id_checks"] += 1
                         sid = synthetic_id_violation(r)
                         if sid:
                             fb.append(sid)
+                except ResultResourceUnavailableError:
+                    raise
                 except ExecutionError as exc:
                     emptied = 1
                     detail = str(exc.context.get("error") or exc.message)
@@ -573,6 +805,12 @@ async def _run_attempt(
         log_turn(fb)
         if not fb:
             break
+        mechanism_receipt["feedback_generated"] += 1
+        if rounds >= max_rounds:
+            # Preserve the terminal diagnostic in the receipt/log without claiming
+            # that a message the decoder never consumed was model-visible.
+            continue
+        mechanism_receipt["feedback_sent_to_model"] += 1
         msgs += [
             {
                 "role": "assistant",
@@ -614,11 +852,13 @@ async def _run_attempt(
             in {"parse_error", "schema_invalid", "refusal", "contract_violation"}
             else ("provider_or_llm" if terminal_error is not None else None)
         ),
+        "mechanism_receipt": dict(mechanism_receipt),
     }
     if not cands:
         return AttemptBranch(outcome=None, status=branch_status)
     best = select_best(cands)
-    exec_status, result = "skipped", None
+    exec_status = "skipped"
+    result: list[dict[str, Any]] | ExactResultFingerprint | None = None
     error_code: str | None = None
     error_message: str | None = None
     if world.can_execute:
@@ -629,25 +869,58 @@ async def _run_attempt(
             error_message = f"final pipeline uses disabled operator(s) {sorted(banned)}"
         else:
             try:
+                mechanism_receipt["pipeline_execution_attempts"] += 1
+                execution = (
+                    run_pipeline_fingerprint
+                    if policy.bounded_core_execution
+                    else run_pipeline
+                )
                 result = await asyncio.to_thread(
-                    run_pipeline,
+                    execution,
                     world,
                     best.collection,
                     best.pipeline,
                     timeout_ms=policy.exec_timeout_ms,
                 )
+                mechanism_receipt["pipeline_execution_successes"] += 1
                 exec_status = "ok"
+            except ResultResourceUnavailableError:
+                # A failed spill/stream is infrastructure state.  It cannot make a
+                # generated query wrong and must pause/fail the formal cell without a
+                # terminal checkpoint.
+                raise
             except ExecutionError as exc:
                 exec_status = "error"
                 error_code = "PRED_EXEC_ERROR"
                 error_message = str(exc.context.get("error") or exc.message)[:300]
+    if policy.bounded_core_execution and exec_status == "ok":
+        # All three formal component arms vote using the same bounded-memory exact
+        # representation. Empty is a valid result class in the no-Gate/Repair arm.
+        best.empty = int(_result_row_count(result) == 0)
+        mechanism_receipt["exact_result_fingerprint"] = _result_fingerprint_receipt(
+            result
+        )
     branch_status.update(
         {
             "status": "usable_after_terminal_error" if terminal_error else "usable",
             "exec_status": exec_status,
             "candidate_round": best.round,
+            "candidate_collection": best.collection,
+            "candidate_MQL": render_mql(best.collection, best.pipeline),
+            "mechanism_receipt": dict(mechanism_receipt),
         }
     )
+    if policy.use_gate_repair is False and world.can_execute and exec_status == "error":
+        branch_status.update(
+            {
+                "status": "failed_execution",
+                "usable": False,
+                "failure_kind": "unsafe_or_execution",
+                "error_code": error_code,
+                "error_message": error_message,
+            }
+        )
+        return AttemptBranch(outcome=None, status=branch_status)
     return AttemptBranch(
         outcome=AttemptOutcome(
             candidate=best,
@@ -711,40 +984,85 @@ async def sag_solve_nlq_db(
         if callable(info):
             info(event, db_id=db_id, record_id=record_id, **kw)
 
-    # ---- grounding index ------------------------------------------------- #
+    # ---- database context ------------------------------------------------ #
+    index: GroundingIndex | None = None
+    raw_context: RawDocumentContext | None = None
     try:
-        if world is not None:
-            index = await asyncio.to_thread(
-                build_grounding_index,
-                world,
-                sample_docs=policy.sample_docs,
-                card_cap=policy.card_cap,
-                card_mode=policy.card_mode,
-            )
-            probe_cache = ProbeCache()
+        if policy.database_context_mode == "raw3":
+            if world is not None:
+                raw_context = await asyncio.to_thread(
+                    build_raw_document_context,
+                    world,
+                    docs_per_collection=policy.raw_docs_per_collection,
+                    prefix_bytes=policy.raw_doc_prefix_bytes,
+                )
+                probe_cache = ProbeCache()
+            else:
+                if index_cache is None:
+                    index_cache = GroundingIndexCache(mongo, settings, log)
+                raw_context, probe_cache, world = await index_cache.get_raw(
+                    db_id, policy=policy, local_data=local_data
+                )
         else:
-            if index_cache is None:
-                index_cache = GroundingIndexCache(mongo, settings, log)
-            index, probe_cache, world = await index_cache.get(
-                db_id, policy=policy, local_data=local_data
-            )
+            if world is not None:
+                index = await asyncio.to_thread(
+                    build_grounding_index,
+                    world,
+                    sample_docs=policy.sample_docs,
+                    card_cap=policy.card_cap,
+                    card_mode=policy.card_mode,
+                    build_value_index=policy.build_value_index,
+                    include_literal_examples=policy.card_literal_examples,
+                )
+                probe_cache = ProbeCache()
+            else:
+                if index_cache is None:
+                    index_cache = GroundingIndexCache(mongo, settings, log)
+                index, probe_cache, world = await index_cache.get(
+                    db_id, policy=policy, local_data=local_data
+                )
     except ExecutionError as err:
         if not err.logged:
-            log_sag_anomaly(log_mgr, "sag_index_build_failed", err, stage=stage, task_id=task_id)
+            log_sag_anomaly(
+                log_mgr,
+                "sag_context_build_failed"
+                if policy.database_context_mode == "raw3"
+                else "sag_index_build_failed",
+                err,
+                stage=stage,
+                task_id=task_id,
+            )
         return SAGFailure(
             db_id=db_id,
             record_id=record_id,
             nlq=nlq,
-            error_code=str(err.context.get("sag_error_code") or "INDEX_BUILD_FAILED"),
+            error_code=str(
+                err.context.get("sag_error_code")
+                or (
+                    "RAW_CONTEXT_BUILD_FAILED"
+                    if policy.database_context_mode == "raw3"
+                    else "INDEX_BUILD_FAILED"
+                )
+            ),
             message=err.message,
             solver_variant=policy.solver_variant,
-            disclosure=_disclosure(policy, None, 0),
+            disclosure=_disclosure(policy, None, 0, raw_context=None),
         )
 
     # ---- witnesses + attempts -------------------------------------------- #
-    ev_lines, enforce = witnesses(nlq, index) if policy.use_value_witnesses else ([], {})
+    if world is None:  # defensive invariant after a successful context build
+        raise RuntimeError("SAG context build did not return a world")
+    if policy.use_value_witnesses:
+        if index is None:
+            raise RuntimeError("value witnesses cannot run without a grounding index")
+        ev_lines, enforce = witnesses(nlq, index)
+    else:
+        ev_lines, enforce = [], {}
     evidence_text = witness_block(ev_lines)
-    sys_text = system_prompt(index)
+    prompt_context: GroundingIndex | RawDocumentContext | None = raw_context or index
+    if prompt_context is None:
+        raise RuntimeError("SAG context build returned no prompt context")
+    sys_text = system_prompt(prompt_context)
     user_text = f"Question: {nlq}{evidence_text}\n\nReturn the JSON object."
     k = policy.effective_k if world.can_execute else 1
     max_rounds = policy.max_repair_rounds if policy.use_repair else 1
@@ -756,14 +1074,15 @@ async def sag_solve_nlq_db(
             user_message=user_text,
             tools=None,
         )
-    outs_raw = await asyncio.gather(
-        *[
+    attempt_tasks = [
+        asyncio.create_task(
             _run_attempt(
                 llm,
                 world,
                 index,
                 probe_cache,
                 policy,
+                collections=prompt_context.collections,
                 sys_text=sys_text,
                 user_text=user_text,
                 nlq=nlq,
@@ -772,41 +1091,63 @@ async def sag_solve_nlq_db(
                 attempt=i,
                 task_log=task_log,
                 session=session,
-            )
-            for i in range(k)
-        ]
-    )
+            ),
+            name=f"{policy.solver_variant}-candidate-{i}",
+        )
+        for i in range(k)
+    ]
+    try:
+        outs_raw = await asyncio.gather(*attempt_tasks)
+    except BaseException:
+        # Do not abandon already-paid branches.  Drain them, reclaim any completed
+        # disk-backed evidence, then re-raise the campaign/resource interruption.
+        settled = await asyncio.gather(*attempt_tasks, return_exceptions=True)
+        for item in settled:
+            if isinstance(item, AttemptBranch) and item.outcome is not None:
+                _close_result(item.outcome.result)
+        raise
     outs = [branch.outcome for branch in outs_raw if branch.outcome is not None]
     candidate_statuses = [branch.status for branch in outs_raw]
     # Per-candidate final queries and result digests, LOGGING ONLY: never read back by the
     # solver, never shown to the model. Without this the candidate pool cannot be
     # reconstructed offline (only the selected candidate's session is transcribed), which
     # blocked every offline evaluation of the selection rule during the 2026-08 diagnosis.
-    candidate_pool = [
-        {
-            "attempt": i,
-            "round": o.candidate.round,
-            "violations": o.candidate.violations,
-            "empty": o.candidate.empty,
-            "collection": o.candidate.collection,
-            "MQL": f"db.{o.candidate.collection}.aggregate("
-            + json.dumps(o.candidate.pipeline, default=str)
-            + ")",
-            "exec_status": o.exec_status,
-            "result_rows": len(o.result) if o.result is not None else None,
-            "result_digest": json.dumps((o.result or [])[:5], default=str)[:2000],
-        }
-        for i, o in enumerate(outs)
-    ]
-    disclosure = _disclosure(policy, index, len(enforce))
-    disclosure["candidate_pool"] = candidate_pool
+    try:
+        candidate_pool: list[dict[str, Any]] = []
+        for attempt_index, branch in enumerate(outs_raw):
+            o = branch.outcome
+            if o is None:
+                continue
+            candidate_pool.append(
+                {
+                    "attempt": attempt_index,
+                    "round": o.candidate.round,
+                    "violations": o.candidate.violations,
+                    "empty": o.candidate.empty,
+                    "collection": o.candidate.collection,
+                    "MQL": f"db.{o.candidate.collection}.aggregate("
+                    + json.dumps(o.candidate.pipeline, default=str)
+                    + ")",
+                    "exec_status": o.exec_status,
+                    "result_rows": _result_row_count(o.result),
+                    "result_digest": _result_preview(o.result),
+                    "exact_result_fingerprint": _result_fingerprint_receipt(o.result),
+                }
+            )
+        disclosure = _disclosure(policy, index, len(enforce), raw_context=raw_context)
+        disclosure["mechanism_receipt"]["candidate_count"] = k
+        disclosure["mechanism_receipt"]["result_voting_enabled"] = k > 1
+        disclosure["candidate_pool"] = candidate_pool
 
-    if not outs:
-        best, cluster_size = None, 0
-    elif len(outs) == 1:
-        best, cluster_size = outs[0], 1
-    else:
-        best, cluster_size = cluster_attempts(outs)
+        if not outs:
+            best, cluster_size = None, 0
+        elif len(outs) == 1:
+            best, cluster_size = outs[0], 1
+        else:
+            best, cluster_size = cluster_attempts(outs)
+    finally:
+        for outcome_item in outs:
+            _close_result(outcome_item.result)
 
     disclosure.update(
         {
@@ -833,12 +1174,35 @@ async def sag_solve_nlq_db(
 
     if best is None:
         lifecycle("sag_no_candidate", arm=policy.arm, samples_requested=k, stage=stage)
+        no_gate_repair = policy.use_gate_repair is False
+        execution_only_failure = (
+            no_gate_repair
+            and bool(candidate_statuses)
+            and all(
+                status.get("failure_kind") == "unsafe_or_execution"
+                for status in candidate_statuses
+            )
+        )
+        no_usable_candidate = no_gate_repair and not execution_only_failure
+        if execution_only_failure:
+            failure_code = "NO_EXECUTABLE_CANDIDATE"
+            failure_message = "all single-decode candidates were unsafe or failed silent execution"
+        elif no_usable_candidate:
+            failure_code = "NO_USABLE_CANDIDATE"
+            failure_message = (
+                "no single-decode candidate was both generated successfully and executable"
+            )
+        else:
+            failure_code = "LLM_ERROR"
+            failure_message = (
+                "all attempts failed before producing a candidate (see anomaly stream)"
+            )
         return SAGFailure(
             db_id=db_id,
             record_id=record_id,
             nlq=nlq,
-            error_code="LLM_ERROR",
-            message="all attempts failed before producing a candidate (see anomaly stream)",
+            error_code=failure_code,
+            message=failure_message,
             solver_variant=policy.solver_variant,
             samples=0,
             disclosure=disclosure,
@@ -950,7 +1314,13 @@ async def sag_solve_record(
 # --------------------------------------------------------------------------- #
 # internals
 # --------------------------------------------------------------------------- #
-def _disclosure(policy: SAGPolicy, index: GroundingIndex | None, witnessed: int) -> dict[str, Any]:
+def _disclosure(
+    policy: SAGPolicy,
+    index: GroundingIndex | None,
+    witnessed: int,
+    *,
+    raw_context: RawDocumentContext | None = None,
+) -> dict[str, Any]:
     # the induction flags are read at MODULE IMPORT, so a paired comparison whose two arms
     # share one process silently runs one configuration twice. Recording the resolved values
     # here makes every prediction row carry its own witness — the audit's requirement after
@@ -964,17 +1334,58 @@ def _disclosure(policy: SAGPolicy, index: GroundingIndex | None, witnessed: int)
         "world_spread_sample": bool(getattr(_world, "SPREAD_SAMPLE", False)),
         "arm": policy.arm,
         "solver_variant": policy.solver_variant,
+        "database_context_mode": policy.database_context_mode,
         "k_consistency": policy.effective_k,
         "max_repair_rounds": policy.max_repair_rounds if policy.use_repair else 1,
-        "uses_path_card": True,
+        "uses_path_card": policy.database_context_mode == "induced",
         "card_mode": policy.card_mode,
         "uses_a_path_gate": policy.use_gate,
         "uses_value_witnesses": policy.use_value_witnesses,
+        "uses_a_value_gate": policy.use_a_value_gate,
+        "uses_limit_contract": policy.use_limit_contract,
+        "uses_gate_repair": policy.gate_repair_enabled,
+        "uses_synthetic_id_feedback": policy.use_synthetic_id_feedback,
         "uses_bisection_feedback": policy.use_bisection and policy.use_repair,
+        "uses_card_literal_examples": bool(policy.card_literal_examples)
+        and policy.database_context_mode == "induced",
         "uses_consistency": policy.arm == "v3" and policy.effective_k > 1,
         "witnessed_literals": witnessed,
+        "mechanism_receipt": {
+            "context_mode": policy.database_context_mode,
+            "grounding_index_built": index is not None,
+            "value_index_built": bool(index is not None and policy.build_value_index),
+            "raw_context_built": raw_context is not None,
+            "value_witnesses_enabled": policy.use_value_witnesses,
+            "a_path_enabled": policy.use_gate,
+            "a_value_enabled": policy.use_a_value_gate,
+            "limit_contract_enabled": policy.use_limit_contract,
+            "gate_repair_enabled": policy.gate_repair_enabled,
+            "model_feedback_enabled": policy.use_repair,
+            "candidate_count": policy.effective_k,
+            "result_voting_enabled": policy.arm == "v3" and policy.effective_k > 1,
+            "silent_execution_result_contract": (
+                {
+                    "schema": EXACT_RESULT_FINGERPRINT_SCHEMA,
+                    "backend": EXACT_RESULT_FINGERPRINT_BACKEND,
+                    "exact_multiset_comparison": True,
+                    "row_limit": EXACT_RESULT_MAX_ROWS,
+                    "retained_result_rows_in_python": 0,
+                    "sqlite_cache_kib": EXACT_RESULT_SQLITE_CACHE_KIB,
+                    "preview_utf8_bytes": EXACT_RESULT_PREVIEW_UTF8_BYTES,
+                    "repair_preview_rows": REPAIR_RESULT_PREVIEW_ROWS,
+                }
+                if policy.bounded_core_execution
+                else None
+            ),
+        },
     }
     if index is not None:
         out["index_source"] = index.source
         out.update({f"index_{k}": v for k, v in index.stats.items()})
+    if raw_context is not None:
+        out["raw_context_source"] = raw_context.source
+        out["raw_docs_per_collection"] = raw_context.docs_per_collection
+        out["raw_doc_prefix_bytes"] = raw_context.prefix_bytes
+        out["raw_document_receipts"] = [receipt.to_json() for receipt in raw_context.receipts]
+        out.update({f"raw_{k}": v for k, v in raw_context.stats.items()})
     return out

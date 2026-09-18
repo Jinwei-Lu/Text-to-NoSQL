@@ -18,6 +18,7 @@ The reference TEND solver. Mechanism (measured: financial EX 61/110 vs fair ReAc
 The solver contract is ``NLQ + read-only world``; gold fields never enter.
 """
 from .induction import GroundingIndex, LatticeNode, build_grounding_index
+from .prompt import RawDocumentContext, RawDocumentReceipt, build_raw_document_context
 from .runtime import (
     GroundingIndexCache,
     SAGFailure,
@@ -34,11 +35,14 @@ __all__ = [
     "LatticeNode",
     "LocalWorld",
     "MongoWorld",
+    "RawDocumentContext",
+    "RawDocumentReceipt",
     "SAGFailure",
     "SAGPolicy",
     "SAGPrediction",
     "WorldAccess",
     "build_grounding_index",
+    "build_raw_document_context",
     "sag_solve_nlq_db",
     "sag_solve_record",
 ]
