@@ -35,10 +35,7 @@ from ._cli_summaries import (
 )
 from .agents import AgentContext
 from .ablations import ABLATION_IDS, run_ablation_suite
-from .ablations.strategies import (
-    EXTENDED_ABLATION_IDS,
-    SWEEP_OVERRIDE_KEYS as ABLATION_SWEEP_OVERRIDE_KEYS,
-)
+from .ablations.strategies import SWEEP_OVERRIDE_KEYS as ABLATION_SWEEP_OVERRIDE_KEYS
 from .baselines import BASELINE_IDS, run_baseline_suite
 from .config import Settings
 from .construction.artifacts import write_native_phase_a, write_records
@@ -2537,10 +2534,8 @@ def _main_impl(argv: list[str] | None = None) -> int:
     a.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
                    help="release dataset dir (default: release/tend-native-mongodb-v1)")
     a.add_argument("--ablations", default="all",
-                   help="comma-separated ablation ids, all (canonical ladder), or "
-                        f"extended (sag_full + component knockouts); "
-                        f"canonical={','.join(ABLATION_IDS)}; "
-                        f"extended={','.join(EXTENDED_ABLATION_IDS)}")
+                   help="comma-separated ablation ids, or all; "
+                        f"known={','.join(ABLATION_IDS)}")
     a.add_argument("--solver-option", action="append", default=[],
                    help="policy sweep override as KEY=VALUE applied to every selected "
                         "arm; repeatable; keys: "

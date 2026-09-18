@@ -1,7 +1,7 @@
 """Runtime workflow for SAG solver ablation studies.
 
-Each (record × arm) work item runs the SAG runtime with that arm's canonical
-policy (``sag_card1`` / ``sag_gate`` / ``sag_v2`` / the ``sag_full`` reference).
+Each (record × arm) work item runs the SAG runtime with that arm's policy (the
+arms of ``tend.ablations.strategies``, with ``sag_full`` as the reference row).
 The suite owns one shared :class:`GroundingIndexCache` so every arm and record
 reuses each db's induced index, and preloads witnesses once per db (the shared
 working database is reloaded per db, never per record — the preload races of the
@@ -17,9 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import inspect
 import traceback
-from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -141,18 +139,7 @@ async def run_ablation_suite(
     witness_k: int = DEFAULT_INPUT_SAMPLE_SIZE,
     workers: int = 1,
     policy_overrides: dict[str, Any] | None = None,
-    result_sink: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
-    should_skip: Callable[[SagAblationSpec, dict[str, Any]], bool] | None = None,
-    admission_gate: Callable[[], Awaitable[None] | None] | None = None,
-    telemetry_sink: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
-    retain_outputs: bool = True,
-    strict_failure_mode: bool = False,
-    terminal_failure_classifier: Callable[[dict[str, Any]], bool] | None = None,
 ) -> list[dict[str, Any]]:
-    if strict_failure_mode and terminal_failure_classifier is None:
-        raise SourceError(
-            "strict ablation failure mode requires an explicit terminal-failure classifier"
-        )
     specs = resolve_ablations(ablation_selection)
     suite_workers = max(1, int(workers))
     input_mode = "nlq_db" if nlq is not None else "release"
@@ -197,7 +184,6 @@ async def run_ablation_suite(
         witness_k=witness_k,
         workers=suite_workers,
         queue_capacity=2 * suite_workers,
-        retain_outputs=retain_outputs,
         live_mongo=live_mongo,
         evaluation_skip_reason=evaluation_skip_reason,
     )
@@ -267,8 +253,6 @@ async def run_ablation_suite(
                 witness_k=witness_k,
                 evaluation_skip_reason=evaluation_skip_reason,
                 policy_overrides=policy_overrides,
-                strict_failure_mode=strict_failure_mode,
-                terminal_failure_classifier=terminal_failure_classifier,
             )
             payload = result.to_json() if hasattr(result, "to_json") else dict(result)
             if not isinstance(payload, dict):
@@ -280,12 +264,6 @@ async def run_ablation_suite(
             # campaign-state stops are never scored model failures.
             raise
         except TendError as err:
-            if strict_failure_mode:
-                # Formal experiments default-deny exceptions.  Only a solver's
-                # explicit, classifier-approved terminal payload may become a
-                # fixed-denominator zero; source/config/Mongo/internal failures
-                # must stop the resumable cell without writing a checkpoint.
-                raise
             err.with_context(
                 ablation_id=spec.id,
                 db_id=db,
@@ -314,8 +292,6 @@ async def run_ablation_suite(
                 evaluation_skip_reason=evaluation_skip_reason,
             )
         except Exception as exc:  # noqa: BLE001 - one wrapper failure is one row
-            if strict_failure_mode:
-                raise
             err = wrap_unexpected(
                 exc,
                 stage="ablation_worker",
@@ -350,31 +326,16 @@ async def run_ablation_suite(
         payload.setdefault("session_id", _session_id(work_item_id))
         return batch_index, payload
 
-    # Keep both pending work and completed-but-not-persisted rows bounded.  The
-    # previous gather-all implementation allocated one coroutine per record x
-    # arm before the first result could be released.
+    # Keep both pending work and completed-but-not-persisted rows bounded, so memory
+    # does not grow with the number of record x arm work items.
     queue_capacity = 2 * suite_workers
     work_queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=queue_capacity)
     result_queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=queue_capacity)
     work_done = object()
     worker_done = object()
     retained: dict[int, dict[str, Any]] = {}
-    counters = {"scheduled": 0, "skipped": 0, "completed": 0, "active_work": 0}
+    counters = {"scheduled": 0, "completed": 0}
     admission_stop: list[Exception] = []
-
-    async def emit_telemetry(event: str) -> None:
-        if telemetry_sink is None:
-            return
-        snapshot = {
-            "event": event,
-            **counters,
-            "work_queue_depth": work_queue.qsize(),
-            "result_queue_depth": result_queue.qsize(),
-            "workers": suite_workers,
-        }
-        emitted = telemetry_sink(snapshot)
-        if inspect.isawaitable(emitted):
-            await emitted
 
     async def produce() -> None:
         batch_index = 0
@@ -382,14 +343,8 @@ async def run_ablation_suite(
             for spec in specs:
                 if admission_stop:
                     break
-                if should_skip is not None and should_skip(spec, record):
-                    counters["skipped"] += 1
-                else:
-                    await work_queue.put((batch_index, spec, record, schema, data))
-                    counters["scheduled"] += 1
-                    await emit_telemetry("scheduled")
-                # The index is stable across resume: skipped checkpoint rows do
-                # not renumber later work items.
+                await work_queue.put((batch_index, spec, record, schema, data))
+                counters["scheduled"] += 1
                 batch_index += 1
             if admission_stop:
                 break
@@ -403,43 +358,20 @@ async def run_ablation_suite(
                 try:
                     if item is work_done:
                         return
-                    # Another worker observed critical memory pressure.  Drain
-                    # already-buffered lightweight work without starting more
-                    # model calls; in-flight workers may still finish and their
-                    # rows will reach the single result writer below.
+                    # Another worker hit a stop (e.g. a campaign pause on HTTP 402):
+                    # drain already-buffered work without starting more model calls.
                     if admission_stop:
                         continue
-                    if admission_gate is not None:
-                        try:
-                            admission = admission_gate()
-                            if inspect.isawaitable(admission):
-                                await admission
-                        except Exception as exc:  # graceful resumable stop
-                            if not admission_stop:
-                                admission_stop.append(exc)
-                            continue
                     batch_index, spec, record, schema, data = item
-                    counters["active_work"] += 1
-                    await emit_telemetry("work_started")
                     try:
                         result = await run_one(batch_index, spec, record, schema, data)
-                    except Exception as exc:
-                        # Campaign pauses and formal fail-stop errors share the
-                        # same drain-before-raise path.  No new work is admitted,
-                        # while already-paid successful rows are allowed to reach
-                        # the serialized checkpoint writer.
+                    except Exception as exc:  # noqa: BLE001 - re-raised after draining
+                        # No new work is admitted, while in-flight rows still reach
+                        # the result writer below; the stop is re-raised at the end.
                         if not admission_stop:
                             admission_stop.append(exc)
                         continue
-                    finally:
-                        counters["active_work"] -= 1
-                        await emit_telemetry("work_finished")
                     await result_queue.put(result)
-                    # Emit immediately after the bounded put.  A periodic
-                    # monitor can miss a short-lived full result queue when the
-                    # writer drains it between samples; the synchronous event
-                    # preserves that peak for memory-pilot receipts.
-                    await emit_telemetry("result_enqueued")
                 finally:
                     work_queue.task_done()
         finally:
@@ -454,14 +386,8 @@ async def run_ablation_suite(
                     finished_workers += 1
                     continue
                 batch_index, payload = item
-                if result_sink is not None:
-                    persisted = result_sink(payload)
-                    if inspect.isawaitable(persisted):
-                        await persisted
-                if retain_outputs:
-                    retained[batch_index] = payload
+                retained[batch_index] = payload
                 counters["completed"] += 1
-                await emit_telemetry("result_persisted")
             finally:
                 result_queue.task_done()
 
@@ -477,7 +403,6 @@ async def run_ablation_suite(
         outputs=len(outputs),
         completed=counters["completed"],
         scheduled=counters["scheduled"],
-        skipped=counters["skipped"],
         ablations=len(specs),
         queue_capacity=queue_capacity,
     )
@@ -574,13 +499,7 @@ async def run_ablation_record(
     witness_k: int = DEFAULT_INPUT_SAMPLE_SIZE,
     evaluation_skip_reason: str | None = None,
     policy_overrides: dict[str, Any] | None = None,
-    strict_failure_mode: bool = False,
-    terminal_failure_classifier: Callable[[dict[str, Any]], bool] | None = None,
 ) -> AblationPrediction | AblationFailure:
-    if strict_failure_mode and terminal_failure_classifier is None:
-        raise SourceError(
-            "strict ablation failure mode requires an explicit terminal-failure classifier"
-        )
     db_id = str(record.get("db_id") or "")
     record_id = record.get("record_id")
     effective_nlq_hash = nlq_hash if nlq_hash is not None else _nlq_hash_from_record(record)
@@ -643,16 +562,6 @@ async def run_ablation_record(
         )
         payload = result.to_json() if hasattr(result, "to_json") else dict(result)
         if payload.get("result_type") == "solver_failure":
-            if strict_failure_mode and not terminal_failure_classifier(payload):
-                raise SourceError(
-                    "formal ablation rejected a non-model terminal failure",
-                    context={
-                        "ablation_id": spec.id,
-                        "db_id": db_id,
-                        "record_id": record_id,
-                        "error_code": payload.get("error_code"),
-                    },
-                )
             failure = _failure_from_solver_payload(wf, spec, options, payload)
             record_event(
                 "ablation_record_done",
@@ -676,8 +585,6 @@ async def run_ablation_record(
     except CampaignPauseError:
         raise
     except TendError as err:
-        if strict_failure_mode:
-            raise
         err.with_context(ablation_id=spec.id, db_id=db_id, record_id=record_id)
         if not err.logged:
             log_sag_anomaly(
@@ -705,9 +612,7 @@ async def run_ablation_record(
             message=failure.message,
         )
         return failure
-    except Exception as exc:
-        if strict_failure_mode:
-            raise
+    except Exception as exc:  # noqa: BLE001 - one record failure is one row
         err = wrap_unexpected(
             exc,
             ablation_id=spec.id,

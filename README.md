@@ -277,9 +277,12 @@ Baseline arms: `direct_nlq_only`, `schema_direct`, `direct`, `data_rich_direct`,
 every arm. `schema_direct` reads the construction-time schema that `tend construct`
 writes, which the public release does not include, so it only runs on a locally
 constructed dataset; the same holds for `tend validate` and `tend publish`, which
-check construction outputs before release. Ablation groups: `all` (`sag_card1`, `sag_gate`, `sag_v2`,
-`sag_full`), `extended` (single-component knockouts plus `sag_full`), and `core`
-(the three stage ablations reported in [`RESULTS.md`](RESULTS.md)).
+check construction outputs before release.
+
+Ablation arms, the seven configurations of the ablation in [`RESULTS.md`](RESULTS.md):
+`sag_full` (the full solver, the reference row), `sag_core_generate_only`, `sag_v2`,
+`sag_core_no_value_witness_strict`, `sag_core_no_grounding`, `sag_v3_top_card`, and
+`sag_v3_no_collapse`; `--ablations all` runs all seven.
 
 `--run-id` is a tag: each run is written to
 `runs/run-<timestamp>-<tag>-<hex>/`, and `solve`, `baseline`, and `ablation`

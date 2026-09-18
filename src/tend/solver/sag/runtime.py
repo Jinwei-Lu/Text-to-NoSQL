@@ -65,24 +65,21 @@ from .repair import (
 from .witness import EnforcedLiteral, witnesses
 from .world import LocalWorld, MongoWorld, WorldAccess
 
-_ARMS = ("v3", "v2", "gate", "card1")
+_ARMS = ("v3", "v2")
 _CARD_MODES = ("lattice", "toplevel", "nocollapse")
 _DATABASE_CONTEXT_MODES = ("induced", "raw3")
 
 
 @dataclass(frozen=True)
 class SAGPolicy:
-    """Mechanism configuration. ``arm`` selects the cumulative mechanism ladder:
+    """Mechanism configuration. ``arm`` selects how many candidates are decoded:
 
-    - ``card1``: path card only, single shot (no gate, no repair, k=1)
-    - ``gate``: + A_path gate + execution repair (plain empty feedback, k=1)
-    - ``v2``:   + value witnesses, A_value, limit contract, bisection (k=1)
-    - ``v3``:   + k-sample result-consistency clustering (the full solver)
+    - ``v3``: k-sample result-consistency clustering (the full solver)
+    - ``v2``: a single candidate (k=1), everything else unchanged
 
-    The ``*_override`` knobs and ``card_mode`` back the extended component-knockout
-    ablations (docs/experiment_design_2026-06.md §4.2): each knockout is v3 minus
-    exactly one component, decoupled from the cumulative ladder order. ``None``
-    means "derived from ``arm``" — the four canonical arms never set them.
+    The ``*_override`` knobs, ``card_mode`` and ``database_context_mode`` back the
+    ablation arms in ``tend.ablations``, each of which removes one component.
+    ``None`` means "on, as in the full solver".
     """
 
     arm: str = "v3"
@@ -94,15 +91,13 @@ class SAGPolicy:
     stage_count_timeout_ms: int = 15_000
     edge_probe_timeout_ms: int = 4_000
     distinct_sample_k: int = 8
-    # --- extended-ablation surface (None / defaults = arm-derived behavior) --- #
-    gate_override: bool | None = None  # A_path admissibility gate
+    # --- ablation surface (None / defaults = the full solver) ---------------- #
     value_grounding_override: bool | None = None  # witnesses + A_value + limit contract
     bisection_override: bool | None = None  # rich empty feedback (prefix bisection)
     card_mode: str = "lattice"  # "lattice" | "toplevel" | "nocollapse" (card TEXT only)
     variant_label: str = ""  # distinguishes knockout arms in variants/transcripts
-    # --- whole-core-component experiment surface ------------------------- #
     database_context_mode: str = "induced"  # "induced" | "raw3"
-    use_gate_repair: bool | None = None  # None preserves canonical arm behavior
+    use_gate_repair: bool | None = None  # None = gates and repair on
     limit_contract_override: bool | None = None
     synthetic_id_override: bool | None = None
     card_literal_examples: bool = True
@@ -152,15 +147,11 @@ class SAGPolicy:
     def gate_repair_enabled(self) -> bool:
         if self.use_gate_repair is not None:
             return self.use_gate_repair
-        return self.arm != "card1"
+        return True
 
     @property
     def use_gate(self) -> bool:
-        if not self.gate_repair_enabled or self.database_context_mode == "raw3":
-            return False
-        if self.gate_override is not None:
-            return self.gate_override
-        return self.arm != "card1"
+        return self.gate_repair_enabled and self.database_context_mode != "raw3"
 
     @property
     def use_repair(self) -> bool:
@@ -174,7 +165,7 @@ class SAGPolicy:
             return False
         if self.value_grounding_override is not None:
             return self.value_grounding_override
-        return self.arm in ("v2", "v3")
+        return True
 
     @property
     def build_value_index(self) -> bool:
@@ -229,8 +220,6 @@ class SAGPolicy:
 
         return self.variant_label in {
             "core_no_grounding",
-            "core_no_value_witness",
-            "core_no_gate_repair",
             "core_no_value_witness_strict",
             "core_generate_only",
         }
@@ -298,8 +287,8 @@ class Candidate:
 class AttemptOutcome:
     candidate: Candidate
     rounds: int
-    # Full SAG retains its historically exact normalized list.  The no-Gate/Repair
-    # ablation uses a disk-backed exact multiset so an unbounded aggregate cannot OOM.
+    # Full SAG retains its historically exact normalized list.  The whole-component
+    # ablation arms use a disk-backed exact multiset so an unbounded aggregate cannot OOM.
     result: list[dict[str, Any]] | ExactResultFingerprint | None
     exec_status: str  # "ok" | "error" | "skipped"
     error_code: str | None = None
@@ -746,7 +735,7 @@ async def _run_attempt(
                 mechanism_receipt["limit_contract_checks"] += 1
                 fb += limit_contract(nlq, pipe)
         emptied = 0
-        if not policy.use_repair:  # card1: accept the single shot, no in-loop execution
+        if not policy.use_repair:  # generate-only: accept the single shot, no in-loop execution
             cands.append(Candidate(coll, pipe, 0, 0, rounds))
             log_turn([])
             break
@@ -895,7 +884,7 @@ async def _run_attempt(
                 error_message = str(exc.context.get("error") or exc.message)[:300]
     if policy.bounded_core_execution and exec_status == "ok":
         # All three formal component arms vote using the same bounded-memory exact
-        # representation. Empty is a valid result class in the no-Gate/Repair arm.
+        # representation. Empty is a valid result class when gates and repair are off.
         best.empty = int(_result_row_count(result) == 0)
         mechanism_receipt["exact_result_fingerprint"] = _result_fingerprint_receipt(
             result
