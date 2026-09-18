@@ -74,7 +74,7 @@ Useful environment variables:
 Run with `TEND_USE_EXISTING_MONGO_DBS=1` against a MongoDB that already holds
 the eleven release databases (each named after its `db_id`). Then:
 
-- Schema browsing samples documents straight from MongoDB, so selecting
+- Structure browsing samples documents straight from MongoDB, so selecting
   `european_football_2` costs ~0.4 s instead of parsing a 2.2 GB witness file.
 - Live-mode solving and execution never read the witness files at all.
 - Stub mode still induces its grounding index offline from the witness file, so
@@ -112,8 +112,6 @@ or highlighter — so the demo behaves identically offline.
 read-only aggregation: banned operators are rejected before execution, the
 pipeline is capped at `MAX_EXECUTION_ROWS` rows, and the parsed stages are
 returned so the UI can re-render the pipeline the presenter just edited.
-`GET /get_databases`, `GET /get_schema/<db_id>`, and `POST /query` remain as
-backward-compatible aliases.
 
 Only the question text and its record id ever cross into the solver — gold MQL
 in the release records is never read by the demo.

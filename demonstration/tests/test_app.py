@@ -44,7 +44,7 @@ def test_demo_uses_release_dataset_without_copied_legacy_payloads():
 
 
 @needs_release_data
-def test_metadata_schema_and_legacy_read_routes():
+def test_metadata_and_schema_routes():
     with demo.app.test_client() as client:
         health = client.get("/api/health")
         assert health.status_code == 200
@@ -83,10 +83,6 @@ def test_metadata_schema_and_legacy_read_routes():
             "{" in dynamic_map["value_path"]
             for dynamic_map in first_collection["dynamic_maps"]
         )
-
-        legacy = client.get("/get_schema/california_schools")
-        assert legacy.status_code == 200
-        assert legacy.get_json()["schema"]["db_id"] == "california_schools"
 
 
 @needs_release_data
@@ -268,9 +264,9 @@ def test_live_settings_force_stub_off_without_network(monkeypatch: pytest.Monkey
     assert settings.stub is False
 
 
-def test_legacy_query_rejects_non_object_json():
+def test_solve_rejects_non_object_json():
     with demo.app.test_client() as client:
-        response = client.post("/query", json=["not", "an", "object"])
+        response = client.post("/api/solve", json=["not", "an", "object"])
     assert response.status_code == 400
     assert response.get_json()["status"] == "error"
 

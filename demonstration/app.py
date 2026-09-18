@@ -95,7 +95,6 @@ DATA_LIKE_KEY_RE = re.compile(
 )
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("TEND_DEMO_SECRET_KEY", "tend-demo-local-only")
 
 
 class DemoError(Exception):
@@ -401,10 +400,7 @@ def _close_sample_client() -> None:
             app.logger.warning("Demo sampling client cleanup failed: %s", exc)
 
 
-def _sample_from_mongo(
-    db_id: str,
-    names: list[str],
-) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int]] | None:
+def _sample_from_mongo(db_id: str) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int]] | None:
     client = _preloaded_mongo_client()
     if client is None:
         return None
@@ -417,9 +413,7 @@ def _sample_from_mongo(
             return None
         docs: dict[str, list[dict[str, Any]]] = {}
         counts: dict[str, int] = {}
-        for name in names or sorted(present):
-            if name not in present:
-                continue
+        for name in sorted(present):
             cursor = database[name].find({}, limit=MAX_FIELD_SHAPE_DOCS_PER_COLLECTION)
             docs[name] = [
                 json.loads(json_util.dumps(doc, default=str))
@@ -433,12 +427,9 @@ def _sample_from_mongo(
         return None
 
 
-def _collection_samples(
-    db_id: str,
-    names: list[str],
-) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int], str]:
+def _collection_samples(db_id: str) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int], str]:
     """Return ``({collection: sampled_docs}, {collection: count}, source)``."""
-    sampled = _sample_from_mongo(db_id, names)
+    sampled = _sample_from_mongo(db_id)
     if sampled is not None:
         return sampled[0], sampled[1], "mongodb"
     data = _load_data(str(_dataset_dir()), db_id)
@@ -471,38 +462,29 @@ def _witness_bytes(db_id: str) -> int | None:
 
 
 def _database_summary(db_id: str) -> dict[str, Any]:
-    stats = _live_structure_stats(db_id) or {}
     return {
         "db_id": db_id,
         "record_count": _record_counts_by_db().get(db_id, 0),
-        "collection_count": stats.get("collection_count"),
-        "document_count": stats.get("document_count"),
-        "dynamic_key_path_count": stats.get("dynamic_key_path_count"),
-        "max_depth": stats.get("max_depth"),
+        "collection_count": _live_collection_count(db_id),
         "witness_bytes": _witness_bytes(db_id),
     }
 
 
 @lru_cache(maxsize=32)
-def _live_structure_stats(db_id: str) -> dict[str, Any] | None:
-    """Counts and induced structure of one database, read from the preloaded MongoDB.
+def _live_collection_count(db_id: str) -> int | None:
+    """Collection count from the preloaded MongoDB, or None without one.
 
-    TEND ships no schema: structure is induced from stored documents. The database list
-    shows every database at once, so it samples only a live MongoDB and never loads the
-    witness files (up to 2.4 GB each); without one these fields stay empty.
+    The database list shows every database at once, so it never loads the witness
+    files (up to 2.4 GB each) just to count collections.
     """
-    sampled = _sample_from_mongo(db_id, [])
-    if sampled is None:
+    client = _preloaded_mongo_client()
+    if client is None:
         return None
-    docs, counts = sampled
-    shapes = {name: _shape_node((), rows, parent_count=len(rows), depth=0) for name, rows in docs.items()}
-    dynamic_key_paths, max_depth = _induced_structure(shapes)
-    return {
-        "collection_count": len(counts),
-        "document_count": sum(counts.values()),
-        "dynamic_key_path_count": len(dynamic_key_paths),
-        "max_depth": max_depth,
-    }
+    try:
+        return len(client[db_id].list_collection_names()) or None
+    except Exception as exc:  # noqa: BLE001 - the count is decorative
+        app.logger.info("Demo collection count failed for %r: %s", db_id, exc)
+        return None
 
 
 def _induced_structure(shapes: dict[str, dict[str, Any]]) -> tuple[list[str], int]:
@@ -556,7 +538,7 @@ def _selected_record(db_id: str, record_id: Any | None, nlq: str) -> dict[str, A
 
 def _schema_payload(db_id: str) -> dict[str, Any]:
     """The database's structure as induced from sampled documents (TEND ships no schema)."""
-    sampled_docs, counts, sample_source = _collection_samples(db_id, [])
+    sampled_docs, counts, sample_source = _collection_samples(db_id)
 
     collection_payload = []
     shapes: dict[str, dict[str, Any]] = {}
@@ -1046,8 +1028,8 @@ async def _solve_site_workflow(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _solve_with_solver(payload: dict[str, Any]) -> dict[str, Any]:
-    db_id = str(payload.get("database") or payload.get("db_id") or "").strip()
-    nlq = str(payload.get("query") or payload.get("nlq") or "").strip()
+    db_id = str(payload.get("database") or "").strip()
+    nlq = str(payload.get("query") or "").strip()
     if not db_id:
         raise DemoError("Database is required")
     if db_id not in _db_ids():
@@ -1084,11 +1066,6 @@ async def _solve_with_solver(payload: dict[str, Any]) -> dict[str, Any]:
             db_id,
             str(result_payload.get("MQL") or ""),
             limit=_row_limit(payload.get("limit")),
-            include_probe=_parse_bool(
-                payload.get("include_probe"),
-                default=False,
-                field="include_probe",
-            ),
         )
     return {
         "mode": mode,
@@ -1178,7 +1155,6 @@ async def _run_execution(
     mql: str,
     *,
     limit: int,
-    include_probe: bool = False,
 ) -> dict[str, Any]:
     """Execute one pipeline read-only and return rows plus a result-shape summary."""
     rt = bundle.runtime
@@ -1204,11 +1180,6 @@ async def _run_execution(
         rows, truncated = await asyncio.to_thread(
             _bounded_rows, bundle, db_id, collection, pipeline, limit
         )
-        probe = (
-            await asyncio.to_thread(rt.mongo.run_readonly_probe, db_id, mql, limit=limit)
-            if include_probe
-            else None
-        )
     except Exception as exc:  # noqa: BLE001 - returned to the demo UI
         app.logger.exception("Demo read-only execution failed")
         return {
@@ -1216,7 +1187,7 @@ async def _run_execution(
             "message": _execution_error_message(exc),
             "error_type": type(exc).__name__,
         }
-    payload = {
+    return {
         "status": "success",
         "collection": collection,
         "pipeline": pipeline,
@@ -1230,14 +1201,11 @@ async def _run_execution(
             [row for row in rows if isinstance(row, dict)]
         )["top_level_fields"],
     }
-    if probe is not None:
-        payload["probe"] = probe
-    return payload
 
 
 async def _execute_mql(payload: dict[str, Any]) -> dict[str, Any]:
-    db_id = str(payload.get("database") or payload.get("db_id") or "").strip()
-    mql = str(payload.get("mql") or payload.get("MQL") or "").strip()
+    db_id = str(payload.get("database") or "").strip()
+    mql = str(payload.get("mql") or "").strip()
     if not db_id:
         raise DemoError("Database is required")
     if db_id not in _db_ids():
@@ -1252,11 +1220,6 @@ async def _execute_mql(payload: dict[str, Any]) -> dict[str, Any]:
         db_id,
         mql,
         limit=_row_limit(payload.get("limit")),
-        include_probe=_parse_bool(
-            payload.get("include_probe"),
-            default=False,
-            field="include_probe",
-        ),
     )
     return {
         "mode": mode,
@@ -1331,40 +1294,6 @@ def execute():
     if not isinstance(payload, dict):
         raise DemoError("Request body must be a JSON object")
     return _json_success(**SOLVER_SERVICE.execute(payload))
-
-
-# Backward-compatible endpoints for older bookmarks/scripts.
-@app.route("/get_databases")
-def legacy_databases():
-    return databases()
-
-
-@app.route("/get_schema/<db_name>")
-def legacy_schema(db_name: str):
-    return schema(db_name)
-
-
-@app.route("/query", methods=["POST"])
-def legacy_query():
-    raw_payload = request.get_json(silent=True)
-    if not isinstance(raw_payload, dict):
-        raise DemoError("Request body must be a JSON object")
-    payload = dict(raw_payload)
-    payload["execute"] = not _parse_bool(
-        payload.get("generateOnly"),
-        default=False,
-        field="generateOnly",
-    )
-    payload["include_probe"] = True
-    response = SOLVER_SERVICE.solve(payload)
-    result = response.get("result", {})
-    execution = response.get("execution") or {}
-    return _json_success(
-        mongo_query=result.get("MQL", ""),
-        results=execution.get("probe"),
-        execution=execution,
-        solver=response,
-    )
 
 
 @app.errorhandler(DemoError)

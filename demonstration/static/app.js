@@ -62,7 +62,7 @@
 
     var dom = {};
     [
-        'dbList', 'datasetChip', 'datasetChipText', 'healthDot', 'modeSeg', 'themeBtn',
+        'dbList', 'datasetChipText', 'healthDot', 'modeSeg', 'themeBtn',
         'askDbChip', 'recordChip', 'examplesBtn', 'examplesList', 'nlq', 'autoRun', 'status',
         'generateBtn', 'genKbd', 'pipelineCard', 'pipelineTabs', 'pipelineTarget', 'pipelineBody',
         'stageFlow', 'copyMqlBtn', 'runBtn', 'trace', 'resultTabs', 'resultMeta', 'resultBody',
@@ -456,7 +456,6 @@
             item.type = 'button';
             item.appendChild(el('span', null, collection.name));
             item.appendChild(el('small', null, num(collection.document_count)));
-            if (collection.root_entity) { item.title = 'entity: ' + collection.root_entity; }
             item.addEventListener('click', function () {
                 state.collection = collection.name;
                 state.sampleIndex = 0;
