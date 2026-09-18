@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tend.dev/schemas/solver_allow_list.json",
+  "title": "TEND solver-side allow-list disclosure",
+  "description": "Release/baseline disclosure and archival Proposal 06 boundary manifest. The baseline runtime reads this file for disjointness and boundary disclosure; the repaired SMART-EG runtime does not load it as live tool or policy configuration. Prefix-execution entries below describe an unsupported archival design, not a production success mechanism.",
+  "schema_version": "2026-05-31",
+  "runtime_status": {
+    "smart_eg_live_config": false,
+    "baseline_disclosure_input": true,
+    "archival_proposal_06_boundary": true,
+    "note": "Current SMART-EG tool exposure and final execution gates are implemented in src/tend/solver/eg/, not configured by this JSON file."
+  },
+  "disabled_operators": [
+    "$sample",
+    "$rand",
+    "$out",
+    "$merge",
+    "$function"
+  ],
+  "disabled_system_vars": [
+    "$$NOW"
+  ],
+  "disabled_operator_note": "Five disabled operators ($sample, $rand, $out, $merge, $function) plus one disabled system variable ($$NOW); AST filter must reject all six tokens.",
+  "tier1_forbidden_glob": [
+    "audit/**",
+    "test.json:MQL",
+    "test.json:canonical_form_set",
+    "test.json:shape_policy",
+    "test.json:*_ref",
+    "train.json:**",
+    "rejected/**"
+  ],
+  "audit_blocklist": [
+    "audit/**",
+    "rejected/**"
+  ],
+  "test_record_forbidden_fields": [
+    "MQL",
+    "canonical_form_set",
+    "shape_policy",
+    "agent_design_rationale_ref",
+    "mutations_ref",
+    "_diagnostic_bridge_ref",
+    "property_verification_ref",
+    "round_trip_ref",
+    "nnc_verdict_ref",
+    "ra_audit_ref",
+    "migration_log_ref"
+  ],
+  "train_json_access": "forbidden:** (solver does not use train.json — neither training labels nor retrieval corpus, §06-2-0; NoSQL-native idioms come from frozen LLM knowledge + 06 §06-2-3 strategy table)",
+  "library_readable": [
+    "mongodb_schema/<db_id>.json",
+    "mongodb_data/<db_id>.json",
+    "agent_design_rationale/<db_id>.yaml",
+    "bird_db_catalog.json"
+  ],
+  "witness_sample_limit": {
+    "scope": "heterogeneity_planning_and_query_realization",
+    "max_per_collection": "solver_disclosed_K",
+    "forbidden_in_stage": "shape_comprehension",
+    "note": "≤ K docs/collection may enter prompt-visible witness digests. The archival Proposal 06 design mentioned bounded prefix execution, but the repaired SMART-EG runtime does not implement that pipeline; final sanity execution is the supported runtime check."
+  },
+  "four_party_disjointness": {
+    "construction_authority": "05 §05-3",
+    "solver_dual": "06 §06-4-3",
+    "sets": {
+      "A_evaluated": "solver under test (self)",
+      "B_frozen_panels": "20 frozen reference models (4 panels × 5)",
+      "C_construction_pool": "Construction Agent LLM model IDs used by {QPS, MS, MUT, PV, NLP, RTV, NNC, RA}"
+    },
+    "construction_model_ids": ["deepseek-v4-flash"],
+    "solver_invariant": [
+      "S_solver ∩ B_frozen = ∅",
+      "S_solver ∩ C_construction_pool = ∅"
+    ],
+    "s_solver_scope": [
+      "single_llm_backbone",
+      "auxiliary_models"
+    ],
+    "s_solver_scope_note": "A single shared LLM backbone runs all 4 stages (perception mode for ①, cognition mode for ②③④). Per-stage execution-guided decoding, AST filter and deterministic reduce use NO model — not counted. ① perception probes MAY optionally run on a same-family small model (cost optimization); if so, that model is counted in S_solver."
+  },
+  "frozen_panel_manifest_ref": "audit/reference_panel/manifest_<release>.json",
+  "frozen_panels": {
+    "small": [
+      "llama-3.2-1b",
+      "phi-mini",
+      "gemma-2-2b",
+      "qwen-2.5-3b",
+      "tinyllama-chat"
+    ],
+    "medium": [
+      "gpt-3.5-turbo",
+      "llama-3-8b",
+      "mistral-7b-instruct",
+      "qwen-2.5-7b",
+      "gemma-2-9b"
+    ],
+    "large": [
+      "deepseek-v3",
+      "claude-3.5-sonnet",
+      "gpt-4-turbo",
+      "llama-3.1-70b",
+      "mistral-large"
+    ],
+    "frontier": [
+      "claude-4-opus",
+      "gpt-5",
+      "gemini-3",
+      "grok-4",
+      "deepseek-v4"
+    ]
+  },
+  "frozen_panel_note": "frozen_panels.* is the release-pinned 4-panel manifest used for solver/baseline disjointness disclosure; non-stub baseline disclosure reports missing or empty required panels as disjointness failures.",
+  "stages": {
+    "shape_comprehension": {
+      "owner_agent": "LLM Agent · perception mode (concurrent map-reduce probes; may use a same-family small model when cost-sensitive)",
+      "inputs": ["NLQ", "S (incl __variants)"],
+      "outputs": ["S_hat (shape_model: field_locus, variants, coverage_gaps, shape_flex_signature)"],
+      "readable": [
+        "mongodb_schema/<db_id>.json (incl __variants)",
+        "test.json:nl_queries.canonical",
+        "test.json:nl_queries.colloquial",
+        "test.json:db_id",
+        "test.json:difficulty"
+      ],
+      "forbidden": [
+        "mongodb_data/** (ANY load — schema-only stage, §06-4-4.2)",
+        "audit/**",
+        "test.json:MQL",
+        "test.json:canonical_form_set",
+        "test.json:shape_policy",
+        "test.json:*_ref"
+      ],
+      "note": "__variants is the authoritative shape contract; no data sampling here. Undeclared real-data shapes are caught downstream via the query_realization → shape_comprehension loop."
+    },
+    "intent_formalization": {
+      "owner_agent": "LLM Agent · cognition mode",
+      "inputs": ["NLQ", "S_hat", "public_native_task_context", "bounded_checkpoint_feedback"],
+      "outputs": ["logical_spec (paradigm-neutral; includes self-inferred shape_policy + target_fields)"],
+      "readable": [
+        "test.json:nl_queries",
+        "test.json:db_id",
+        "test.json:difficulty",
+        "test.json:schema_flex",
+        "test.json:schema_feature",
+        "test.json:native_feature_id",
+        "test.json:native_feature_type",
+        "test.json:native_query_pattern",
+        "test.json:native_metadata public fields (feature_id, feature_type, feature_field, query_pattern, target_shape_policy, required_native_constructs, mongo_native_constructs, anti_sql_transfer, anti_sql_transfer_target, rationale)"
+      ],
+      "forbidden": [
+        "audit/**",
+        "test.json:MQL",
+        "test.json:canonical_form_set",
+        "test.json:shape_policy",
+        "test.json:*_ref",
+        "train.json:**"
+      ],
+      "postprocess": ["clause_coverage_check"]
+    },
+    "heterogeneity_planning": {
+      "owner_agent": "LLM Agent · cognition mode (crux ★)",
+      "inputs": ["logical_spec", "S_hat", "public_native_task_context", "bounded_checkpoint_feedback", "disclosed_witness_digest"],
+      "outputs": ["physical_plan (Mongo pipeline skeleton + variant_handling)"],
+      "readable": [
+        "mongodb_schema/<db_id>.json",
+        "mongodb_data/<db_id>.json (≤ K docs per collection into prompt)",
+        "agent_design_rationale/<db_id>.yaml (public summary fields only)",
+        "test.json:nl_queries",
+        "test.json:db_id",
+        "test.json:schema_flex",
+        "test.json:schema_feature",
+        "test.json:native_feature_id",
+        "test.json:native_feature_type",
+        "test.json:native_query_pattern",
+        "test.json:native_metadata public fields (feature_id, feature_type, feature_field, query_pattern, target_shape_policy, required_native_constructs, mongo_native_constructs, anti_sql_transfer, anti_sql_transfer_target, rationale)"
+      ],
+      "forbidden": [
+        "audit/**",
+        "test.json:MQL",
+        "test.json:canonical_form_set",
+        "test.json:shape_policy",
+        "test.json:*_ref",
+        "train.json:**"
+      ]
+    },
+    "query_realization": {
+      "owner_agent": "LLM Agent · cognition mode (generation + self-debug fused; executor is an inline tool)",
+      "inputs": ["physical_plan", "S_hat", "local_mongodb"],
+      "outputs": ["q_p_final"],
+      "readable": [
+        "mongodb_schema/<db_id>.json",
+        "mongodb_data/<db_id>.json (local replica; variant-stratified execution; ≤ K docs/collection into prompt)",
+        "test.json:nl_queries",
+        "test.json:db_id"
+      ],
+      "forbidden": [
+        "test.json:MQL",
+        "test.json:canonical_form_set",
+        "test.json:shape_policy",
+        "test.json:*_ref",
+        "evaluator_gold_runtime",
+        "audit/**"
+      ],
+      "execution_mode": "archival_per_stage_prefix_execution_unsupported; current repaired runtime uses check_ast_filter, run_readonly_probe, bounded run_final_sanity_execution, and submit_final_mql",
+      "postprocess": ["ast_reject_disabled_operators"],
+      "feedback_routing": {
+        "allowed_keys": ["error_code", "stage_index", "suspect_field", "failing_variant"],
+        "loop_back_to": ["heterogeneity_planning", "intent_formalization", "shape_comprehension"],
+        "forbidden": ["raw_result_rows", "gold_answer"]
+      }
+    }
+  },
+  "tools": {
+    "mongo_executor": {
+      "description": "Archival Proposal 06 prefix-execution design. Current SMART-EG runtime does not implement prefix-pipeline execution tools; if such tools are exposed they return TOOL_UNIMPLEMENTED, and the no-prefix ablation hides them with tool_not_exposed. Production completion is through final sanity execution plus submit_final_mql.",
+      "reuses": "archival SMART/utils/mongosh_exec.py note only; src/tend/solver/eg/ does not import that legacy reproduction helper",
+      "callable_by_stages": ["query_realization"],
+      "checkpoint_signals": [
+        "doc_count_collapse_to_zero",
+        "target_or_group_key_field_missing",
+        "execution_error",
+        "per_variant_failure"
+      ],
+      "on_checkpoint_hit": "locate by stage_index, then route via query_realization.feedback_routing to {heterogeneity_planning|intent_formalization|shape_comprehension}",
+      "execution_scope": "unsupported in repaired SMART-EG runtime; retained for release/baseline disclosure and archival boundary review, never evaluator gold",
+      "no_model": true,
+      "no_retrieval": true,
+      "postprocess_on_rewrite": ["ast_reject_disabled_operators"]
+    }
+  },
+  "shape_preserving": {
+    "shape_policy_trigger": "preserve",
+    "nlq_keywords_en": [
+      "attach",
+      "augment",
+      "add field",
+      "preserve structure",
+      "in place",
+      "decorate",
+      "annotate",
+      "keep every"
+    ],
+    "nlq_keywords_zh": [
+      "附加",
+      "增补",
+      "标注",
+      "就地计算",
+      "保持原结构",
+      "保留每个",
+      "不改变文档数"
+    ],
+    "required_idiom": ["$addFields", "$set", "$map", "$reduce", "$filter"],
+    "anti_patterns": ["$unwind + $group to rebuild arrays"]
+  }
+}

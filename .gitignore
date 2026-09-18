@@ -5,14 +5,10 @@
 Thumbs.db
 /.vscode/
 /.idea/
-/.cursor/*
-!/.cursor/settings.json
+/.cursor/
+/.claude/
 *.swp
 *.swo
-
-# Generated CodeGraph state and local Cursor settings (not tracked).
-/.codegraph/
-/.cursor/
 
 # ============================================================
 # Python bytecode, build output, and test caches
@@ -67,95 +63,72 @@ secrets.json
 # Logs and generic local caches
 # ============================================================
 *.log
-/checkpoints/
 .cache/
 cache/
 .uv-cache/
+tmp/
 
 # ============================================================
-# Local datasets and copied legacy artifacts
+# Source data, dataset release, and experiment outputs
 # ============================================================
+# BIRD mini-dev source databases; only needed to rebuild the benchmark.
 /minidev/
-/dev_20240627/
-/spider/
-/data/
 
-/TEND/
-/mongodb_schema/
-/mongodb_data/
+# The dataset release lives on Google Drive (see README.md); restore it here.
+/release/
 
-# QueryCraft demo source under /demonstration is public. Copied demo data and
-# generated schema payloads inside that directory are local-only.
+# Run directories written by the CLI: predictions, logs, transcripts, reports.
+/runs/
+
+# Result bundles and staging areas built from runs/.
+/artifacts/
+/output/
+/drive_upload/
+
+# ============================================================
+# QueryCraft demo: source is public, data, media, and deployment are local
+# ============================================================
 /demonstration/mongodb_data/
 /demonstration/mongodb_schema/
 /demonstration/schemas/
-/SLM_data/
-/SLM_prediction/
-/SLM_data_cross_domain/
-/SLM_prediction_cross_domain/
-/seq2seq_data/
-/transformer_data/
-/tend_src/
-/SMART/
-/NoSQL_Demo/
-/NoSQL_Demo.zip
-/gnn_model/
-/project/
-/build_data/
-/debug/
-/method/
+/demonstration/*.mp4
+# QueryCraft Sites deployment (separate repository) and its export tooling.
+/demonstration/querycraft-sites/
+/demonstration/scripts/
+/demonstration/tests/test_querycraft_catalog_export.py
 
-# Paper assets live outside this source repo.
+# ============================================================
+# Project-internal material that is not part of the public release
+# ============================================================
+# proposals/: only the files the code reads at runtime are public (the baseline
+# allow list, the record/library/rationale JSON schemas, and the LLM agent prompt
+# templates); the design proposals and schema fixtures stay local.
+/proposals/*
+!/proposals/agent_prompts/
+!/proposals/schemas/
+/proposals/schemas/*
+!/proposals/schemas/solver_allow_list.json
+!/proposals/schemas/record.schema.json
+!/proposals/schemas/library.schema.json
+!/proposals/schemas/agent_design_rationale.schema.json
+/docs/
+/tests/
+/scripts/
+/CLAUDE.md
+/uv.lock
+
+# Paper, demo-paper, and poster sources live in their own repositories.
 /Paper/
-/paper/
 /paper_demo/
-/paper_WWW/
-/latex/
-/imgs/
-/review/
+/poster_demo/
+/querycraft_a0_conference_poster/
 
 # ============================================================
 # Model weights / large binary artifacts
 # ============================================================
-Llama-3.2-1B/*.bin
-Llama-3.2-1B/*.safetensors
 *.pth
 *.pt
 *.ckpt
 *.onnx
 *.gguf
 *.tar.zst
-
-# ============================================================
-# Generated benchmark, experiment, and analysis output
-# ============================================================
-/vector_store/
-/runs/
-/tests/
-/scripts/
-/docs/
-/proposals/
-/results/
-/error_case/
-/error_analysis/
-/logs/
-/output/
-/outputs/
-/drive_upload/
-
-# Dataset release packages live outside GitHub. Restore release/ from the
-# Google Drive dataset package documented in README.md.
-/release/
-
-# Local staging copies and intermediate generation runs.
-/datasets/
-/wandb/
-
-# OOM-workaround shadow dirs for TEND_USE_EXISTING_MONGO_DBS runs are covered by /release/.
-
-# Local-only development and legacy files not included in the public src package.
-/CLAUDE.md
-/requirements-legacy-smart.txt
-/uv.lock
-
-tmp/

@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tend"
-version = "0.1.0"
-description = "TEND — Text-to-NoSQL benchmark construction pipeline (BIRD-anchored, schema-less MongoDB)"
+version = "1.0.0"
+description = "TEND — Text-to-NoSQL benchmark for MongoDB: construction, validation, evaluation, the SAG reference solver, and baselines"
 requires-python = ">=3.11"
 dependencies = [
     "openai>=1.30",
-    "httpx>=0.27",
+    "httpx[http2]>=0.27",
     "structlog>=24.1",
     "rich>=13.7",
     "pyyaml>=6.0",
@@ -21,6 +21,10 @@ dependencies = [
 
 [project.optional-dependencies]
 demo = [
+    "flask>=3.0",
+]
+test = [
+    "pytest>=8",
     "flask>=3.0",
 ]
 
@@ -36,3 +40,16 @@ tend = ["py.typed", "baselines/assets/*.json"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "demonstration/tests"]
+addopts = "-m 'not integration and not release' --strict-markers"
+markers = [
+    "integration: needs BIRD mini-dev and/or a live MongoDB (opt in with -m integration)",
+    "release: heavyweight release/package checks (opt in with -m release)",
+]
+norecursedirs = [
+    ".*", "*.egg", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}",
+    "runs", "release", "minidev", "artifacts", "output", "drive_upload", "tmp",
+    "Paper", "paper_demo", "poster_demo", "querycraft-sites", "querycraft_a0_conference_poster",
+]
