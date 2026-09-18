@@ -103,11 +103,7 @@ def classify_anti_sql_transfer(record: dict[str, Any]) -> AntiSqlTransferReport:
 
 
 def verify_native_record(
-    record: dict[str, Any],
-    manifest: NativeFeatureManifest,
-    *,
-    executor: Any = None,
-    snapshot: Any = None,
+    record: dict[str, Any], manifest: NativeFeatureManifest
 ) -> NativeVerificationResult:
     """Verify a native Phase B record against a feature manifest."""
     errors: list[str] = []
@@ -129,9 +125,6 @@ def verify_native_record(
 
     if feature is not None and not shape.parse_error:
         _verify_feature_contract(feature, shape, errors, evidence)
-
-    if executor is not None and not errors:
-        _verify_executor(record, executor, snapshot, errors, evidence)
 
     report_record = dict(record)
     if not isinstance(report_record.get("native_verification"), dict):
@@ -212,33 +205,6 @@ def _verify_feature_contract(
             )
         else:
             evidence.append("missing_vs_present_expression")
-
-
-def _verify_executor(
-    record: dict[str, Any],
-    executor: Any,
-    snapshot: Any,
-    errors: list[str],
-    evidence: list[str],
-) -> None:
-    try:
-        try:
-            result = executor(record, snapshot=snapshot)
-        except TypeError:
-            result = executor(record)
-    except Exception as exc:  # noqa: BLE001 - caller-provided verifier surface
-        errors.append(f"executor verification failed: {exc}")
-        return
-
-    ok = getattr(result, "ok", None)
-    result_errors = getattr(result, "errors", None)
-    if isinstance(result, dict):
-        ok = result.get("ok", ok)
-        result_errors = result.get("errors", result_errors)
-    if ok is False:
-        errors.extend(str(error) for error in (result_errors or ["executor returned not ok"]))
-    elif result is not None:
-        evidence.append("executor_verified")
 
 
 def _record_feature(record: dict[str, Any], manifest: NativeFeatureManifest) -> NativeFeature | None:

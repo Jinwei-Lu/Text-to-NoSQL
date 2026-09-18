@@ -624,15 +624,10 @@ def build_native_record(
     slot: NativeCoverageSlot,
     manifest: NativeFeatureManifest | Iterable[NativeFeatureManifest],
     *,
-    record_id: int | None = None,
-    canonical_nl: str | None = None,
-    colloquial_nl: str | None = None,
-    executor: Any = None,
     snapshot: Any = None,
     world_signature: str = "sha256:" + "0" * 64,
-    migration_recipe_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Build one stub-friendly native record from a planned native slot."""
+    """Build one native record from a planned native slot."""
     feature, feature_manifest = _resolve_feature(slot, manifest)
     compiled = _compile_slot(slot, feature_manifest, snapshot=snapshot)
     native_stub = {
@@ -645,17 +640,12 @@ def build_native_record(
             "anti_sql_transfer_target": slot.anti_sql_transfer_target,
         },
     }
-    verification = verify_native_record(
-        native_stub,
-        feature_manifest,
-        executor=executor,
-        snapshot=snapshot,
-    )
+    verification = verify_native_record(native_stub, feature_manifest)
     nl_queries = {
-        "canonical": canonical_nl or _canonical_nl(slot, feature, compiled),
-        "colloquial": colloquial_nl or _colloquial_nl(slot, feature, compiled),
+        "canonical": _canonical_nl(slot, feature, compiled),
+        "colloquial": _colloquial_nl(slot, feature, compiled),
     }
-    rid = int(record_id if record_id is not None else _record_id_from_slot(slot))
+    rid = _record_id_from_slot(slot)
     record = {
         "record_id": rid,
         "db_id": slot.db_id,
@@ -680,7 +670,7 @@ def build_native_record(
         "anti_sql_transfer_level": verification.anti_sql_transfer.level,
         "anti_sql_transfer_evidence": list(verification.anti_sql_transfer.evidence),
         "provenance_refs": list(compiled["provenance_refs"]),
-        "migration_recipe_ref": migration_recipe_ref or f"migration_recipe/{slot.db_id}.yaml",
+        "migration_recipe_ref": f"migration_recipe/{slot.db_id}.yaml",
         "native_metadata": {
             "feature_id": slot.feature_id,
             "feature_type": slot.feature_type,
@@ -724,7 +714,6 @@ async def run_native_phase_b(
             manifest,
             snapshot=getattr(artifact, "mongodb_data", None),
             world_signature=getattr(artifact, "world_signature", "sha256:" + "0" * 64),
-            migration_recipe_ref=f"migration_recipe/{slot.db_id}.yaml",
         )
         log = getattr(getattr(wf, "ctx", None), "log", None)
         if log is not None and hasattr(log, "info"):

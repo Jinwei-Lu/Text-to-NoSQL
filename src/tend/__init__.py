@@ -5,7 +5,7 @@ mini-dev. It materializes database-specific native DataWorlds, builds
 manifest-driven NL-MQL records, validates release artifacts, and runs solver,
 baseline, ablation, and evaluation workflows.
 
-Design pillars (see proposals/ for the methodology SSoT):
+Design pillars:
   - Structured, machine-greppable logging with first-class anomaly capture
     (every LLM prompt/response is persisted; anomalies are classified and streamed).
   - Live terminal progress so a human sees stalls/failures as they happen.
@@ -13,6 +13,6 @@ Design pillars (see proposals/ for the methodology SSoT):
 """
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 __all__ = ["__version__"]

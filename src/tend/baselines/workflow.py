@@ -803,7 +803,7 @@ async def _run_react_baseline(
     ]
     task_log.set_step_label(spec.id)
     task_log.open_agent_session(
-        model=ctx.settings.llm.model_for(agent_name),
+        model=ctx.settings.llm.model,
         system_prompt=system_prompt,
         user_message=user_message,
     )
@@ -1036,7 +1036,7 @@ def _baseline_disclosure(
     local_data_stripped_fields: list[str] | None = None,
     schema_public_shape: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    model_ids = [wf.ctx.settings.llm.model, *wf.ctx.settings.llm.agent_models.values()]
+    model_ids = [wf.ctx.settings.llm.model]
     allow_list = load_solver_allow_list(wf.ctx.settings.paths.schemas)
     disjointness = check_disjointness(
         model_ids,

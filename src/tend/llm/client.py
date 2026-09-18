@@ -2262,7 +2262,7 @@ class LLMClient:
         """
         log = (logger or self._log).bind(agent=agent)
         call_id = task_logger.new_llm_call_id() if task_logger is not None else uuid4().hex[:12]
-        model = model or self._s.llm.model_for(agent)
+        model = model or self._s.llm.model
         temperature = (
             None
             if self._s.llm.omit_temperature
@@ -2636,7 +2636,7 @@ class LLMClient:
         """
         log = (logger or self._log).bind(agent=agent)
         call_id = uuid4().hex[:12]
-        model = model or self._s.llm.model_for(agent)
+        model = model or self._s.llm.model
         temperature = (
             None
             if self._s.llm.omit_temperature

@@ -42,11 +42,8 @@ class Anomaly(str, enum.Enum):
     # --- deterministic stages ---
     EXEC_ERROR = "exec_error"              # MongoDB / mongosh execution failed
     DISABLED_OPERATOR = "disabled_operator"  # one of the 6 banned operators appeared
-    GOLD_LOCK_FAILED = "gold_lock_failed"  # gold !=_rec reference oracle / dual-path
-    GATE_FAILED = "gate_failed"            # a publish gate rejected the candidate
     MIGRATION_ERROR = "migration_error"    # native construction produced inconsistent witness data
-    SOLVER_EXHAUSTED = "solver_exhausted"  # SMART solver exhausted bounded attempts
-    SUPPLY_EXHAUSTED = "supply_exhausted"  # coverage cell infeasible / no candidates
+    SUPPLY_EXHAUSTED = "supply_exhausted"  # too few records/predictions to build, run, or score
     INTERNAL = "internal"                  # unexpected bug (wraps stray exceptions)
 
 
@@ -246,28 +243,10 @@ class DisabledOperatorError(TendError):
     default_anomaly = Anomaly.DISABLED_OPERATOR
 
 
-class GoldLockError(TendError):
-    """gold MQL failed reference-anchoring or dual-path triangulation (P1)."""
-
-    default_anomaly = Anomaly.GOLD_LOCK_FAILED
-
-
-class GateError(TendError):
-    """A publish gate (Gate-QB, Gate-SD, dual-bridge, ambiguity) rejected the record."""
-
-    default_anomaly = Anomaly.GATE_FAILED
-
-
 class MigrationError(TendError):
     """Native construction produced inconsistent or unsupported witness data."""
 
     default_anomaly = Anomaly.MIGRATION_ERROR
-
-
-class SupplyExhaustedError(TendError):
-    """A coverage cell is infeasible on the current db (no query-bearing supply)."""
-
-    default_anomaly = Anomaly.SUPPLY_EXHAUSTED
 
 
 class WorkflowError(TendError):

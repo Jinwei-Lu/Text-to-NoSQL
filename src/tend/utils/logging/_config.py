@@ -51,7 +51,7 @@ class _NamePrefixFilter(logging.Filter):
     Used by the run-wide ``milestones.jsonl`` handler so it captures the
     first-party ``tend.*`` module-logger INFO milestones (seed/loop/D2)
     that propagate to the root logger, while excluding noisy third-party
-    INFO (httpx, openai, asyncpg, sqlglot, ...).
+    INFO (httpx, openai, ...).
     """
 
     def __init__(self, prefix: str) -> None:

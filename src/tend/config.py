@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 import os
 import re
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -224,11 +224,6 @@ class LLMSettings:
     # DynaDB-style per-call markdown transcripts are the default human log surface.
     # Set TEND_LLM_TRANSCRIPT_MD=0 only for diagnostics-JSON-only CI runs.
     write_markdown_transcripts: bool = True
-    #: per-agent model overrides (agent_id -> model); empty = use ``model`` for all
-    agent_models: dict[str, str] = field(default_factory=dict)
-
-    def model_for(self, agent_id: str) -> str:
-        return self.agent_models.get(agent_id, self.model)
 
     def uses_openrouter_endpoint(self) -> bool:
         """Return whether ``base_url`` addresses OpenRouter."""
@@ -412,10 +407,8 @@ class Settings:
             # unbounded); any value <= 0 runs fully unbounded.
             max_concurrency=_env_int(envmap, sources, "TEND_LLM_MAX_CONCURRENCY", "0"),
             slow_call_warn_s=_env_float(envmap, sources, "TEND_LLM_SLOW_WARN_S", "45"),
-            reasoning_effort=(
-                _env(envmap, "TEND_REASONING_EFFORT") or _env(envmap, "TEND_LLM_REASONING_EFFORT")
-            ),
-            thinking=(_env(envmap, "TEND_THINKING") or _env(envmap, "TEND_LLM_THINKING")),
+            reasoning_effort=_env(envmap, "TEND_REASONING_EFFORT"),
+            thinking=_env(envmap, "TEND_THINKING"),
             openrouter_provider_only=tuple(
                 item.strip()
                 for item in (_env(envmap, "TEND_OPENROUTER_PROVIDER_ONLY") or "").split(",")
@@ -485,9 +478,6 @@ class Settings:
             seed=_env_int(envmap, sources, "TEND_SEED", "0"),
             run_id=run_id,
         )
-
-    def with_run_id(self, run_id: str) -> "Settings":
-        return replace(self, run_id=run_id)
 
     @property
     def run_dir(self) -> Path:

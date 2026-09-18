@@ -15,7 +15,6 @@ dependencies = [
     "pyyaml>=6.0",
     "pymongo>=4.6",
     "jsonschema>=4.21",
-    "sqlglot>=25.0",
     "json5>=0.9",
 ]
 
