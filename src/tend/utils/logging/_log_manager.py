@@ -127,10 +127,9 @@ class LogManager:
         # dropped because the only root handler is WARNING+ AND the inherited
         # logger level is WARNING (so INFO records were never even created).
         # We raise the ``tend`` logger to INFO (records get created) and add
-        # a name-filtered INFO handler (records get persisted), so seed/loop/D2
+        # a name-filtered INFO handler (records get persisted), so first-party
         # INFO milestones land in one greppable file with no per-callsite
-        # wiring. The WARNING run.log handler is unchanged. See
-        # ``tend.utils.task_event.emit_task_event`` for the per-task variant.
+        # wiring. The WARNING run.log handler is unchanged.
         tend_logger = logging.getLogger("tend")
         self._prev_tend_level = tend_logger.level
         if tend_logger.level == logging.NOTSET or tend_logger.level > logging.INFO:
@@ -213,39 +212,6 @@ class LogManager:
             llm_dir=llm_dir,
             manager=self,
             log_path=log_path,
-        )
-
-    def get_nested_task_logger(self, stage: str, parent_id: str, task_id: str) -> TaskLogger:
-        """Logger for double-nested parallelism (e.g. instance/{id}/step_b/{model})."""
-        parent_parts = [safe_dirname(p) for p in re.split(r"[\\/]+", parent_id) if p] or ["_"]
-        task_dir = self.root.joinpath(stage, *parent_parts)
-        task_dir.mkdir(parents=True, exist_ok=True)
-
-        log_path = _safe_task_log_path(task_dir, task_id)
-        logger = _create_file_logger(
-            self._unique_logger_name(f"{stage}.{parent_id}.{task_id}"),
-            log_path,
-        )
-        llm_dir = task_dir / "llm"
-        llm_dir.mkdir(parents=True, exist_ok=True)
-        return TaskLogger(
-            stage=stage,
-            task_id=f"{parent_id}/{task_id}",
-            logger=logger,
-            llm_dir=llm_dir,
-            manager=self,
-            log_path=log_path,
-        )
-
-    def get_branch_logger(
-        self,
-        wave: int,
-        branch_id: str,
-    ) -> TaskLogger:
-        """Convenience wrapper for creating a branch-scoped task logger."""
-        return self.get_task_logger(
-            "p2",
-            f"wave_{wave:02d}_branch_{branch_id}",
         )
 
     # ------------------------------------------------------------------

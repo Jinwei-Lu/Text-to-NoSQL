@@ -85,7 +85,6 @@ def build_runtime(settings: Settings) -> Runtime:
     run_dir = settings.run_dir
     log = setup_logging(
         run_dir,
-        console=False,
         write_llm_markdown_transcripts=settings.llm.write_markdown_transcripts,
     )
     log.info("run_start", run_id=settings.run_id, stub=settings.stub,

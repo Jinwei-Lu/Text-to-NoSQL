@@ -36,7 +36,6 @@ _MONGO_DB_SAFE_CHARS = frozenset(
     "0123456789"
     "_-"
 )
-_PUBLIC_SAMPLE_LIMIT = 100
 _PUBLIC_PROBE_LIMIT = 100
 _SHAPE_SCALAR_SAMPLE_LIMIT = 5
 _SHAPE_SCALAR_STRING_LIMIT = 120
@@ -73,11 +72,6 @@ class BoundedExecutionResult:
     rows: list[dict[str, Any]]
     overflowed: bool
     max_rows: int
-
-    @property
-    def observed_rows(self) -> int:
-        return len(self.rows)
-
 
 def _scoped_db_name(*, prefix: str, run_id: str, db_id: str) -> str:
     prefix_part = _safe_mongo_db_name_part(prefix, fallback="", trim=False)
@@ -160,18 +154,6 @@ class MongoExecutor:
             db_id=str(db_id),
         )
 
-    def count(self, db_id: str, collection: str) -> int:
-        client = self._connect()
-        return int(client[self._db_name(db_id)][collection].estimated_document_count())
-
-    def sample_fields(self, db_id: str, collection: str, n: int = 200) -> set[str]:
-        """Union of top-level field names across the first ``n`` docs (for new-field diffing)."""
-        client = self._connect()
-        fields: set[str] = set()
-        for doc in client[self._db_name(db_id)][collection].find({}, limit=n):
-            fields.update(doc.keys())
-        return fields
-
     def snapshot_database(self, db_id: str, sample_size: int) -> dict[str, list[dict[str, Any]]]:
         """Return a bounded JSON-safe sample from every collection in the working DB."""
         from bson import json_util
@@ -200,84 +182,6 @@ class MongoExecutor:
                 count = 0
             out.append({"collection": collection, "estimated_document_count": count})
         return out
-
-    def sample_documents(
-        self,
-        db_id: str,
-        collection: str,
-        *,
-        limit: int = 5,
-    ) -> dict[str, Any]:
-        """Return a bounded public sample summary without raw documents."""
-        sample_limit = _bounded_read_limit(limit, default=5, maximum=_PUBLIC_SAMPLE_LIMIT)
-        docs = self._sample_documents_raw(db_id, collection, limit=sample_limit)
-        normalized = [_normalize_doc(doc) for doc in docs]
-        return {
-            "ok": True,
-            "db_id": db_id,
-            "collection": collection,
-            "limit": sample_limit,
-            "sample_count": len(normalized),
-            "result_shape": _summarize_documents_shape(normalized),
-            "redaction": {"raw_rows": False},
-        }
-
-    def _sample_documents_raw(
-        self,
-        db_id: str,
-        collection: str,
-        *,
-        limit: int = 5,
-    ) -> list[dict[str, Any]]:
-        """Return a bounded JSON-safe sample for internal redacted tool computation."""
-        from bson import json_util
-
-        sample_limit = _bounded_read_limit(limit, default=5, maximum=_PUBLIC_SAMPLE_LIMIT)
-        client = self._connect()
-        docs = client[self._db_name(db_id)][collection].find({}, limit=sample_limit)
-        return [
-            json.loads(json_util.dumps(doc, default=str))
-            for doc in docs
-            if isinstance(doc, dict)
-        ]
-
-    def run_readonly_probe(
-        self,
-        db_id: str,
-        mql: str,
-        *,
-        limit: int = 20,
-    ) -> dict[str, Any]:
-        """Run a bounded read-only aggregate and return a result-shape summary.
-
-        The public probe rejects destructive/nondeterministic operators and caps both
-        upstream work and final output rows. It never returns raw result rows.
-        """
-        assert_no_disabled(mql)
-        collection, pipeline = parse_pipeline(mql)
-        forced_limit = _bounded_read_limit(limit, default=20, maximum=_PUBLIC_PROBE_LIMIT)
-        bounded_pipeline, work_limit_applied = _force_pipeline_limit(pipeline, forced_limit)
-        client = self._connect()
-        db = client[self._db_name(db_id)]
-        try:
-            raw = list(db[collection].aggregate(bounded_pipeline, maxTimeMS=_EXEC_MAX_TIME_MS))
-        except Exception as exc:  # noqa: BLE001 - pymongo/operator errors -> typed anomaly
-            raise ExecutionError(
-                "readonly probe execution failed",
-                context={"db_id": db_id, "collection": collection, "error": str(exc)[:300]},
-            ) from exc
-        docs = [_normalize_doc(doc) for doc in raw if isinstance(doc, dict)]
-        return {
-            "ok": True,
-            "db_id": db_id,
-            "collection": collection,
-            "stage_count": len(pipeline),
-            "bounded_stage_count": len(bounded_pipeline),
-            "forced_limit": forced_limit,
-            "work_limit_applied": work_limit_applied,
-            "result_count": len(docs),
-            "result_shape": _summarize_documents_shape(docs),
-        }
 
     # ------------------------------------------------------------------ #
     def load_witness(self, db_id: str, collections: dict[str, list[dict[str, Any]]]) -> None:
@@ -549,77 +453,6 @@ def _unify_number(v: Any) -> Any:
             return int(v)
         return round(v, _FLOAT_NDIGITS)
     return v
-
-
-def _bounded_read_limit(limit: int | None, *, default: int, maximum: int) -> int:
-    try:
-        parsed = int(limit) if limit is not None else default
-    except (TypeError, ValueError):
-        parsed = default
-    if parsed <= 0:
-        parsed = default
-    return min(parsed, maximum)
-
-
-def _force_pipeline_limit(pipeline: list[dict[str, Any]], limit: int) -> tuple[list[dict[str, Any]], bool]:
-    bounded: list[dict[str, Any]] = []
-    saw_limit = False
-    has_upstream_limit = False
-    inserted_work_limit = False
-    for index, stage in enumerate(pipeline):
-        if not isinstance(stage, dict):
-            if index == 0:
-                bounded.append({"$limit": limit})
-                has_upstream_limit = True
-                inserted_work_limit = True
-            bounded.append(stage)
-            continue
-        copied = dict(stage)
-        if not has_upstream_limit and not _is_probe_initial_scan_safe_stage(copied):
-            bounded.append({"$limit": limit})
-            has_upstream_limit = True
-            inserted_work_limit = True
-        if not has_upstream_limit and _is_probe_work_boundary_stage(copied):
-            bounded.append({"$limit": limit})
-            has_upstream_limit = True
-            inserted_work_limit = True
-        if "$limit" in copied:
-            saw_limit = True
-            copied["$limit"] = _bounded_read_limit(
-                copied.get("$limit"),
-                default=limit,
-                maximum=limit,
-            )
-            has_upstream_limit = True
-        bounded.append(copied)
-    if not saw_limit:
-        bounded.append({"$limit": limit})
-    return bounded, inserted_work_limit
-
-
-def _is_probe_work_boundary_stage(stage: dict[str, Any]) -> bool:
-    return any(operator in stage for operator in _PROBE_WORK_BOUNDARY_STAGES)
-
-
-def _is_probe_initial_scan_safe_stage(stage: dict[str, Any]) -> bool:
-    return "$match" in stage or "$limit" in stage
-
-
-def _summarize_documents_shape(docs: list[dict[str, Any]]) -> dict[str, Any]:
-    paths: dict[str, Counter[str]] = {}
-    samples: dict[str, list[Any]] = {}
-    for doc in docs:
-        _walk_doc_shape(doc, (), paths, samples)
-    return {
-        "document_count": len(docs),
-        "paths": {
-            path: {
-                "type_counts": dict(sorted(counts.items())),
-                **({"scalar_samples": samples[path]} if path in samples else {}),
-            }
-            for path, counts in sorted(paths.items())
-        },
-    }
 
 
 def _walk_doc_shape(

@@ -376,8 +376,6 @@ class LLMClient:
         self._client: Any = None
         self.on_usage: Callable[..., None] | None = None
         self.on_retry: Callable[..., None] | None = None
-        self.on_provider_wait: Callable[..., None] | None = None
-        self.on_provider_ok: Callable[[], None] | None = None
         self._progress_callback_failures_seen: set[str] = set()
         self._sem = (
             asyncio.Semaphore(settings.llm.max_concurrency)

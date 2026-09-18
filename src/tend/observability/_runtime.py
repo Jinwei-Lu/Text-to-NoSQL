@@ -146,7 +146,6 @@ class _Run:
     def __init__(
         self,
         run_dir: Path,
-        console: bool,
         *,
         write_llm_markdown_transcripts: bool,
         write_llm_markdown_transcripts_explicit: bool,
@@ -169,12 +168,7 @@ class _Run:
         self.started_at = _utcnow()
         self.error_count = 0
         self.cost_count = 0
-        self._console = structlog.get_logger("tend") if console else None
         self._lock = threading.Lock()
-
-    def emit_console(self, level: str, event: str, fields: dict[str, Any]) -> None:
-        if self._console is not None:
-            getattr(self._console, level, self._console.info)(event, **fields)
 
     def notify_event(self, record: dict[str, Any]) -> None:
         for callback in list(self.event_subscribers):
@@ -209,7 +203,6 @@ class RunLogger:
             self._run.milestones.write(record)
         if level in {"error", "critical"}:
             self._write_error_index(record)
-        self._run.emit_console(level, event, {**self._ctx, **fields})
         self._run.notify_event(record)
         return record
 
@@ -298,7 +291,6 @@ class RunLogger:
         with self._run._lock:
             self._run.counts[record["anomaly"]] = self._run.counts.get(record["anomaly"], 0) + 1
         self._write_error_index(record)
-        self._run.emit_console("error", f"anomaly:{record['anomaly']}", record)
         self._run.notify_event(record)
         for callback in list(self._run.subscribers):
             try:
@@ -313,7 +305,6 @@ class RunLogger:
         self._run.run_log.write(record)
         self._run.milestones.write(record)
         indexed = self._write_error_index(record)
-        self._run.emit_console("error", event, record)
         self._run.notify_event(record)
         return indexed
 
@@ -551,7 +542,6 @@ class RunFinalizer:
 def setup_logging(
     run_dir: Path,
     *,
-    console: bool = False,
     level: str = "info",
     write_llm_markdown_transcripts: bool | None = None,
 ) -> RunLogger:
@@ -576,7 +566,6 @@ def setup_logging(
     return RunLogger(
         _Run(
             run_dir,
-            console=console,
             write_llm_markdown_transcripts=write_md,
             write_llm_markdown_transcripts_explicit=(
                 write_llm_markdown_transcripts is not None

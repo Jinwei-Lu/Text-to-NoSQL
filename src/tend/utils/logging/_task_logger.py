@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import structlog
@@ -16,12 +16,9 @@ import structlog
 from tend.utils.logging._config import _sanitize_log_kwargs
 from tend.utils.logging._formatters import (
     _append_agent_payload_section,
-    _format_agent_messages_md,
     _format_llm_request_as_markdown,
     _format_llm_response_as_markdown,
     _format_logged_cost,
-    _format_seed_audit_log,
-    _format_seed_outcome_section,
     _format_tool_calls_md,
     _format_tool_results_md,
 )
@@ -59,23 +56,6 @@ class AgentTurnLogPayload:
     usage: dict[str, int] | None = None
     cost_usd: float = 0.0
     cost_source: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ContextSnapshotLogPayload:
-    compact_count: int
-    turn: int
-    trigger: str
-    old_message_count: int
-    new_message_count: int
-    old_token_estimate: int
-    new_token_estimate: int
-    summary_text: str
-    trigger_source: str = "unknown"
-    preserved_token_estimate: int | None = None
-    pinned_facts: str = ""
-    tail_messages: list[dict[str, Any]] | None = None
-    compaction_path: str = "normal"
 
 
 def _redact_response_preview(text: str) -> str:
@@ -235,20 +215,6 @@ class TaskLogger:
         """Set a label that is prepended to LLM log filenames for this task."""
         self._step_label = label
 
-    @property
-    def log_root_dir(self) -> Path:
-        """Root directory for files this logger should drop alongside its
-        per-call ``llm/`` markdown logs.
-
-        The previous shape required callers to duck-type a probe over
-        ``log_root`` / ``task_dir`` / ``_llm_dir`` and then walk up if the
-        attribute happened to point at the ``llm/`` subdirectory. With
-        this property the contract is explicit: it returns the parent of
-        ``_llm_dir`` (so e.g. seed-failure JSONL logs can live as
-        siblings of the per-call markdown).
-        """
-        return self._llm_dir.parent
-
     # --- Agent session logging ---
 
     def open_agent_session(
@@ -397,182 +363,6 @@ class TaskLogger:
         with open(session_path, "a", encoding="utf-8") as f:
             f.write("\n".join(lines))
 
-    def log_context_snapshot(self, payload: ContextSnapshotLogPayload) -> None:
-        """Append a context compaction snapshot to the agent session file.
-
-        Best-effort: exceptions are caught so a formatting or I/O failure
-        never kills the agent.
-        """
-        if self._agent_session_path is None:
-            return
-        try:
-            self._log_context_snapshot_inner(payload)
-        except Exception as exc:
-            structlog.get_logger("tend.logging").warning(
-                "log_context_snapshot_failed",
-                error=str(exc),
-                task_id=self.task_id,
-            )
-
-    def _log_context_snapshot_inner(self, payload: ContextSnapshotLogPayload) -> None:
-        removed = payload.old_message_count - payload.new_message_count
-        reduction = (
-            0.0
-            if payload.old_token_estimate <= 0
-            else (payload.old_token_estimate - payload.new_token_estimate)
-            / payload.old_token_estimate
-            * 100
-        )
-        lines: list[str] = [
-            f"## Context Compaction #{payload.compact_count} (during Turn {payload.turn})",
-            "",
-            "| Metric | Value |",
-            "|--------|-------|",
-            f"| Source | {payload.trigger_source} |",
-            f"| Trigger | {payload.trigger} |",
-            f"| Path | {payload.compaction_path} |",
-            "| Messages | "
-            f"{payload.old_message_count} -> {payload.new_message_count} "
-            f"(removed {removed}) |",
-            f"| Est. Tokens | {payload.old_token_estimate} -> {payload.new_token_estimate} |",
-            f"| Reduction % | {reduction:.1f}% |",
-        ]
-        if payload.preserved_token_estimate is not None:
-            lines.append(f"| Preserved Tokens | {payload.preserved_token_estimate} |")
-        if payload.compaction_path == "ineffective":
-            lines.append(
-                "| Ineffective Reason | Most remaining tokens are preserved "
-                "system/user context, so summarizing turn history cannot "
-                "reduce the active context much. |"
-            )
-        lines.append("")
-
-        _append_agent_payload_section(
-            lines,
-            "### Compacted Summary",
-            payload.summary_text,
-        )
-
-        lines += ["---", ""]
-
-        session_path = self._agent_session_path
-        assert session_path is not None
-        with open(session_path, "a", encoding="utf-8") as f:
-            f.write("\n".join(lines))
-
-    def rotate_agent_session_after_compaction(
-        self,
-        *,
-        compact_count: int,
-        turn: int,
-        compacted_messages: list[dict[str, Any]],
-        summary_text: str,
-        compaction_path: str,
-        trigger_source: str = "unknown",
-    ) -> Path | None:
-        """Start a new agent-session markdown segment after compaction.
-
-        The prior session file keeps the full pre-compaction transcript and
-        points to the continuation.  The new file starts with the compacted
-        active messages rendered as ordinary agent messages, then receives all
-        following turns.  Best-effort: failures are logged and return ``None``
-        so logging never blocks the agent loop.
-        """
-        if self._agent_session_path is None or not self._agent_session_active:
-            return None
-        try:
-            return self._rotate_agent_session_after_compaction_inner(
-                compact_count=compact_count,
-                turn=turn,
-                compacted_messages=compacted_messages,
-                summary_text=summary_text,
-                compaction_path=compaction_path,
-                trigger_source=trigger_source,
-            )
-        except Exception as exc:
-            structlog.get_logger("tend.logging").warning(
-                "rotate_agent_session_after_compaction_failed",
-                error=str(exc),
-                task_id=self.task_id,
-                compact_count=compact_count,
-            )
-            return None
-
-    def _rotate_agent_session_after_compaction_inner(
-        self,
-        *,
-        compact_count: int,
-        turn: int,
-        compacted_messages: list[dict[str, Any]],
-        summary_text: str,
-        compaction_path: str,
-        trigger_source: str = "unknown",
-    ) -> Path:
-        prior_path = self._agent_session_path
-        assert prior_path is not None
-
-        label = f"{self._step_label}_continued" if self._step_label else "continued"
-        session_id = _generate_call_id(label)
-        next_path = self._llm_dir / f"{session_id}.md"
-        ts = datetime.now(timezone.utc).isoformat()
-
-        rel_next = os.path.relpath(next_path, prior_path.parent).replace("\\", "/")
-        rel_prior = os.path.relpath(prior_path, next_path.parent).replace("\\", "/")
-
-        continuation = [
-            "",
-            "## Continued After Context Compaction",
-            "",
-            "| Field | Value |",
-            "|-------|-------|",
-            f"| Compaction | #{compact_count} during Turn {turn} |",
-            f"| Source | {trigger_source} |",
-            f"| Path | {compaction_path} |",
-            f"| Next Log | [{next_path.name}]({rel_next}) |",
-            "",
-            "This is not a crash; the agent log was rotated after context "
-            "compaction. Read the latest continuation log for the final "
-            "session outcome.",
-            "",
-            "---",
-            "",
-        ]
-        with open(_open_path(prior_path), "a", encoding="utf-8") as f:
-            f.write("\n".join(continuation))
-
-        lines: list[str] = [
-            f"# Agent Session Continuation: {session_id}",
-            "",
-            "| Field | Value |",
-            "|-------|-------|",
-            f"| Stage | {self.stage} |",
-            f"| Task | {self.task_id} |",
-            f"| Continued From | [{prior_path.name}]({rel_prior}) |",
-            f"| Compaction | #{compact_count} during Turn {turn} |",
-            f"| Source | {trigger_source} |",
-            f"| Path | {compaction_path} |",
-            f"| Started | {ts} |",
-            "",
-        ]
-        lines += ["## Messages", ""]
-        lines += _format_agent_messages_md(compacted_messages)
-        lines += [
-            "---",
-            "",
-        ]
-        with open(_open_path(next_path), "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
-
-        self._agent_session_path = next_path
-        self._agent_session_active = True
-        self._log.debug(
-            "agent_session_rotated_after_compaction",
-            compact_count=compact_count,
-            prior_path=str(prior_path),
-            next_path=str(next_path),
-        )
-        return next_path
-
     def close_agent_session(
         self,
         *,
@@ -692,67 +482,7 @@ class TaskLogger:
 
     # --- Postmortem appending (after session is closed) ---
 
-    def append_postmortem_section(
-        self,
-        session_log_path: Path,
-        postmortem_dict: dict[str, Any],
-    ) -> None:
-        """Append a ``## Postmortem`` block to a closed agent session log.
-
-        Best-effort: silently logs a warning on failure so that a missing
-        log file or filesystem error never blocks the pipeline.
-        """
-        try:
-            section = self._render_postmortem_md(postmortem_dict)
-            with open(session_log_path, "a", encoding="utf-8") as f:
-                f.write(section)
-        except Exception as exc:
-            self._log.warning(
-                "append_postmortem_failed",
-                path=str(session_log_path),
-                error=str(exc),
-            )
-
-    @staticmethod
-    def _render_postmortem_md(pm: dict[str, Any]) -> str:
-        evidence = pm.get("evidence") or []
-        attempts = pm.get("attempted_approaches") or []
-        evidence_md = "\n".join(f"  - {e}" for e in evidence) if evidence else "  - (none)"
-        attempts_md = "\n".join(f"  - {a}" for a in attempts) if attempts else "  - (none)"
-        confidence = pm.get("confidence", 0.0)
-        try:
-            confidence_str = f"{float(confidence):.2f}"
-        except (TypeError, ValueError):
-            confidence_str = str(confidence)
-        return (
-            "\n\n## Postmortem\n\n"
-            f"- **Phase**: {pm.get('phase', '-')}\n"
-            f"- **Root Cause**: {pm.get('root_cause_category', '-')} "
-            f"(confidence {confidence_str})\n"
-            f"- **Recommended Action**: {pm.get('recommended_next_action', '-')}\n"
-            f"- **Summary**: {pm.get('root_cause_summary', '-')}\n"
-            f"- **Evidence**:\n{evidence_md}\n"
-            f"- **Attempted Approaches**:\n{attempts_md}\n"
-        )
-
     # --- Agent session suspend / resume (for nested child agents) ---
-
-    def suspend_agent_session(self) -> tuple[Path | None, bool, float]:
-        """Snapshot current session state for safe nesting by a child agent."""
-        return (
-            self._agent_session_path,
-            self._agent_session_active,
-            self._agent_session_cost,
-        )
-
-    def resume_agent_session(
-        self,
-        snapshot: tuple[Path | None, bool, float],
-    ) -> None:
-        """Restore session state from a previous suspend call."""
-        self._agent_session_path = snapshot[0]
-        self._agent_session_active = snapshot[1]
-        self._agent_session_cost = snapshot[2]
 
     def create_child(self, *, step_label: str = "") -> TaskLogger:
         """Return a new TaskLogger sharing ``_llm_dir`` but with independent session state.
@@ -810,152 +540,11 @@ class TaskLogger:
         self._last_agent_session_path = None
         self._log.debug("llm_request_logged", call_id=call_id, model=model)
 
-    def append_llm_outcome(
-        self,
-        *,
-        title: str,
-        fields: dict[str, Any] | None = None,
-        payload: Any | None = None,
-    ) -> None:
-        """Append local post-processing outcome to the most recent LLM call log.
-
-        This is for workflow-mode calls where Python validates/applies an LLM
-        draft after the provider response has already been logged.
-        """
-        if self._agent_session_active:
-            return
-        outcome_path = self._last_llm_call_path or self._last_agent_session_path
-        if outcome_path is None:
-            return
-        try:
-            self._append_llm_outcome_inner(
-                path=outcome_path,
-                title=title,
-                fields=fields or {},
-                payload=payload,
-            )
-        except Exception as exc:
-            structlog.get_logger("tend.logging").warning(
-                "append_llm_outcome_failed",
-                error=str(exc),
-                task_id=self.task_id,
-            )
-
-    def append_llm_outcome_for_call(
-        self,
-        call_id: str,
-        *,
-        title: str,
-        fields: dict[str, Any] | None = None,
-        payload: Any | None = None,
-    ) -> None:
-        """Append an outcome to a specific LLM call log or active agent session."""
-        outcome_path: Path | None
-        if self._agent_session_active:
-            outcome_path = self._agent_session_path
-        else:
-            outcome_path = self._llm_dir / f"{call_id}.md"
-        if outcome_path is None:
-            return
-        try:
-            self._append_llm_outcome_inner(
-                path=outcome_path,
-                title=title,
-                fields=fields or {},
-                payload=payload,
-            )
-        except Exception as exc:
-            structlog.get_logger("tend.logging").warning(
-                "append_llm_outcome_for_call_failed",
-                call_id=call_id,
-                error=str(exc),
-                task_id=self.task_id,
-            )
-
-    def _append_llm_outcome_inner(
-        self,
-        *,
-        path: Path,
-        title: str,
-        fields: dict[str, Any],
-        payload: Any | None,
-    ) -> None:
-        lines: list[str] = ["", f"## {title}", ""]
-        if fields:
-            lines += ["| Field | Value |", "|-------|-------|"]
-            for key, value in fields.items():
-                lines.append(f"| {key} | {value} |")
-            lines.append("")
-        if payload is not None:
-            lines += [
-                "### Details",
-                "",
-                "```json",
-                json.dumps(payload, indent=2, default=str),
-                "```",
-                "",
-            ]
-        with open(_open_path(path), "a", encoding="utf-8") as f:
-            f.write("\n".join(lines))
-
     @property
     def last_llm_call_path(self) -> Path | None:
         """Path of the most recent ``llm/{call_id}.md`` written by this logger."""
 
         return self._last_llm_call_path
-
-    def append_seed_outcome(
-        self,
-        *,
-        decision: Literal["accepted", "rejected", "dropped"],
-        reason: str,
-        artifact_kind: Literal["atom", "scenario", "window"],
-        **fields: Any,
-    ) -> None:
-        """Append a ``## Seed Phase Outcome`` section to the LAST LLM call log.
-
-        Pairs with the existing ``## Structured Parse Outcome`` convention
-        so a single log file tells the reader whether the seed-phase
-        artifact was accepted, rejected, or dropped — and why.  Silently
-        no-ops when no LLM call has been made yet (so deterministic
-        rejections that happen before any LLM call do not crash).
-        ``fields`` appears as additional rows in the rendered table.
-        """
-
-        if self._last_llm_call_path is None:
-            return
-        section = _format_seed_outcome_section(
-            decision=decision,
-            reason=reason,
-            artifact_kind=artifact_kind,
-            fields=fields,
-        )
-        with open(_open_path(self._last_llm_call_path), "a", encoding="utf-8") as f:
-            f.write(section)
-
-    def write_seed_audit_log(
-        self,
-        *,
-        filename: str,
-        title: str,
-        records: list[dict[str, Any]],
-    ) -> Path | None:
-        """Write a free-standing seed-phase summary log under ``llm/``.
-
-        Used for deterministic decisions (scenarios) and skipped-before-LLM
-        cases (single-table window skips) where no per-call markdown file
-        exists.  Each record dict becomes one row in a rendered markdown
-        table.  Returns the written path (or ``None`` if called during an
-        agent session).
-        """
-
-        if self._agent_session_active:
-            return None
-        md_path = self._llm_dir / filename
-        md_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(_open_path(md_path), "w", encoding="utf-8") as f:
-            f.write(_format_seed_audit_log(title, records))
-        return md_path
 
     def log_llm_response(
         self,

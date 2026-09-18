@@ -1118,18 +1118,6 @@ class ProgressReporter:
             self._plain_emit(_plain_task_line(task), force=True)
             self._refresh()
 
-    def count_subtasks_by_parent(self, parent_id: str) -> tuple[int, int, int, int]:
-        children = [task for task in self._tasks.values() if task.parent_id == parent_id]
-        total = len(children)
-        done = sum(1 for task in children if task.status in _FINISHED_TASK_STATUSES)
-        running = sum(1 for task in children if task.status == TaskStatus.RUNNING)
-        failed = sum(
-            1
-            for task in children
-            if task.status in {TaskStatus.FAILED, TaskStatus.CANCELLED}
-        )
-        return total, done, running, failed
-
     @progress_safe("report_error")
     def report_error(self, task_id: str, message: str) -> None:
         with self._lock:
@@ -1219,58 +1207,6 @@ class ProgressReporter:
         self._record_progress_event("progress_llm_ok")
         self._refresh()
 
-    @progress_safe("note_llm_provider_wait")
-    def note_llm_provider_wait(
-        self,
-        provider_name: str,
-        next_provider_name: str | None,
-        wait_s: float,
-        reason: str,
-    ) -> None:
-        now = time.time()
-        if self._llm_provider_started_at == 0.0:
-            self._llm_provider_started_at = now
-        reason = reason[:180]
-        if next_provider_name:
-            self._llm_provider_status = (
-                f"LLM provider unavailable ({provider_name}); "
-                f"switching to {next_provider_name}. {reason}"
-            )
-        elif wait_s > 0:
-            self._llm_provider_status = (
-                f"LLM providers unavailable; waiting {wait_s:.0f}s. {reason}"
-            )
-        else:
-            self._llm_provider_status = (
-                f"LLM provider unavailable ({provider_name}). {reason}"
-            )
-        self._llm_provider_updated_at = now
-        self._llm_provider_visible_until_at = now + max(
-            _LLM_PROVIDER_STATUS_TTL_S,
-            max(float(wait_s), 0.0) + 2.0,
-        )
-        self._record_progress_event(
-            "progress_llm_provider_wait",
-            provider_name=provider_name,
-            next_provider_name=next_provider_name,
-            wait_s=wait_s,
-            reason=reason,
-            status=self._llm_provider_status,
-        )
-        self._plain_emit(self._llm_provider_status, force=True)
-        self._refresh()
-
-    @progress_safe("note_llm_provider_ok")
-    def note_llm_provider_ok(self) -> None:
-        if not self._llm_provider_status:
-            return
-        self._llm_provider_status = ""
-        self._llm_provider_updated_at = 0.0
-        self._llm_provider_started_at = 0.0
-        self._llm_provider_visible_until_at = 0.0
-        self._record_progress_event("progress_llm_provider_ok")
-        self._refresh()
-
     @progress_safe("update_cost")
     def update_cost(
         self,
@@ -1341,15 +1277,6 @@ class ProgressReporter:
         if note:
             message += f"\n[dim]{note}[/]"
         self._console.print(message)
-
-    def is_cost_available(self) -> bool:
-        return "api" in self._cost_sources_seen
-
-    def format_total_cost(self) -> str:
-        return self._format_cost_label(self._total_cost_usd)
-
-    def cost_unavailable_note(self) -> str:
-        return self._cost_unavailable_note()
 
     def summary(self) -> dict[str, Any]:
         with self._lock:

@@ -5,12 +5,14 @@ from __future__ import annotations
 from tend.utils.logging._config import *
 
 from tend.utils.logging._paths import *
-from tend.utils.json_diagnostics import strip_json_code_fence
+
+_CODE_FENCE_RE = re.compile(r"^```(?:json|jsonc|javascript|js)?\s*\n(.*?)```\s*$", re.DOTALL)
+
 
 def _strip_code_fence(text: str) -> str:
     """Remove an optional markdown code fence (```json ... ``` or ``` ... ```)."""
-    stripped, _ = strip_json_code_fence(text)
-    return stripped
+    match = _CODE_FENCE_RE.match(text.strip())
+    return match.group(1).strip() if match else text
 
 def _deep_parse_json_strings(obj: Any) -> Any:
     """Recursively parse string values that contain valid JSON."""
@@ -548,100 +550,6 @@ def _append_agent_payload_section(
         lines.append(f"> {line}" if line else ">")
     lines.append("")
 
-def _append_agent_message_section(
-    lines: list[str],
-    index: int,
-    message: dict[str, Any],
-    *,
-    tool_call_labels: dict[str, str] | None = None,
-) -> None:
-    """Append one active history message in the same readable style as turns."""
-
-    role = str(message.get("role") or "unknown")
-    lines += [f"### Message {index}: {role.capitalize()}", ""]
-
-    if role == "tool":
-        tool_call_id = str(message.get("tool_call_id") or "")
-        if tool_call_id:
-            lines += [
-                "| Field | Value |",
-                "|-------|-------|",
-                f"| Tool Call ID | `{tool_call_id}` |",
-                "",
-            ]
-        lines += _format_tool_results_md(
-            [
-                {
-                    "tool_call_id": tool_call_id,
-                    "content": message.get("content", ""),
-                }
-            ],
-            tool_call_labels=tool_call_labels,
-        )
-        return
-
-    reasoning = (
-        message.get("reasoning")
-        or message.get("reasoning_content")
-        or message.get("reasoning_raw")
-    )
-    _append_agent_payload_section(lines, "#### Reasoning", reasoning)
-    _append_agent_payload_section(lines, "#### Content", message.get("content", ""))
-
-    tool_calls = message.get("tool_calls") or []
-    if tool_calls:
-        lines += ["#### Tool Calls", ""]
-        lines += _format_tool_calls_md(tool_calls)
-
-def _format_agent_messages_md(messages: list[dict[str, Any]]) -> list[str]:
-    """Format active agent history as ordinary messages, not a JSON dump."""
-
-    lines: list[str] = []
-    tool_call_labels: dict[str, str] = {}
-    for index, message in enumerate(messages, start=1):
-        role = str(message.get("role") or "unknown")
-        _append_agent_message_section(
-            lines,
-            index,
-            message,
-            tool_call_labels=tool_call_labels if role == "tool" else None,
-        )
-        if role == "assistant":
-            tool_call_labels = _tool_call_signature_map(
-                message.get("tool_calls") or []
-            )
-        elif role != "tool":
-            tool_call_labels = {}
-    return lines
-
-def _format_tail_compact(
-    messages: list[dict[str, Any]], *, max_chars_per_msg: int = 300
-) -> list[str]:
-    """Format tail messages as compact blockquoted one-liners for context snapshots."""
-    lines: list[str] = []
-    for m in messages:
-        role = m.get("role", "?")
-        content = m.get("content", "") or ""
-        if role == "assistant" and m.get("tool_calls"):
-            tc_names = [tc["function"]["name"] for tc in m["tool_calls"]]
-            line = f"[assistant] called: {', '.join(tc_names)}"
-            if content:
-                preview = content[:100].replace("\n", " ")
-                line += f" | {preview}"
-        elif role == "tool":
-            tc_id = m.get("tool_call_id", "")[:20]
-            preview = content[:max_chars_per_msg].replace("\n", " ")
-            if len(content) > max_chars_per_msg:
-                preview += "..."
-            line = f"[tool:{tc_id}] {preview}"
-        else:
-            preview = content[:max_chars_per_msg].replace("\n", " ")
-            if len(content) > max_chars_per_msg:
-                preview += "..."
-            line = f"[{role}] {preview}"
-        lines.append(f"> {line}")
-    return lines
-
 def _format_llm_request_as_markdown(record: dict[str, Any]) -> str:
     """Convert an LLM request record into a Markdown string (no response section)."""
     call_id = record.get("call_id", "unknown")
@@ -801,33 +709,5 @@ def _format_seed_outcome_section(
         lines.append(f"| {key} | {value} |")
     lines.append("")
     return "\n".join(lines)
-
-def _format_seed_audit_log(title: str, records: list[dict[str, Any]]) -> str:
-    """Render a free-standing seed-phase summary log as markdown."""
-
-    lines: list[str] = [f"# {title}", ""]
-    if not records:
-        lines += ["_No records._", ""]
-        return "\n".join(lines)
-
-    columns: list[str] = []
-    seen: set[str] = set()
-    for record in records:
-        for key in record.keys():
-            if key not in seen:
-                seen.add(key)
-                columns.append(key)
-
-    header = "| " + " | ".join(columns) + " |"
-    separator = "|" + "|".join("---" for _ in columns) + "|"
-    lines += [header, separator]
-    for record in records:
-        row = "| " + " | ".join(
-            str(record.get(col, "")) for col in columns
-        ) + " |"
-        lines.append(row)
-    lines.append("")
-    return "\n".join(lines)
-
 
 __all__ = [name for name in globals() if not name.startswith("__")]

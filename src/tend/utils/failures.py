@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-ErrorTier = Literal["business", "retriable", "system", "infra_fatal", "cancelled"]
+ErrorTier = Literal["system", "cancelled"]
 
 
 @dataclass(slots=True)
@@ -52,25 +53,11 @@ def _safe_str(value: Any, *, max_len: int = 4000) -> str:
 
 
 def classify_failure_exception(exc: BaseException) -> ErrorTier:
-    """Classify an exception without importing heavy pipeline modules."""
+    """Classify an exception as a cancellation or a system failure."""
 
-    if isinstance(exc, (KeyboardInterrupt, asyncio_cancelled_error())):
+    if isinstance(exc, (KeyboardInterrupt, asyncio.CancelledError)):
         return "cancelled"
-    try:
-        from tend.agent.errors import classify_exception
-
-        tier = classify_exception(exc)
-        if tier in {"business", "retriable", "system", "infra_fatal"}:
-            return tier  # type: ignore[return-value]
-    except Exception:
-        pass
     return "system"
-
-
-def asyncio_cancelled_error() -> type[BaseException]:
-    import asyncio
-
-    return asyncio.CancelledError
 
 
 def exception_summary(
@@ -80,7 +67,7 @@ def exception_summary(
     task_id: str | None = None,
     include_traceback: bool = True,
 ) -> dict[str, Any]:
-    """Return a JSON-safe exception summary with provider-specific fields."""
+    """Return a JSON-safe exception summary."""
 
     tb = (
         "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
@@ -95,21 +82,4 @@ def exception_summary(
         stage=stage,
         task_id=task_id,
     )
-    payload = record.model_dump()
-    try:
-        from tend.llm.client import NonTransientLLMError
-
-        if isinstance(exc, NonTransientLLMError):
-            payload.update(
-                {
-                    "status_code": exc.status_code,
-                    "error_code": exc.error_code,
-                    "param_name": exc.param_name,
-                    "provider": exc.provider_name,
-                    "hint": exc.hint,
-                    "request_meta": exc.request_meta,
-                }
-            )
-    except Exception:
-        pass
-    return payload
+    return record.model_dump()

@@ -57,15 +57,6 @@ def wire_llm_progress_callbacks(llm: Any, progress: Any) -> None:
 
     llm.on_usage = _on_usage
     llm.on_retry = _on_retry
-    llm.on_provider_wait = (
-        lambda provider, next_provider, wait_s, reason: progress.note_llm_provider_wait(
-            provider,
-            next_provider,
-            wait_s,
-            reason,
-        )
-    )
-    llm.on_provider_ok = progress.note_llm_provider_ok
 
 
 __all__ = ["LLMUsageProgressCallback", "wire_llm_progress_callbacks"]
