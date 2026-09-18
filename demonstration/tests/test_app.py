@@ -9,12 +9,27 @@ import pytest
 from demonstration import app as demo
 
 
+def _release_data_available() -> bool:
+    try:
+        demo._layout()
+    except demo.DemoError:
+        return False
+    return True
+
+
+needs_release_data = pytest.mark.skipif(
+    not _release_data_available(),
+    reason="needs the TEND release data restored from Google Drive (see README)",
+)
+
+
 @pytest.fixture(autouse=True)
 def shutdown_solver_service():
     yield
     demo.SOLVER_SERVICE.shutdown()
 
 
+@needs_release_data
 def test_demo_uses_release_dataset_without_copied_legacy_payloads():
     assert str(demo._layout().test_path).endswith(
         "release/tend-native-mongodb-v1/data/TEND.json"
@@ -28,6 +43,7 @@ def test_demo_uses_release_dataset_without_copied_legacy_payloads():
     assert not (demo_dir / "schemas").exists()
 
 
+@needs_release_data
 def test_metadata_schema_and_legacy_read_routes():
     with demo.app.test_client() as client:
         health = client.get("/api/health")
@@ -72,6 +88,7 @@ def test_metadata_schema_and_legacy_read_routes():
         assert legacy.get_json()["schema"]["db_id"] == "california_schools"
 
 
+@needs_release_data
 def test_stub_solve_uses_real_solver_path():
     example = demo._examples_for_db("california_schools")[0]
     with demo.app.test_client() as client:
@@ -171,6 +188,7 @@ def test_site_sag_profile_is_fixed_and_input_is_gold_free(monkeypatch):
     assert response["policy"]["k_consistency"] == 3
 
 
+@needs_release_data
 def test_solver_option_validation_rejects_unbounded_or_malformed_values():
     example = demo._examples_for_db("california_schools")[0]
     with demo.app.test_client() as client:
@@ -213,6 +231,7 @@ def test_solver_option_validation_rejects_unbounded_or_malformed_values():
     assert unknown.get_json()["status"] == "error"
 
 
+@needs_release_data
 def test_live_mode_does_not_inherit_ambient_stub(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("TEND_LLM_STUB", "1")
     monkeypatch.setenv("OPENAI_API_KEY", "your-placeholder")
@@ -255,6 +274,7 @@ def test_legacy_query_rejects_non_object_json():
     assert response.get_json()["status"] == "error"
 
 
+@needs_release_data
 def test_execute_route_validates_request_before_touching_mongo():
     with demo.app.test_client() as client:
         missing_mql = client.post("/api/execute", json={"database": "california_schools"})
@@ -270,6 +290,7 @@ def test_execute_route_validates_request_before_touching_mongo():
     assert not_an_object.status_code == 400
 
 
+@needs_release_data
 def test_execute_route_reports_unrunnable_pipelines_without_raising():
     """Banned operators and unparseable text come back as execution errors."""
     with demo.app.test_client() as client:
