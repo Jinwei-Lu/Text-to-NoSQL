@@ -102,10 +102,9 @@ tmp/
 # Project-internal material that is not part of the public release
 # ============================================================
 # proposals/: only the files the code reads at runtime are public (the baseline
-# allow list, the record/library/rationale JSON schemas, and the LLM agent prompt
-# templates); the design proposals and schema fixtures stay local.
+# allow list and the record/library/rationale JSON schemas); the design proposals
+# and schema fixtures stay local.
 /proposals/*
-!/proposals/agent_prompts/
 !/proposals/schemas/
 /proposals/schemas/*
 !/proposals/schemas/solver_allow_list.json

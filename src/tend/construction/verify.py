@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from tend.construction.recipe import NativeFeature, NativeFeatureManifest
+from tend.construction.native import NativeFeature, NativeFeatureManifest
 from tend.execution import parse_pipeline
 from tend.errors import ResponseParseError
 

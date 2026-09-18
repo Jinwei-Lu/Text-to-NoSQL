@@ -1,7 +1,7 @@
-"""BIRD mini-dev loader: schema, workload, column semantics, and SQLite probes.
+"""BIRD mini-dev loader: schema, workload, column semantics, and SQLite connections.
 
-One :class:`BirdSource` is built per construction run and shared read-only by native
-materializers, validators, and census helpers. It is deliberately pure data access:
+One :class:`BirdSource` is built per construction run and shared read-only by the native
+materializers. It is deliberately pure data access:
 MongoDB design decisions live in `tend.construction.designs`.
 """
 from __future__ import annotations
@@ -10,7 +10,6 @@ import csv
 import json
 import sqlite3
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 
 from ..errors import SourceError
@@ -41,10 +40,6 @@ class ColumnSchema:
     description: str = ""
     value_description: str = ""      # enum/semantics text from database_description csv
 
-    @property
-    def has_enum(self) -> bool:
-        return bool(self.value_description.strip())
-
 
 @dataclass(frozen=True)
 class ForeignKey:
@@ -72,9 +67,6 @@ class DbSchema:
     foreign_keys: list[ForeignKey]
     primary_keys: dict[str, list[str]]  # table -> pk columns, preserving composite PKs
     sqlite_path: Path
-
-    def columns_of(self, table: str) -> list[ColumnSchema]:
-        return [c for c in self.columns if c.table == table]
 
     @property
     def table_count(self) -> int:
@@ -351,48 +343,6 @@ class BirdSource:
             path = self.schema(db_id).sqlite_path
             self._conns[db_id] = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         return self._conns[db_id]
-
-    # ------------------------------------------------------------------ #
-    # SQLite probes (deterministic; used by census and mechanism detectors)
-    # ------------------------------------------------------------------ #
-    @staticmethod
-    def _q(name: str) -> str:
-        return '"' + name.replace('"', '""') + '"'
-
-    @lru_cache(maxsize=4096)
-    def row_count(self, db_id: str, table: str) -> int:
-        try:
-            cur = self.connection(db_id).execute(f"SELECT COUNT(*) FROM {self._q(table)}")
-            return int(cur.fetchone()[0])
-        except sqlite3.Error as exc:
-            raise SourceError(f"row_count failed for {db_id}.{table}") from exc
-
-    @lru_cache(maxsize=8192)
-    def distinct_count(self, db_id: str, table: str, col: str) -> int:
-        cur = self.connection(db_id).execute(
-            f"SELECT COUNT(DISTINCT {self._q(col)}) FROM {self._q(table)}")
-        return int(cur.fetchone()[0])
-
-    @lru_cache(maxsize=8192)
-    def null_rate(self, db_id: str, table: str, col: str) -> float:
-        n = self.row_count(db_id, table)
-        if n == 0:
-            return 0.0
-        cur = self.connection(db_id).execute(
-            f"SELECT SUM(CASE WHEN {self._q(col)} IS NULL THEN 1 ELSE 0 END) "
-            f"FROM {self._q(table)}")
-        nnull = cur.fetchone()[0] or 0
-        return nnull / n
-
-    def fk_coverage(self, db_id: str, fk: ForeignKey) -> float:
-        """Fraction of parent rows referenced by >=1 child (low => sparse optionality)."""
-        n_parent = self.row_count(db_id, fk.parent_table)
-        if n_parent == 0:
-            return 0.0
-        cur = self.connection(db_id).execute(
-            f"SELECT COUNT(DISTINCT {self._q(fk.child_col)}) FROM {self._q(fk.child_table)} "
-            f"WHERE {self._q(fk.child_col)} IS NOT NULL")
-        return int(cur.fetchone()[0]) / n_parent
 
     def close(self) -> None:
         for conn in self._conns.values():

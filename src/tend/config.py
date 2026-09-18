@@ -315,8 +315,6 @@ class LLMSettings:
 class Paths:
     repo_root: Path
     bird_root: Path  # minidev/MINIDEV
-    proposals: Path
-    agent_prompts: Path  # proposals/agent_prompts
     schemas: Path  # proposals/schemas
     runs: Path  # runs/   (run-scoped output: logs, artifacts)
     dataset_out: Path  # construction dataset output (mongodb_schema/, test.json, ...)
@@ -471,8 +469,6 @@ class Settings:
         paths = Paths(
             repo_root=root,
             bird_root=bird_root,
-            proposals=root / "proposals",
-            agent_prompts=root / "proposals" / "agent_prompts",
             schemas=root / "proposals" / "schemas",
             runs=root / "runs",
             dataset_out=root / (_env(envmap, "TEND_DATASET_OUT") or f"runs/{run_id}/dataset"),

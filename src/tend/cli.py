@@ -1,6 +1,6 @@
 """TEND command-line entry point.
 
-    tend construct --phase all --dbs financial --records 1 [--stub] [--quiet]
+    tend construct --phase all --dbs financial --records 1 [--quiet]
     tend validate --dataset-dir runs/<run_id>/dataset [--smoke]
     tend publish --dataset-dir runs/<run_id>/dataset --out release/tend-native-mongodb-v1
     tend solve --db-id financial --record-id 1001 [--stub] [--quiet]
@@ -17,7 +17,6 @@ import json
 import shutil
 import sys
 import tempfile
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 from dataclasses import dataclass
@@ -48,20 +47,10 @@ from .llm import LLMClient
 from .llm.progress_callbacks import wire_llm_progress_callbacks
 from .observability import make_reporter, setup_logging
 from .utils.logging import LogManager, RunLoggerFacade
-from .publish import (
-    ReleaseQualityReport,
-    ReleaseReport,
-    apply_builtin_quality_repairs,
-    run_llm_gold_query_review,
-    run_llm_nlq_review,
-    run_llm_nlq_rewrite,
-    run_release_quality_audit,
-    validate_release,
-)
+from .publish import ReleaseReport, validate_release
 from .release_layout import resolve_release_dataset_layout
 from .run_ids import new_run_id, run_id_with_tag
 from .source import BirdSource
-from .source.census import run_census
 from .stubs import stub_fn
 from .solver.inputs import (
     DEFAULT_WITNESS_K,
@@ -249,73 +238,6 @@ def _finalize_runtime_summary(
     )
 
 
-def _progress_summary(rt: Runtime) -> dict[str, Any]:
-    return rt.progress.summary() if hasattr(rt.progress, "summary") else {}
-
-
-def _summary_dict(summary: Any) -> dict[str, Any]:
-    if hasattr(summary, "as_dict") and callable(summary.as_dict):
-        data = summary.as_dict()
-        return data if isinstance(data, dict) else {}
-    if isinstance(summary, dict):
-        return summary
-    return {}
-
-
-def _summary_counts_and_artifacts(summary: Any) -> tuple[dict[str, Any], dict[str, Any]]:
-    data = _summary_dict(summary)
-    counts: dict[str, Any] = {}
-    artifact_refs: dict[str, Any] = {}
-    for key, value in data.items():
-        if key == "paths" and isinstance(value, dict):
-            artifact_refs.update(value)
-        elif key in {"out_dir", "dataset_dir"}:
-            artifact_refs[key] = value
-        elif key != "issues":
-            counts[key] = value
-    return counts, artifact_refs
-
-
-def _finalize_summary_object(
-    rt: Runtime,
-    summary: Any,
-    *,
-    status: str,
-    close_reason: str,
-) -> None:
-    counts, artifact_refs = _summary_counts_and_artifacts(summary)
-    _finalize_runtime_summary(
-        rt,
-        status=status,
-        close_reason=close_reason,
-        progress_summary=_progress_summary(rt),
-        counts=counts,
-        artifact_refs=artifact_refs,
-    )
-
-
-def _finalize_failed_runtime(rt: Runtime, *, close_reason: str, failed: TendError) -> None:
-    if not failed.logged:
-        rt.log.anomaly(failed)
-    _finalize_runtime_summary(
-        rt,
-        status="failed",
-        close_reason=close_reason,
-        progress_summary=_progress_summary(rt),
-        counts={"failures": 1},
-        artifact_refs={},
-    )
-
-
-def _log_runtime_error(rt: Runtime, event: str, failed: TendError) -> None:
-    rt.log.error(
-        event,
-        error_type=type(failed).__name__,
-        message=failed.message,
-        anomaly=failed.anomaly.value if failed.anomaly else None,
-    )
-
-
 async def _close_runtime_async(rt: Runtime) -> None:
     """Release the run's source/mongo/LLM/log handles; safe to call once in finally."""
     if rt.source is not None:
@@ -332,47 +254,10 @@ async def _close_runtime_async(rt: Runtime) -> None:
     rt.log.close()
 
 
-def _close_runtime(rt: Runtime) -> None:
-    """Synchronous close path for non-async CLI helpers."""
-    if rt.source is not None:
-        rt.source.close()
-    rt.mongo.close()
-    try:
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            asyncio.run(rt.ctx.llm.aclose())
-        else:
-            error: list[BaseException] = []
-
-            def close_in_thread() -> None:
-                try:
-                    asyncio.run(rt.ctx.llm.aclose())
-                except BaseException as exc:  # noqa: BLE001 - propagated below
-                    error.append(exc)
-
-            thread = threading.Thread(
-                target=close_in_thread,
-                name=f"tend-close-llm-{rt.settings.run_id}",
-            )
-            thread.start()
-            thread.join()
-            if error:
-                raise error[0]
-    except Exception as exc:  # noqa: BLE001 - shutdown logging should stay best-effort
-        rt.log.warning(
-            "llm_client_close_failed",
-            error_type=type(exc).__name__,
-            message=str(exc),
-        )
-    rt.log.close()
-
-
 def _resolve_construct_records(source: BirdSource, db_ids: list[str], value: str) -> int:
     raw = value.strip().lower()
     if raw == "all":
-        census = run_census(source, db_ids=db_ids)
-        total = sum(db.query_count for db in census.databases.values())
+        total = sum(len(source.workload(db_id)) for db_id in db_ids or list(source.db_ids))
         if total <= 0:
             raise ValueError(f"no source workload records found for dbs={db_ids}")
         return total
@@ -413,7 +298,7 @@ async def _run_construct(
                         for db_id, art in artifacts.items()
                     },
                 )
-            if phase in ("B", "all"):
+            if phase == "all":
                 if not artifacts:
                     rt.log.anomaly(
                         kind=Anomaly.INTERNAL,
@@ -795,7 +680,7 @@ def _solver_case_workflow(
         work_item_id=task_id,
         extra=extra,
     )
-    return Workflow(ctx, name=rt.workflow.name)
+    return Workflow(ctx)
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -1777,405 +1662,6 @@ def _run_validate(
     return 0 if report is not None and report.ok and error is None else 1
 
 
-def _print_quality_summary(report: ReleaseQualityReport) -> None:
-    print("\n" + "=" * 64)
-    print(f"TEND quality-audit · {'OK' if report.ok else 'INVALID'}")
-    print(f"  dataset : {report.dataset_dir}")
-    print(f"  records : {report.records_checked}")
-    print(f"  errors  : {report.errors}")
-    print(f"  warnings: {report.warnings}")
-    if report.paths:
-        print(f"  report  : {report.paths.get('report_md')}")
-        print(f"  issues  : {report.paths.get('issues_jsonl')}")
-    if report.by_code:
-        print("  by_code :")
-        for code, count in sorted(report.by_code.items(), key=lambda item: (-item[1], item[0]))[:12]:
-            print(f"    - {code}: {count}")
-    for issue in report.issues[:VALIDATION_ISSUE_LIMIT]:
-        track = f" track={issue.track}" if issue.track else ""
-        print(
-            f"    - [{issue.severity}] {issue.code} "
-            f"db={issue.db_id} record={issue.record_id}{track}: {issue.message}"
-        )
-    if len(report.issues) > VALIDATION_ISSUE_LIMIT:
-        print(f"    - ... {len(report.issues) - VALIDATION_ISSUE_LIMIT} more")
-    print("=" * 64)
-
-
-def _run_quality_audit(
-    rt: Runtime,
-    *,
-    dataset_dir: Path,
-    out_dir: Path,
-    db_id: str | None,
-    record_id: int | None,
-    limit: int | None,
-    repeat_order_sensitive: int,
-    check_nlq: bool,
-    check_field_paths: bool,
-) -> int:
-    report: ReleaseQualityReport | None = None
-    failed: TendError | None = None
-    try:
-        report = run_release_quality_audit(
-            dataset_dir,
-            executor=rt.mongo,
-            out_dir=out_dir,
-            logger=rt.log,
-            db_id=db_id,
-            record_id=record_id,
-            limit=limit,
-            repeat_order_sensitive=repeat_order_sensitive,
-            check_nlq=check_nlq,
-            check_field_paths=check_field_paths,
-        )
-    except TendError as err:
-        failed = err
-        if not err.logged:
-            rt.log.anomaly(err)
-        _log_runtime_error(rt, "quality_audit_failed", err)
-    except Exception as exc:  # noqa: BLE001 - final CLI boundary
-        failed = wrap_unexpected(exc, stage="quality_audit")
-        rt.log.anomaly(failed)
-        _log_runtime_error(rt, "quality_audit_failed", failed)
-    finally:
-        if report is not None:
-            _finalize_summary_object(
-                rt,
-                report,
-                status="ok" if report.ok else "failed",
-                close_reason="quality_audit_complete",
-            )
-        elif failed is not None:
-            _finalize_failed_runtime(
-                rt,
-                close_reason="quality_audit_failed",
-                failed=failed,
-            )
-        _close_runtime(rt)
-    if failed is not None:
-        raise failed
-    assert report is not None
-    _print_quality_summary(report)
-    return 0 if report.ok else 1
-
-
-def _run_repair_release_quality(settings: Settings, *, dataset_dir: Path) -> int:
-    summary = apply_builtin_quality_repairs(dataset_dir)
-    print("\n" + "=" * 64)
-    print("TEND repair-release-quality")
-    print(f"  dataset        : {dataset_dir}")
-    print(f"  records        : {summary.records}")
-    print(f"  mql_changed    : {summary.mql_changed}")
-    print(f"  cfs_recomputed : {summary.cfs_recomputed}")
-    print(f"  nlq_changed    : {summary.nlq_changed}")
-    print(f"  sort_stabilized: {summary.sort_stabilized}")
-    print("  files:")
-    for path in summary.output_files:
-        print(f"    - {path}")
-    print("=" * 64)
-    return 0
-
-
-def _record_id_set(raw_values: list[str] | None, path: Path | None) -> set[int] | None:
-    values: list[str] = []
-    for raw in raw_values or []:
-        values.extend(part.strip() for part in raw.split(",") if part.strip())
-    if path is not None:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            values.extend(part.strip() for part in stripped.split(",") if part.strip())
-    if not values:
-        return None
-    return {int(value) for value in values}
-
-
-def _run_llm_gold_query_review(
-    rt: Runtime,
-    *,
-    dataset_dir: Path,
-    out_dir: Path,
-    db_id: str | None,
-    record_ids: set[int] | None,
-    limit: int | None,
-    model: str | None,
-    reasoning_effort: str | None,
-    thinking: str | None,
-    first_token_timeout_s: float,
-    call_timeout_s: float,
-    workers: int,
-    apply: bool,
-    allow_nlq_only_apply: bool,
-    auto_apply_min_confidence: float,
-    quality_repair_retries: int,
-    candidate_repair_retries: int,
-    retry_invalid: bool,
-    resume: bool,
-    include_current_exec: bool,
-) -> int:
-    summary: Any | None = None
-    failed: TendError | None = None
-    try:
-        summary = asyncio.run(
-            run_llm_gold_query_review(
-                dataset_dir,
-                llm=rt.ctx.llm,
-                logger=rt.log,
-                executor=rt.mongo,
-                out_dir=out_dir,
-                db_id=db_id,
-                record_ids=record_ids,
-                limit=limit,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                thinking=thinking,
-                first_token_timeout_s=first_token_timeout_s,
-                call_timeout_s=call_timeout_s,
-                workers=workers,
-                apply=apply,
-                allow_nlq_only_apply=allow_nlq_only_apply,
-                auto_apply_min_confidence=auto_apply_min_confidence,
-                quality_repair_retries=quality_repair_retries,
-                candidate_repair_retries=candidate_repair_retries,
-                retry_invalid=retry_invalid,
-                resume=resume,
-                include_current_exec=include_current_exec,
-            )
-        )
-    except TendError as err:
-        failed = err
-        if not err.logged:
-            rt.log.anomaly(err)
-        _log_runtime_error(rt, "llm_gold_query_review_failed", err)
-    except Exception as exc:  # noqa: BLE001 - final CLI boundary
-        failed = wrap_unexpected(exc, stage="llm_gold_query_review")
-        rt.log.anomaly(failed)
-        _log_runtime_error(rt, "llm_gold_query_review_failed", failed)
-    finally:
-        if summary is not None:
-            success = (
-                summary.calls_failed == 0
-                and summary.invalid_reviews == 0
-                and (not apply or summary.manual_required == 0)
-            )
-            _finalize_summary_object(
-                rt,
-                summary,
-                status="ok" if success else "failed",
-                close_reason="llm_gold_query_review_complete",
-            )
-        elif failed is not None:
-            _finalize_failed_runtime(
-                rt,
-                close_reason="llm_gold_query_review_failed",
-                failed=failed,
-            )
-        _close_runtime(rt)
-    if failed is not None:
-        raise failed
-    assert summary is not None
-    print("\n" + "=" * 64)
-    print("TEND llm-gold-query-review")
-    print(f"  dataset              : {dataset_dir}")
-    print(f"  records              : {summary.records}")
-    print(f"  calls_ok             : {summary.calls_ok}")
-    print(f"  calls_failed         : {summary.calls_failed}")
-    print(f"  invalid_reviews      : {summary.invalid_reviews}")
-    print(f"  gold_valid           : {summary.gold_valid}")
-    print(f"  not_gold             : {summary.not_gold}")
-    print(f"  candidate_mqls       : {summary.candidate_mqls}")
-    print(f"  candidate_exec_ok    : {summary.candidate_exec_ok}")
-    print(f"  candidate_exec_failed: {summary.candidate_exec_failed}")
-    print(f"  manual_required      : {summary.manual_required}")
-    print(f"  applied_updates      : {summary.applied_updates}")
-    print("  files:")
-    for path in summary.paths.values():
-        print(f"    - {path}")
-    print("=" * 64)
-    return 0 if (
-        summary.calls_failed == 0
-        and summary.invalid_reviews == 0
-        and (not apply or summary.manual_required == 0)
-    ) else 1
-
-
-def _run_llm_nlq_review(
-    rt: Runtime,
-    *,
-    dataset_dir: Path,
-    out_dir: Path,
-    db_id: str | None,
-    record_ids: set[int] | None,
-    limit: int | None,
-    model: str | None,
-    reasoning_effort: str | None,
-    thinking: str | None,
-    first_token_timeout_s: float,
-    call_timeout_s: float,
-    workers: int,
-    apply: bool,
-) -> int:
-    summary: Any | None = None
-    failed: TendError | None = None
-    try:
-        summary = asyncio.run(
-            run_llm_nlq_review(
-                dataset_dir,
-                llm=rt.ctx.llm,
-                logger=rt.log,
-                out_dir=out_dir,
-                db_id=db_id,
-                record_ids=record_ids,
-                limit=limit,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                thinking=thinking,
-                first_token_timeout_s=first_token_timeout_s,
-                call_timeout_s=call_timeout_s,
-                workers=workers,
-                apply=apply,
-            )
-        )
-    except TendError as err:
-        failed = err
-        if not err.logged:
-            rt.log.anomaly(err)
-        _log_runtime_error(rt, "llm_nlq_review_failed", err)
-    except Exception as exc:  # noqa: BLE001 - final CLI boundary
-        failed = wrap_unexpected(exc, stage="llm_nlq_review")
-        rt.log.anomaly(failed)
-        _log_runtime_error(rt, "llm_nlq_review_failed", failed)
-    finally:
-        if summary is not None:
-            _finalize_summary_object(
-                rt,
-                summary,
-                status="ok" if summary.calls_failed == 0 else "failed",
-                close_reason="llm_nlq_review_complete",
-            )
-        elif failed is not None:
-            _finalize_failed_runtime(
-                rt,
-                close_reason="llm_nlq_review_failed",
-                failed=failed,
-            )
-        _close_runtime(rt)
-    if failed is not None:
-        raise failed
-    assert summary is not None
-    print("\n" + "=" * 64)
-    print("TEND llm-nlq-review")
-    print(f"  dataset              : {dataset_dir}")
-    print(f"  records              : {summary.records}")
-    print(f"  calls_ok             : {summary.calls_ok}")
-    print(f"  calls_failed         : {summary.calls_failed}")
-    print(f"  canonical_mismatches : {summary.canonical_mismatches}")
-    print(f"  colloquial_mismatches: {summary.colloquial_mismatches}")
-    print(f"  applied_updates      : {summary.applied_updates}")
-    print("  files:")
-    for path in summary.paths.values():
-        print(f"    - {path}")
-    print("=" * 64)
-    return 0 if summary.calls_failed == 0 else 1
-
-
-def _run_llm_nlq_rewrite(
-    rt: Runtime,
-    *,
-    dataset_dir: Path,
-    out_dir: Path,
-    db_id: str | None,
-    record_ids: set[int] | None,
-    limit: int | None,
-    model: str | None,
-    reasoning_effort: str | None,
-    thinking: str | None,
-    first_token_timeout_s: float,
-    workers: int,
-    apply: bool,
-    allow_partial_apply: bool,
-    style_repair_retries: int,
-    resume: bool,
-) -> int:
-    summary: Any | None = None
-    failed: TendError | None = None
-    try:
-        summary = asyncio.run(
-            run_llm_nlq_rewrite(
-                dataset_dir,
-                llm=rt.ctx.llm,
-                logger=rt.log,
-                out_dir=out_dir,
-                db_id=db_id,
-                record_ids=record_ids,
-                limit=limit,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                thinking=thinking,
-                first_token_timeout_s=first_token_timeout_s,
-                workers=workers,
-                apply=apply,
-                allow_partial_apply=allow_partial_apply,
-                style_repair_retries=style_repair_retries,
-                resume=resume,
-            )
-        )
-    except TendError as err:
-        failed = err
-        if not err.logged:
-            rt.log.anomaly(err)
-        _log_runtime_error(rt, "llm_nlq_rewrite_failed", err)
-    except Exception as exc:  # noqa: BLE001 - final CLI boundary
-        failed = wrap_unexpected(exc, stage="llm_nlq_rewrite")
-        rt.log.anomaly(failed)
-        _log_runtime_error(rt, "llm_nlq_rewrite_failed", failed)
-    finally:
-        if summary is not None:
-            success = (
-                summary.calls_failed == 0
-                and summary.invalid_rewrites == 0
-                and (not apply or summary.applied_updates > 0)
-                and summary.anti_template_violations == 0
-            )
-            _finalize_summary_object(
-                rt,
-                summary,
-                status="ok" if success else "failed",
-                close_reason="llm_nlq_rewrite_complete",
-            )
-        elif failed is not None:
-            _finalize_failed_runtime(
-                rt,
-                close_reason="llm_nlq_rewrite_failed",
-                failed=failed,
-            )
-        _close_runtime(rt)
-    if failed is not None:
-        raise failed
-    assert summary is not None
-    print("\n" + "=" * 64)
-    print("TEND llm-nlq-rewrite")
-    print(f"  dataset                 : {dataset_dir}")
-    print(f"  records                 : {summary.records}")
-    print(f"  calls_ok                : {summary.calls_ok}")
-    print(f"  calls_failed            : {summary.calls_failed}")
-    print(f"  invalid_rewrites        : {summary.invalid_rewrites}")
-    print(f"  applied_updates         : {summary.applied_updates}")
-    print(f"  anti_template_violations: {summary.anti_template_violations}")
-    print("  files:")
-    for path in summary.paths.values():
-        print(f"    - {path}")
-    print("=" * 64)
-    return 0 if (
-        summary.calls_failed == 0
-        and summary.invalid_rewrites == 0
-        and (not apply or summary.applied_updates > 0)
-        and summary.anti_template_violations == 0
-    ) else 1
-
-
 def _copy_release_tree(dataset_dir: Path, out_dir: Path) -> None:
     if dataset_dir.resolve() == out_dir.resolve():
         return
@@ -2288,7 +1774,7 @@ async def _run_evaluate(
             artifact_refs=artifact_refs,
             evaluation=evaluation,
         )
-        _close_runtime(rt)
+        await _close_runtime_async(rt)
     return 1 if failed_run else 0
 
 
@@ -2311,7 +1797,7 @@ def _main_impl(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     c = sub.add_parser("construct", help="run the construction pipeline")
-    c.add_argument("--phase", choices=["A", "B", "all"], default="all")
+    c.add_argument("--phase", choices=["A", "all"], default="all")
     c.add_argument("--dbs", default="financial",
                    help="comma-separated db_ids, or 'all' (default: financial)")
     c.add_argument(
@@ -2325,7 +1811,6 @@ def _main_impl(argv: list[str] | None = None) -> int:
         default=None,
         help="Phase B records to attempt for each selected db; useful for all-db 100+ runs",
     )
-    c.add_argument("--stub", action="store_true", help="offline mode (no live LLM)")
     c.add_argument("--quiet", action="store_true", help="disable the live progress UI")
     c.add_argument("--run-id", default=None)
 
@@ -2338,147 +1823,6 @@ def _main_impl(argv: list[str] | None = None) -> int:
         action="store_true",
         help="skip raw mongodb_data loading and world_signature recomputation",
     )
-
-    q = sub.add_parser(
-        "quality-audit",
-        help="strict Mongo-backed NLQ/MQL/DB release quality audit",
-    )
-    q.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
-                   help="release dataset dir (default: release/tend-native-mongodb-v1)")
-    q.add_argument("--out", default=None,
-                   help="quality report output dir (default: runs/<run_id>/quality_audit)")
-    q.add_argument("--db-id", default=None, help="optional db_id filter")
-    q.add_argument("--record-id", type=int, default=None, help="optional record_id filter")
-    q.add_argument("--limit", type=int, default=None, help="optional record limit after filters")
-    q.add_argument("--repeat-order-sensitive", type=int, default=2,
-                   help="repeat order-sensitive gold MQL executions to catch instability")
-    q.add_argument("--no-nlq-check", action="store_true",
-                   help="skip deterministic NLQ/MQL alignment warnings")
-    q.add_argument("--no-field-check", action="store_true",
-                   help="skip stage-level field-existence probes")
-    q.add_argument("--quiet", action="store_true", help="disable the live progress UI")
-    q.add_argument("--run-id", default=None)
-
-    rq = sub.add_parser(
-        "repair-release-quality",
-        help="apply deterministic release quality repairs and refresh derived files",
-    )
-    rq.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
-                    help="release dataset dir (default: release/tend-native-mongodb-v1)")
-    rq.add_argument("--run-id", default=None)
-
-    gr = sub.add_parser(
-        "llm-gold-query-review",
-        help="LLM NLQ-first review and safe repair of release gold MQL queries",
-    )
-    gr.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
-                    help="release dataset dir (default: release/tend-native-mongodb-v1)")
-    gr.add_argument("--out", default=None,
-                    help="review output dir (default: runs/<run_id>/llm_gold_query_review)")
-    gr.add_argument("--db-id", default=None, help="optional db_id filter")
-    gr.add_argument("--record-id", action="append", default=[],
-                    help="record id or comma-separated record ids; repeatable")
-    gr.add_argument("--record-ids-file", default=None,
-                    help="newline/comma-separated record ids to review")
-    gr.add_argument("--limit", type=int, default=None, help="optional record limit after filters")
-    gr.add_argument("--model", default="deepseek-v4-flash",
-                    help="review model override, default deepseek-v4-flash")
-    gr.add_argument("--reasoning-effort", default="max",
-                    help="provider reasoning_effort override, default max")
-    gr.add_argument("--thinking", default="enabled",
-                    help="DeepSeek thinking type via extra_body, default enabled")
-    gr.add_argument("--first-token-timeout", type=float, default=6.0,
-                    help="streaming first-token timeout in seconds")
-    gr.add_argument("--call-timeout", type=float, default=900.0,
-                    help="outer timeout for each LLM review call in seconds; <=0 disables")
-    gr.add_argument("--workers", type=int, default=2500,
-                    help="parallel LLM review calls")
-    gr.add_argument("--apply", action="store_true",
-                    help="write safe executable repairs back into release files")
-    gr.add_argument("--allow-nlq-only-apply", action="store_true",
-                    help="allow NLQ-only repairs; default blocks them because current MQL is suspect")
-    gr.add_argument("--auto-apply-min-confidence", type=float, default=0.82,
-                    help="minimum LLM confidence for automatic apply")
-    gr.add_argument("--quality-repair-retries", type=int, default=1,
-                    help="extra LLM calls per record to fix local gold-quality validation failures")
-    gr.add_argument("--candidate-repair-retries", type=int, default=0,
-                    help="extra LLM passes that repair rows using candidate validation feedback")
-    gr.add_argument("--retry-invalid", action="store_true",
-                    help="with resume, retry rows whose previous status was invalid")
-    gr.add_argument("--no-current-exec", action="store_true",
-                    help="skip current MQL execution summaries in prompts")
-    gr.add_argument("--no-resume", action="store_true",
-                    help="ignore any existing gold_review_results.jsonl in --out")
-    gr.add_argument("--quiet", action="store_true", help="disable the live progress UI")
-    gr.add_argument("--run-id", default=None)
-
-    lr = sub.add_parser(
-        "llm-nlq-review",
-        help="LLM JSON-mode review and optional repair of release NLQ/MQL alignment",
-    )
-    lr.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
-                    help="release dataset dir (default: release/tend-native-mongodb-v1)")
-    lr.add_argument("--out", default=None,
-                    help="review output dir (default: runs/<run_id>/llm_nlq_review)")
-    lr.add_argument("--db-id", default=None, help="optional db_id filter")
-    lr.add_argument("--record-id", action="append", default=[],
-                    help="record id or comma-separated record ids; repeatable")
-    lr.add_argument("--record-ids-file", default=None,
-                    help="newline/comma-separated record ids to review")
-    lr.add_argument("--limit", type=int, default=None, help="optional record limit after filters")
-    lr.add_argument("--model", default=None,
-                    help="review model override, e.g. deepseek-v4-pro")
-    lr.add_argument("--reasoning-effort", default=None,
-                    help="provider reasoning_effort override, e.g. max")
-    lr.add_argument("--thinking", default="enabled",
-                    help="DeepSeek thinking type via extra_body, default enabled")
-    lr.add_argument("--first-token-timeout", type=float, default=6.0,
-                    help="streaming first-token timeout in seconds")
-    lr.add_argument("--call-timeout", type=float, default=900.0,
-                    help="outer timeout for each LLM review call in seconds; <=0 disables")
-    lr.add_argument("--workers", type=int, default=500,
-                    help="parallel LLM review calls")
-    lr.add_argument("--apply", action="store_true",
-                    help="write LLM-confirmed replacement NLQ back into release files")
-    lr.add_argument("--quiet", action="store_true", help="disable the live progress UI")
-    lr.add_argument("--run-id", default=None)
-
-    rw = sub.add_parser(
-        "llm-nlq-rewrite",
-        help="LLM JSON-mode anti-template rewrite of release NLQs",
-    )
-    rw.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
-                    help="release dataset dir (default: release/tend-native-mongodb-v1)")
-    rw.add_argument("--out", default=None,
-                    help="rewrite output dir (default: runs/<run_id>/llm_nlq_rewrite)")
-    rw.add_argument("--db-id", default=None, help="optional db_id filter")
-    rw.add_argument("--record-id", action="append", default=[],
-                    help="record id or comma-separated record ids; repeatable")
-    rw.add_argument("--record-ids-file", default=None,
-                    help="newline/comma-separated record ids to rewrite")
-    rw.add_argument("--limit", type=int, default=None, help="optional record limit after filters")
-    rw.add_argument("--model", default="deepseek-v4-flash",
-                    help="rewrite model override, default deepseek-v4-flash")
-    rw.add_argument("--reasoning-effort", default="max",
-                    help="provider reasoning_effort override, default max")
-    rw.add_argument("--thinking", default="enabled",
-                    help="DeepSeek thinking type via extra_body, default enabled")
-    rw.add_argument("--first-token-timeout", type=float, default=6.0,
-                    help="streaming first-token timeout in seconds")
-    rw.add_argument("--call-timeout", type=float, default=900.0,
-                    help="outer timeout for each LLM rewrite call in seconds; <=0 disables")
-    rw.add_argument("--workers", type=int, default=2500,
-                    help="parallel LLM rewrite calls")
-    rw.add_argument("--apply", action="store_true",
-                    help="write valid rewritten NLQs back into release files")
-    rw.add_argument("--allow-partial-apply", action="store_true",
-                    help="apply successful rows even when some selected rewrites fail validation")
-    rw.add_argument("--style-repair-retries", type=int, default=1,
-                    help="extra LLM calls per record to fix local anti-template validation failures")
-    rw.add_argument("--no-resume", action="store_true",
-                    help="ignore any existing rewrite_results.jsonl in --out")
-    rw.add_argument("--quiet", action="store_true", help="disable the live progress UI")
-    rw.add_argument("--run-id", default=None)
 
     p = sub.add_parser("publish", help="validate and copy a production release")
     p.add_argument("--dataset-dir", required=True, help="candidate dataset dir")
@@ -2579,8 +1923,6 @@ def _main_impl(argv: list[str] | None = None) -> int:
     _seed = getattr(args, "seed", None)
     if _seed is not None:
         overrides["TEND_SEED"] = str(_seed)
-    if args.command in {"llm-gold-query-review", "llm-nlq-review", "llm-nlq-rewrite"}:
-        overrides["TEND_LLM_MAX_CONCURRENCY"] = str(max(1, int(args.workers)))
     run_id_tag = getattr(args, "run_id", None)
     run_id = run_id_with_tag(run_id_tag) if run_id_tag else new_run_id()
     settings = Settings.from_env(
@@ -2588,18 +1930,13 @@ def _main_impl(argv: list[str] | None = None) -> int:
         overrides=overrides,
         require_bird=args.command == "construct",
         require_llm=args.command in {
-            "construct",
             "solve",
             "baseline",
             "ablation",
-            "llm-gold-query-review",
-            "llm-nlq-review",
-            "llm-nlq-rewrite",
         },
     )
     solve_solver_options: dict[str, Any] | None = None
     ablation_policy_overrides: dict[str, Any] | None = None
-    review_record_ids: set[int] | None = None
     construct_db_ids: list[str] | None = None
     construct_records_value: int | None = None
     if args.command == "solve":
@@ -2607,13 +1944,6 @@ def _main_impl(argv: list[str] | None = None) -> int:
     if args.command == "ablation":
         ablation_policy_overrides = _parse_solver_options(
             args.solver_option, allowed=_ABLATION_OPTION_KEYS
-        )
-    if args.command in {"llm-gold-query-review", "llm-nlq-review", "llm-nlq-rewrite"}:
-        review_record_ids = _record_id_set(
-            args.record_id,
-            _resolve_repo_path(settings, args.record_ids_file)
-            if args.record_ids_file
-            else None,
         )
     if args.command == "construct":
         if args.dbs != "all":
@@ -2635,100 +1965,6 @@ def _main_impl(argv: list[str] | None = None) -> int:
             dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
             smoke=args.smoke,
             metadata_only=args.metadata_only,
-        )
-    if args.command == "quality-audit":
-        rt = build_solver_runtime(settings, run_kind="quality_audit")
-        return _run_quality_audit(
-            rt,
-            dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
-            out_dir=(
-                _resolve_repo_path(settings, args.out)
-                if args.out
-                else settings.run_dir / "quality_audit"
-            ),
-            db_id=args.db_id,
-            record_id=args.record_id,
-            limit=args.limit,
-            repeat_order_sensitive=max(1, args.repeat_order_sensitive),
-            check_nlq=not args.no_nlq_check,
-            check_field_paths=not args.no_field_check,
-        )
-    if args.command == "repair-release-quality":
-        return _run_repair_release_quality(
-            settings,
-            dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
-        )
-    if args.command == "llm-gold-query-review":
-        rt = build_solver_runtime(settings, run_kind="llm_gold_query_review")
-        return _run_llm_gold_query_review(
-            rt,
-            dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
-            out_dir=(
-                _resolve_repo_path(settings, args.out)
-                if args.out
-                else settings.run_dir / "llm_gold_query_review"
-            ),
-            db_id=args.db_id,
-            record_ids=review_record_ids,
-            limit=args.limit,
-            model=args.model,
-            reasoning_effort=args.reasoning_effort,
-            thinking=args.thinking,
-            first_token_timeout_s=max(0.0, args.first_token_timeout),
-            call_timeout_s=max(0.0, args.call_timeout),
-            workers=max(1, args.workers),
-            apply=args.apply,
-            allow_nlq_only_apply=args.allow_nlq_only_apply,
-            auto_apply_min_confidence=max(0.0, min(1.0, args.auto_apply_min_confidence)),
-            quality_repair_retries=max(0, args.quality_repair_retries),
-            candidate_repair_retries=max(0, args.candidate_repair_retries),
-            retry_invalid=args.retry_invalid,
-            resume=not args.no_resume,
-            include_current_exec=not args.no_current_exec,
-        )
-    if args.command == "llm-nlq-review":
-        rt = build_solver_runtime(settings, run_kind="llm_nlq_review")
-        return _run_llm_nlq_review(
-            rt,
-            dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
-            out_dir=(
-                _resolve_repo_path(settings, args.out)
-                if args.out
-                else settings.run_dir / "llm_nlq_review"
-            ),
-            db_id=args.db_id,
-            record_ids=review_record_ids,
-            limit=args.limit,
-            model=args.model,
-            reasoning_effort=args.reasoning_effort,
-            thinking=args.thinking,
-            first_token_timeout_s=max(0.0, args.first_token_timeout),
-            call_timeout_s=max(0.0, args.call_timeout),
-            workers=max(1, args.workers),
-            apply=args.apply,
-        )
-    if args.command == "llm-nlq-rewrite":
-        rt = build_solver_runtime(settings, run_kind="llm_nlq_rewrite")
-        return _run_llm_nlq_rewrite(
-            rt,
-            dataset_dir=_resolve_repo_path(settings, args.dataset_dir),
-            out_dir=(
-                _resolve_repo_path(settings, args.out)
-                if args.out
-                else settings.run_dir / "llm_nlq_rewrite"
-            ),
-            db_id=args.db_id,
-            record_ids=review_record_ids,
-            limit=args.limit,
-            model=args.model,
-            reasoning_effort=args.reasoning_effort,
-            thinking=args.thinking,
-            first_token_timeout_s=max(0.0, args.first_token_timeout),
-            workers=max(1, args.workers),
-            apply=args.apply,
-            allow_partial_apply=args.allow_partial_apply,
-            style_repair_retries=max(0, args.style_repair_retries),
-            resume=not args.no_resume,
         )
     if args.command == "publish":
         return _run_publish(

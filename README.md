@@ -29,7 +29,7 @@ publication.
 | --- | --- |
 | [`src/tend/`](src/tend/) | Public Python package for dataset handling, validation, solving, baselines, ablations, evaluation, and observability. |
 | [`demonstration/`](demonstration/) | QueryCraft Flask demo with database selection, browsing of the structure induced from stored documents, generated-MQL inspection, optional read-only execution, and solver metadata. |
-| [`proposals/`](proposals/) | Runtime files the package reads: the baseline allow list, the record/library JSON schemas used by `tend validate`, and the agent prompt templates. |
+| [`proposals/`](proposals/) | Runtime files the package reads: the baseline allow list and the record/library JSON schemas used by `tend validate`. |
 | [`RESULTS.md`](RESULTS.md) | Final experimental results and how each number was produced. |
 | [`pyproject.toml`](pyproject.toml) | Package metadata, optional `demo` and `test` dependency groups, and `tend` CLI entry point. |
 | [`requirements.txt`](requirements.txt) | Runtime dependency file for standard pip-based installation. |

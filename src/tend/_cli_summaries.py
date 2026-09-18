@@ -57,8 +57,7 @@ def _item_primary_session_refs(item: dict) -> list[str]:
 
 def _print_summary(rt, artifacts, records, summary, out_dir) -> None:
     print("\n" + "=" * 64)
-    print(f"TEND construct · run {rt.settings.run_id} · "
-          f"{'STUB' if rt.settings.stub else 'LIVE ' + rt.settings.llm.model}")
+    print(f"TEND construct · run {rt.settings.run_id}")
     print(f"  Phase A dbs : {len(artifacts)}  -> {sorted(artifacts)}")
     for db_id, art in sorted(artifacts.items()):
         coll = art.mongodb_data

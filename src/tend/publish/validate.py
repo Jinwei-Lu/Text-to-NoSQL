@@ -17,7 +17,7 @@ from typing import Any
 
 import yaml
 
-from ..construction.recipe import NativeFeatureManifest, load_native_feature_manifest
+from ..construction.native import NativeFeatureManifest, load_native_feature_manifest
 from ..execution import (
     mql_signature,
     mql_skeleton_signature,

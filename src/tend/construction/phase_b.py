@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any, Iterable
 
-from tend.construction.recipe import NativeFeature, NativeFeatureManifest
+from tend.construction.native import NativeFeature, NativeFeatureManifest
 from tend.execution import (
     derive_canonical_form_set,
     mql_signature,
