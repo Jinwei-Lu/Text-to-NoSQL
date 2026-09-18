@@ -45,9 +45,9 @@ from .strategies import (
     resolve_baselines,
 )
 
-# Bound on the fair ReAct arms' JSON-action loop. Default 16 reproduces the published
-# fair-comparison measurement (react_naive 4/110, react_informed 25/110 on financial).
-REACT_MAX_STEPS = max(1, int(_os.environ.get("TEND_BASELINE_REACT_MAX_STEPS", "16")))
+# Bound on the fair ReAct arm's JSON-action loop. Default 50 is the budget of the final
+# ReAct runs in RESULTS.md; TEND_BASELINE_REACT_MAX_STEPS overrides it.
+REACT_MAX_STEPS = max(1, int(_os.environ.get("TEND_BASELINE_REACT_MAX_STEPS", "50")))
 # Fair-contract arm: give the baselines the same six output conventions SAG's prompt
 # states, so a measured margin reflects mechanism rather than instruction asymmetry.
 # Read here because this module already reads its knobs from the environment; the

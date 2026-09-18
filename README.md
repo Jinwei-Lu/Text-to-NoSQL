@@ -273,7 +273,8 @@ Useful commands after restoring the release:
 Baseline arms, the baselines in [`RESULTS.md`](RESULTS.md): `data_rich_direct` (Direct
 with a data-rich prompt), `dinsql_mql` (the DIN-SQL-inspired MQL adaptation),
 `sql_pivot_schema` (SQL Pivot given the real relational DDL), and `react_informed`
-(ReAct with the real collection names and raw first-five-row observations);
+(ReAct with the real collection names and raw first-five-row observations, at most
+50 steps as in the final runs; `TEND_BASELINE_REACT_MAX_STEPS` overrides it);
 `--baselines all` runs all four. "Direct with SAG's six output conventions" is
 `data_rich_direct` run with `TEND_BASELINE_OUTPUT_CONTRACT=1`, which appends the same
 six output rules SAG's prompt states.
