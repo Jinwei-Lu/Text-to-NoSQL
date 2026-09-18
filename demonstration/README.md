@@ -1,16 +1,8 @@
 # QueryCraft TEND Demo
 
-This directory contains QueryCraft, the Flask demonstration system for the real
-TEND SAG solver. QueryCraft has been accepted to the VLDB demo track. The page
-is one column and three steps — pick a database, ask in plain English, read the
-aggregation pipeline and its result — with a collapsible section that shows what
-a schema-less MongoDB collection actually looks like (inferred document shape,
-dynamic-key maps, one real document).
+This directory contains QueryCraft, the Flask demonstration system for the real TEND SAG solver. QueryCraft has been accepted to the VLDB demo track. The page is one column and three steps — pick a database, ask in plain English, read the aggregation pipeline and its result — with a collapsible section that shows what a schema-less MongoDB collection actually looks like (inferred document shape, dynamic-key maps, one real document).
 
-The directory is code-only: copied demo data directories such as
-`mongodb_data/`, `mongodb_schema/`, and `schemas/` are intentionally not stored
-here. The demo-paper source in `../paper_demo/` is local-only and should not be
-uploaded to GitHub.
+The directory is code-only: copied demo data directories such as `mongodb_data/`, `mongodb_schema/`, and `schemas/` are intentionally not stored here. The demo-paper source in `../paper_demo/` is local-only and should not be uploaded to GitHub.
 
 ## Data Source
 
@@ -20,19 +12,14 @@ By default the demo reads the formal release package from:
 release/tend-native-mongodb-v1/
 ```
 
-Set `TEND_DEMO_DATASET_DIR` to point at another release-compatible dataset
-root. The app uses `resolve_release_dataset_layout()` and expects:
+Set `TEND_DEMO_DATASET_DIR` to point at another release-compatible dataset root. The app uses `resolve_release_dataset_layout()` and expects:
 
 ```text
 data/TEND.json
 mongodb_data/<db_id>.json
 ```
 
-There is no schema file: the database list comes from `TEND.json`, and every
-structure the demo shows is induced from sampled documents, read from the preloaded
-MongoDB when one is available and otherwise from the witness files. Collection and
-document counts in the database list come from the preloaded MongoDB only, so they
-are empty when the demo runs without one.
+There is no schema file: the database list comes from `TEND.json`, and every structure the demo shows is induced from sampled documents, read from the preloaded MongoDB when one is available and otherwise from the witness files. Collection and document counts in the database list come from the preloaded MongoDB only, so they are empty when the demo runs without one.
 
 ## Setup
 
@@ -71,31 +58,18 @@ Useful environment variables:
 
 ## Presenting
 
-Run with `TEND_USE_EXISTING_MONGO_DBS=1` against a MongoDB that already holds
-the eleven release databases (each named after its `db_id`). Then:
+Run with `TEND_USE_EXISTING_MONGO_DBS=1` against a MongoDB that already holds the eleven release databases (each named after its `db_id`). Then:
 
-- Structure browsing samples documents straight from MongoDB, so selecting
-  `european_football_2` costs ~0.4 s instead of parsing a 2.2 GB witness file.
+- Structure browsing samples documents straight from MongoDB, so selecting `european_football_2` costs ~0.4 s instead of parsing a 2.2 GB witness file.
 - Live-mode solving and execution never read the witness files at all.
-- Stub mode still induces its grounding index offline from the witness file, so
-  prefer a small database (`student_club`, `superhero`, `toxicology`) when
-  demonstrating stub mode; `european_football_2` carries a 2.2 GB witness.
+- Stub mode still induces its grounding index offline from the witness file, so prefer a small database (`student_club`, `superhero`, `toxicology`) when demonstrating stub mode; `european_football_2` carries a 2.2 GB witness.
 
-The pipeline's stage chips are coloured by operator family (filter, reshape,
-aggregate, join, order) so the shape of a query reads from across the room, and
-the MQL tab is editable — fix a stage by hand and press Run without re-invoking
-the model. The UI is light by default for a lit room; the header toggle switches
-to dark and the choice is remembered. All assets are local — no CDN font, icon,
-or highlighter — so the demo behaves identically offline.
+The pipeline's stage chips are coloured by operator family (filter, reshape, aggregate, join, order) so the shape of a query reads from across the room, and the MQL tab is editable — fix a stage by hand and press Run without re-invoking the model. The UI is light by default for a lit room; the header toggle switches to dark and the choice is remembered. All assets are local — no CDN font, icon, or highlighter — so the demo behaves identically offline.
 
 ## Modes
 
-- `stub`: default; runs through the SAG solver plumbing with the deterministic
-  local LLM stub. This is for smoke tests and UI debugging.
-- `live`: uses the configured OpenAI-compatible provider. Requires
-  `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and the usual TEND model settings.
-  The demo explicitly disables `TEND_LLM_STUB` in live mode so live requests
-  cannot silently fall back to the local stub.
+- `stub`: default; runs through the SAG solver plumbing with the deterministic local LLM stub. This is for smoke tests and UI debugging.
+- `live`: uses the configured OpenAI-compatible provider. Requires `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and the usual TEND model settings. The demo explicitly disables `TEND_LLM_STUB` in live mode so live requests cannot silently fall back to the local stub.
 
 ## HTTP surface
 
@@ -108,13 +82,9 @@ or highlighter — so the demo behaves identically offline.
 | `POST /api/solve` | run the solver; optionally execute the prediction |
 | `POST /api/execute` | execute an already-generated (or hand-edited) pipeline |
 
-`POST /api/execute` takes `{database, mql, mode, limit}` and runs one bounded
-read-only aggregation: banned operators are rejected before execution, the
-pipeline is capped at `MAX_EXECUTION_ROWS` rows, and the parsed stages are
-returned so the UI can re-render the pipeline the presenter just edited.
+`POST /api/execute` takes `{database, mql, mode, limit}` and runs one bounded read-only aggregation: banned operators are rejected before execution, the pipeline is capped at `MAX_EXECUTION_ROWS` rows, and the parsed stages are returned so the UI can re-render the pipeline the presenter just edited.
 
-Only the question text and its record id ever cross into the solver — gold MQL
-in the release records is never read by the demo.
+Only the question text and its record id ever cross into the solver — gold MQL in the release records is never read by the demo.
 
 ## Verify
 
