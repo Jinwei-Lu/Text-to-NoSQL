@@ -1061,7 +1061,6 @@ async def sag_solve_nlq_db(
             model=str(getattr(getattr(settings, "llm", None), "model", "") or "stub"),
             system_prompt=sys_text,
             user_message=user_text,
-            tools=None,
         )
     attempt_tasks = [
         asyncio.create_task(

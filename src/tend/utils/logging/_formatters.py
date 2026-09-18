@@ -669,11 +669,6 @@ def _format_llm_request_as_markdown(record: dict[str, Any]) -> str:
             lines.append(f"> {content_line}" if content_line else ">")
         lines.append("")
 
-    tools = record.get("tools")
-    if tools:
-        lines += ["## Tools", ""]
-        lines += ["```json", json.dumps(tools, indent=2, default=str), "```", ""]
-
     response_format = record.get("response_format")
     if response_format:
         lines += ["## Response Format", ""]

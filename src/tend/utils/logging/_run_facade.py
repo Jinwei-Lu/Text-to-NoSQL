@@ -171,7 +171,6 @@ class RunLoggerFacade:
                     call_id,
                     model=str(transcript.get("model", "")),
                     messages=list(transcript.get("messages", []) or []),
-                    tools=transcript.get("tools"),
                     temperature=transcript.get("temperature"),
                     response_format=transcript.get("response_format"),
                 )

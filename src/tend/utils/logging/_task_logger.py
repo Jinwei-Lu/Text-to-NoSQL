@@ -257,7 +257,6 @@ class TaskLogger:
         model: str,
         system_prompt: str,
         user_message: str,
-        tools: list[dict[str, Any]] | None = None,
     ) -> None:
         """Create a session ``.md`` file and enter agent mode.
 
@@ -273,7 +272,6 @@ class TaskLogger:
                 model=model,
                 system_prompt=system_prompt,
                 user_message=user_message,
-                tools=tools,
             )
         except Exception as exc:
             structlog.get_logger("tend.logging").warning(
@@ -288,7 +286,6 @@ class TaskLogger:
         model: str,
         system_prompt: str,
         user_message: str,
-        tools: list[dict[str, Any]] | None = None,
     ) -> None:
         session_id = _generate_call_id(self._step_label)
         if self._agent_session_active and self._agent_session_path is not None:
@@ -326,10 +323,6 @@ class TaskLogger:
             "## User Message",
             user_message,
         )
-        if tools:
-            lines += ["## Tools", ""]
-            lines += ["```json", json.dumps(tools, indent=2, default=str), "```", ""]
-
         lines += ["---", ""]
 
         with open(_open_path(md_path), "w", encoding="utf-8") as f:
@@ -790,7 +783,6 @@ class TaskLogger:
         *,
         model: str,
         messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]] | None = None,
         temperature: float | None = None,
         response_format: dict[str, Any] | None = None,
         **extra: Any,
@@ -805,7 +797,6 @@ class TaskLogger:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "model": model,
             "messages": messages,
-            "tools": tools,
             "temperature": temperature,
             "response_format": response_format,
             "stage": self.stage,
