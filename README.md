@@ -15,7 +15,7 @@ natural-language MongoDB querying.
 
 | Work | Status | Link |
 | --- | --- | --- |
-| **Bridging the Gap: Enabling Natural Language Queries for NoSQL Databases through Text-to-NoSQL Translation** | Full paper | [arXiv:2502.11201](https://arxiv.org/abs/2502.11201) |
+| **Bridging the Gap: Enabling Natural Language Queries for NoSQL Databases through Text-to-NoSQL Translation** | Accepted to ICDE 2027; proceedings citation forthcoming | [arXiv:2502.11201](https://arxiv.org/abs/2502.11201) |
 | **QueryCraft: A Natural Language-Driven NoSQL Database Querying System Powered by Large Language Models** | Accepted to the VLDB 2026 Demo Track; proceedings citation forthcoming | Source code in [`demonstration/`](demonstration/) |
 
 Please cite the full paper for the benchmark, solver, and dataset. The
@@ -361,6 +361,22 @@ component ablation, and how each number was produced are in
 | ReAct, informed | — | 390 (32.2%) |
 | DIN-SQL-inspired MQL adaptation | 339 (28.0%) | — |
 | SQL Pivot given the real relational DDL | — | 269 (22.2%) |
+
+## License
+
+- **Code**, everything in this repository except the dataset: MIT License, see
+  [`LICENSE`](LICENSE).
+- **Dataset**, the TEND release distributed through Google Drive and its schema
+  description in [`release/tend-native-mongodb-v1/schema/`](release/tend-native-mongodb-v1/schema/):
+  [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). TEND's databases
+  and values are derived from [BIRD mini-dev](https://github.com/bird-bench/mini_dev),
+  which is released under CC BY-SA 4.0, and its ShareAlike terms carry over to TEND.
+- **Third-party examples.** The six fixed examples used by the DIN-SQL-inspired
+  baseline, [`src/tend/baselines/assets/dinsql_mql_exemplars.json`](src/tend/baselines/assets/dinsql_mql_exemplars.json),
+  come from MongoDB's
+  [natural-language-to-mongosh](https://huggingface.co/datasets/mongodb-eai/natural-language-to-mongosh)
+  dataset and are redistributed under the Apache License 2.0; the license text is
+  next to them in `dinsql_mql_exemplars.LICENSE.txt`.
 
 ## Citation
 

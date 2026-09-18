@@ -35,7 +35,7 @@ tend = "tend.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-tend = ["py.typed", "baselines/assets/*.json"]
+tend = ["py.typed", "baselines/assets/*.json", "baselines/assets/*.LICENSE.txt"]
 
 [tool.ruff]
 line-length = 100
