@@ -17,9 +17,11 @@ experiment campaign), which numbers they supersede, and how each number was prod
   paper) and GPT-5.6-Luna (`openai/gpt-5.6-luna`), both called through OpenRouter at
   temperature 0.
 - **Code.** Commit `260801ea` of this repository ("Publish the final code used for the August
-  2026 experiments") is the final code. It matches the code snapshot recorded by the final
-  ablation campaign byte for byte, except for the line endings of one file; the earlier August
-  runs recorded no source hash. SAG runs in its
+  2026 experiments") is the code the experiments ran on. It matches the code snapshot recorded
+  by the final ablation campaign byte for byte, except for the line endings of one file; the
+  earlier August runs recorded no source hash. The release tag `v1.0.0` adds packaging, the
+  runtime files under `proposals/`, documentation and the command-line help text on top of it;
+  the solver, baselines and evaluator are unchanged. SAG runs in its
   revised default configuration: dynamic-key (field-group) recognition, the identifier card,
   and value-witness handling.
 
@@ -84,7 +86,8 @@ separate run of the same configuration as the 487 main result; pair the ablation
 Full SAG scores above every reduced configuration. The drops from removing grounding and
 value witnesses are significant; the single-decode and single-candidate rows are within noise.
 
-Two representation variants from the same reference run isolate the path card itself:
+Two representation variants isolate the path card itself. They were run alongside the 479
+reference in the same runs, so they too compare with 39.6%:
 
 | configuration | correct | EXC |
 |---|---:|---:|
