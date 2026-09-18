@@ -318,15 +318,6 @@ def _records() -> list[dict[str, Any]]:
     return _records_for_dataset(str(_dataset_dir()))
 
 
-@lru_cache(maxsize=64)
-def _load_schema(dataset_dir: str, db_id: str) -> dict[str, Any]:
-    layout = resolve_release_dataset_layout(Path(dataset_dir))
-    path = layout.mongodb_schema_dir / f"{db_id}.json"
-    if not path.exists():
-        raise DemoError(f"No schema found for database {db_id!r}", status_code=404)
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 @lru_cache(maxsize=3)
 def _load_data(dataset_dir: str, db_id: str) -> dict[str, list[dict[str, Any]]]:
     layout = resolve_release_dataset_layout(Path(dataset_dir))
@@ -458,10 +449,7 @@ def _collection_samples(
 
 
 def _db_ids() -> list[str]:
-    layout = _layout()
-    from_schema = {path.stem for path in layout.mongodb_schema_dir.glob("*.json")}
-    from_records = {str(row.get("db_id")) for row in _records() if row.get("db_id")}
-    return sorted(from_schema & from_records)
+    return sorted({str(row.get("db_id")) for row in _records() if row.get("db_id")})
 
 
 def _record_counts_by_db() -> dict[str, int]:
@@ -483,23 +471,55 @@ def _witness_bytes(db_id: str) -> int | None:
 
 
 def _database_summary(db_id: str) -> dict[str, Any]:
-    schema = _load_schema(str(_dataset_dir()), db_id)
-    collections = schema.get("collections") if isinstance(schema, dict) else {}
-    audit = schema.get("structure_audit") if isinstance(schema, dict) else {}
-    audit = audit if isinstance(audit, dict) else {}
-    dynamic_paths = audit.get("dynamic_key_paths")
-    declared_counts = audit.get("collection_counts")
-    declared_counts = declared_counts if isinstance(declared_counts, dict) else {}
+    stats = _live_structure_stats(db_id) or {}
     return {
         "db_id": db_id,
         "record_count": _record_counts_by_db().get(db_id, 0),
-        "collection_count": len(collections) if isinstance(collections, dict) else 0,
-        "document_count": sum(int(value or 0) for value in declared_counts.values()),
-        "source_tables": schema.get("source_tables", []) if isinstance(schema, dict) else [],
-        "dynamic_key_path_count": len(dynamic_paths) if isinstance(dynamic_paths, list) else 0,
-        "max_depth": audit.get("max_depth"),
+        "collection_count": stats.get("collection_count"),
+        "document_count": stats.get("document_count"),
+        "dynamic_key_path_count": stats.get("dynamic_key_path_count"),
+        "max_depth": stats.get("max_depth"),
         "witness_bytes": _witness_bytes(db_id),
     }
+
+
+@lru_cache(maxsize=32)
+def _live_structure_stats(db_id: str) -> dict[str, Any] | None:
+    """Counts and induced structure of one database, read from the preloaded MongoDB.
+
+    TEND ships no schema: structure is induced from stored documents. The database list
+    shows every database at once, so it samples only a live MongoDB and never loads the
+    witness files (up to 2.4 GB each); without one these fields stay empty.
+    """
+    sampled = _sample_from_mongo(db_id, [])
+    if sampled is None:
+        return None
+    docs, counts = sampled
+    shapes = {name: _shape_node((), rows, parent_count=len(rows), depth=0) for name, rows in docs.items()}
+    dynamic_key_paths, max_depth = _induced_structure(shapes)
+    return {
+        "collection_count": len(counts),
+        "document_count": sum(counts.values()),
+        "dynamic_key_path_count": len(dynamic_key_paths),
+        "max_depth": max_depth,
+    }
+
+
+def _induced_structure(shapes: dict[str, dict[str, Any]]) -> tuple[list[str], int]:
+    """Dynamic-key map paths and nesting depth of sampled collection shapes."""
+    paths: list[str] = []
+    depth = 0
+    for name in sorted(shapes):
+        maps: list[dict[str, Any]] = []
+        _collect_dynamic_maps(shapes[name], maps)
+        paths += [f"{name}.{item['path']}" for item in maps]
+        depth = max(depth, _shape_depth(shapes[name]))
+    return paths, depth
+
+
+def _shape_depth(node: dict[str, Any]) -> int:
+    children = node.get("children", [])
+    return 1 + max(_shape_depth(child) for child in children) if children else 0
 
 
 def _examples_for_db(db_id: str) -> list[dict[str, Any]]:
@@ -535,45 +555,35 @@ def _selected_record(db_id: str, record_id: Any | None, nlq: str) -> dict[str, A
 
 
 def _schema_payload(db_id: str) -> dict[str, Any]:
-    schema = _load_schema(str(_dataset_dir()), db_id)
-    declared = schema.get("collections", {}) if isinstance(schema, dict) else {}
-    declared = declared if isinstance(declared, dict) else {}
-    structure_audit = schema.get("structure_audit", {}) if isinstance(schema, dict) else {}
-    structure_audit = structure_audit if isinstance(structure_audit, dict) else {}
-    declared_counts = structure_audit.get("collection_counts")
-    declared_counts = declared_counts if isinstance(declared_counts, dict) else {}
-    sampled_docs, counts, sample_source = _collection_samples(db_id, sorted(declared))
+    """The database's structure as induced from sampled documents (TEND ships no schema)."""
+    sampled_docs, counts, sample_source = _collection_samples(db_id, [])
 
     collection_payload = []
+    shapes: dict[str, dict[str, Any]] = {}
     for name in sorted(sampled_docs):
         docs = sampled_docs[name]
-        meta = declared.get(name)
-        meta = meta if isinstance(meta, dict) else {}
+        profile = _collection_profile(docs)
+        shapes[name] = profile["document_shape"]
         collection_payload.append(
             {
                 "name": name,
                 "document_count": counts.get(name, len(docs)),
-                "declared_document_count": meta.get("document_count", declared_counts.get(name)),
-                "root_entity": meta.get("root_entity"),
-                "source_tables": meta.get("source_tables", []),
                 "sampled_shape_document_count": len(docs),
                 "field_paths": _field_paths(docs),
-                **_collection_profile(docs),
+                **profile,
                 "sample_documents": [
                     _compact_value(doc) for doc in docs[:MAX_SAMPLE_DOCS_PER_COLLECTION]
                 ],
             }
         )
 
-    dynamic_key_paths = structure_audit.get("dynamic_key_paths")
-    dynamic_key_paths = dynamic_key_paths if isinstance(dynamic_key_paths, list) else []
+    dynamic_key_paths, max_depth = _induced_structure(shapes)
     return {
         "db_id": db_id,
         "dataset_dir": _dataset_label(_dataset_dir()),
         "sample_source": sample_source,
         "sample_limit": MAX_FIELD_SHAPE_DOCS_PER_COLLECTION,
-        "max_depth": structure_audit.get("max_depth"),
-        "source_tables": schema.get("source_tables", []) if isinstance(schema, dict) else [],
+        "max_depth": max_depth,
         "collections": collection_payload,
         "dynamic_key_paths": dynamic_key_paths[:24],
         "dynamic_key_path_count": len(dynamic_key_paths),
@@ -1048,7 +1058,7 @@ async def _solve_with_solver(payload: dict[str, Any]) -> dict[str, Any]:
     mode = _solver_mode(payload.get("mode"))
     policy = _solver_policy(payload)
     record = _selected_record(db_id, payload.get("record_id"), nlq)
-    schema = _load_schema(str(_dataset_dir()), db_id)
+    schema: dict[str, Any] = {}  # TEND ships no schema; SAG induces structure from the data
     bundle = SOLVER_SERVICE.runtime_for_mode(mode)
     rt = bundle.runtime
     local_data = await _witness_data_for(bundle, db_id)

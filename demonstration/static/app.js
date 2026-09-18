@@ -370,7 +370,9 @@
             var item = el('button', 'db-item' + (db.db_id === state.dbId ? ' is-active' : ''));
             item.type = 'button';
             item.appendChild(el('span', null, db.db_id));
-            item.appendChild(el('small', null, pluralize(db.collection_count, 'collection')));
+            if (db.collection_count != null) {
+                item.appendChild(el('small', null, pluralize(db.collection_count, 'collection')));
+            }
             item.addEventListener('click', function () {
                 if (db.db_id !== state.dbId) { selectDatabase(db.db_id); }
             });

@@ -62,7 +62,7 @@ def test_metadata_schema_and_legacy_read_routes():
             row for row in payload["databases"] if row["db_id"] == "california_schools"
         )
         assert summary["witness_bytes"] > 0
-        assert summary["dynamic_key_path_count"] > 0
+        assert summary["record_count"] == 110
 
         examples = client.get("/api/examples/california_schools")
         assert examples.status_code == 200
@@ -74,6 +74,7 @@ def test_metadata_schema_and_legacy_read_routes():
         assert schema_payload["db_id"] == "california_schools"
         assert schema_payload["sample_source"] in {"mongodb", "witness_file"}
         assert schema_payload["sample_limit"] == demo.MAX_FIELD_SHAPE_DOCS_PER_COLLECTION
+        assert schema_payload["dynamic_key_path_count"] > 0  # induced from the data
         assert schema_payload["collections"]
         first_collection = schema_payload["collections"][0]
         assert first_collection["top_level_fields"]

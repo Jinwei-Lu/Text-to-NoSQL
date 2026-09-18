@@ -28,9 +28,8 @@ publication.
 | Path | Purpose |
 | --- | --- |
 | [`src/tend/`](src/tend/) | Public Python package for dataset handling, validation, solving, baselines, ablations, evaluation, and observability. |
-| [`demonstration/`](demonstration/) | QueryCraft Flask demo with database selection, schema browsing, generated-MQL inspection, optional read-only execution, and solver metadata. |
+| [`demonstration/`](demonstration/) | QueryCraft Flask demo with database selection, browsing of the structure induced from stored documents, generated-MQL inspection, optional read-only execution, and solver metadata. |
 | [`proposals/`](proposals/) | Runtime files the package reads: the baseline allow list, the record/library JSON schemas used by `tend validate`, and the agent prompt templates. |
-| [`release/tend-native-mongodb-v1/schema/`](release/tend-native-mongodb-v1/schema/) | MongoDB schema description of the 11 databases; the rest of the release is downloaded from Google Drive. |
 | [`RESULTS.md`](RESULTS.md) | Final experimental results and how each number was produced. |
 | [`pyproject.toml`](pyproject.toml) | Package metadata, optional `demo` and `test` dependency groups, and `tend` CLI entry point. |
 | [`requirements.txt`](requirements.txt) | Runtime dependency file for standard pip-based installation. |
@@ -48,8 +47,9 @@ MongoDB witness data. Download the current native MongoDB release from:
 [Google Drive: TEND native variant final artifacts](https://drive.google.com/drive/folders/1s7LgW-zub1gIx9A1OpuWdx7lyNVwXhi5?usp=drive_link)
 
 The Drive folder holds `TEND.json` (the task file) and `mongodb_data.zip` (the
-MongoDB witness documents). The schema description ships with this repository.
-From the repository root, with both files downloaded:
+MongoDB witness documents). TEND is schema-less by design: no schema is
+distributed, and a system has to induce each database's structure from the stored
+documents. From the repository root, with both files downloaded:
 
 ```bash
 mkdir -p release/tend-native-mongodb-v1/data
@@ -61,17 +61,15 @@ The result is:
 
 ```text
 release/tend-native-mongodb-v1/
-  data/TEND.json                        # Google Drive
-  mongodb_data/<db_id>.json             # Google Drive (mongodb_data.zip)
-  schema/mongodb_schema/<db_id>.json    # this repository
+  data/TEND.json               # Google Drive
+  mongodb_data/<db_id>.json    # Google Drive (mongodb_data.zip)
 ```
 
 The CLI and QueryCraft demo use `release/tend-native-mongodb-v1/` by default.
 Set `TEND_DEMO_DATASET_DIR` or pass `--dataset-dir` to use a different
 release-compatible location.
 
-Apart from the schema description, `release/` is ignored by Git, as are `runs/`,
-local logs, and generated outputs. They should remain local artifacts rather
+`release/` is ignored by Git, as are `runs/`, local logs, and generated outputs. They should remain local artifacts rather
 than repository contents.
 
 ## Benchmark Snapshot
@@ -86,7 +84,7 @@ The current public release is `tend-native-mongodb-v1`.
 | Canonical NL utterances | 1,210 |
 | Colloquial NL utterances | 1,210 |
 | Public record fields | `record_id`, `db_id`, `NLQ`, `NLQ_colloquial`, `MQL` |
-| Schema collections / queried collections | 32 / 30 |
+| Collections / queried collections | 32 / 30 |
 | MongoDB witness documents | 269,177 |
 | Distinct MQL strings | 1,210 |
 | Median / max top-level stages | 7 / 14 |
@@ -185,8 +183,8 @@ QueryCraft is an interactive browser-based system for natural-language MongoDB
 querying. It presents the components needed to inspect Text-to-NoSQL behavior:
 
 - database selection and example NLQs;
-- hierarchical MongoDB schema browsing, including nested fields and field
-  types;
+- hierarchical browsing of each database's structure, induced from sampled
+  documents, including nested fields, field types, and dynamic-key maps;
 - generated MongoDB aggregation pipelines;
 - optional read-only execution of the generated or edited pipeline;
 - solver metadata for debugging successful and failed generations.
@@ -250,10 +248,6 @@ After installation, use either `tend ...` or `python -m tend ...`.
 Useful commands after restoring the release:
 
 ```bash
-.venv/bin/python -m tend validate \
-  --dataset-dir release/tend-native-mongodb-v1 \
-  --metadata-only
-
 .venv/bin/python -m tend solve \
   --dataset-dir release/tend-native-mongodb-v1 \
   --db-id financial \
@@ -262,7 +256,7 @@ Useful commands after restoring the release:
 
 .venv/bin/python -m tend baseline \
   --dataset-dir release/tend-native-mongodb-v1 \
-  --baselines direct_nlq_only,schema_direct,direct,data_rich_direct,sql_pivot \
+  --baselines direct_nlq_only,direct,data_rich_direct,sql_pivot \
   --db-id financial \
   --limit 110 \
   --run-id baseline-financial
@@ -280,7 +274,10 @@ Baseline arms: `direct_nlq_only`, `schema_direct`, `direct`, `data_rich_direct`,
 `sql_pivot`, `sql_pivot_schema` (SQL Pivot given the real relational DDL),
 `dinsql_mql` (the DIN-SQL-inspired MQL adaptation), `react_informed`,
 `plan_then_mql`, `react_lite`, and `static_self_debug`; `--baselines all` runs
-every arm. Ablation groups: `all` (`sag_card1`, `sag_gate`, `sag_v2`,
+every arm. `schema_direct` reads the construction-time schema that `tend construct`
+writes, which the public release does not include, so it only runs on a locally
+constructed dataset; the same holds for `tend validate` and `tend publish`, which
+check construction outputs before release. Ablation groups: `all` (`sag_card1`, `sag_gate`, `sag_v2`,
 `sag_full`), `extended` (single-component knockouts plus `sag_full`), and `core`
 (the three stage ablations reported in [`RESULTS.md`](RESULTS.md)).
 
@@ -366,8 +363,7 @@ component ablation, and how each number was produced are in
 
 - **Code**, everything in this repository except the dataset: MIT License, see
   [`LICENSE`](LICENSE).
-- **Dataset**, the TEND release distributed through Google Drive and its schema
-  description in [`release/tend-native-mongodb-v1/schema/`](release/tend-native-mongodb-v1/schema/):
+- **Dataset**, the TEND release distributed through Google Drive:
   [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). TEND's databases
   and values are derived from [BIRD mini-dev](https://github.com/bird-bench/mini_dev),
   which is released under CC BY-SA 4.0, and its ShareAlike terms carry over to TEND.

@@ -25,9 +25,14 @@ root. The app uses `resolve_release_dataset_layout()` and expects:
 
 ```text
 data/TEND.json
-schema/mongodb_schema/<db_id>.json
 mongodb_data/<db_id>.json
 ```
+
+There is no schema file: the database list comes from `TEND.json`, and every
+structure the demo shows is induced from sampled documents, read from the preloaded
+MongoDB when one is available and otherwise from the witness files. Collection and
+document counts in the database list come from the preloaded MongoDB only, so they
+are empty when the demo runs without one.
 
 ## Setup
 

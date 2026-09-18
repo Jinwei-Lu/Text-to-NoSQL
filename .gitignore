@@ -75,12 +75,8 @@ tmp/
 /minidev/
 
 # The dataset release lives on Google Drive (see README.md); restore it here.
-# Only its MongoDB schema description (11 small JSON files, which the Drive copy
-# does not include) is tracked, at the path the code reads it from.
-/release/*
-!/release/tend-native-mongodb-v1/
-/release/tend-native-mongodb-v1/*
-!/release/tend-native-mongodb-v1/schema/
+# TEND is schema-less: no schema file is distributed.
+/release/
 
 # Run directories written by the CLI: predictions, logs, transcripts, reports.
 /runs/
