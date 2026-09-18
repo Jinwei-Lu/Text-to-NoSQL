@@ -1,8 +1,7 @@
-"""Metric-validation harness (experiment design §1.3, M1/M2) + retro-score core.
+"""Metric-validation harness (M1/M2).
 
 The bounded EXC headline (``EXC_SURPLUS_BOUND``) is a frozen design parameter; this module
-makes that freeze AUDITABLE rather than asserted, and is the offline scorer for
-budget-exhausted agents.
+makes that freeze AUDITABLE rather than asserted.
 
 M1 — gold self-scoring: every gold pipeline, scored against itself, must earn EXC=1. A
 failure means a benchmark defect (unparseable gold, banned operator, empty gold result),
@@ -185,39 +184,3 @@ def exf1_probe_scores(gold_rows: list[dict[str, Any]]) -> dict[str, float]:
     behaviour auditable: null probes in particular must never earn partial credit.
     """
     return {probe.name: exf1(probe.rows, gold_rows) for probe in build_result_probes(gold_rows)}
-
-
-# --------------------------------------------------------------------------- #
-# retro-score: last executed candidate from a budget-exhausted agent's session
-# --------------------------------------------------------------------------- #
-def last_candidate_mql(steps: list[dict[str, Any]]) -> str | None:
-    """Extract the most recent candidate pipeline a ReAct/agentic arm actually proposed.
-
-    Reads the step traces of a baseline_failure/ablation row (each ``output`` carries the
-    arm's per-turn action). Used to ask 'did the agent have an answer it simply never
-    submitted?' — a DIAGNOSTIC column only, never folded into the headline.
-    """
-    from ..execution.ast_check import render_mql
-
-    for step in reversed(steps):
-        output = step.get("output") if isinstance(step, dict) else None
-        if not isinstance(output, dict):
-            continue
-        # react arms: {action, collection, ...}; the last assistant action with a pipeline.
-        mql = output.get("submitted_mql") or output.get("MQL")
-        if isinstance(mql, str) and mql.strip():
-            return mql
-        collection = output.get("collection")
-        # agentic arm summarizes tool calls; pull the last execute_mql arguments.
-        for summary in reversed(output.get("tool_summaries") or []):
-            if summary.get("tool") == "execute_mql":
-                args = summary.get("arguments") or {}
-                coll = args.get("collection")
-                pipe = args.get("pipeline")
-                if isinstance(coll, str) and isinstance(pipe, list):
-                    return render_mql(coll, pipe)
-        if isinstance(collection, str) and collection:
-            # react step trace keeps collection but not the raw pipeline in `output`;
-            # without a pipeline there is no executable candidate to score.
-            continue
-    return None

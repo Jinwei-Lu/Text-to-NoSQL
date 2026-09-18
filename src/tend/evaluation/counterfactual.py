@@ -1,4 +1,4 @@
-"""Counterfactual-witness probe (experiment design §1.3, M3).
+"""Counterfactual-witness probe (metric validation M3).
 
 A bounded-tolerant EXC pass means a prediction's result matched the gold's on the ONE
 frozen witness ``D``. That can still be a coincidence: a wrong pipeline may land on the
@@ -200,9 +200,6 @@ def counterfactual_flip(
         except Exception:  # noqa: BLE001 - an unexecutable candidate scores no agreement
             return None
 
-    executor.load_witness(db_id, cf.collections)  # ensure cf state regardless of call order
-    base_collections_signature = cf.base_signature
-
     # Recompute agreement on D (the probe must be anchored to a real headline pass).
     executor.load_witness(db_id, _strip_distractors(cf))
     pred_base, gold_base = _exec(pred_mql), _exec(gold_mql)
@@ -230,7 +227,6 @@ def counterfactual_flip(
         and gold_cf is not None
         and equiv_rec_values(pred_cf, gold_cf, order_sensitive=order_sensitive)
     )
-    assert base_collections_signature  # signature is carried for the caller's ledger
     return FlipVerdict(
         applicable=True,
         flipped=not passed_cf,
