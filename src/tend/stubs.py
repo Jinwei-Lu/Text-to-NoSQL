@@ -65,24 +65,6 @@ def _baseline_stub(agent: str) -> dict[str, Any]:
         }
     if agent.endswith("_classify"):
         return {"label": "easy", "sub_questions": []}
-    if agent.endswith("_plan"):
-        return {
-            "target_collection": "account",
-            "steps": [
-                "Start from account.",
-                "Preserve account documents.",
-                "Return a bounded result.",
-            ],
-            "risks": ["Stub mode does not attempt semantic recovery."],
-        }
-    if agent.endswith("_think"):
-        return {
-            "thoughts": [
-                "The query should be answered against the visible release schema.",
-                "Stub mode returns a bounded representative aggregate.",
-            ],
-            "needed_observations": ["public schema only"],
-        }
     return {
         "MQL": _STUB_MQL,
         "rationale": "Deterministic stub MQL for offline baseline plumbing.",

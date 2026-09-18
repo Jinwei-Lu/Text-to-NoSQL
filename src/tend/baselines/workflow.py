@@ -7,7 +7,7 @@ import hashlib
 import json
 import os as _os
 import traceback
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,6 @@ from ..errors import (
     wrap_unexpected,
 )
 from ..execution.ast_check import render_mql, static_mql_feedback
-from ..execution.mongo import equiv_rec_values
 from ..solver.inputs import (
     NlqTrack,
     _canonical_nlq,
@@ -38,21 +37,13 @@ from .boundary import (
     sanitize_public_record,
     sanitize_public_schema,
 )
-from .mongo_probe import ReadonlyMongoProbe
 from .strategies import (
     REACT_ACTION_SCHEMA,
     BaselinePromptContext,
     BaselineSpec,
     build_react_system_prompt,
-    normalize_react_think_output,
     resolve_baselines,
 )
-
-# Bound on the agentic baseline's ReAct tool-call loop. Default 8 keeps the original
-# experiment; `TEND_BASELINE_AGENTIC_MAX_TURNS` raises it for a fair-exploration comparison
-# (so the one baseline that *can* probe the DB gets a budget comparable to the solver's,
-# rather than running out before it can both discover the schema and submit a query).
-AGENTIC_MAX_TURNS = max(1, int(_os.environ.get("TEND_BASELINE_AGENTIC_MAX_TURNS", "8")))
 
 # Bound on the fair ReAct arms' JSON-action loop. Default 16 reproduces the published
 # fair-comparison measurement (react_naive 4/110, react_informed 25/110 on financial).
@@ -73,39 +64,10 @@ REACT_OBSERVATION_CHAR_CAP = 2000
 # Bounded JSON/schema repair only — not execution feedback or extra LLM steps.
 BASELINE_JSON_REPAIR_RETRIES = 2
 
-# Single self-acquired preprocessing exploration. When `--witness-k 0` (fairness mode) and
-# a read-only Mongo handle exists, non-agentic baselines no longer receive proactively
-# pre-fed witness samples; instead they emit ONE exploratory MQL whose (bounded, read-only,
-# value-redacted) execution result becomes the prior context for generation — the same way
-# the SMART-EG solver must induce structure by querying the DB. This is NOT agentic: exactly
-# one probe, no tool loop. The agent name must not end in `_sql`/`_plan`/`_think` so the
-# offline stub returns a bounded `MQL` field for it.
-PREPROCESS_EXPLORE_AGENT = "baseline_preprocess_explore"
-PREPROCESS_EXPLORE_LIMIT = 5
-PREPROCESS_EXPLORE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "MQL": {
-            "type": "string",
-            "description": "One read-only db.<collection>.aggregate([...]) exploration query.",
-            "minLength": 8,
-        },
-        "rationale": {"type": "string"},
-        "assumptions": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": ["MQL"],
-    "additionalProperties": True,
-}
-
-# Non-agentic baselines self-acquire structure from sampled documents only (no curated
-# schema). `data_rich_direct` is the "more data, still no exploration" contrast: it sees a
-# larger document sample than the other one-shot baselines.
-_BASELINE_WITNESS_K_OVERRIDE = {
-    "data_rich_direct": 8,
-    # Channel-pure arms: no sampled documents regardless of the suite's witness budget.
-    "direct_nlq_only": 0,
-    "schema_direct": 0,
-}
+# The step baselines infer structure from sampled documents only (no curated schema).
+# `data_rich_direct` is the "more data, still no exploration" arm: it sees a larger
+# document sample than the suite's `--witness-k`.
+_BASELINE_WITNESS_K_OVERRIDE = {"data_rich_direct": 8}
 
 # `log_exception_event` named parameters that TendError.context must never shadow.
 _RESERVED_EXC_FIELDS = frozenset(
@@ -466,10 +428,9 @@ async def run_baseline_record(
             fields=sanitized_local_data.stripped_fields,
         )
     actual_nlq_track = str(record.get("nlq_track") or nlq_track)
-    # Non-agentic baselines never receive a curated schema; they must infer structure from
-    # sampled documents. `data_rich_direct` is the larger-sample contrast -- but the boost
-    # only applies in a sampled regime. A `--witness-k 0` (no-sample / fairness) run forces
-    # every baseline to 0 so none keeps a privileged raw-document view the solver is denied.
+    # Baselines never receive a curated schema; they infer structure from sampled documents.
+    # `data_rich_direct` is the larger-sample arm, but only in a sampled regime: a
+    # `--witness-k 0` run gives every baseline an empty sample.
     effective_witness_k = (
         _BASELINE_WITNESS_K_OVERRIDE.get(spec.id, witness_k) if witness_k > 0 else 0
     )
@@ -482,16 +443,10 @@ async def run_baseline_record(
         local_data_stripped_fields=sanitized_local_data.stripped_fields,
         schema_public_shape=public_schema_shape(public_schema),
     )
-    # Schema is computed only for disclosure/leakage accounting; it is NOT shown to the model.
-    schema_summary: dict[str, Any] = {}
-    # Fairness mode: redact scalar values so non-agentic baselines see document structure
-    # (field paths, nesting, types) without raw answer values -- the exploration result a
-    # tool-less baseline cannot obtain itself, but not the privileged raw rows.
-    _redact_witness = _os.environ.get("TEND_BASELINE_REDACT_WITNESS_VALUES", "0") == "1"
+    # The schema is used only for disclosure/leakage accounting; it is NOT shown to the model.
     witness_digest = build_witness_digest(
         sanitized_local_data.value if local_data is not None else None,
         effective_witness_k,
-        redact_values=_redact_witness,
     )
     # Downstream prediction/failure rows report the effective sample budget.
     witness_k = effective_witness_k
@@ -552,46 +507,15 @@ async def run_baseline_record(
         steps=[step.id for step in spec.steps],
     )
 
-    # Fairness preprocessing: when no samples were proactively fed (`--witness-k 0`) and the
-    # baseline is non-agentic, let it self-acquire structure via ONE exploratory probe before
-    # generation — instead of being handed raw witness rows the solver is denied. Agentic
-    # baselines already self-explore; sampled (`witness_k > 0`) runs keep the legacy view.
-    if (
-        not spec.agentic
-        and not spec.react_arm
-        and spec.prompt_channel == "sampled_docs"  # channel-pure arms never self-acquire
-        and effective_witness_k == 0
-        and getattr(ctx, "mongo", None) is not None
-    ):
-        preprocess_digest = await _run_preprocess_exploration(
-            ctx,
-            spec,
-            nlq=nlq,
-            db_id=db_id,
-            record_id=record_id,
-            group=group,
-            batch_index=batch_index,
-            task_log=task_log,
-        )
-        if preprocess_digest.get("__self_acquired__"):
-            witness_digest = preprocess_digest
-            disclosure["schema_source"] = "self_acquired_via_preprocess_probe"
-            disclosure["uses_preprocess_exploration"] = True
-            disclosure["proactive_db_info"] = False
-            disclosure["uses_execution_feedback"] = True
-            disclosure["preprocess_probe_mql"] = preprocess_digest.get("__probe_mql__", "")
     prompt_ctx = BaselinePromptContext(
         record=safe,
-        schema=public_schema,
         witness_digest=witness_digest,
-        schema_summary=schema_summary,
         nlq=nlq,
         output_contract=OUTPUT_CONTRACT,
     )
 
     state: dict[str, Any] = {}
     traces: list[BaselineStepTrace] = []
-    static_feedback: list[dict[str, Any]] = []
     final_feedback: list[dict[str, Any]] = []
     try:
         if spec.react_arm:
@@ -607,29 +531,8 @@ async def run_baseline_record(
             )
             traces.extend(react_traces)
             state["MQL"] = react_mql
-        elif spec.consistency_k > 1:
-            sc_mql, sc_traces = await _run_consistency_baseline(
-                ctx,
-                spec,
-                prompt_ctx,
-                db_id=db_id,
-                sanitized_local_data=sanitized_local_data.value,
-                group=group,
-                batch_index=batch_index,
-                task_log=task_log,
-            )
-            traces.extend(sc_traces)
-            state["MQL"] = sc_mql
         else:
             for step in spec.steps:
-                if spec.id == "static_self_debug" and step.id == "repair":
-                    static_feedback = static_mql_feedback(_extract_mql(state))
-                    state["static_feedback"] = static_feedback
-                    task_log.info(
-                        "baseline_static_feedback",
-                        label="pre_repair",
-                        feedback=static_feedback,
-                    )
                 output, trace = await _run_step(
                     ctx,
                     spec,
@@ -649,7 +552,6 @@ async def run_baseline_record(
 
         mql = _extract_mql(state)
         final_feedback = static_mql_feedback(mql)
-        static_feedback = static_feedback or final_feedback
         task_log.info("baseline_static_feedback", label="final", feedback=final_feedback)
         session_ref = _task_log_ref(log_mgr, task_log)
         if any(item["severity"] == "error" for item in final_feedback):
@@ -749,7 +651,7 @@ async def run_baseline_record(
             nlq_hash=nlq_hash,
             evaluation_skip_reason=evaluation_skip_reason,
             steps=traces,
-            static_feedback=final_feedback or static_feedback,
+            static_feedback=final_feedback,
         )
     except Exception as exc:  # noqa: BLE001 - baseline runs should continue across records
         err = wrap_unexpected(
@@ -784,131 +686,8 @@ async def run_baseline_record(
             nlq_hash=nlq_hash,
             evaluation_skip_reason=evaluation_skip_reason,
             steps=traces,
-            static_feedback=final_feedback or static_feedback,
+            static_feedback=final_feedback,
         )
-
-
-def _largest_result_cluster(results: list[list[dict[str, Any]] | None]) -> tuple[int, int]:
-    """SAG v3's clustering rule over plain candidate results.
-
-    Order-insensitive result-equivalence clusters; the largest cluster wins; ties and
-    the representative both prefer (non-empty, earliest). ``None`` (execution failed)
-    never merges — each failed candidate is its own singleton.
-    """
-    clusters: list[list[int]] = []
-    for i, rows in enumerate(results):
-        placed = False
-        if rows is not None:
-            for cl in clusters:
-                ref = results[cl[0]]
-                if ref is not None and equiv_rec_values(rows, ref, order_sensitive=False):
-                    cl.append(i)
-                    placed = True
-                    break
-        if not placed:
-            clusters.append([i])
-
-    def _empty(i: int) -> int:
-        return 0 if results[i] else 1  # None or [] count as empty
-
-    clusters.sort(key=lambda cl: (-len(cl), min((_empty(i), i) for i in cl)))
-    members = clusters[0]
-    best = min(members, key=lambda i: (_empty(i), i))
-    return best, len(members)
-
-
-async def _run_consistency_baseline(
-    ctx: Any,
-    spec: BaselineSpec,
-    prompt_ctx: BaselinePromptContext,
-    *,
-    db_id: str,
-    sanitized_local_data: dict[str, list[dict[str, Any]]] | None,
-    group: str,
-    batch_index: int | None,
-    task_log: TaskLogger,
-) -> tuple[str, list[BaselineStepTrace]]:
-    """Compute-matched k-sample self-consistency over a non-agentic step strategy.
-
-    Mirrors SAG v3's selection exactly: k independent decodes of the SAME prompts;
-    every candidate executes read-only once; candidates cluster by order-insensitive
-    result equivalence and the largest cluster's representative wins. Execution is
-    selection-only — nothing feeds back into any prompt. Without an executable world
-    (stub / Mongo down) the arm degrades to k=1, like the solver's stub path.
-    """
-    mongo = getattr(ctx, "mongo", None)
-    available = getattr(mongo, "available", None)
-    can_execute = (
-        not bool(getattr(ctx.settings, "stub", False))
-        and mongo is not None
-        and (not callable(available) or bool(available()))
-    )
-    k = spec.consistency_k if can_execute else 1
-    if k > 1:
-        await _preload_agentic_witnesses(ctx, db_id, sanitized_local_data, task_log)
-
-    async def one_attempt(attempt: int) -> tuple[str, list[BaselineStepTrace]]:
-        state: dict[str, Any] = {}
-        traces: list[BaselineStepTrace] = []
-        for step in spec.steps:
-            attempt_step = (
-                replace(
-                    step,
-                    id=f"{step.id}_k{attempt + 1}",
-                    title=f"{step.title} (attempt {attempt + 1}/{k})",
-                )
-                if k > 1
-                else step
-            )
-            output, trace = await _run_step(
-                ctx,
-                spec,
-                attempt_step,
-                prompt_ctx,
-                state,
-                group,
-                batch_index=batch_index,
-                task_log=task_log,
-            )
-            traces.append(trace)
-            state.update(output)
-            state[step.id] = dict(output)
-        return _extract_mql(state), traces
-
-    outcomes = await asyncio.gather(*[one_attempt(i) for i in range(k)], return_exceptions=True)
-    candidates: list[tuple[int, str]] = []
-    all_traces: list[BaselineStepTrace] = []
-    first_error: BaseException | None = None
-    for i, item in enumerate(outcomes):
-        if isinstance(item, BaseException):
-            first_error = first_error or item
-            continue
-        mql, traces = item
-        candidates.append((i, mql))
-        all_traces.extend(traces)
-    if not candidates:
-        assert first_error is not None  # gather returned only exceptions
-        raise first_error
-    if len(candidates) == 1:
-        return candidates[0][1], all_traces
-
-    results: list[list[dict[str, Any]] | None] = []
-    for _attempt, mql in candidates:
-        try:
-            rows = await asyncio.to_thread(mongo.norm_exec, db_id, mql)
-        except Exception:  # noqa: BLE001 - a failed candidate is a singleton cluster
-            rows = None
-        results.append(rows)
-    chosen, cluster_size = _largest_result_cluster(results)
-    task_log.info(
-        "baseline_consistency_selected",
-        k=k,
-        decoded=len(candidates),
-        executed=sum(1 for rows in results if rows is not None),
-        chosen_attempt=candidates[chosen][0] + 1,
-        cluster_size=cluster_size,
-    )
-    return candidates[chosen][1], all_traces
 
 
 async def _run_step(
@@ -949,8 +728,6 @@ async def _run_step(
             json_repair_retries=BASELINE_JSON_REPAIR_RETRIES,
         )
         output = result.data
-        if step.agent == "baseline_react_lite_think":
-            output = normalize_react_think_output(output)
         log_ref = _rel_ref(ctx.log_mgr, task_log.last_llm_call_path)
         task_log.info(
             "baseline_step_done",
@@ -977,163 +754,6 @@ async def _run_step(
         if ctx.progress:
             ctx.progress.finish_task(task_id, ok=False)
         raise
-
-
-async def _run_preprocess_exploration(
-    ctx: Any,
-    spec: BaselineSpec,
-    *,
-    nlq: str,
-    db_id: str,
-    record_id: Any,
-    group: str,
-    batch_index: int | None,
-    task_log: TaskLogger,
-) -> dict[str, Any]:
-    """Run ONE self-acquired exploratory probe and return a witness-shaped digest.
-
-    This is the fairness preprocessing step (not an agentic loop): given the NLQ and only
-    the collection NAMES, the model emits a single read-only `aggregate` query; its bounded,
-    value-redacted execution result becomes the prior context for generation — mirroring how
-    the SMART-EG solver induces structure by querying the read-only DB. Any failure (no Mongo
-    handle, banned operator, executor fault) degrades gracefully: generation proceeds with an
-    empty/feedback-only digest rather than crashing.
-    """
-    mongo_tools = _agentic_mongo_tools(ctx, db_id)
-    if mongo_tools is None:
-        task_log.info("baseline_preprocess_skipped", db_id=db_id, reason="no_mongo_handle")
-        return {}
-
-    try:
-        collection_names = _preprocess_collection_names(mongo_tools)
-    except Exception as exc:  # noqa: BLE001 - offline/stub Mongo is a graceful skip
-        task_log.info(
-            "baseline_preprocess_skipped",
-            db_id=db_id,
-            reason="list_collections_failed",
-            error=str(exc)[:200],
-        )
-        return {}
-
-    prefix = (
-        f"baseline:{batch_index}:{spec.id}" if batch_index is not None else f"baseline:{spec.id}"
-    )
-    progress_task_id = f"{prefix}:{db_id}:{record_id}:preprocess_explore"
-    if ctx.progress:
-        ctx.progress.start_task(progress_task_id, "Preprocess exploration", group=group)
-    task_log.set_step_label("preprocess_explore")
-    task_log.info(
-        "baseline_step_start",
-        baseline_id=spec.id,
-        step="preprocess_explore",
-        agent=PREPROCESS_EXPLORE_AGENT,
-        title="Preprocess exploration",
-    )
-
-    messages = _preprocess_messages(nlq, db_id, collection_names)
-    try:
-        result = await ctx.llm.complete(
-            agent=PREPROCESS_EXPLORE_AGENT,
-            messages=messages,
-            task_logger=task_log,
-            schema=PREPROCESS_EXPLORE_SCHEMA,
-            temperature=0.0,
-            json_repair_retries=BASELINE_JSON_REPAIR_RETRIES,
-        )
-    except Exception as exc:
-        if ctx.progress:
-            ctx.progress.finish_task(progress_task_id, ok=False)
-        task_log.info(
-            "baseline_preprocess_skipped",
-            db_id=db_id,
-            reason="llm_failed",
-            error=str(exc)[:200],
-        )
-        return {}
-
-    probe_mql = str((result.data or {}).get("MQL") or "").strip()
-    probe_result, probe_error = _run_agentic_probe(mongo_tools, {"MQL": probe_mql})
-    digest = _preprocess_digest_from_probe(probe_mql, probe_result, probe_error)
-    task_log.info(
-        "baseline_step_done",
-        step="preprocess_explore",
-        call_log=_rel_ref(ctx.log_mgr, task_log.last_llm_call_path),
-        probe_error=probe_error,
-        probe_mql=probe_mql,
-        collections_seen=collection_names,
-        llm_attempts=result.attempts,
-    )
-    if ctx.progress:
-        ctx.progress.finish_task(progress_task_id, ok=True)
-    return digest
-
-
-def _preprocess_collection_names(mongo_tools: ReadonlyMongoProbe) -> list[str]:
-    """Collection NAMES only — the minimal scaffold to form a query (no structure/values)."""
-    listing = mongo_tools.list_collections({})
-    names: list[str] = []
-    for item in listing.get("collections", []):
-        if isinstance(item, dict) and item.get("collection"):
-            names.append(str(item["collection"]))
-        elif isinstance(item, str) and item:
-            names.append(item)
-    return names
-
-
-def _preprocess_messages(nlq: str, db_id: str, collection_names: list[str]) -> list[dict[str, Any]]:
-    body = "\n".join(
-        [
-            "# Self-acquired exploration (single step)",
-            f"db_id: {db_id}",
-            "",
-            "## Natural language question",
-            nlq,
-            "",
-            "## Available collection names",
-            "No schema, document structure, or field values are provided — only the names "
-            "below. Decide which collection's structure you most need to inspect to answer "
-            "the question.",
-            _json_block(sorted(collection_names)),
-            "",
-            "## Task",
-            "Emit exactly ONE read-only MongoDB exploration query as a single "
-            "`db.<collection>.aggregate([...])` expression. Keep it bounded with a small "
-            f"`$limit` (<= {PREPROCESS_EXPLORE_LIMIT}). Never use `$sample`, `$rand`, "
-            "`$out`, `$merge`, `$function`, or `$$NOW`. Its execution result will be the only "
-            "structural information you receive before writing the final query.",
-            "",
-            "Return JSON with a single field `MQL`.",
-        ]
-    )
-    return [{"role": "user", "content": body}]
-
-
-def _preprocess_digest_from_probe(
-    probe_mql: str,
-    probe_result: dict[str, Any],
-    probe_error: str | None,
-) -> dict[str, Any]:
-    """Shape the single probe result like ``build_witness_digest`` output.
-
-    The bounded read-only probe returns a value-redacted structural shape (field paths,
-    type counts, redacted scalar samples) — never raw answer rows — so the generation prompt
-    consumes structure without the privileged witness values the solver is denied.
-    """
-    digest: dict[str, Any] = {"__self_acquired__": True, "__probe_mql__": probe_mql}
-    if probe_error is not None:
-        digest["__probe_error__"] = probe_error
-        return digest
-    collection = str(probe_result.get("collection") or "exploration")
-    shape = probe_result.get("result_shape")
-    sample_documents = [shape] if isinstance(shape, dict) else []
-    entry: dict[str, Any] = {
-        "sample_count": int(probe_result.get("result_count", 0) or 0),
-        "sample_documents": sample_documents,
-        "string_values_in_sample": {},
-        "result_summary": probe_result.get("result_summary", {}),
-    }
-    digest[collection] = entry
-    return digest
 
 
 async def _run_react_baseline(
@@ -1406,43 +1026,6 @@ async def _preload_agentic_witnesses(
         )
 
 
-def _agentic_mongo_tools(ctx: Any, db_id: str) -> ReadonlyMongoProbe | None:
-    mongo = getattr(ctx, "mongo", None)
-    if mongo is None:
-        return None
-    return ReadonlyMongoProbe(mongo, db_id)
-
-
-def _run_agentic_probe(
-    mongo_tools: ReadonlyMongoProbe | None,
-    arguments: dict[str, Any],
-) -> tuple[dict[str, Any], str | None]:
-    """Run one redacted read-only probe; return (redacted_result, error_or_None).
-
-    Banned-operator violations (ValueError) and any executor/connection fault are returned
-    as a feedback string instead of crashing the loop.
-    """
-    if mongo_tools is None:
-        return {}, "no read-only Mongo handle available"
-    request: dict[str, Any] = {}
-    collection = arguments.get("collection")
-    pipeline = arguments.get("pipeline")
-    if collection is not None:
-        request["collection"] = collection
-    if pipeline is not None:
-        request["pipeline"] = pipeline
-    if arguments.get("MQL"):
-        request["MQL"] = arguments["MQL"]
-    if arguments.get("limit") is not None:
-        request["limit"] = arguments["limit"]
-    try:
-        return mongo_tools.run_readonly_probe(request), None
-    except ValueError as exc:
-        return {}, str(exc)
-    except Exception as exc:  # noqa: BLE001 - any executor fault is feedback, not a crash
-        return {}, f"{type(exc).__name__}: {str(exc)[:200]}"
-
-
 def _baseline_disclosure(
     wf: Workflow,
     spec: BaselineSpec,
@@ -1468,22 +1051,19 @@ def _baseline_disclosure(
         "no_training": True,
         "uses_train_json": False,
         "uses_gold_mql": False,
-        # Agentic/react baselines self-acquire structure by running read-only execute_mql
-        # probes, so they consume execution feedback; one-shot/step baselines do not.
-        "uses_execution_feedback": spec.agentic or bool(spec.react_arm),
-        "agentic": spec.agentic,
+        # The ReAct arm self-acquires structure by running read-only execute_mql probes,
+        # so it consumes execution feedback; the step baselines do not.
+        "uses_execution_feedback": bool(spec.react_arm),
+        "agentic": False,
         "prompt_channel": spec.prompt_channel,
         "schema_source": (
             "self_acquired_via_execute_mql"
-            if (spec.agentic or spec.react_arm)
+            if spec.react_arm
             else {
-                "nlq_only": "none_nlq_only",
-                "public_schema": "released_public_schema_file",
                 "relational_source_schema": "bird_relational_ddl_plus_witness_samples",
             }.get(spec.prompt_channel, "witness_samples_only")
         ),
-        "schema_provided_to_model": spec.prompt_channel
-        in ("public_schema", "relational_source_schema"),
+        "schema_provided_to_model": spec.prompt_channel == "relational_source_schema",
         "disjointness_ok": disjointness["ok"],
         "disjointness_detail": disjointness,
         "limitations": list(spec.limitations),
@@ -1499,8 +1079,7 @@ def _baseline_disclosure(
         "local_data_stripped_fields": list(local_data_stripped_fields or []),
         "schema_public_shape": schema_public_shape
         or {"format": "unknown", "collection_total": 0, "collections": []},
-        "uses_public_witness_digest": spec.prompt_channel
-        in ("sampled_docs", "relational_source_schema"),
+        "uses_public_witness_digest": True,
         "semantic_retry_budget": 0,
         "retry_contract": {
             "semantic_retry_budget": 0,
@@ -1523,21 +1102,6 @@ def _baseline_disclosure(
                 "uses_public_witness_digest": False,
             }
         )
-    if spec.consistency_k > 1:
-        # Compute-matched contrast for SAG v3's k-sample consistency. Candidate
-        # execution is SELECTION-ONLY (cluster + pick) — nothing re-enters a prompt,
-        # exactly like the solver's clustering stage.
-        disclosure.update(
-            {
-                "uses_result_space_consistency": True,
-                "consistency_k": spec.consistency_k,
-                "consistency_selection": (
-                    "k independent decodes; candidates execute read-only and cluster "
-                    "by order-insensitive result equivalence; largest cluster wins "
-                    "(SAG v3's rule); no execution feedback enters any prompt"
-                ),
-            }
-        )
     return disclosure
 
 
@@ -1548,17 +1112,3 @@ def _extract_mql(state: dict[str, Any]) -> str:
 
 def _hash_nlq(nlq: str) -> str:
     return "sha256:" + hashlib.sha256(nlq.encode("utf-8")).hexdigest()
-
-
-def _json_block(value: Any) -> str:
-    return (
-        "```json\n"
-        + json.dumps(
-            value,
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-            default=str,
-        )
-        + "\n```"
-    )

@@ -256,7 +256,7 @@ Useful commands after restoring the release:
 
 .venv/bin/python -m tend baseline \
   --dataset-dir release/tend-native-mongodb-v1 \
-  --baselines direct_nlq_only,direct,data_rich_direct,sql_pivot \
+  --baselines all \
   --db-id financial \
   --limit 110 \
   --run-id baseline-financial
@@ -270,14 +270,16 @@ Useful commands after restoring the release:
   --run-id ablation-financial
 ```
 
-Baseline arms: `direct_nlq_only`, `schema_direct`, `direct`, `data_rich_direct`,
-`sql_pivot`, `sql_pivot_schema` (SQL Pivot given the real relational DDL),
-`dinsql_mql` (the DIN-SQL-inspired MQL adaptation), `react_informed`,
-`plan_then_mql`, `react_lite`, and `static_self_debug`; `--baselines all` runs
-every arm. `schema_direct` reads the construction-time schema that `tend construct`
-writes, which the public release does not include, so it only runs on a locally
-constructed dataset; the same holds for `tend validate` and `tend publish`, which
-check construction outputs before release.
+Baseline arms, the baselines in [`RESULTS.md`](RESULTS.md): `data_rich_direct` (Direct
+with a data-rich prompt), `dinsql_mql` (the DIN-SQL-inspired MQL adaptation),
+`sql_pivot_schema` (SQL Pivot given the real relational DDL), and `react_informed`
+(ReAct with the real collection names and raw first-five-row observations);
+`--baselines all` runs all four. "Direct with SAG's six output conventions" is
+`data_rich_direct` run with `TEND_BASELINE_OUTPUT_CONTRACT=1`, which appends the same
+six output rules SAG's prompt states.
+
+`tend validate` and `tend publish` check the output of a local `tend construct` run
+before release; they do not apply to the restored public release.
 
 Ablation arms, the seven configurations of the ablation in [`RESULTS.md`](RESULTS.md):
 `sag_full` (the full solver, the reference row), `sag_core_generate_only`, `sag_v2`,

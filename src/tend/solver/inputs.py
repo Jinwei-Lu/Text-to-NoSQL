@@ -160,16 +160,8 @@ def _record_for_nlq_track(record: dict[str, Any], nlq_track: NlqTrack) -> dict[s
 def build_witness_digest(
     data: dict[str, list[dict[str, Any]]] | None,
     witness_k: int,
-    *,
-    redact_values: bool = False,
 ) -> dict[str, Any]:
-    """Build the small prompt-visible witness digest allowed in non-EG solver prompts.
-
-    With ``redact_values`` the digest keeps document *structure* (field names, nesting,
-    array shapes) but replaces every scalar with its type tag -- a fair "you can see the
-    shape, not the answer rows" view that mirrors what the EG solver induces by redacted
-    exploration, for comparisons that should not hand baselines raw sample values.
-    """
+    """Build the small prompt-visible witness digest the baselines see."""
     if not data:
         return {}
     k = max(0, witness_k)
@@ -177,23 +169,16 @@ def build_witness_digest(
     for collection, docs in sorted(data.items()):
         if not isinstance(docs, list):
             continue
-        sample = [_compact_witness_value(doc, redact_values=redact_values) for doc in docs[:k]]
-        entry: dict[str, Any] = {"sample_count": len(sample)}
-        if redact_values:
-            entry["structure_documents"] = sample
-            entry["values_redacted"] = True
-        else:
-            entry["sample_documents"] = sample
-            entry["string_values_in_sample"] = _string_values_in_sample(sample)
-        digest[collection] = entry
+        sample = [_compact_witness_value(doc) for doc in docs[:k]]
+        digest[collection] = {
+            "sample_count": len(sample),
+            "sample_documents": sample,
+            "string_values_in_sample": _string_values_in_sample(sample),
+        }
     return digest
 
 
-def _compact_witness_value(value: Any, *, depth: int = 0, redact_values: bool = False) -> Any:
-    if redact_values and isinstance(value, (str, bool, int, float)):
-        return f"<{type(value).__name__}>"
-    if redact_values and value is None:
-        return "<null>"
+def _compact_witness_value(value: Any, *, depth: int = 0) -> Any:
     if isinstance(value, str):
         if len(value) <= _WITNESS_MAX_STRING_CHARS:
             return value
@@ -214,7 +199,7 @@ def _compact_witness_value(value: Any, *, depth: int = 0, redact_values: bool = 
         return str(value)[:_WITNESS_MAX_STRING_CHARS]
     if isinstance(value, list):
         preview = [
-            _compact_witness_value(item, depth=depth + 1, redact_values=redact_values)
+            _compact_witness_value(item, depth=depth + 1)
             for item in value[:_WITNESS_MAX_LIST_ITEMS]
         ]
         if len(value) > _WITNESS_MAX_LIST_ITEMS:
@@ -223,7 +208,7 @@ def _compact_witness_value(value: Any, *, depth: int = 0, redact_values: bool = 
     if isinstance(value, dict):
         items = list(value.items())
         preview = {
-            str(key): _compact_witness_value(child, depth=depth + 1, redact_values=redact_values)
+            str(key): _compact_witness_value(child, depth=depth + 1)
             for key, child in items[:_WITNESS_MAX_DICT_ITEMS]
         }
         if len(items) > _WITNESS_MAX_DICT_ITEMS:

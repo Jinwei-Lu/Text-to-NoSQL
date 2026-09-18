@@ -6,9 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..config import Settings
-from ..errors import GateError
-from ..observability import RunLogger
 
 _REQUIRED_FROZEN_PANELS = ("small", "medium", "large", "frontier")
 _CONSTRUCTION_ROLE_LABELS = frozenset({"qps", "ms", "mut", "pv", "nlp", "rtv", "nnc", "ra"})
@@ -79,36 +76,6 @@ _PRIVATE_LOCAL_DATA_KEYS = frozenset(
 class SanitizedPayload:
     value: dict[str, Any]
     stripped_fields: list[str]
-
-
-@dataclass(frozen=True)
-class SolverBoundary:
-    allow_list: dict[str, Any]
-    logger: RunLogger | None = None
-
-    @classmethod
-    def from_settings(cls, settings: Settings, logger: RunLogger | None = None) -> "SolverBoundary":
-        return cls(load_solver_allow_list(settings.paths.schemas), logger=logger)
-
-    def sanitize_test_record(self, record: dict[str, Any]) -> dict[str, Any]:
-        sanitized = sanitize_public_record(record)
-        if sanitized.stripped_fields and self.logger:
-            self.logger.info(
-                "baseline_forbidden_fields_redacted",
-                fields=sanitized.stripped_fields,
-            )
-        return sanitized.value
-
-    def assert_stage_can_use_tool(self, stage: str, tool: str) -> None:
-        spec = self.allow_list.get("tools", {}).get(tool)
-        if not spec:
-            raise GateError("unknown baseline tool", context={"tool": tool})
-        allowed = set(spec.get("callable_by_stages", []))
-        if stage not in allowed:
-            raise GateError(
-                "baseline tool called from forbidden stage",
-                context={"stage": stage, "tool": tool, "allowed": sorted(allowed)},
-            )
 
 
 def load_solver_allow_list(schema_dir: Path) -> dict[str, Any]:
@@ -429,44 +396,6 @@ def _dedupe(values: list[str]) -> list[str]:
     return out
 
 
-def _redact_forbidden_fields(
-    value: Any,
-    *,
-    forbidden: set[str],
-    path: str = "",
-) -> tuple[Any, list[str]]:
-    if isinstance(value, dict):
-        clean: dict[str, Any] = {}
-        removed: list[str] = []
-        for key, child in value.items():
-            key_text = str(key)
-            child_path = f"{path}.{key_text}" if path else key_text
-            if key_text in forbidden or key_text.endswith("_ref"):
-                removed.append(child_path)
-                continue
-            redacted, child_removed = _redact_forbidden_fields(
-                child,
-                forbidden=forbidden,
-                path=child_path,
-            )
-            clean[key] = redacted
-            removed.extend(child_removed)
-        return clean, removed
-    if isinstance(value, list):
-        items: list[Any] = []
-        removed: list[str] = []
-        for index, child in enumerate(value):
-            redacted, child_removed = _redact_forbidden_fields(
-                child,
-                forbidden=forbidden,
-                path=f"{path}[{index}]",
-            )
-            items.append(redacted)
-            removed.extend(child_removed)
-        return items, removed
-    return value, []
-
-
 def _norm_model(model: str) -> str:
     return str(model).strip().lower()
 
@@ -485,8 +414,6 @@ def _model_id_set(raw: Any) -> set[str]:
 __all__ = [
     "PUBLIC_SCHEMA_VERSION",
     "SanitizedPayload",
-    "SolverBoundary",
-    "_redact_forbidden_fields",
     "check_disjointness",
     "load_solver_allow_list",
     "public_schema_shape",
