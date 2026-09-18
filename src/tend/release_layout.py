@@ -1,4 +1,10 @@
-"""Helpers for reading legacy and packaged TEND release layouts."""
+"""Locate the files of a TEND dataset directory.
+
+A dataset directory is either the formal release restored from Google Drive
+(``data/TEND.json`` plus ``mongodb_data/``) or the flat directory that
+``tend construct`` writes (``test.json``, ``TEND.json``, ``mongodb_data/``, and the
+construction artifacts next to them).
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,53 +26,17 @@ class ReleaseDatasetLayout:
 
 
 def resolve_release_dataset_layout(dataset_dir: str | Path) -> ReleaseDatasetLayout:
-    """Resolve release paths for both legacy dataset and formal package layouts."""
+    """Resolve the files of a formal release or a ``tend construct`` dataset directory."""
     root = Path(dataset_dir)
-    if (root / "data" / "test.json").exists():
-        return ReleaseDatasetLayout(
-            root=root,
-            test_path=root / "data" / "test.json",
-            tend_path=root / "data" / "TEND.json",
-            catalog_path=root / "data" / "bird_db_catalog.json",
-            mongodb_schema_dir=root / "schema" / "mongodb_schema",
-            mongodb_data_dir=root / "mongodb_data",
-            agent_design_rationale_dir=root / "metadata" / "agent_design_rationale",
-            migration_recipe_dir=root / "metadata" / "migration_recipe",
-            native_feature_manifest_dir=root / "metadata" / "native_feature_manifest",
-            provenance_dir=root / "metadata" / "provenance",
-        )
-    if (root / "data" / "TEND.json").exists():
-        tend_path = root / "data" / "TEND.json"
-        return ReleaseDatasetLayout(
-            root=root,
-            test_path=tend_path,
-            tend_path=tend_path,
-            catalog_path=root / "data" / "bird_db_catalog.json",
-            mongodb_schema_dir=root / "schema" / "mongodb_schema",
-            mongodb_data_dir=root / "mongodb_data",
-            agent_design_rationale_dir=root / "metadata" / "agent_design_rationale",
-            migration_recipe_dir=root / "metadata" / "migration_recipe",
-            native_feature_manifest_dir=root / "metadata" / "native_feature_manifest",
-            provenance_dir=root / "metadata" / "provenance",
-        )
-    if (root / "data" / "TEND_lean.json").exists():
-        lean_path = root / "data" / "TEND_lean.json"
-        return ReleaseDatasetLayout(
-            root=root,
-            test_path=lean_path,
-            tend_path=lean_path,
-            catalog_path=root / "data" / "bird_db_catalog.json",
-            mongodb_schema_dir=root / "schema" / "mongodb_schema",
-            mongodb_data_dir=root / "mongodb_data",
-            agent_design_rationale_dir=root / "metadata" / "agent_design_rationale",
-            migration_recipe_dir=root / "metadata" / "migration_recipe",
-            native_feature_manifest_dir=root / "metadata" / "native_feature_manifest",
-            provenance_dir=root / "metadata" / "provenance",
-        )
+    release_tasks = root / "data" / "TEND.json"
+    if release_tasks.exists():
+        test_path = tend_path = release_tasks
+    else:
+        test_path, tend_path = root / "test.json", root / "TEND.json"
     return ReleaseDatasetLayout(
         root=root,
-        test_path=root / "test.json",
-        tend_path=root / "TEND.json",
+        test_path=test_path,
+        tend_path=tend_path,
         catalog_path=root / "bird_db_catalog.json",
         mongodb_schema_dir=root / "mongodb_schema",
         mongodb_data_dir=root / "mongodb_data",

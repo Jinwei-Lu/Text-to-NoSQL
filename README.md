@@ -29,7 +29,7 @@ publication.
 | --- | --- |
 | [`src/tend/`](src/tend/) | Public Python package for dataset handling, validation, solving, baselines, ablations, evaluation, and observability. |
 | [`demonstration/`](demonstration/) | QueryCraft Flask demo with database selection, browsing of the structure induced from stored documents, generated-MQL inspection, optional read-only execution, and solver metadata. |
-| [`proposals/`](proposals/) | Runtime files the package reads: the baseline allow list and the record/library JSON schemas used by `tend validate`. |
+| [`proposals/`](proposals/) | Runtime files the package reads: the baseline allow list and the record and catalog JSON schemas used by `tend validate`. |
 | [`RESULTS.md`](RESULTS.md) | Final experimental results and how each number was produced. |
 | [`pyproject.toml`](pyproject.toml) | Package metadata, optional `demo` and `test` dependency groups, and `tend` CLI entry point. |
 | [`requirements.txt`](requirements.txt) | Runtime dependency file for standard pip-based installation. |
@@ -278,8 +278,11 @@ with a data-rich prompt), `dinsql_mql` (the DIN-SQL-inspired MQL adaptation),
 `data_rich_direct` run with `TEND_BASELINE_OUTPUT_CONTRACT=1`, which appends the same
 six output rules SAG's prompt states.
 
-`tend validate` and `tend publish` check the output of a local `tend construct` run
-before release; they do not apply to the restored public release.
+On the restored release, `tend validate --dataset-dir release/tend-native-mongodb-v1`
+checks the five-field records (1,210 tasks, 110 per database, parseable MQL, no duplicate
+MQL or NLQ) and that every database's witness data is present. On the output of a local
+`tend construct` run, `tend validate` checks the full record and composition contract, and
+`tend publish --out <dir>` copies the dataset to `<dir>` only if it passes.
 
 Ablation arms, the seven configurations of the ablation in [`RESULTS.md`](RESULTS.md):
 `sag_full` (the full solver, the reference row), `sag_core_generate_only`, `sag_v2`,

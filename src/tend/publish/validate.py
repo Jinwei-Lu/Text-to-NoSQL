@@ -1,9 +1,9 @@
 """Record + release validation against the 02 contracts (C1-C9, H1/H4-H9, JSON Schema).
 
-Deterministic publish gate. ``validate_record`` checks one record's field contract; an optional
-``MongoExecutor`` + witness enables the executable C5 check (gold must be a gold-class member).
+Deterministic publish gate. ``validate_record`` checks one record's field contract;
 ``validate_composition`` checks the test-set composition hard constraints (02 §02-4-3).
-``validate_release`` ties it together over a written release directory.
+``validate_release`` ties it together over a dataset directory: the five-field public
+release (``data/TEND.json`` + ``mongodb_data/``) or a ``tend construct`` dataset.
 """
 from __future__ import annotations
 
@@ -14,8 +14,6 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-import yaml
 
 from ..construction.native import NativeFeatureManifest, load_native_feature_manifest
 from ..execution import (
@@ -55,20 +53,17 @@ _NLQ_CJK_RE = re.compile(r"[⺀-鿿　-ヿ＀-￯]")
 # composition thresholds (02 §02-4-3)
 H5_L4_MIN = 0.30
 H8_L0_MAX = 0.05
-H7_FLEX_MIN, H7_FLEX_MIN_RELAXED = 0.25, 0.15
-H9_SSF_MIN, H9_SSF_MIN_RELAXED = 0.20, 0.10
+H7_FLEX_MIN = 0.25
+H9_SSF_MIN = 0.20
 BIRD_DB_COUNT = 11
 H11_SKELETON_FAMILY_MAX = 16
-PUBLIC_LEAN_FIELDS = ("record_id", "db_id", "NLQ", "NLQ_colloquial", "MQL")
+PUBLIC_FIELDS = ("record_id", "db_id", "NLQ", "NLQ_colloquial", "MQL")
 
 
 # --------------------------------------------------------------------------- #
 # per-record (C1-C9)
 # --------------------------------------------------------------------------- #
-def validate_record(
-    record: dict[str, Any], *, executor: Any = None, snapshot: dict[str, Any] | None = None,
-    refs_base: Path | None = None,
-) -> list[str]:
+def validate_record(record: dict[str, Any], *, refs_base: Path | None = None) -> list[str]:
     """Return record-contract violations (empty = OK). C-ids reference 02 §02-2-4."""
     iss: list[str] = []
     rid = record.get("record_id", "?")
@@ -95,7 +90,7 @@ def validate_record(
             iss.append(f"[C6 r{rid}] must_not_contain missing disabled ops {sorted(missing)}")
 
     mql = record.get("MQL", "")
-    if isinstance(cfs, dict) and isinstance(mql, str) and mql:         # C5 structural half
+    if isinstance(cfs, dict) and isinstance(mql, str) and mql:         # C5
         try:
             ok, hits = ast_check(mql, cfs)
         except Exception as exc:  # noqa: BLE001 - static check failures are record defects
@@ -103,16 +98,6 @@ def validate_record(
         else:
             if not ok:
                 iss.append(f"[C5 r{rid}] gold MQL fails its own AST_check: {hits}")
-    if executor is not None and snapshot is not None and isinstance(cfs, dict):  # C5 executable
-        try:
-            if hasattr(executor, "ex_verdict"):
-                ok = executor.ex_verdict(mql, record, snapshot)
-                if not ok:
-                    iss.append(f"[C5 r{rid}] gold MQL is not a gold-class member on its witness")
-            else:
-                executor.norm_exec(record["db_id"], mql)
-        except Exception as exc:  # noqa: BLE001
-            iss.append(f"[C5 r{rid}] gold MQL execution check errored: {exc}")
 
     diff = record.get("difficulty")
     if diff not in DIFFICULTIES:                                       # C7
@@ -146,7 +131,7 @@ def validate_record(
 
 def _record_ref_exists(refs_base: Path, value: str) -> bool:
     ref = Path(value)
-    return ref.exists() or (refs_base / ref).exists() or (refs_base / "metadata" / ref).exists()
+    return ref.exists() or (refs_base / ref).exists()
 
 
 def validate_record_jsonschema(record: dict[str, Any], schema_path: Path) -> list[str]:
@@ -177,19 +162,18 @@ class CompositionReport:
     l0_ratio: float
     flex_ratio: float
     ssf_ratio: float
-    supply_relax: bool
     violations: list[str] = field(default_factory=list)
 
 
 def validate_composition(
-    records: list[dict[str, Any]], *, supply_relax: bool = False, require_all_dbs: bool = True
+    records: list[dict[str, Any]], *, require_all_dbs: bool = True
 ) -> CompositionReport:
     """Check H1/H4-H9 test-composition hard constraints (02 §02-II-3)."""
     n = len(records)
     viol: list[str] = []
     db_ids = sorted({r.get("db_id") for r in records if r.get("db_id")})
     if n == 0:
-        return CompositionReport(False, 0, [], 0, 0, 0, 0, supply_relax, ["empty record set"])
+        return CompositionReport(False, 0, [], 0, 0, 0, 0, ["empty record set"])
 
     def ratio(pred) -> float:
         return sum(1 for r in records if pred(r)) / n
@@ -199,21 +183,18 @@ def validate_composition(
     flex = ratio(lambda r: (r.get("schema_flex") or "none") != "none")
     ssf = ratio(lambda r: r.get("sql_infeasibility_class") == "structural_schema_flex")
 
-    h7 = H7_FLEX_MIN_RELAXED if supply_relax else H7_FLEX_MIN
-    h9 = H9_SSF_MIN_RELAXED if supply_relax else H9_SSF_MIN
     if require_all_dbs and len(db_ids) != BIRD_DB_COUNT:
         viol.append(f"[H4] db coverage {len(db_ids)} != {BIRD_DB_COUNT}")
     if l4 < H5_L4_MIN:
         viol.append(f"[H5] L4 ratio {l4:.3f} < {H5_L4_MIN}")
     if l0 > H8_L0_MAX:
         viol.append(f"[H8] L0 ratio {l0:.3f} > {H8_L0_MAX}")
-    if flex < h7:
-        viol.append(f"[H7] schema_flex ratio {flex:.3f} < {h7}" + (" [relaxed]" if supply_relax else ""))
-    if ssf < h9:
-        viol.append(f"[H9] structural_schema_flex ratio {ssf:.3f} < {h9}"
-                    + (" [relaxed]" if supply_relax else ""))
+    if flex < H7_FLEX_MIN:
+        viol.append(f"[H7] schema_flex ratio {flex:.3f} < {H7_FLEX_MIN}")
+    if ssf < H9_SSF_MIN:
+        viol.append(f"[H9] structural_schema_flex ratio {ssf:.3f} < {H9_SSF_MIN}")
     return CompositionReport(not viol, n, db_ids, round(l4, 3), round(l0, 3), round(flex, 3),
-                             round(ssf, 3), supply_relax, viol)
+                             round(ssf, 3), viol)
 
 
 # --------------------------------------------------------------------------- #
@@ -255,12 +236,12 @@ class DiversityReport:
 
 def validate_release(
     out_dir: str | Path, *, schemas_dir: str | Path | None = None,
-    executor: Any = None, supply_relax: bool = False, require_all_dbs: bool = True,
-    verify_world_signature: bool = True,
+    require_all_dbs: bool = True, verify_world_signature: bool = True,
 ) -> ReleaseReport:
-    """Validate a written release: records (C1-C9 + jsonschema), composition (H), 3-way files (C4).
+    """Validate a dataset directory: records (C1-C9 + jsonschema), composition (H), files (C4).
 
-    ``verify_world_signature=False`` skips raw ``mongodb_data`` loading and signature recomputation.
+    A five-field public release gets the public checks only. ``verify_world_signature=False``
+    skips raw ``mongodb_data`` loading and signature recomputation.
     """
     layout = resolve_release_dataset_layout(out_dir)
     out_dir = layout.root
@@ -275,23 +256,16 @@ def validate_release(
     else:
         file_viol.append("[C4] missing TEND.json")
     records = test if isinstance(test, list) else test.get("records", [])
-    if _is_public_lean_release(records):
-        return _validate_public_lean_release(
+    if _is_public_release(records):
+        return _validate_public_release(
             layout,
             records,
             file_viol,
-            supply_relax=supply_relax,
             require_all_dbs=require_all_dbs,
         )
     record_db_ids = sorted({str(r.get("db_id")) for r in records if r.get("db_id")})
-    native_mode = layout.native_feature_manifest_dir.is_dir() or any(
-        "native_feature_id" in r for r in records
-    )
-    native_manifests = _load_native_manifests(
-        layout.native_feature_manifest_dir,
-        record_db_ids,
-    ) if native_mode else {}
-    native_provenance = _load_native_provenance(layout.provenance_dir, record_db_ids) if native_mode else {}
+    native_manifests = _load_native_manifests(layout.native_feature_manifest_dir, record_db_ids)
+    native_provenance = _load_native_provenance(layout.provenance_dir, record_db_ids)
 
     rec_viol: list[str] = []
     sch_viol: list[str] = []
@@ -336,14 +310,13 @@ def validate_release(
                     f"[C4 r{r.get('record_id','?')}] world_signature does not match "
                     f"mongodb_data/{db}.json"
                 )
-            local_rec += validate_record(r, executor=executor, snapshot=snap, refs_base=out_dir)
-            if native_mode or "native_feature_id" in r:
-                local_rec += _validate_native_record(
-                    r,
-                    native_manifests.get(str(db)),
-                    native_provenance.get(str(db)),
-                    layout,
-                )
+            local_rec += validate_record(r, refs_base=out_dir)
+            local_rec += _validate_native_record(
+                r,
+                native_manifests.get(str(db)),
+                native_provenance.get(str(db)),
+                layout,
+            )
             if record_schema is not None:
                 local_sch += _validate_record_jsonschema_with_schema(r, record_schema)
         except Exception as exc:  # noqa: BLE001 - surface as validation violation, not pool crash
@@ -357,7 +330,7 @@ def validate_release(
             rec_viol += local_rec
             sch_viol += local_sch
 
-    comp = validate_composition(records, supply_relax=supply_relax, require_all_dbs=require_all_dbs)
+    comp = validate_composition(records, require_all_dbs=require_all_dbs)
     diversity = _diversity_report(records)
 
     # C4 3-way per-db file presence
@@ -370,49 +343,39 @@ def validate_release(
         for label, path in required_files:
             if not path.exists():
                 file_viol.append(f"[C4] missing {label}/{db}{path.suffix}")
-    if native_mode:
-        file_viol += _validate_native_artifacts(
-            layout,
-            comp.db_ids,
-            native_manifests,
-            native_provenance,
-        )
-        rec_viol += _native_coverage_violations(records)
+    file_viol += _validate_native_artifacts(
+        layout,
+        comp.db_ids,
+        native_manifests,
+        native_provenance,
+    )
+    rec_viol += _native_coverage_violations(records)
     if schemas_path:
-        if native_mode:
-            file_viol += _validate_native_catalog_artifact(layout, schemas_path)
-        else:
-            file_viol += _validate_release_artifacts(
-                layout,
-                comp.db_ids,
-                schemas_path,
-                validate_mongodb_data=verify_world_signature,
-            )
+        file_viol += _validate_catalog_artifact(layout, schemas_path)
 
     ok = not (rec_viol or sch_viol or file_viol) and comp.ok
     return ReleaseReport(ok, len(records), rec_viol, sch_viol, comp, file_viol, diversity)
 
 
-def _is_public_lean_release(records: Any) -> bool:
+def _is_public_release(records: Any) -> bool:
     return (
         isinstance(records, list)
         and bool(records)
         and all(
-            isinstance(record, dict) and set(record) == set(PUBLIC_LEAN_FIELDS)
+            isinstance(record, dict) and set(record) == set(PUBLIC_FIELDS)
             for record in records
         )
     )
 
 
-def _validate_public_lean_release(
+def _validate_public_release(
     layout: ReleaseDatasetLayout,
     records: list[dict[str, Any]],
     file_viol: list[str],
     *,
-    supply_relax: bool,
     require_all_dbs: bool,
 ) -> ReleaseReport:
-    rec_viol = _validate_public_lean_records(records, require_full_release=require_all_dbs)
+    rec_viol = _validate_public_records(records, require_full_release=require_all_dbs)
     db_ids = sorted({str(record.get("db_id")) for record in records if record.get("db_id")})
     comp_viol: list[str] = []
     if require_all_dbs and len(db_ids) != BIRD_DB_COUNT:
@@ -431,19 +394,14 @@ def _validate_public_lean_release(
         l0_ratio=0.0,
         flex_ratio=0.0,
         ssf_ratio=0.0,
-        supply_relax=supply_relax,
         violations=comp_viol,
     )
     diversity = _diversity_report(records)
 
+    # TEND is schema-less: the witness documents are the only per-database asset.
     for db_id in db_ids:
-        required_files = (
-            ("mongodb_schema", layout.mongodb_schema_dir / f"{db_id}.json"),
-            ("mongodb_data", layout.mongodb_data_dir / f"{db_id}.json"),
-        )
-        for label, path in required_files:
-            if not path.exists():
-                file_viol.append(f"[C4] missing {label}/{db_id}{path.suffix}")
+        if not (layout.mongodb_data_dir / f"{db_id}.json").exists():
+            file_viol.append(f"[C4] missing mongodb_data/{db_id}.json")
 
     ok = not (rec_viol or file_viol) and comp.ok
     return ReleaseReport(
@@ -454,11 +412,11 @@ def _validate_public_lean_release(
         comp,
         file_viol,
         diversity,
-        format="public_lean",
+        format="public",
     )
 
 
-def _validate_public_lean_records(
+def _validate_public_records(
     records: list[dict[str, Any]],
     *,
     require_full_release: bool,
@@ -467,9 +425,9 @@ def _validate_public_lean_records(
     seen_ids: set[Any] = set()
     for index, record in enumerate(records):
         rid = record.get("record_id", "?")
-        if tuple(record.keys()) != PUBLIC_LEAN_FIELDS:
+        if tuple(record.keys()) != PUBLIC_FIELDS:
             issues.append(
-                f"[public r{rid}] fields must be exactly {list(PUBLIC_LEAN_FIELDS)} "
+                f"[public r{rid}] fields must be exactly {list(PUBLIC_FIELDS)} "
                 f"in order (got {list(record.keys())})"
             )
         if not isinstance(record.get("record_id"), int):
@@ -777,12 +735,8 @@ def _native_coverage_violations(records: list[dict[str, Any]]) -> list[str]:
     return []
 
 
-def _validate_native_catalog_artifact(layout: ReleaseDatasetLayout, schemas_dir: Path) -> list[str]:
-    """For native releases, validate only the shared catalog schema.
-
-    Native ``mongodb_schema`` intentionally uses feature-manifest-oriented shapes that
-    differ from the legacy proposal library schema.
-    """
+def _validate_catalog_artifact(layout: ReleaseDatasetLayout, schemas_dir: Path) -> list[str]:
+    """Validate ``bird_db_catalog.json`` against the catalog schema in ``library.schema.json``."""
     try:
         import jsonschema
     except ImportError:
@@ -802,80 +756,3 @@ def _validate_native_catalog_artifact(layout: ReleaseDatasetLayout, schemas_dir:
         f"[schema bird_db_catalog.json] {err.message} at /{'/'.join(map(str, err.path))}"
         for err in validator.iter_errors(catalog)
     ]
-
-
-def _validate_release_artifacts(
-    layout: ReleaseDatasetLayout,
-    db_ids: list[str],
-    schemas_dir: Path,
-    *,
-    validate_mongodb_data: bool = True,
-) -> list[str]:
-    """Validate release-level artifacts when proposal schemas are available."""
-    try:
-        import jsonschema
-    except ImportError:
-        return ["[schema] jsonschema is not installed; cannot validate release artifacts"]
-
-    lib_path = schemas_dir / "library.schema.json"
-    adr_path = schemas_dir / "agent_design_rationale.schema.json"
-    lib = json.loads(lib_path.read_text(encoding="utf-8")) if lib_path.exists() else None
-    adr_schema = json.loads(adr_path.read_text(encoding="utf-8")) if adr_path.exists() else None
-
-    def check(schema: dict[str, Any], obj: Any, label: str) -> list[str]:
-        validator = jsonschema.Draft202012Validator(schema)
-        issues: list[str] = []
-        for err in validator.iter_errors(obj):
-            path = "/".join(map(str, err.path))
-            issues.append(f"[schema {label}] {err.message} at /{path}")
-        return issues
-
-    def lib_ref(name: str) -> dict[str, Any]:
-        assert lib is not None
-        return {"$schema": lib.get("$schema"), "$defs": lib.get("$defs", {}),
-                "$ref": f"#/$defs/{name}"}
-
-    issues: list[str] = []
-    if lib is not None:
-        catalog_path = layout.catalog_path
-        if catalog_path.exists():
-            issues += check(
-                lib_ref("bird_db_catalog"),
-                json.loads(catalog_path.read_text(encoding="utf-8")),
-                "bird_db_catalog.json",
-            )
-        else:
-            issues.append("[C4] missing bird_db_catalog.json")
-
-    def check_db(db: str) -> list[str]:
-        db_issues: list[str] = []
-        if lib is not None:
-            artifacts = [
-                (layout.mongodb_schema_dir / f"{db}.json", "mongodb_schema", "mongodb_schema"),
-            ]
-            if validate_mongodb_data:
-                artifacts.append(
-                    (layout.mongodb_data_dir / f"{db}.json", "mongodb_data", "mongodb_data")
-                )
-            for path, ref, label in artifacts:
-                if path.exists():
-                    db_issues += check(
-                        lib_ref(ref),
-                        json.loads(path.read_text(encoding="utf-8")),
-                        f"{label}/{db}.json",
-                    )
-        if adr_schema is not None:
-            path = layout.agent_design_rationale_dir / f"{db}.yaml"
-            if path.exists():
-                db_issues += check(
-                    adr_schema,
-                    yaml.safe_load(path.read_text(encoding="utf-8")),
-                    f"agent_design_rationale/{db}.yaml",
-                )
-        return db_issues
-
-    if db_ids:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(db_ids), 8)) as pool:
-            for db_issues in pool.map(check_db, db_ids):
-                issues += db_issues
-    return issues

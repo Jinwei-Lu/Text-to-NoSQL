@@ -1,271 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tend.dev/schemas/library.schema.json",
-  "title": "TEND Library Assets",
-  "description": "JSON Schemas for per-db and global library-level assets consumed by solvers and evaluators.",
+  "title": "TEND BIRD Database Catalog",
+  "description": "JSON Schema for bird_db_catalog.json, which tend validate checks in a construct dataset.",
   "$defs": {
-    "mongoFieldName": {
-      "type": "string",
-      "pattern": "^(?!\\$)(?!\\s*$)(?!.*\\.)(?!__(variants|schema_less_features)$).+$",
-      "description": "Mongo-safe field name: non-empty, not whitespace-only, no dot paths, no dollar prefix, and not reserved schema metadata."
-    },
-    "fieldMap": {
-      "type": "object",
-      "propertyNames": { "$ref": "#/$defs/mongoFieldName" },
-      "additionalProperties": { "$ref": "#/$defs/nestedType" }
-    },
-    "fieldType": {
-      "oneOf": [
-        {
-          "type": "string",
-          "enum": ["INT", "REAL", "TEXT", "BOOL", "OBJECT", "ARRAY"]
-        },
-        {
-          "type": "object",
-          "required": ["type"],
-          "properties": {
-            "type": { "const": "ARRAY" },
-            "items": { "$ref": "#/$defs/nestedType" }
-          },
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "required": ["type", "fields"],
-          "properties": {
-            "type": { "const": "OBJECT" },
-            "fields": { "$ref": "#/$defs/fieldMap" }
-          },
-          "additionalProperties": false
-        }
-      ]
-    },
-    "nestedType": {
-      "oneOf": [
-        {
-          "type": "string",
-          "enum": ["INT", "REAL", "TEXT", "BOOL", "OBJECT", "ARRAY"]
-        },
-        {
-          "type": "object",
-          "required": ["type"],
-          "properties": {
-            "type": { "const": "ARRAY" },
-            "items": { "$ref": "#/$defs/nestedType" }
-          },
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "required": ["type", "fields"],
-          "properties": {
-            "type": { "const": "OBJECT" },
-            "fields": { "$ref": "#/$defs/fieldMap" }
-          },
-          "additionalProperties": false
-        }
-      ]
-    },
-    "mongodb_schema": {
-      "type": "object",
-      "minProperties": 1,
-      "additionalProperties": {
-        "$ref": "#/$defs/collectionSchema"
-      },
-      "description": "mongodb_schema/<db_id>.json — collection name → field declaration tree."
-    },
-    "shapeVariant": {
-      "type": "object",
-      "required": ["discriminator", "fields"],
-      "additionalProperties": false,
-      "properties": {
-        "discriminator": {
-          "type": "object",
-          "minProperties": 1,
-          "propertyNames": { "$ref": "#/$defs/mongoFieldName" },
-          "additionalProperties": { "type": "string" }
-        },
-        "fields": {
-          "type": "object",
-          "minProperties": 1,
-          "propertyNames": { "$ref": "#/$defs/mongoFieldName" },
-          "additionalProperties": { "$ref": "#/$defs/nestedType" }
-        },
-        "coverage": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "source_signal": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    "schemaLessFeature": {
-      "type": "object",
-      "required": ["family", "feature", "evidence"],
-      "additionalProperties": false,
-      "properties": {
-        "family": {
-          "type": "string",
-          "enum": [
-            "optional_embed",
-            "optional_array",
-            "sparse_scalar",
-            "polymorphic",
-            "nested_array",
-            "array_cardinality",
-            "dynamic_key",
-            "schema_versioning"
-          ]
-        },
-        "feature": { "type": "string", "minLength": 1 },
-        "coverage": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "evidence": { "type": "string", "minLength": 1 }
-      }
-    },
-    "collectionSchema": {
-      "type": "object",
-      "minProperties": 1,
-      "properties": {
-        "__variants": {
-          "type": "array",
-          "minItems": 2,
-          "items": { "$ref": "#/$defs/shapeVariant" }
-        },
-        "__schema_less_features": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/schemaLessFeature" }
-        }
-      },
-      "patternProperties": {
-        "^(?!\\$)(?!\\s*$)(?!.*\\.)(?!__(variants|schema_less_features)$).+$": { "$ref": "#/$defs/fieldType" }
-      },
-      "additionalProperties": false
-    },
-    "mongodb_data": {
-      "type": "object",
-      "minProperties": 1,
-      "additionalProperties": {
-        "type": "array",
-        "minItems": 1,
-        "items": {
-          "type": "object",
-          "required": ["_id"],
-          "propertyNames": { "$ref": "#/$defs/mongoFieldName" },
-          "additionalProperties": true
-        }
-      },
-      "description": "mongodb_data/<db_id>.json — collection name → non-empty document array."
-    },
-    "designDecision": {
-      "type": "object",
-      "required": ["id", "type", "rationale"],
-      "additionalProperties": false,
-      "properties": {
-        "id": { "type": "string", "pattern": "^D[0-9]{2,}$" },
-        "type": {
-          "type": "string",
-          "enum": [
-            "embed",
-            "reference",
-            "extended_reference",
-            "polymorphic_collapse",
-            "bucket",
-            "computed",
-            "attribute",
-            "subset",
-            "tree",
-            "outlier",
-            "schema_versioning"
-          ]
-        },
-        "parent": { "type": "string" },
-        "child": { "type": "string" },
-        "rationale": { "type": "string", "minLength": 1 },
-        "reference": { "type": "string" },
-        "pattern": { "type": "string" }
-      }
-    },
-    "agent_design_rationale": {
-      "type": "object",
-      "required": ["db_id", "decisions", "patterns_applied"],
-      "additionalProperties": true,
-      "properties": {
-        "db_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
-        "source_spider_tables": {
-          "type": "array",
-          "description": "Legacy key retained for compatibility; values are BIRD source table names.",
-          "items": { "type": "string" }
-        },
-        "source_bird_tables": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "collections": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        },
-        "decisions": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/designDecision" }
-        },
-        "patterns_applied": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "type": "string" }
-        },
-        "rationale_summary": { "type": "string" },
-        "anti_pattern_checks": {
-          "type": "object",
-          "properties": {
-            "pass": { "type": "boolean" },
-            "issues": {
-              "type": "array",
-              "items": { "type": "string" }
-            }
-          },
-          "additionalProperties": false
-        },
-        "heterogenization": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "schema_flex": {
-              "type": "string",
-              "enum": ["none", "polymorphic", "attribute_bag", "schema_versioning", "dynamic_key"]
-            },
-            "triggers": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["mechanism", "fired", "evidence"],
-                "additionalProperties": false,
-                "properties": {
-                  "mechanism": {
-                    "type": "string",
-                    "enum": ["polymorphic", "sparse", "dynamic_key", "nesting", "version", "type"]
-                  },
-                  "fired": { "type": "boolean" },
-                  "evidence": { "type": "string" }
-                }
-              }
-            }
-          }
-        }
-      },
-      "description": "agent_design_rationale/<db_id>.yaml — SRA output with evidence chain."
-    },
     "birdDbEntry": {
       "type": "object",
       "required": [
@@ -279,34 +17,74 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "db_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
-        "domain_id": { "type": "string", "minLength": 1 },
-        "sqlite_path": { "type": "string", "minLength": 1 },
-        "table_count": { "type": "integer", "minimum": 1 },
-        "query_count": { "type": "integer", "minimum": 1 },
-        "selected": { "type": "boolean" },
-        "flex_eligible": {
-          "type": "boolean",
-          "description": "DAR five-mechanism query-bearing pre-audit result; contributes to flex_eligible_db_ratio for H7/H9 supply-relax."
+        "db_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
         },
-        "selection_reason": { "type": "string" },
-        "reject_reason": { "type": "string" }
+        "domain_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sqlite_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "table_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "query_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "selected": {
+          "type": "boolean"
+        },
+        "flex_eligible": {
+          "type": "boolean"
+        },
+        "selection_reason": {
+          "type": "string"
+        },
+        "reject_reason": {
+          "type": "string"
+        }
       }
     },
     "bird_db_catalog": {
       "type": "object",
-      "required": ["source_version", "generated_at", "databases"],
+      "required": [
+        "source_version",
+        "generated_at",
+        "databases"
+      ],
       "additionalProperties": false,
       "properties": {
-        "source_version": { "type": "string", "minLength": 1 },
-        "generated_at": { "type": "string", "format": "date-time" },
-        "bird_root": { "type": "string" },
+        "source_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "bird_root": {
+          "type": "string"
+        },
         "selection_policy": {
           "type": "object",
           "properties": {
-            "min_tables": { "type": "integer", "minimum": 1 },
-            "min_queries": { "type": "integer", "minimum": 1 },
-            "require_non_empty_data": { "type": "boolean" },
+            "min_tables": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "min_queries": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "require_non_empty_data": {
+              "type": "boolean"
+            },
             "min_flex_db_ratio": {
               "type": "number",
               "minimum": 0,
@@ -319,16 +97,13 @@
         "databases": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/birdDbEntry" }
+          "items": {
+            "$ref": "#/$defs/birdDbEntry"
+          }
         }
       },
-      "description": "bird_db_catalog.json — global BIRD mini-dev inventory and query-bearing supply verdict. flex_eligible_db_ratio = count(flex_eligible) / 11; when below 0.30, Coverage Controller applies H7/H9 supply-relax."
+      "description": "bird_db_catalog.json: the BIRD mini-dev databases a tend construct run built, with their source statistics."
     }
   },
-  "oneOf": [
-    { "$ref": "#/$defs/mongodb_schema" },
-    { "$ref": "#/$defs/mongodb_data" },
-    { "$ref": "#/$defs/agent_design_rationale" },
-    { "$ref": "#/$defs/bird_db_catalog" }
-  ]
+  "$ref": "#/$defs/bird_db_catalog"
 }

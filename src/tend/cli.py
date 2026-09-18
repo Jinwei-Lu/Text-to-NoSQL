@@ -2,7 +2,7 @@
 
     tend construct --phase all --dbs financial --records 1 [--quiet]
     tend validate --dataset-dir runs/<run_id>/dataset [--smoke]
-    tend publish --dataset-dir runs/<run_id>/dataset --out release/tend-native-mongodb-v1
+    tend publish --dataset-dir runs/<run_id>/dataset --out <dir>
     tend solve --db-id financial --record-id 1001 [--stub] [--quiet]
 
 Assembles the runtime (logging + progress + BIRD source + LLM client + MongoDB executor),
@@ -683,16 +683,6 @@ def _solver_case_workflow(
     return Workflow(ctx)
 
 
-def _write_jsonl(path: Path, rows: list[dict]) -> None:
-    """Write ``rows`` one JSON object per line, creating parents; no-op when empty."""
-    if not rows:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fp:
-        for row in rows:
-            fp.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
-
-
 def _write_jsonl_even_empty(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fp:
@@ -705,7 +695,7 @@ def _materialize_evaluation_dataset_subset(
     records: list[dict[str, Any]],
     out_dir: Path,
 ) -> Path:
-    """Build a temporary release-like dataset for the records this run attempted."""
+    """Build a temporary dataset of the records this run attempted and their witness data."""
     layout = resolve_release_dataset_layout(dataset_dir)
 
     unique_records: list[dict[str, Any]] = []
@@ -720,8 +710,6 @@ def _materialize_evaluation_dataset_subset(
     if out_dir.exists():
         shutil.rmtree(out_dir)
     (out_dir / "mongodb_data").mkdir(parents=True, exist_ok=True)
-    (out_dir / "mongodb_schema").mkdir(parents=True, exist_ok=True)
-    (out_dir / "agent_design_rationale").mkdir(parents=True, exist_ok=True)
 
     (out_dir / "test.json").write_text(
         json.dumps(unique_records, ensure_ascii=False, indent=2, default=str),
@@ -750,24 +738,12 @@ def _materialize_evaluation_dataset_subset(
         encoding="utf-8",
     )
 
-    if layout.catalog_path.exists():
-        _link_or_copy_file(layout.catalog_path, out_dir / "bird_db_catalog.json")
-
     for db in sorted({str(record.get("db_id") or "") for record in unique_records}):
         if not db:
             continue
-        layout_sources = (
-            (layout.mongodb_data_dir / f"{db}.json", out_dir / "mongodb_data" / f"{db}.json"),
-            (layout.mongodb_schema_dir / f"{db}.json", out_dir / "mongodb_schema" / f"{db}.json"),
-        )
-        for src, dst in layout_sources:
-            if src.exists():
-                _link_or_copy_file(src, dst)
-        rationale_dir = layout.agent_design_rationale_dir
-        for suffix in (".yaml", ".yml", ".json"):
-            src = rationale_dir / f"{db}{suffix}"
-            if src.exists():
-                _link_or_copy_file(src, out_dir / "agent_design_rationale" / src.name)
+        src = layout.mongodb_data_dir / f"{db}.json"
+        if src.exists():
+            _link_or_copy_file(src, out_dir / "mongodb_data" / f"{db}.json")
     return out_dir
 
 
@@ -1607,8 +1583,8 @@ def _print_validation_summary(
         c = report.composition
         d = report.diversity
         print(f"  records : {report.n_records}")
-        if getattr(report, "format", "full") == "public_lean":
-            print(f"  coverage: dbs={len(c.db_ids)} public_fields=5 public_format=TEND_lean.json")
+        if report.format == "public":
+            print(f"  coverage: dbs={len(c.db_ids)} public_fields=5")
         else:
             print(f"  coverage: dbs={len(c.db_ids)} L4={c.l4_ratio:.0%} "
                   f"L0={c.l0_ratio:.0%} flex={c.flex_ratio:.0%} ssf={c.ssf_ratio:.0%}")
@@ -1824,10 +1800,9 @@ def _main_impl(argv: list[str] | None = None) -> int:
         help="skip raw mongodb_data loading and world_signature recomputation",
     )
 
-    p = sub.add_parser("publish", help="validate and copy a production release")
+    p = sub.add_parser("publish", help="validate a construct dataset and copy it to --out")
     p.add_argument("--dataset-dir", required=True, help="candidate dataset dir")
-    p.add_argument("--out", default=str(PRODUCTION_RELEASE_DIR),
-                   help="production release dir (default: release/tend-native-mongodb-v1)")
+    p.add_argument("--out", required=True, help="directory to write the validated copy to")
 
     s = sub.add_parser("solve", help="run the SAG schema-as-data-grounding solver")
     s.add_argument("--dataset-dir", default=str(PRODUCTION_RELEASE_DIR),
