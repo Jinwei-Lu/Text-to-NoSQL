@@ -8,8 +8,8 @@ Responsibilities (and *only* these — agent semantics live in tend/agents):
      sidecars. DynaDB-style markdown call logs are the default human-readable view;
      diagnostics JSON remains the machine-readable sidecar.
   3. Classify every failure into a typed LLMError with an :class:`Anomaly` kind.
-  4. Retry transient transport faults forever by default (fixed legacy waits normally,
-     full jitter in formal campaigns) and run a bounded JSON/schema *repair* loop.
+  4. Retry transient transport faults forever by default (at a fixed interval) and run a
+     bounded JSON/schema *repair* loop.
 
 Stub mode (``settings.stub``): no network; a registered ``stub_fn`` returns canned output
 so the whole pipeline is exercisable offline and deterministically in tests.
@@ -22,26 +22,15 @@ import hashlib
 import inspect
 import json
 import math
-import os
-import random
-import re
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from functools import partial
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 from urllib.parse import urlparse
 from uuid import uuid4
-
-try:  # ``flock`` is required only by formal file-backed campaign budgeting.
-    import fcntl
-except ImportError:  # pragma: no cover - OpenRouter campaign runner is Unix-only
-    fcntl = None  # type: ignore[assignment]
 
 import json5
 from jsonschema import Draft202012Validator
@@ -81,1566 +70,7 @@ _REFUSAL_MARKERS = (
 )
 _ALLOWED_ROLES = {"system", "user", "assistant", "developer"}
 _ALLOWED_MESSAGE_KEYS = {"role", "content", "name", "reasoning_content"}
-_BUDGET_LEDGER_SCHEMA = "tend.openrouter_campaign_budget.v3"
 _COMPACTED_ATTEMPTS_KIND = "compacted_attempts"
-_BUDGET_EVENT_LIMIT = 256
-_LEDGER_EXECUTOR_WORKERS = 1
-
-
-class BudgetReservationBusy(RuntimeError):
-    """The cap is temporarily occupied by other in-flight provider requests."""
-
-    def __init__(self, *, context: dict[str, Any]) -> None:
-        super().__init__("OpenRouter campaign budget is temporarily fully reserved")
-        self.context = context
-
-
-class CampaignBudgetLedger:
-    """Fail-closed cross-process state for one frozen OpenRouter campaign.
-
-    The JSON file is atomically replaced while an independent, never-replaced ``.lock``
-    inode is held.  Cap, worst-case request reservation, and pricing snapshot hash are
-    immutable across processes.  Pauses survive restarts and require explicit resume.
-    """
-
-    def __init__(
-        self,
-        path: str | Path,
-        *,
-        cap_usd: float,
-        reservation_usd: float,
-        pricing_profile_sha256: str,
-    ) -> None:
-        self.path = Path(path).expanduser().resolve()
-        self.lock_path = self.path.with_name(f"{self.path.name}.lock")
-        self.ack_root = self.path.with_name(f"{self.path.name}.attempt-acks")
-        self.cap_usd = self._finite_nonnegative(cap_usd, "campaign budget cap")
-        self.reservation_usd = self._finite_nonnegative(
-            reservation_usd, "request reservation"
-        )
-        self.pricing_profile_sha256 = str(pricing_profile_sha256).strip().lower()
-        if self.cap_usd <= 0:
-            raise ValueError("campaign budget cap must be positive")
-        if self.reservation_usd <= 0:
-            raise ValueError("request reservation must be positive")
-        if self.reservation_usd > self.cap_usd:
-            raise ValueError("request reservation cannot exceed campaign budget cap")
-        if not re.fullmatch(r"[0-9a-f]{64}", self.pricing_profile_sha256):
-            raise ValueError("pricing_profile_sha256 must contain exactly 64 hex characters")
-
-    def initialize(self) -> dict[str, Any]:
-        """Create or validate the frozen ledger without changing spend counters."""
-
-        return self._locked_update(lambda _state: None)
-
-    def snapshot(self) -> dict[str, Any]:
-        """Read and validate the durable state under the cross-process lock."""
-
-        state = self._locked_update(None)
-        accounted_remaining = (
-            state["cap_usd"]
-            - state["known_cost_usd"]
-            - state["unknown_spend_usd"]
-            - state["reserved_usd"]
-        )
-        state["accounted_remaining_usd"] = accounted_remaining
-        state["effective_remaining_usd"] = (
-            accounted_remaining - state["unaccounted_provider_cost_usd"]
-        )
-        # Backward-compatible name now uses the conservative, real-overage-aware value.
-        state["remaining_usd"] = state["effective_remaining_usd"]
-        return state
-
-    def reserve(
-        self,
-        reservation_id: str,
-        amount_usd: float,
-        *,
-        attempt_receipt: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Reserve the frozen worst-case amount before a provider request is sent."""
-
-        amount = self._finite_nonnegative(amount_usd, "request reservation")
-        if amount <= 0:
-            raise ValueError("request reservation must be positive")
-        if not math.isclose(amount, self.reservation_usd, rel_tol=0.0, abs_tol=1e-12):
-            raise ValueError("request reservation does not match the frozen ledger profile")
-        if not isinstance(reservation_id, str) or not reservation_id.strip():
-            raise ValueError("reservation_id must be a non-empty string")
-        outcome: dict[str, Any] = {}
-
-        def mutate(state: dict[str, Any]) -> None:
-            if state["paused"]:
-                outcome["paused"] = state["pause_reason"]
-                return
-            active = state["active_reservations"]
-            if reservation_id in active:
-                reason = "duplicate_budget_reservation"
-                self._set_paused(state, reason, {"reservation_id": reservation_id})
-                outcome["paused"] = reason
-                return
-            spent = state["known_cost_usd"] + state["unknown_spend_usd"]
-            reserved = state["reserved_usd"]
-            if spent + amount > self.cap_usd + 1e-12:
-                reason = "campaign_budget_exhausted"
-                self._set_paused(
-                    state,
-                    reason,
-                    {
-                        "known_plus_unknown_usd": spent,
-                        "requested_reservation_usd": amount,
-                    },
-                )
-                outcome["paused"] = reason
-                return
-            if spent + reserved + amount > self.cap_usd + 1e-12:
-                outcome["busy"] = {
-                    "ledger": str(self.path),
-                    "cap_usd": self.cap_usd,
-                    "known_plus_unknown_usd": spent,
-                    "reserved_usd": reserved,
-                    "requested_reservation_usd": amount,
-                }
-                return
-            started_receipt = self._make_started_attempt_receipt(
-                reservation_id=reservation_id,
-                reservation_usd=amount,
-                attempt_receipt=attempt_receipt,
-            )
-            started_id = str(started_receipt["attempt_receipt_id"])
-            active_receipt_ids = {
-                str(value.get("started_attempt_receipt", {}).get("attempt_receipt_id"))
-                for value in active.values()
-                if isinstance(value, dict)
-            }
-            if (
-                started_id in active_receipt_ids
-                or started_id in state["unacked_attempt_receipts"]
-                or self._read_attempt_ack_marker(started_id) is not None
-            ):
-                reason = "duplicate_started_attempt_receipt"
-                self._set_paused(
-                    state,
-                    reason,
-                    {
-                        "reservation_id": reservation_id,
-                        "attempt_receipt_id": started_id,
-                    },
-                )
-                outcome["paused"] = reason
-                return
-            active[reservation_id] = {
-                "amount_usd": amount,
-                "owner_pid": os.getpid(),
-                "reserved_at": self._now(),
-                "started_attempt_receipt": started_receipt,
-            }
-            state["reserved_usd"] = self._active_sum(active)
-            state["started_attempt_count"] += 1
-            outcome["attempt_receipt_id"] = started_id
-            outcome["started_attempt_receipt_sha256"] = started_receipt[
-                "started_attempt_receipt_sha256"
-            ]
-
-        state = self._locked_update(mutate)
-        if "paused" in outcome:
-            raise self._pause_error(str(outcome["paused"]))
-        if "busy" in outcome:
-            raise BudgetReservationBusy(context=outcome["busy"])
-        state["attempt_receipt_id"] = outcome.get("attempt_receipt_id")
-        state["started_attempt_receipt_sha256"] = outcome.get(
-            "started_attempt_receipt_sha256"
-        )
-        return state
-
-    def settle(
-        self,
-        reservation_id: str,
-        *,
-        known_cost_usd: float | None,
-        call_id: str | None = None,
-        provider_attempt_index: int | None = None,
-        settlement_kind: str = "provider_attempt",
-        pause_reason: str | None = None,
-        raise_on_pause: bool = True,
-        attempt_receipt: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Settle and optionally pause in one locked transaction.
-
-        Unknown or invalid cost consumes the complete reservation.  Invalid cost pauses.
-        A cost above the frozen reservation records the underestimation, accounts the
-        reserved amount, stores the excess separately, and pauses.  This preserves both
-        the hard-cap invariant and the evidence needed for operator reconciliation.
-        """
-
-        outcome: dict[str, Any] = {}
-
-        def mutate(state: dict[str, Any]) -> None:
-            preexisting_pause_reason = (
-                str(state["pause_reason"]) if state["paused"] else None
-            )
-            active = state["active_reservations"]
-            raw_reservation = active.pop(reservation_id, None)
-            if raw_reservation is None:
-                reason = "missing_budget_reservation"
-                self._set_paused(state, reason, {"reservation_id": reservation_id})
-                outcome["pause_reason"] = reason
-                return
-            amount, owner_pid = self._reservation_amount_and_owner(
-                reservation_id, raw_reservation
-            )
-            started_attempt_receipt = (
-                raw_reservation.get("started_attempt_receipt")
-                if isinstance(raw_reservation, dict)
-                else None
-            )
-            state["reserved_usd"] = self._active_sum(active)
-            valid_cost = False
-            cost = 0.0
-            raw_cost_repr: str | None = None
-            if known_cost_usd is not None:
-                try:
-                    cost = float(known_cost_usd)
-                    valid_cost = math.isfinite(cost) and cost >= 0
-                except (TypeError, ValueError):
-                    raw_cost_repr = repr(known_cost_usd)
-            effective_pause = pause_reason
-            if known_cost_usd is None:
-                state["unknown_spend_usd"] += amount
-                accounting_kind = "unknown"
-            elif not valid_cost:
-                raw_cost_repr = raw_cost_repr or repr(known_cost_usd)
-                state["unknown_spend_usd"] += amount
-                accounting_kind = "invalid_provider_cost"
-                effective_pause = "invalid_provider_cost"
-            elif cost > amount + 1e-12:
-                state["known_cost_usd"] += amount
-                state["unaccounted_provider_cost_usd"] += cost - amount
-                state["underestimated_reservation_count"] += 1
-                accounting_kind = "reservation_underestimated"
-                effective_pause = "provider_cost_exceeded_reservation"
-            else:
-                state["known_cost_usd"] += cost
-                accounting_kind = "known"
-            state["settled_attempts"] += 1
-            event = {
-                "event": "provider_reservation_settled",
-                "reservation_id": reservation_id,
-                "reservation_usd": amount,
-                "owner_pid": owner_pid,
-                "call_id": call_id,
-                "provider_attempt_index": provider_attempt_index,
-                "settlement_kind": settlement_kind,
-                "accounting_kind": accounting_kind,
-                "provider_cost_usd": cost if valid_cost else None,
-                "provider_cost_raw": raw_cost_repr,
-                "timestamp": self._now(),
-            }
-            if effective_pause:
-                self._set_paused(state, effective_pause, event)
-                outcome["pause_reason"] = effective_pause
-                outcome["pause_triggered_by_settlement"] = True
-            else:
-                outcome["pause_triggered_by_settlement"] = False
-                outcome["preexisting_pause_reason"] = preexisting_pause_reason
-
-            receipt = self._make_attempt_recovery_receipt(
-                state=state,
-                reservation_id=reservation_id,
-                reservation_usd=amount,
-                call_id=call_id,
-                provider_attempt_index=provider_attempt_index,
-                settlement_kind=settlement_kind,
-                accounting_kind=accounting_kind,
-                valid_provider_cost_usd=(cost if valid_cost else None),
-                provider_cost_raw=raw_cost_repr,
-                attempt_receipt=attempt_receipt,
-                started_attempt_receipt=started_attempt_receipt,
-                pause_triggered_by_settlement=bool(
-                    outcome["pause_triggered_by_settlement"]
-                ),
-                settlement_pause_reason=(
-                    str(outcome.get("pause_reason"))
-                    if outcome.get("pause_triggered_by_settlement")
-                    else None
-                ),
-                preexisting_pause_reason=preexisting_pause_reason,
-            )
-            receipt_id = str(receipt["attempt_receipt_id"])
-            receipt_sha256 = str(receipt["attempt_receipt_sha256"])
-            pending = state["unacked_attempt_receipts"]
-            prior = pending.get(receipt_id)
-            prior_hash = (
-                prior.get("attempt_receipt_sha256")
-                if isinstance(prior, dict)
-                else self._read_attempt_ack_marker(receipt_id)
-            )
-            if prior_hash is not None:
-                reason = "duplicate_or_conflicting_attempt_receipt"
-                self._set_paused(
-                    state,
-                    reason,
-                    {
-                        "attempt_receipt_id": receipt_id,
-                        "existing_sha256": prior_hash,
-                        "new_sha256": receipt_sha256,
-                    },
-                )
-                outcome["pause_reason"] = reason
-                outcome["pause_triggered_by_settlement"] = True
-            else:
-                pending[receipt_id] = receipt
-                state["attempt_receipt_count"] += 1
-            event["attempt_receipt_id"] = receipt_id
-            event["attempt_receipt_sha256"] = receipt_sha256
-            self._append_bounded(state, "settlement_events", event)
-            state["settlement_event_count"] += 1
-            outcome["attempt_receipt_id"] = receipt_id
-            outcome["attempt_receipt_sha256"] = receipt_sha256
-
-        state = self._locked_update(mutate)
-        state["settlement_pause_triggered"] = bool(
-            outcome.get("pause_triggered_by_settlement", False)
-        )
-        state["settlement_preexisting_pause_reason"] = outcome.get(
-            "preexisting_pause_reason"
-        )
-        state["settlement_pause_reason"] = (
-            outcome.get("pause_reason")
-            if outcome.get("pause_triggered_by_settlement")
-            else None
-        )
-        state["attempt_receipt_id"] = outcome.get("attempt_receipt_id")
-        state["attempt_receipt_sha256"] = outcome.get("attempt_receipt_sha256")
-        if raise_on_pause and outcome.get("pause_triggered_by_settlement"):
-            raise self._pause_error(str(outcome["pause_reason"]))
-        return state
-
-    def pending_attempt_rows(self) -> list[dict[str, Any]]:
-        """Return unacknowledged provider-attempt WAL rows in stable order."""
-
-        state = self._locked_update(None)
-        pending = state["unacked_attempt_receipts"]
-        return [pending[key] for key in sorted(pending)]
-
-    def verify_attempt_receipt_acks(self) -> dict[str, Any]:
-        """Validate the sharded acknowledgement index against ledger counters."""
-
-        summary: dict[str, Any] = {}
-
-        def inspect(state: dict[str, Any]) -> None:
-            markers: dict[str, str] = {}
-            if self.ack_root.exists():
-                for marker in sorted(self.ack_root.glob("*/*.json")):
-                    receipt_id = marker.stem
-                    if receipt_id in markers:
-                        raise self._invalid_state(
-                            "attempt acknowledgement index contains duplicate ids"
-                        )
-                    receipt_hash = self._read_attempt_ack_marker(receipt_id)
-                    if receipt_hash is None:
-                        raise self._invalid_state(
-                            "attempt acknowledgement marker disappeared during audit"
-                        )
-                    markers[receipt_id] = receipt_hash
-            expected = int(state["attempt_receipt_ack_count"])
-            if len(markers) != expected:
-                raise self._invalid_state(
-                    "attempt acknowledgement marker count does not match ledger counter"
-                )
-            pending = state["unacked_attempt_receipts"]
-            if set(markers) & set(pending):
-                raise self._invalid_state(
-                    "attempt receipt is both pending and acknowledged"
-                )
-            digest_input = "\n".join(
-                f"{receipt_id}:{markers[receipt_id]}" for receipt_id in sorted(markers)
-            ).encode("utf-8")
-            summary.update(
-                {
-                    "ack_root": str(self.ack_root),
-                    "acknowledged_count": len(markers),
-                    "pending_count": len(pending),
-                    "attempt_receipt_count": int(state["attempt_receipt_count"]),
-                    "started_attempt_count": int(state["started_attempt_count"]),
-                    "settled_attempts": int(state["settled_attempts"]),
-                    "active_reservation_count": len(state["active_reservations"]),
-                    "ack_index_sha256": hashlib.sha256(digest_input).hexdigest(),
-                }
-            )
-
-        self._locked_update(inspect)
-        return summary
-
-    def acknowledge_attempt_receipt(
-        self,
-        attempt_receipt_id: str,
-        attempt_receipt_sha256: str,
-    ) -> dict[str, Any]:
-        """Acknowledge one fsynced attempt row without permitting wildcard cleanup."""
-
-        receipt_id = str(attempt_receipt_id).strip()
-        receipt_hash = str(attempt_receipt_sha256).strip().lower()
-        if not re.fullmatch(r"[0-9a-f]{64}", receipt_id):
-            raise ValueError("attempt_receipt_id must contain 64 lowercase hex characters")
-        if not re.fullmatch(r"[0-9a-f]{64}", receipt_hash):
-            raise ValueError("attempt_receipt_sha256 must contain 64 hex characters")
-        outcome: dict[str, Any] = {}
-
-        def mutate(state: dict[str, Any]) -> None:
-            pending = state["unacked_attempt_receipts"]
-            receipt = pending.get(receipt_id)
-            if receipt is None:
-                prior_hash = self._read_attempt_ack_marker(receipt_id)
-                if prior_hash == receipt_hash:
-                    outcome["already_acknowledged"] = True
-                    return
-                reason = "attempt_receipt_ack_mismatch"
-                self._set_paused(
-                    state,
-                    reason,
-                    {
-                        "attempt_receipt_id": receipt_id,
-                        "expected_sha256": prior_hash,
-                        "received_sha256": receipt_hash,
-                    },
-                )
-                outcome["pause_reason"] = reason
-                return
-            expected_hash = receipt.get("attempt_receipt_sha256")
-            if expected_hash != receipt_hash:
-                reason = "attempt_receipt_ack_mismatch"
-                self._set_paused(
-                    state,
-                    reason,
-                    {
-                        "attempt_receipt_id": receipt_id,
-                        "expected_sha256": expected_hash,
-                        "received_sha256": receipt_hash,
-                    },
-                )
-                outcome["pause_reason"] = reason
-                return
-            self._write_attempt_ack_marker(receipt_id, receipt_hash)
-            pending.pop(receipt_id)
-            state["attempt_receipt_ack_count"] += 1
-            outcome["acknowledged"] = True
-
-        state = self._locked_update(mutate)
-        if "pause_reason" in outcome:
-            raise self._pause_error(str(outcome["pause_reason"]))
-        return state
-
-    def reconcile_attempt_receipts(
-        self,
-        sink_path: str | Path,
-        *,
-        receipt_enricher: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
-        receipt_filter: Callable[[dict[str, Any]], bool] | None = None,
-    ) -> dict[str, Any]:
-        """Idempotently backfill pending WAL rows into one durable JSONL sink.
-
-        The sink has its own permanent lock inode. A crash after append/fsync but
-        before budget-ledger acknowledgement is safe: the next run finds the same
-        receipt id and hash, then only acknowledges it. A conflicting row pauses the
-        campaign instead of silently accepting different route or cost evidence.
-        """
-
-        path = Path(sink_path).expanduser().resolve()
-        if path in {self.path, self.lock_path}:
-            raise ValueError("attempt receipt sink must differ from the budget ledger")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        sink_lock_path = path.with_name(f"{path.name}.lock")
-        recovered = 0
-        already_present = 0
-        acknowledged = 0
-        filtered_out = 0
-        for receipt in self.pending_attempt_rows():
-            if receipt_filter is not None and not bool(receipt_filter(dict(receipt))):
-                filtered_out += 1
-                continue
-            receipt_id = str(receipt["attempt_receipt_id"])
-            receipt_hash = str(receipt["attempt_receipt_sha256"])
-            lock_fd = os.open(sink_lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-            try:
-                fcntl.flock(lock_fd, fcntl.LOCK_EX)
-                existing = self._attempt_sink_index(path)
-                prior = existing.get(receipt_id)
-                if prior is not None and prior != receipt_hash:
-                    state = self.pause(
-                        "attempt_receipt_sink_mismatch",
-                        details={
-                            "sink": str(path),
-                            "attempt_receipt_id": receipt_id,
-                            "ledger_sha256": receipt_hash,
-                            "sink_sha256": prior,
-                        },
-                    )
-                    raise self._pause_error(
-                        str(state.get("pause_reason") or "attempt_receipt_sink_mismatch")
-                    )
-                if prior is None:
-                    row = json.loads(json.dumps(receipt))
-                    if receipt_enricher is not None:
-                        enriched = receipt_enricher(dict(row))
-                        if not isinstance(enriched, dict):
-                            raise TypeError("receipt_enricher must return an object")
-                        row = enriched
-                    if (
-                        row.get("attempt_receipt_id") != receipt_id
-                        or row.get("attempt_receipt_sha256") != receipt_hash
-                    ):
-                        raise ValueError(
-                            "receipt_enricher cannot change receipt id or hash"
-                        )
-                    row["recovered_from_budget_wal"] = True
-                    payload = (
-                        json.dumps(
-                            self._receipt_json_safe(row),
-                            ensure_ascii=False,
-                            sort_keys=True,
-                            allow_nan=False,
-                        )
-                        + "\n"
-                    ).encode("utf-8")
-                    descriptor = os.open(
-                        path,
-                        os.O_WRONLY | os.O_CREAT | os.O_APPEND,
-                        0o600,
-                    )
-                    try:
-                        offset = 0
-                        while offset < len(payload):
-                            offset += os.write(descriptor, payload[offset:])
-                        os.fsync(descriptor)
-                    finally:
-                        os.close(descriptor)
-                    recovered += 1
-                else:
-                    already_present += 1
-                # Merely reading a complete row does not prove it survived the prior
-                # writer's crash. Re-establish file and directory durability before
-                # deleting the only WAL copy, including the already-present branch.
-                self._fsync_attempt_sink(path)
-                self.acknowledge_attempt_receipt(receipt_id, receipt_hash)
-                acknowledged += 1
-            finally:
-                try:
-                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                finally:
-                    os.close(lock_fd)
-        remaining = self.pending_attempt_rows()
-        remaining_matching = (
-            len(remaining)
-            if receipt_filter is None
-            else sum(1 for row in remaining if bool(receipt_filter(dict(row))))
-        )
-        return {
-            "sink": str(path),
-            "recovered": recovered,
-            "already_present": already_present,
-            "acknowledged": acknowledged,
-            "filtered_out": filtered_out,
-            "remaining_pending": len(remaining),
-            "remaining_matching": remaining_matching,
-        }
-
-    def _make_started_attempt_receipt(
-        self,
-        *,
-        reservation_id: str,
-        reservation_usd: float,
-        attempt_receipt: dict[str, Any] | None,
-    ) -> dict[str, Any]:
-        template = self._receipt_json_safe(attempt_receipt or {})
-        if not isinstance(template, dict):
-            raise ValueError("attempt_receipt must be an object")
-        identity = self._attempt_receipt_identity(
-            reservation_id=reservation_id,
-            template=template,
-            call_id=template.get("call_id"),
-            provider_attempt_index=template.get("provider_attempt_index"),
-        )
-        receipt_id = hashlib.sha256(
-            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        started = {
-            "attempt_receipt_id": receipt_id,
-            "attempt_receipt_identity": identity,
-            "reservation_id": reservation_id,
-            "reservation_usd": reservation_usd,
-            "owner_pid": os.getpid(),
-            "started_at": self._now(),
-            "status": "provider_request_started",
-            "attempt_receipt_template": template,
-        }
-        canonical = json.dumps(
-            started,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-        started["started_attempt_receipt_sha256"] = hashlib.sha256(canonical).hexdigest()
-        return started
-
-    def _attempt_receipt_identity(
-        self,
-        *,
-        reservation_id: str,
-        template: dict[str, Any],
-        call_id: Any,
-        provider_attempt_index: Any,
-    ) -> dict[str, Any]:
-        context = template.get("receipt_context")
-        if not isinstance(context, dict):
-            context = {}
-        task_id = str(template.get("task_id") or context.get("task_id") or "unknown")
-        db_id = str(
-            context.get("formal_db_id")
-            or (task_id.split("/", 1)[0] if task_id != "unknown" else "unknown")
-        )
-        try:
-            attempt_index = int(provider_attempt_index or 0)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("provider_attempt_index must be an integer") from exc
-        return {
-            "campaign_binding": str(
-                context.get("formal_campaign_manifest_sha256")
-                or context.get("campaign_binding")
-                or self.pricing_profile_sha256
-            ),
-            "arm_id": str(context.get("formal_arm_id") or template.get("agent") or "unknown"),
-            "db_id": db_id,
-            "task_id": task_id,
-            "call_id": str(call_id or template.get("call_id") or "unknown"),
-            "provider_attempt_index": attempt_index,
-            "reservation_id": reservation_id,
-        }
-
-    def _make_attempt_recovery_receipt(
-        self,
-        *,
-        state: dict[str, Any],
-        reservation_id: str,
-        reservation_usd: float,
-        call_id: str | None,
-        provider_attempt_index: int | None,
-        settlement_kind: str,
-        accounting_kind: str,
-        valid_provider_cost_usd: float | None,
-        provider_cost_raw: str | None,
-        attempt_receipt: dict[str, Any] | None,
-        started_attempt_receipt: dict[str, Any] | None,
-        pause_triggered_by_settlement: bool,
-        settlement_pause_reason: str | None,
-        preexisting_pause_reason: str | None,
-    ) -> dict[str, Any]:
-        started = self._receipt_json_safe(started_attempt_receipt or {})
-        if not isinstance(started, dict):
-            raise ValueError("started_attempt_receipt must be an object")
-        started_template = started.get("attempt_receipt_template")
-        if not isinstance(started_template, dict):
-            started_template = {}
-        template = {
-            **started_template,
-            **self._receipt_json_safe(attempt_receipt or {}),
-        }
-        if not isinstance(template, dict):
-            raise ValueError("attempt_receipt must be an object")
-        context = template.get("receipt_context")
-        if not isinstance(context, dict):
-            context = {}
-        task_id = str(template.get("task_id") or context.get("task_id") or "unknown")
-        agent = str(template.get("agent") or "unknown")
-        started_identity = started.get("attempt_receipt_identity")
-        if isinstance(started_identity, dict):
-            identity = started_identity
-        else:
-            identity = self._attempt_receipt_identity(
-                reservation_id=reservation_id,
-                template=template,
-                call_id=call_id,
-                provider_attempt_index=provider_attempt_index,
-            )
-        receipt_id = str(started.get("attempt_receipt_id") or "")
-        expected_id = hashlib.sha256(
-            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        if receipt_id and receipt_id != expected_id:
-            raise ValueError("started attempt receipt id does not match its identity")
-        receipt_id = expected_id
-        raw_latency = template.get("latency_s", 0.0)
-        latency = self._finite_nonnegative(raw_latency, "attempt receipt latency_s")
-        response_received = bool(template.get("response_received", False))
-        status = str(
-            template.get("status")
-            or (
-                "response_received_pending_validation"
-                if response_received
-                else "provider_error_pending_retry_decision"
-            )
-        ).strip()
-        if not status:
-            raise ValueError("attempt receipt status must be non-empty")
-        anomaly = template.get("anomaly")
-        if not response_received and not str(anomaly or "").strip():
-            anomaly = "api_error"
-        usage = template.get("usage")
-        if not isinstance(usage, dict):
-            usage = {}
-        provider_metadata = template.get("provider_metadata")
-        if not isinstance(provider_metadata, dict):
-            provider_metadata = {}
-        budget_reservation = template.get("budget_reservation")
-        if not isinstance(budget_reservation, dict):
-            budget_reservation = {}
-        budget_reservation.update(
-            {
-                "reservation_id": reservation_id,
-                "reservation_usd": reservation_usd,
-            }
-        )
-        settled_cost = valid_provider_cost_usd
-        budget_settlement = {
-            "reservation_id": reservation_id,
-            "settled_cost_usd": settled_cost,
-            "settlement_kind": "known" if settled_cost is not None else "unknown",
-            "accounting_kind": accounting_kind,
-            "cap_usd": state["cap_usd"],
-            "known_cost_usd": state["known_cost_usd"],
-            "unknown_spend_usd": state["unknown_spend_usd"],
-            "reserved_usd": state["reserved_usd"],
-            "unaccounted_provider_cost_usd": state[
-                "unaccounted_provider_cost_usd"
-            ],
-            "paused": state["paused"],
-            "pause_reason": state["pause_reason"],
-            "settlement_pause_reason": settlement_pause_reason,
-            "settlement_pause_triggered": pause_triggered_by_settlement,
-            "preexisting_pause_reason": preexisting_pause_reason,
-        }
-        row = {
-            "record_type": "provider_attempt",
-            "attempt_receipt_id": receipt_id,
-            "attempt_receipt_identity": identity,
-            "receipt_state": "settled_pending_durable_attempt_row",
-            "call_id": identity["call_id"],
-            "agent": agent,
-            "model": template.get("model"),
-            "provider_attempt_index": identity["provider_attempt_index"],
-            "transport_attempt": int(template.get("transport_attempt", 0) or 0),
-            "repair_index": int(template.get("repair_index", 0) or 0),
-            "request_kind": (
-                "initial" if int(template.get("repair_index", 0) or 0) == 0 else "json_repair"
-            ),
-            "timestamp": str(template.get("timestamp") or self._now()),
-            "stage": template.get("stage"),
-            "task_id": task_id,
-            "status": status,
-            "call_status": status,
-            "response_received": response_received,
-            "latency_s": latency,
-            "finish_reason": template.get("finish_reason"),
-            "prompt_tokens": usage.get("prompt_tokens", 0),
-            "completion_tokens": usage.get("completion_tokens", 0),
-            "total_tokens": usage.get(
-                "total_tokens",
-                int(usage.get("prompt_tokens", 0) or 0)
-                + int(usage.get("completion_tokens", 0) or 0),
-            ),
-            "cache_hit_tokens": usage.get("cache_hit_tokens", 0),
-            "cache_miss_tokens": usage.get("cache_miss_tokens", 0),
-            "provider_metadata": provider_metadata or None,
-            "provider": provider_metadata.get("provider"),
-            "openrouter_metadata": provider_metadata.get("openrouter_metadata"),
-            "provider_cost_observed": template.get(
-                "provider_cost_observed", provider_cost_raw
-            ),
-            "cost_usd": valid_provider_cost_usd,
-            "settled_cost_usd": settled_cost,
-            "cost_source": template.get("cost_source") or accounting_kind,
-            "anomaly": anomaly,
-            "error": template.get("error"),
-            "request_config": template.get("request_config") or {},
-            "budget_reservation": budget_reservation,
-            "budget_settlement": budget_settlement,
-            "settlement_kind_detail": settlement_kind,
-            "recovered_from_budget_wal": True,
-        }
-        row = self._receipt_json_safe(row)
-        canonical = json.dumps(
-            row,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-        row["attempt_receipt_sha256"] = hashlib.sha256(canonical).hexdigest()
-        return row
-
-    @staticmethod
-    def _receipt_json_safe(value: Any) -> Any:
-        if isinstance(value, float) and not math.isfinite(value):
-            return {"nonfinite_float": repr(value)}
-        if value is None or isinstance(value, (str, int, float, bool)):
-            return value
-        if isinstance(value, dict):
-            return {
-                str(key): CampaignBudgetLedger._receipt_json_safe(item)
-                for key, item in value.items()
-            }
-        if isinstance(value, (list, tuple, set)):
-            return [CampaignBudgetLedger._receipt_json_safe(item) for item in value]
-        return _safe_repr(value)
-
-    def _attempt_sink_index(self, path: Path) -> dict[str, str]:
-        if not path.exists():
-            return {}
-        data = path.read_bytes()
-        if data and not data.endswith(b"\n"):
-            last_newline = data.rfind(b"\n")
-            descriptor = os.open(path, os.O_RDWR)
-            try:
-                os.ftruncate(descriptor, last_newline + 1)
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
-            data = data[: last_newline + 1]
-        index: dict[str, str] = {}
-        for line_number, raw_line in enumerate(data.splitlines(), start=1):
-            if not raw_line.strip():
-                continue
-            try:
-                row = json.loads(raw_line)
-            except json.JSONDecodeError as exc:
-                raise CampaignPauseError(
-                    "attempt receipt sink contains invalid JSON",
-                    context={
-                        "pause_reason": "attempt_receipt_sink_invalid",
-                        "sink": str(path),
-                        "line": line_number,
-                    },
-                ) from exc
-            receipt_id = row.get("attempt_receipt_id")
-            receipt_hash = row.get("attempt_receipt_sha256")
-            if receipt_id is None:
-                continue
-            if not isinstance(receipt_id, str) or not re.fullmatch(
-                r"[0-9a-f]{64}", str(receipt_hash or "")
-            ):
-                raise CampaignPauseError(
-                    "attempt receipt sink contains an invalid receipt identity",
-                    context={
-                        "pause_reason": "attempt_receipt_sink_invalid",
-                        "sink": str(path),
-                        "line": line_number,
-                    },
-                )
-            if receipt_id in index:
-                raise CampaignPauseError(
-                    "attempt receipt sink contains a duplicate receipt id",
-                    context={
-                        "pause_reason": "attempt_receipt_sink_duplicate",
-                        "sink": str(path),
-                        "attempt_receipt_id": receipt_id,
-                    },
-                )
-            index[receipt_id] = str(receipt_hash)
-        return index
-
-    def pause(self, reason: str, *, details: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Persist a campaign-wide pause without changing reservations."""
-
-        normalized = str(reason).strip()
-        if not normalized:
-            raise ValueError("pause reason must be non-empty")
-
-        def mutate(state: dict[str, Any]) -> None:
-            self._set_paused(state, normalized, details or {})
-
-        return self._locked_update(mutate)
-
-    def resume_campaign(self, operator_reason: str) -> dict[str, Any]:
-        """Explicitly resume a safe ledger; the client never calls this automatically.
-
-        A reservation underestimation leaves unaccounted provider cost and cannot be
-        resumed in place. It requires operator reconciliation and an explicitly
-        authorized successor pricing profile/ledger so the original evidence remains.
-        """
-
-        reason = str(operator_reason).strip()
-        if not reason:
-            raise ValueError("operator_reason must be non-empty")
-        outcome: dict[str, str] = {}
-
-        def mutate(state: dict[str, Any]) -> None:
-            if state["active_reservations"]:
-                outcome["blocked"] = "active_reservations_remain"
-                return
-            if state["unaccounted_provider_cost_usd"] > 0:
-                outcome["blocked"] = "unaccounted_provider_cost_remains"
-                return
-            if (
-                state["known_cost_usd"]
-                + state["unknown_spend_usd"]
-                + self.reservation_usd
-                > self.cap_usd + 1e-12
-            ):
-                outcome["blocked"] = "campaign_budget_exhausted"
-                return
-            if state["paused"]:
-                self._append_bounded(
-                    state,
-                    "pause_events",
-                    {
-                        "event": "campaign_resumed",
-                        "operator_reason": reason,
-                        "prior_pause_reason": state["pause_reason"],
-                        "timestamp": self._now(),
-                    },
-                )
-                state["paused"] = False
-                state["pause_reason"] = None
-                state["paused_at"] = None
-                state["resume_count"] += 1
-
-        state = self._locked_update(mutate)
-        if "blocked" in outcome:
-            raise self._pause_error(outcome["blocked"])
-        return state
-
-    def reconcile_process(self, owner_pid: int) -> dict[str, Any]:
-        """Move reservations of one caller-confirmed dead PID to unknown spend."""
-
-        if isinstance(owner_pid, bool) or not isinstance(owner_pid, int) or owner_pid <= 0:
-            raise ValueError("owner_pid must be a positive integer")
-
-        def mutate(state: dict[str, Any]) -> None:
-            active = state["active_reservations"]
-            matched: list[tuple[str, float, dict[str, Any]]] = []
-            for reservation_id, raw_reservation in list(active.items()):
-                amount, reservation_owner = self._reservation_amount_and_owner(
-                    reservation_id, raw_reservation
-                )
-                if reservation_owner == owner_pid:
-                    matched.append((reservation_id, amount, raw_reservation))
-            recovered_amount = math.fsum(amount for _key, amount, _raw in matched)
-            for reservation_id, _amount, _raw in matched:
-                active.pop(reservation_id)
-            state["reserved_usd"] = self._active_sum(active)
-            state["unknown_spend_usd"] += recovered_amount
-            now = self._now()
-            preexisting_pause_reason = (
-                str(state["pause_reason"]) if state["paused"] else None
-            )
-            finalized_receipt_ids: list[str] = []
-            for reservation_id, amount, raw_reservation in matched:
-                started = raw_reservation["started_attempt_receipt"]
-                identity = started["attempt_receipt_identity"]
-                try:
-                    started_at = datetime.fromisoformat(str(started["started_at"]))
-                    latency_s = max(
-                        0.0,
-                        (datetime.now(timezone.utc) - started_at).total_seconds(),
-                    )
-                except (KeyError, TypeError, ValueError):
-                    latency_s = 0.0
-                state["settled_attempts"] += 1
-                receipt = self._make_attempt_recovery_receipt(
-                    state=state,
-                    reservation_id=reservation_id,
-                    reservation_usd=amount,
-                    call_id=str(identity.get("call_id") or "unknown"),
-                    provider_attempt_index=int(
-                        identity.get("provider_attempt_index") or 0
-                    ),
-                    settlement_kind="dead_process_reconciliation",
-                    accounting_kind="unknown_process_exit",
-                    valid_provider_cost_usd=None,
-                    provider_cost_raw=None,
-                    attempt_receipt={
-                        "status": "error",
-                        "response_received": False,
-                        "latency_s": latency_s,
-                        "anomaly": "process_exit",
-                        "error": {
-                            "error_type": "ProviderWorkerProcessExit",
-                            "message": "provider worker exited before attempt settlement",
-                            "anomaly": "process_exit",
-                            "retryable": True,
-                            "context": {
-                                "owner_pid": owner_pid,
-                                "confirmed_dead_by_caller": True,
-                                "continuation_required": True,
-                            },
-                        },
-                        "cost_source": "unknown_process_exit",
-                    },
-                    started_attempt_receipt=started,
-                    pause_triggered_by_settlement=False,
-                    settlement_pause_reason=None,
-                    preexisting_pause_reason=preexisting_pause_reason,
-                )
-                receipt["continuation_required"] = True
-                receipt["prior_call_terminated_by_process_exit"] = True
-                # The two continuation fields are part of the immutable receipt.
-                receipt.pop("attempt_receipt_sha256", None)
-                canonical = json.dumps(
-                    receipt,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    allow_nan=False,
-                ).encode("utf-8")
-                receipt["attempt_receipt_sha256"] = hashlib.sha256(canonical).hexdigest()
-                receipt_id = str(receipt["attempt_receipt_id"])
-                if (
-                    receipt_id in state["unacked_attempt_receipts"]
-                    or self._read_attempt_ack_marker(receipt_id) is not None
-                ):
-                    raise self._invalid_state(
-                        "dead-process attempt receipt collides with settled evidence"
-                    )
-                state["unacked_attempt_receipts"][receipt_id] = receipt
-                state["attempt_receipt_count"] += 1
-                state["settlement_event_count"] += 1
-                self._append_bounded(
-                    state,
-                    "settlement_events",
-                    {
-                        "event": "provider_reservation_settled",
-                        "reservation_id": reservation_id,
-                        "reservation_usd": amount,
-                        "owner_pid": owner_pid,
-                        "call_id": identity.get("call_id"),
-                        "provider_attempt_index": identity.get(
-                            "provider_attempt_index"
-                        ),
-                        "settlement_kind": "dead_process_reconciliation",
-                        "accounting_kind": "unknown_process_exit",
-                        "provider_cost_usd": None,
-                        "provider_cost_raw": None,
-                        "attempt_receipt_id": receipt_id,
-                        "attempt_receipt_sha256": receipt[
-                            "attempt_receipt_sha256"
-                        ],
-                        "timestamp": now,
-                    },
-                )
-                finalized_receipt_ids.append(receipt_id)
-            state["reconciliation_count"] += 1
-            state["reconciled_reservations_total"] += len(matched)
-            self._append_bounded(
-                state,
-                "reconciliation_events",
-                {
-                    "event": "dead_process_reservations_to_unknown",
-                    "owner_pid": owner_pid,
-                    "matched_reservation_count": len(matched),
-                    "amount_usd": recovered_amount,
-                    "reservation_ids": [key for key, _amount, _raw in matched],
-                    "attempt_receipt_ids": finalized_receipt_ids,
-                    "confirmed_dead_by_caller": True,
-                    "timestamp": self._now(),
-                },
-            )
-
-        return self._locked_update(mutate)
-
-    @staticmethod
-    def _reservation_amount_and_owner(
-        reservation_id: str,
-        raw_reservation: Any,
-    ) -> tuple[float, int | None]:
-        if not isinstance(raw_reservation, dict):
-            raise CampaignPauseError(
-                "OpenRouter campaign ledger has an unstructured reservation",
-                context={"reservation_id": reservation_id},
-            )
-        raw_amount = raw_reservation.get("amount_usd")
-        raw_owner = raw_reservation.get("owner_pid")
-        try:
-            amount = float(raw_amount)
-        except (TypeError, ValueError) as exc:
-            raise CampaignPauseError(
-                "OpenRouter campaign ledger has an invalid reservation amount",
-                context={"reservation_id": reservation_id, "raw_amount": raw_amount},
-            ) from exc
-        if not math.isfinite(amount) or amount <= 0:
-            raise CampaignPauseError(
-                "OpenRouter campaign ledger has an invalid reservation amount",
-                context={"reservation_id": reservation_id, "raw_amount": raw_amount},
-            )
-        if isinstance(raw_owner, bool):
-            owner = None
-        else:
-            try:
-                owner = int(raw_owner) if raw_owner is not None else None
-            except (TypeError, ValueError):
-                owner = None
-        return amount, owner if owner is not None and owner > 0 else None
-
-    def _validate_started_attempt_receipt(
-        self,
-        reservation_id: str,
-        receipt: Any,
-    ) -> None:
-        if not isinstance(receipt, dict):
-            raise self._invalid_state(
-                f"reservation {reservation_id!r} lacks a started attempt receipt"
-            )
-        receipt_id = str(receipt.get("attempt_receipt_id") or "")
-        receipt_hash = str(receipt.get("started_attempt_receipt_sha256") or "")
-        identity = receipt.get("attempt_receipt_identity")
-        if not isinstance(identity, dict) or identity.get("reservation_id") != reservation_id:
-            raise self._invalid_state("started attempt receipt identity is invalid")
-        expected_id = hashlib.sha256(
-            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        if receipt_id != expected_id:
-            raise self._invalid_state("started attempt receipt id is invalid")
-        core = dict(receipt)
-        core.pop("started_attempt_receipt_sha256", None)
-        expected_hash = hashlib.sha256(
-            json.dumps(
-                core,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
-        ).hexdigest()
-        if receipt_hash != expected_hash:
-            raise self._invalid_state("started attempt receipt hash is invalid")
-
-    def _validate_final_attempt_receipt(self, receipt_id: str, receipt: Any) -> None:
-        if not re.fullmatch(r"[0-9a-f]{64}", str(receipt_id)):
-            raise self._invalid_state("unacknowledged attempt receipt id is invalid")
-        if not isinstance(receipt, dict):
-            raise self._invalid_state("unacknowledged attempt receipt must be an object")
-        if receipt.get("attempt_receipt_id") != receipt_id:
-            raise self._invalid_state("unacknowledged attempt receipt id is inconsistent")
-        receipt_hash = str(receipt.get("attempt_receipt_sha256") or "")
-        core = dict(receipt)
-        core.pop("attempt_receipt_sha256", None)
-        expected_hash = hashlib.sha256(
-            json.dumps(
-                core,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
-        ).hexdigest()
-        if receipt_hash != expected_hash:
-            raise self._invalid_state("unacknowledged attempt receipt hash is invalid")
-
-    def _active_sum(self, active: dict[str, Any]) -> float:
-        return math.fsum(
-            self._reservation_amount_and_owner(key, value)[0]
-            for key, value in active.items()
-        )
-
-    def _locked_update(
-        self,
-        mutate: Callable[[dict[str, Any]], None] | None,
-    ) -> dict[str, Any]:
-        if fcntl is None:
-            raise CampaignPauseError(
-                "cross-process budget locking is unavailable on this platform",
-                context={"pause_reason": "budget_lock_unavailable", "ledger": str(self.path)},
-            )
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        lock_fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            state = self._read_state()
-            if mutate is not None:
-                mutate(state)
-                self._validate_state(state)
-                state["updated_at"] = self._now()
-                self._write_state(state)
-            return json.loads(json.dumps(state))
-        finally:
-            try:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            finally:
-                os.close(lock_fd)
-
-    def _read_state(self) -> dict[str, Any]:
-        if not self.path.exists():
-            state = {
-                "schema": _BUDGET_LEDGER_SCHEMA,
-                "cap_usd": self.cap_usd,
-                "reservation_usd": self.reservation_usd,
-                "pricing_profile_sha256": self.pricing_profile_sha256,
-                "known_cost_usd": 0.0,
-                "unknown_spend_usd": 0.0,
-                "reserved_usd": 0.0,
-                "unaccounted_provider_cost_usd": 0.0,
-                "started_attempt_count": 0,
-                "settled_attempts": 0,
-                "settlement_event_count": 0,
-                "settlement_events": [],
-                "attempt_receipt_count": 0,
-                "attempt_receipt_ack_count": 0,
-                "unacked_attempt_receipts": {},
-                "underestimated_reservation_count": 0,
-                "reconciliation_count": 0,
-                "reconciled_reservations_total": 0,
-                "reconciliation_events": [],
-                "active_reservations": {},
-                "paused": False,
-                "pause_reason": None,
-                "paused_at": None,
-                "pause_count": 0,
-                "resume_count": 0,
-                "pause_events": [],
-                "updated_at": self._now(),
-            }
-            self._validate_state(state)
-            return state
-        try:
-            state = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise CampaignPauseError(
-                "OpenRouter campaign budget ledger is unreadable",
-                context={
-                    "pause_reason": "budget_ledger_unreadable",
-                    "ledger": str(self.path),
-                    "error": str(exc),
-                },
-            ) from exc
-        if not isinstance(state, dict) or state.get("schema") != _BUDGET_LEDGER_SCHEMA:
-            raise CampaignPauseError(
-                "OpenRouter campaign budget ledger schema mismatch",
-                context={
-                    "pause_reason": "budget_ledger_schema_mismatch",
-                    "ledger": str(self.path),
-                    "expected_schema": _BUDGET_LEDGER_SCHEMA,
-                },
-            )
-        self._validate_state(state)
-        return state
-
-    def _validate_state(self, state: dict[str, Any]) -> None:
-        try:
-            for key in (
-                "cap_usd",
-                "reservation_usd",
-                "known_cost_usd",
-                "unknown_spend_usd",
-                "reserved_usd",
-                "unaccounted_provider_cost_usd",
-            ):
-                state[key] = self._finite_nonnegative(state[key], key)
-            for key in (
-                "started_attempt_count",
-                "settled_attempts",
-                "settlement_event_count",
-                "attempt_receipt_count",
-                "attempt_receipt_ack_count",
-                "underestimated_reservation_count",
-                "reconciliation_count",
-                "reconciled_reservations_total",
-                "pause_count",
-                "resume_count",
-            ):
-                raw = state[key]
-                if isinstance(raw, bool):
-                    raise ValueError(f"{key} cannot be boolean")
-                value = int(raw)
-                if value < 0 or value != raw:
-                    raise ValueError(f"{key} must be a non-negative integer")
-                state[key] = value
-        except (KeyError, TypeError, ValueError) as exc:
-            raise CampaignPauseError(
-                "OpenRouter campaign budget ledger contains invalid values",
-                context={
-                    "pause_reason": "budget_ledger_invalid",
-                    "ledger": str(self.path),
-                    "error": str(exc),
-                },
-            ) from exc
-        if not math.isclose(state["cap_usd"], self.cap_usd, rel_tol=0.0, abs_tol=1e-12):
-            raise self._frozen_mismatch("cap_usd", state["cap_usd"], self.cap_usd)
-        if not math.isclose(
-            state["reservation_usd"], self.reservation_usd, rel_tol=0.0, abs_tol=1e-12
-        ):
-            raise self._frozen_mismatch(
-                "reservation_usd", state["reservation_usd"], self.reservation_usd
-            )
-        if state.get("pricing_profile_sha256") != self.pricing_profile_sha256:
-            raise self._frozen_mismatch(
-                "pricing_profile_sha256",
-                state.get("pricing_profile_sha256"),
-                self.pricing_profile_sha256,
-            )
-        active = state.get("active_reservations")
-        if not isinstance(active, dict):
-            raise self._invalid_state("active_reservations must be an object")
-        for key, value in active.items():
-            amount, owner = self._reservation_amount_and_owner(key, value)
-            if owner is None:
-                raise self._invalid_state(f"reservation {key!r} has no positive owner PID")
-            if not math.isclose(
-                amount, self.reservation_usd, rel_tol=0.0, abs_tol=1e-12
-            ):
-                raise self._invalid_state(
-                    f"reservation {key!r} does not match frozen reservation_usd"
-                )
-            started_receipt = value.get("started_attempt_receipt")
-            self._validate_started_attempt_receipt(key, started_receipt)
-        active_sum = self._active_sum(active)
-        if not math.isclose(
-            state["reserved_usd"], active_sum, rel_tol=0.0, abs_tol=1e-12
-        ):
-            raise self._invalid_state(
-                "reserved_usd does not equal the sum of active reservations"
-            )
-        total = (
-            state["known_cost_usd"]
-            + state["unknown_spend_usd"]
-            + state["reserved_usd"]
-        )
-        if total > self.cap_usd + 1e-12:
-            raise self._invalid_state("known + unknown + reserved exceeds campaign cap")
-        if not isinstance(state.get("paused"), bool):
-            raise self._invalid_state("paused must be boolean")
-        if state["paused"]:
-            if not isinstance(state.get("pause_reason"), str) or not state["pause_reason"]:
-                raise self._invalid_state("paused ledger requires pause_reason")
-            if not isinstance(state.get("paused_at"), str) or not state["paused_at"]:
-                raise self._invalid_state("paused ledger requires paused_at")
-        elif state.get("pause_reason") is not None or state.get("paused_at") is not None:
-            raise self._invalid_state("running ledger cannot retain pause fields")
-        if state["unaccounted_provider_cost_usd"] > 0 and not state["paused"]:
-            raise self._invalid_state("unaccounted provider cost requires a pause")
-        pending = state.get("unacked_attempt_receipts")
-        if not isinstance(pending, dict):
-            raise self._invalid_state("unacked_attempt_receipts must be an object")
-        active_receipt_ids: set[str] = set()
-        for reservation_id, reservation in active.items():
-            started = reservation["started_attempt_receipt"]
-            active_receipt_ids.add(str(started["attempt_receipt_id"]))
-        if active_receipt_ids & set(pending):
-            raise self._invalid_state("active attempt receipt collides with a settled receipt")
-        for receipt_id, receipt in pending.items():
-            self._validate_final_attempt_receipt(receipt_id, receipt)
-        if state["attempt_receipt_count"] != len(pending) + state[
-            "attempt_receipt_ack_count"
-        ]:
-            raise self._invalid_state(
-                "attempt_receipt_count does not match pending plus acknowledged receipts"
-            )
-        if state["attempt_receipt_count"] != state["settled_attempts"]:
-            raise self._invalid_state(
-                "every settled attempt must have one recovery receipt"
-            )
-        if state["started_attempt_count"] != state["settled_attempts"] + len(active):
-            raise self._invalid_state(
-                "started attempts must equal settled attempts plus active reservations"
-            )
-        for key in ("settlement_events", "reconciliation_events", "pause_events"):
-            if not isinstance(state.get(key), list):
-                raise self._invalid_state(f"{key} must be an array")
-
-    def _set_paused(
-        self,
-        state: dict[str, Any],
-        reason: str,
-        details: dict[str, Any],
-    ) -> None:
-        now = self._now()
-        if not state["paused"]:
-            state["paused"] = True
-            state["pause_reason"] = reason
-            state["paused_at"] = now
-            state["pause_count"] += 1
-        self._append_bounded(
-            state,
-            "pause_events",
-            {
-                "event": "campaign_paused",
-                "reason": reason,
-                "root_pause_reason": state["pause_reason"],
-                "details": _json_safe(details),
-                "timestamp": now,
-            },
-        )
-
-    @staticmethod
-    def _append_bounded(state: dict[str, Any], key: str, event: dict[str, Any]) -> None:
-        events = state[key]
-        events.append(event)
-        if len(events) > _BUDGET_EVENT_LIMIT:
-            del events[: len(events) - _BUDGET_EVENT_LIMIT]
-
-    @staticmethod
-    def _finite_nonnegative(value: Any, name: str) -> float:
-        try:
-            parsed = float(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{name} must be finite and non-negative") from exc
-        if not math.isfinite(parsed) or parsed < 0:
-            raise ValueError(f"{name} must be finite and non-negative")
-        return parsed
-
-    def _pause_error(self, reason: str) -> CampaignPauseError:
-        return CampaignPauseError(
-            "OpenRouter campaign is durably paused",
-            context={"pause_reason": reason, "ledger": str(self.path)},
-        )
-
-    def _invalid_state(self, message: str) -> CampaignPauseError:
-        return CampaignPauseError(
-            f"OpenRouter campaign budget ledger is invalid: {message}",
-            context={"pause_reason": "budget_ledger_invalid", "ledger": str(self.path)},
-        )
-
-    def _frozen_mismatch(self, key: str, ledger: Any, configured: Any) -> CampaignPauseError:
-        return CampaignPauseError(
-            f"OpenRouter campaign {key} does not match the frozen ledger",
-            context={
-                "pause_reason": "budget_profile_mismatch",
-                "ledger": str(self.path),
-                "field": key,
-                "ledger_value": ledger,
-                "configured_value": configured,
-            },
-        )
-
-    @staticmethod
-    def _now() -> str:
-        return datetime.now(timezone.utc).isoformat()
-
-    def _write_state(self, state: dict[str, Any]) -> None:
-        tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.{uuid4().hex}.tmp")
-        try:
-            with open(tmp, "w", encoding="utf-8") as handle:
-                json.dump(
-                    state,
-                    handle,
-                    ensure_ascii=False,
-                    indent=2,
-                    sort_keys=True,
-                    allow_nan=False,
-                )
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(tmp, self.path)
-            dir_fd = os.open(self.path.parent, os.O_RDONLY)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-        finally:
-            if tmp.exists():
-                tmp.unlink()
-
-    def _attempt_ack_marker_path(self, receipt_id: str) -> Path:
-        if not re.fullmatch(r"[0-9a-f]{64}", str(receipt_id)):
-            raise ValueError("attempt_receipt_id must contain 64 lowercase hex characters")
-        root = self.ack_root.resolve()
-        marker = (root / receipt_id[:2] / f"{receipt_id}.json").resolve()
-        if root not in marker.parents:
-            raise ValueError("attempt receipt acknowledgement path escapes ack_root")
-        return marker
-
-    @staticmethod
-    def _fsync_attempt_sink(path: Path) -> None:
-        descriptor = os.open(path, os.O_RDONLY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-        parent_fd = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(parent_fd)
-        finally:
-            os.close(parent_fd)
-
-    def _read_attempt_ack_marker(self, receipt_id: str) -> str | None:
-        marker = self._attempt_ack_marker_path(receipt_id)
-        if not marker.exists():
-            return None
-        try:
-            payload = json.loads(marker.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise CampaignPauseError(
-                "provider-attempt acknowledgement marker is unreadable",
-                context={
-                    "pause_reason": "attempt_receipt_ack_marker_invalid",
-                    "marker": str(marker),
-                },
-            ) from exc
-        if (
-            not isinstance(payload, dict)
-            or payload.get("attempt_receipt_id") != receipt_id
-            or not re.fullmatch(
-                r"[0-9a-f]{64}", str(payload.get("attempt_receipt_sha256") or "")
-            )
-        ):
-            raise CampaignPauseError(
-                "provider-attempt acknowledgement marker is invalid",
-                context={
-                    "pause_reason": "attempt_receipt_ack_marker_invalid",
-                    "marker": str(marker),
-                },
-            )
-        return str(payload["attempt_receipt_sha256"])
-
-    def _write_attempt_ack_marker(self, receipt_id: str, receipt_hash: str) -> None:
-        prior_hash = self._read_attempt_ack_marker(receipt_id)
-        if prior_hash is not None:
-            if prior_hash != receipt_hash:
-                raise CampaignPauseError(
-                    "provider-attempt acknowledgement marker conflicts with WAL",
-                    context={
-                        "pause_reason": "attempt_receipt_ack_marker_mismatch",
-                        "attempt_receipt_id": receipt_id,
-                        "marker_sha256": prior_hash,
-                        "wal_sha256": receipt_hash,
-                    },
-                )
-            return
-        marker = self._attempt_ack_marker_path(receipt_id)
-        shard_existed = marker.parent.exists()
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        tmp = marker.with_name(f".{marker.name}.{os.getpid()}.{uuid4().hex}.tmp")
-        try:
-            with open(tmp, "w", encoding="utf-8") as handle:
-                json.dump(
-                    {
-                        "attempt_receipt_id": receipt_id,
-                        "attempt_receipt_sha256": receipt_hash,
-                        "acknowledged_at": self._now(),
-                    },
-                    handle,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    allow_nan=False,
-                )
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(tmp, marker)
-            dir_fd = os.open(marker.parent, os.O_RDONLY)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-            if not shard_existed:
-                root_fd = os.open(self.ack_root, os.O_RDONLY)
-                try:
-                    os.fsync(root_fd)
-                finally:
-                    os.close(root_fd)
-        finally:
-            if tmp.exists():
-                tmp.unlink()
 
 
 @dataclass
@@ -1934,9 +364,9 @@ class LLMClient:
     The single provider call is concurrency-limited by a semaphore gate
     (configurable via ``settings.llm.max_concurrency``; ``<= 0`` — the default —
     runs unbounded), making this the one canonical chokepoint for live LLM
-    throughput. Transient provider/transport faults use full-jitter exponential
-    retries, forever when ``max_retries < 0`` (the default), so provider capacity
-    errors reroute rather than become benchmark failures.
+    throughput. Transient provider/transport faults are retried at a fixed interval,
+    forever when ``max_retries < 0`` (the default), so provider capacity errors
+    reroute rather than become benchmark failures.
     """
 
     def __init__(self, settings: Settings, logger: RunLogger) -> None:
@@ -1949,63 +379,9 @@ class LLMClient:
         self.on_provider_wait: Callable[..., None] | None = None
         self.on_provider_ok: Callable[[], None] | None = None
         self._progress_callback_failures_seen: set[str] = set()
-        self._budget: CampaignBudgetLedger | None = None
-        self._ledger_executor: ThreadPoolExecutor | None = None
-        self._ledger_initialized = False
-        self._ledger_init_lock = asyncio.Lock()
-        llm_cfg = settings.llm
-        campaign_requested = (
-            llm_cfg.openrouter_campaign_budget_usd != 0
-            or bool(llm_cfg.openrouter_budget_ledger.strip())
-            or llm_cfg.openrouter_request_reservation_usd != 0
-            or bool(llm_cfg.openrouter_pricing_profile_sha256.strip())
-            or llm_cfg.openrouter_durable_cost_ledger
-            or any(
-                value != -1.0
-                for value in (
-                    llm_cfg.openrouter_max_price_prompt_usd_per_million,
-                    llm_cfg.openrouter_max_price_completion_usd_per_million,
-                    llm_cfg.openrouter_max_price_request_usd,
-                )
-            )
-        )
-        if campaign_requested:
-            # A configured cap is formal campaign mode: partial budget configuration or
-            # pinned routing must fail before the first paid request.
-            llm_cfg.validate_openrouter_campaign(require_budget=True)
-            self._budget = CampaignBudgetLedger(
-                llm_cfg.openrouter_budget_ledger,
-                cap_usd=llm_cfg.openrouter_campaign_budget_usd,
-                reservation_usd=llm_cfg.openrouter_request_reservation_usd,
-                pricing_profile_sha256=llm_cfg.openrouter_pricing_profile_sha256,
-            )
-            self._ledger_executor = ThreadPoolExecutor(
-                max_workers=_LEDGER_EXECUTOR_WORKERS,
-                thread_name_prefix="tend-ledger",
-            )
-            try:
-                asyncio.get_running_loop()
-            except RuntimeError:
-                try:
-                    self._budget.initialize()
-                except BaseException:
-                    self._ledger_executor.shutdown(wait=True)
-                    self._ledger_executor = None
-                    raise
-                self._ledger_initialized = True
         self._sem = (
             asyncio.Semaphore(settings.llm.max_concurrency)
             if settings.llm.max_concurrency > 0
-            else None
-        )
-        # Formal budget admission happens before the provider call.  Bound it with
-        # a separate semaphore of the same size so queued record tasks do not reserve
-        # the entire campaign budget before they are eligible to enter the network.
-        # The provider semaphore still spans response streaming; this gate spans the
-        # matching reserve-to-settle transaction.
-        self._budget_admission_sem = (
-            asyncio.BoundedSemaphore(settings.llm.max_concurrency)
-            if self._budget is not None and settings.llm.max_concurrency > 0
             else None
         )
         self._transport_reset_lock = asyncio.Lock()
@@ -2059,10 +435,6 @@ class LLMClient:
                         await http_aclose()
                     except Exception:
                         pass
-        ledger_executor = self._ledger_executor
-        self._ledger_executor = None
-        if ledger_executor is not None:
-            await asyncio.to_thread(ledger_executor.shutdown, wait=True)
 
     def _open_live_provider_client(self) -> None:
         """Open one HTTP/2 client bounded to ~80 multiplexed streams."""
@@ -2147,23 +519,6 @@ class LLMClient:
             retryable=True,
             context={"status_code": None},
         )
-
-    def _require_streaming_first_token_watchdog(
-        self, *, stream: bool, first_token_timeout_s: float
-    ) -> None:
-        """Formal campaigns observe first-token arrival on the SSE stream."""
-        if self._budget is None:
-            return
-        if not stream:
-            raise CampaignPauseError(
-                "formal campaign LLM calls must stream; first-token arrival cannot be observed otherwise",
-                context={"pause_reason": "formal_stream_required"},
-            )
-        if first_token_timeout_s <= 0:
-            raise CampaignPauseError(
-                "formal campaign LLM calls require a positive first-token timeout",
-                context={"pause_reason": "formal_first_token_watchdog_required"},
-            )
 
     @staticmethod
     def _stalled_stream_requires_new_transport(err: LLMError) -> bool:
@@ -2260,9 +615,6 @@ class LLMClient:
             if first_token_timeout_s is None
             else first_token_timeout_s
         )
-        self._require_streaming_first_token_watchdog(
-            stream=bool(stream), first_token_timeout_s=float(first_token_timeout_s)
-        )
         expect_json = (schema is not None) if expect_json is None else expect_json
 
         convo = list(messages)
@@ -2289,7 +641,6 @@ class LLMClient:
             "provider_kwargs": provider_kwargs,
             "stream": stream,
             "first_token_timeout_s": first_token_timeout_s,
-            "campaign_budget": self._budget_request_config(),
         }
         if max_tokens is not None:
             request_config["max_tokens"] = max_tokens
@@ -2490,7 +841,6 @@ class LLMClient:
                         )
             raise LLMError("exhausted repair retries", context={"agent": agent})  # unreachable
         except LLMError as err:
-            err = await self._pause_formal_campaign_error(err)
             if task_logger is not None:
                 ref = self._task_logger_log_error(
                     task_logger,
@@ -2577,7 +927,6 @@ class LLMClient:
                     "traceback": tb,
                 },
             )
-            err = await self._pause_formal_campaign_error(err)
             log.anomaly(
                 err,
                 transcript_ref=ref,
@@ -2670,25 +1019,6 @@ class LLMClient:
         attempt = 0
         while True:
             provider_attempt_index = self._next_provider_attempt_index(attempts)
-            started_attempt_receipt = self._attempt_receipt_template(
-                agent=agent,
-                call_id=call_id,
-                model=model,
-                provider_attempt_index=provider_attempt_index,
-                transport_attempt=attempt + 1,
-                repair_index=repair_index,
-                status="provider_request_started",
-                request_config=request_config,
-                task_logger=task_logger,
-                log=log,
-            )
-            reservation_id, budget_reserved = await self._reserve_provider_budget(
-                call_id,
-                provider_attempt_index,
-                attempt_receipt=started_attempt_receipt,
-            )
-            budget_settled = False
-            budget_settlement: dict[str, Any] | None = None
             t0 = time.monotonic()
             provider_attempt: dict[str, Any] | None = None
             try:
@@ -2703,7 +1033,6 @@ class LLMClient:
                     first_token_timeout_s,
                 )
                 provider_metadata = _provider_metadata(raw, finish)
-                raw_provider_cost = self._raw_provider_cost(provider_metadata)
                 provider_attempt = {
                     "attempt": attempt,
                     "provider_attempt_index": provider_attempt_index,
@@ -2718,130 +1047,20 @@ class LLMClient:
                     "stream": stream,
                     "first_token_timeout_s": first_token_timeout_s,
                     "provider_metadata": provider_metadata,
-                    "provider_cost_observed": _json_safe(raw_provider_cost),
+                    "provider_cost_observed": _json_safe(
+                        self._raw_provider_cost(provider_metadata)
+                    ),
                     "raw_response": _json_safe(raw),
-                    "budget_reservation": budget_reserved,
-                    "budget_settlement": None,
                 }
                 attempts.append(provider_attempt)
-                # Capture the complete provider response before settlement. If cost
-                # validation or another worker's pause stops the campaign, the except
-                # path can still durably write response_received=true with raw evidence.
-                budget_settled = True
-                budget_settlement = await self._settle_provider_budget(
-                    reservation_id,
-                    known_cost_usd=raw_provider_cost,
-                    call_id=call_id,
-                    provider_attempt_index=provider_attempt_index,
-                    settlement_kind="provider_response",
-                    pause_reason=(
-                        "provider_cost_missing_or_invalid"
-                        if self._provider_cost_usd(provider_metadata) is None
-                        and (
-                            raw_provider_cost is not None
-                            or bool(str(text or "").strip())
-                        )
-                        else None
-                    ),
-                    raise_on_pause=False,
-                    attempt_receipt=self._attempt_receipt_template(
-                        agent=agent,
-                        call_id=call_id,
-                        model=model,
-                        provider_attempt_index=provider_attempt_index,
-                        transport_attempt=attempt + 1,
-                        repair_index=repair_index,
-                        status="response_received_pending_validation",
-                        request_config=request_config,
-                        task_logger=task_logger,
-                        log=log,
-                        provider_attempt=provider_attempt,
-                        latency_s=float(provider_attempt["latency_s"]),
-                        budget_reservation=budget_reserved,
-                    ),
-                )
-                provider_attempt["budget_settlement"] = budget_settlement
-                if budget_settlement and budget_settlement.get(
-                    "settlement_pause_triggered"
-                ):
-                    raise CampaignPauseError(
-                        "formal OpenRouter campaign paused while settling provider response",
-                        context={
-                            "pause_reason": budget_settlement.get("pause_reason"),
-                            "provider_attempt_index": provider_attempt_index,
-                        },
-                    )
                 self._check_response(text, finish, agent, provider_metadata=provider_metadata)
-                if task_logger is None and self._budget is not None:
-                    attempt_row_persisted = self._log_run_provider_attempt(
-                        log,
-                        agent=agent,
-                        call_id=call_id,
-                        model=model,
-                        provider_attempt_index=provider_attempt_index,
-                        transport_attempt=attempt + 1,
-                        provider_metadata=provider_metadata,
-                        response_received=True,
-                        latency_s=float(provider_attempt["latency_s"]),
-                        usage=usage,
-                        provider_cost_observed=provider_attempt.get(
-                            "provider_cost_observed"
-                        ),
-                        error=None,
-                        call_status="success",
-                        request_config=request_config,
-                        budget_reservation=budget_reserved,
-                        budget_settlement=budget_settlement,
-                    )
-                    if attempt_row_persisted:
-                        await self._ack_provider_attempt_receipt(budget_settlement)
                 return text, finish, usage
             except LLMError as err:
-                formal_pause_reason = self._formal_pause_reason(err)
                 attempt_latency_s = (
                     float(provider_attempt["latency_s"])
                     if provider_attempt is not None
                     else round(time.monotonic() - t0, 3)
                 )
-                if not budget_settled:
-                    # Explicit 401/402/403/429 rejections and retryable transport/5xx
-                    # failures settle at known $0 so the campaign can retry another
-                    # route without consuming the full reservation as unknown spend.
-                    budget_settled = True
-                    budget_settlement = await self._settle_provider_budget(
-                        reservation_id,
-                        known_cost_usd=self._settled_provider_error_cost(
-                            err, provider_attempt
-                        ),
-                        call_id=call_id,
-                        provider_attempt_index=provider_attempt_index,
-                        settlement_kind="provider_error",
-                        pause_reason=formal_pause_reason,
-                        raise_on_pause=False,
-                        attempt_receipt=self._attempt_receipt_template(
-                            agent=agent,
-                            call_id=call_id,
-                            model=model,
-                            provider_attempt_index=provider_attempt_index,
-                            transport_attempt=attempt + 1,
-                            repair_index=repair_index,
-                            status="provider_error_pending_retry_decision",
-                            request_config=request_config,
-                            task_logger=task_logger,
-                            log=log,
-                            error=err,
-                            latency_s=attempt_latency_s,
-                            budget_reservation=budget_reserved,
-                        ),
-                    )
-                if budget_settlement and budget_settlement.get(
-                    "settlement_pause_triggered"
-                ):
-                    formal_pause_reason = str(
-                        budget_settlement.get("pause_reason") or formal_pause_reason
-                    )
-                if formal_pause_reason:
-                    err = self._campaign_pause_from_error(err, formal_pause_reason)
                 raw_response = (
                     provider_attempt.get("raw_response") if provider_attempt is not None else None
                 )
@@ -2891,8 +1110,6 @@ class LLMClient:
                         if isinstance(raw_response, dict)
                         else None
                     ),
-                    "budget_reservation": budget_reserved,
-                    "budget_settlement": budget_settlement,
                 }
                 attempts.append(
                     {
@@ -2912,7 +1129,7 @@ class LLMClient:
                     truncation_state["seen"] = int(truncation_state.get("seen", 0)) + 1
                     if truncation_state["seen"] > max(0, self._s.llm.max_truncation_retries):
                         will_retry = False
-                delay = self._provider_retry_delay(attempt + 1, err)
+                delay = max(0.0, self._s.llm.retry_interval_s)
                 if task_logger is not None:
                     self._task_logger_log_attempt(
                         task_logger,
@@ -2930,10 +1147,8 @@ class LLMClient:
                         failure_phase="transport_validation",
                         latency_s=attempt_latency_s,
                     )
-                    await self._ack_provider_attempt_receipt(budget_settlement)
-                    self._compact_attempts(attempts)
                 else:
-                    attempt_row_persisted = self._log_run_provider_attempt(
+                    self._log_run_provider_attempt(
                         log,
                         agent=agent,
                         call_id=call_id,
@@ -2959,12 +1174,8 @@ class LLMClient:
                         ),
                         error=err,
                         request_config=request_config,
-                        budget_reservation=budget_reserved,
-                        budget_settlement=budget_settlement,
                     )
-                    if attempt_row_persisted:
-                        await self._ack_provider_attempt_receipt(budget_settlement)
-                    self._compact_attempts(attempts)
+                self._compact_attempts(attempts)
                 event = "llm_transport_retry" if will_retry else "llm_transport_terminal_failure"
                 if task_logger is not None:
                     task_logger.warning(
@@ -3002,125 +1213,6 @@ class LLMClient:
                 # reroutable provider failure waits, so fresh calls cannot starve.
                 await asyncio.sleep(delay)
                 attempt += 1
-            except BaseException as exc:
-                # Cancellation/SystemExit after a reservation must never strand an
-                # alive-process reservation.  The provider may have accepted the call,
-                # so charge it as unknown and pause atomically before propagating.
-                pause_reason = (
-                    "provider_attempt_cancelled"
-                    if isinstance(exc, asyncio.CancelledError)
-                    else "llm_client_internal_error"
-                    if isinstance(exc, Exception)
-                    else "provider_attempt_aborted"
-                )
-                abort_error = CampaignPauseError(
-                    "provider attempt ended before normal completion",
-                    context={
-                        "pause_reason": pause_reason,
-                        "provider_attempt_index": provider_attempt_index,
-                        "source_exception_type": type(exc).__name__,
-                        "source_exception_message": str(exc),
-                    },
-                )
-                attempt_latency_s = (
-                    float(provider_attempt["latency_s"])
-                    if provider_attempt is not None
-                    else round(time.monotonic() - t0, 3)
-                )
-                if not budget_settled:
-                    budget_settled = True
-                    budget_settlement = await self._settle_provider_budget(
-                        reservation_id,
-                        known_cost_usd=None,
-                        call_id=call_id,
-                        provider_attempt_index=provider_attempt_index,
-                        settlement_kind="provider_attempt_aborted",
-                        pause_reason=pause_reason,
-                        raise_on_pause=False,
-                        attempt_receipt=self._attempt_receipt_template(
-                            agent=agent,
-                            call_id=call_id,
-                            model=model,
-                            provider_attempt_index=provider_attempt_index,
-                            transport_attempt=attempt + 1,
-                            repair_index=repair_index,
-                            status="error",
-                            request_config=request_config,
-                            task_logger=task_logger,
-                            log=log,
-                            error=abort_error,
-                            latency_s=attempt_latency_s,
-                            budget_reservation=budget_reserved,
-                        ),
-                    )
-                attempts.append(
-                    {
-                        "attempt": attempt,
-                        "provider_attempt_index": provider_attempt_index,
-                        "repair_index": repair_index,
-                        "kind": "send_error",
-                        "latency_s": attempt_latency_s,
-                        "error": abort_error.to_record(),
-                        "attempt_diagnostics": {
-                            "response_received": provider_attempt is not None,
-                            "budget_reservation": budget_reserved,
-                            "budget_settlement": budget_settlement,
-                        },
-                    }
-                )
-                if task_logger is not None:
-                    self._task_logger_log_attempt(
-                        task_logger,
-                        agent=agent,
-                        call_id=call_id,
-                        model=model,
-                        provider_attempt_index=provider_attempt_index,
-                        transport_attempt=attempt + 1,
-                        repair_index=repair_index,
-                        call_status="error",
-                        provider_attempt=provider_attempt,
-                        request_config=request_config,
-                        error=abort_error,
-                        failure_phase=pause_reason,
-                        budget_reservation=budget_reserved,
-                        budget_settlement=budget_settlement,
-                        latency_s=attempt_latency_s,
-                    )
-                    await self._ack_provider_attempt_receipt(budget_settlement)
-                else:
-                    attempt_row_persisted = self._log_run_provider_attempt(
-                        log,
-                        agent=agent,
-                        call_id=call_id,
-                        model=model,
-                        provider_attempt_index=provider_attempt_index,
-                        transport_attempt=attempt + 1,
-                        provider_metadata=(
-                            provider_attempt.get("provider_metadata")
-                            if provider_attempt is not None
-                            else None
-                        ),
-                        response_received=provider_attempt is not None,
-                        latency_s=attempt_latency_s,
-                        usage=(
-                            provider_attempt.get("usage")
-                            if provider_attempt is not None
-                            else None
-                        ),
-                        provider_cost_observed=(
-                            provider_attempt.get("provider_cost_observed")
-                            if provider_attempt is not None
-                            else None
-                        ),
-                        error=abort_error,
-                        request_config=request_config,
-                        budget_reservation=budget_reserved,
-                        budget_settlement=budget_settlement,
-                    )
-                    if attempt_row_persisted:
-                        await self._ack_provider_attempt_receipt(budget_settlement)
-                self._compact_attempts(attempts)
-                raise
 
     async def _raw_call(
         self,
@@ -3350,22 +1442,7 @@ class LLMClient:
         if thinking:
             extra_body["thinking"] = {"type": str(thinking)}
         provider_only = self._s.llm.openrouter_provider_only
-        if self._budget is not None:
-            # Formal campaigns freeze a route-wide ceiling instead of pinning one
-            # provider. OpenRouter can therefore reroute capacity failures while the
-            # request itself rejects any endpoint priced above the audited snapshot.
-            extra_body["provider"] = {
-                "allow_fallbacks": True,
-                "require_parameters": self._s.llm.openrouter_require_parameters,
-                "max_price": {
-                    "prompt": self._s.llm.openrouter_max_price_prompt_usd_per_million,
-                    "completion": (
-                        self._s.llm.openrouter_max_price_completion_usd_per_million
-                    ),
-                    "request": self._s.llm.openrouter_max_price_request_usd,
-                },
-            }
-        elif provider_only:
+        if provider_only:
             extra_body["provider"] = {
                 "only": list(provider_only),
                 "allow_fallbacks": self._s.llm.openrouter_allow_fallbacks,
@@ -3647,14 +1724,12 @@ class LLMClient:
         error: LLMError | None,
         request_config: dict[str, Any],
         call_status: str | None = None,
-        budget_reservation: dict[str, Any] | None = None,
-        budget_settlement: dict[str, Any] | None = None,
-    ) -> bool:
-        """Durably record retries when no TaskLogger campaign ledger is bound."""
+    ) -> None:
+        """Record one provider attempt in the run's cost log when no TaskLogger is bound."""
 
         record_cost = getattr(log, "record_llm_cost", None)
         if not callable(record_cost):
-            return False
+            return
         resolved_latency_s = float(latency_s)
         if not math.isfinite(resolved_latency_s) or resolved_latency_s < 0:
             raise ValueError(
@@ -3666,11 +1741,6 @@ class LLMClient:
         )
         if provider_cost is None and known_rejection_cost is not None:
             provider_cost = known_rejection_cost
-        campaign_budget = request_config.get("campaign_budget")
-        durable = bool(
-            isinstance(campaign_budget, dict)
-            and campaign_budget.get("durable_cost_ledger")
-        )
         resolved_status = call_status or (
             "retry" if error is not None and error.retryable else "error"
         )
@@ -3705,19 +1775,8 @@ class LLMClient:
             provider=(provider_metadata or {}).get("provider"),
             openrouter_metadata=(provider_metadata or {}).get("openrouter_metadata"),
             provider_cost_observed=provider_cost_observed,
-            settled_cost_usd=(budget_settlement or {}).get("settled_cost_usd"),
             request_config=request_config,
-            budget_reservation=budget_reservation,
-            budget_settlement=budget_settlement,
-            attempt_receipt_id=(budget_settlement or {}).get(
-                "attempt_receipt_id"
-            ),
-            attempt_receipt_sha256=(budget_settlement or {}).get(
-                "attempt_receipt_sha256"
-            ),
-            durable=durable,
         )
-        return True
 
     async def _task_logger_settle_received_attempt(
         self,
@@ -3738,7 +1797,7 @@ class LLMClient:
 
         A transport-successful response is not a successful provider attempt
         until any requested JSON/schema validation also accepts it.  Deferring
-        this one ledger append lets rejected parse/schema responses carry their
+        this one cost-log append lets rejected parse/schema responses carry their
         anomaly evidence on the original provider-attempt row.
         """
 
@@ -3773,9 +1832,6 @@ class LLMClient:
             error=error,
             failure_phase=failure_phase,
         )
-        await self._ack_provider_attempt_receipt(
-            provider_attempt.get("budget_settlement")
-        )
         provider_attempt["provider_attempt_ledger_settled"] = True
 
     @staticmethod
@@ -3794,11 +1850,9 @@ class LLMClient:
         retry_kind: str | None = None,
         error: LLMError | None = None,
         failure_phase: str | None = None,
-        budget_reservation: dict[str, Any] | None = None,
-        budget_settlement: dict[str, Any] | None = None,
         latency_s: float | None = None,
     ) -> None:
-        """Flush exactly one durable billing/routing row for a provider request."""
+        """Write exactly one billing/routing row for a provider request."""
 
         response_received = provider_attempt is not None
         if response_received:
@@ -3817,11 +1871,6 @@ class LLMClient:
         provider_metadata = provider_attempt.get("provider_metadata") if response_received else None
         if not isinstance(provider_metadata, dict):
             provider_metadata = None
-        if response_received:
-            budget_reservation = budget_reservation or provider_attempt.get(
-                "budget_reservation"
-            )
-            budget_settlement = budget_settlement or provider_attempt.get("budget_settlement")
         response_anomaly_evidence: dict[str, Any] | None = None
         if response_received and call_status != "success":
             existing_evidence = provider_attempt.get("response_anomaly_evidence")
@@ -3904,18 +1953,6 @@ class LLMClient:
             anomaly=(error.anomaly.value if error is not None and error.anomaly else None),
             error=error.to_record() if error is not None else None,
             response_anomaly_evidence=response_anomaly_evidence,
-            budget_reservation=budget_reservation,
-            budget_settlement=budget_settlement,
-            attempt_receipt_id=(budget_settlement or {}).get(
-                "attempt_receipt_id"
-            ),
-            attempt_receipt_sha256=(budget_settlement or {}).get(
-                "attempt_receipt_sha256"
-            ),
-            durable=bool(
-                isinstance(request_config.get("campaign_budget"), dict)
-                and request_config["campaign_budget"].get("durable_cost_ledger")
-            ),
         )
 
     @staticmethod
@@ -3981,7 +2018,7 @@ class LLMClient:
 
     @staticmethod
     def _raw_provider_cost(provider_metadata: Any) -> Any:
-        """Return the receipt's raw cost so the budget ledger can reject invalid values."""
+        """Return the provider-reported cost exactly as received."""
 
         if not isinstance(provider_metadata, dict):
             return None
@@ -4027,369 +2064,14 @@ class LLMClient:
         max_retries = self._s.llm.max_retries
         return max_retries >= 0 and attempts_done >= max_retries
 
-    def _provider_retry_delay(self, retry_number: int, err: LLMError) -> float:
-        """Use legacy fixed waits normally and full jitter only in formal campaigns."""
-
-        cfg = self._s.llm
-        if self._budget is None:
-            return max(0.0, cfg.retry_interval_s)
-        number = max(1, int(retry_number))
-        if number == 1:
-            low = max(0.0, cfg.retry_jitter_initial_min_s)
-            high = max(low, cfg.retry_jitter_initial_max_s)
-        else:
-            low = 0.0
-            cap = max(0.0, cfg.retry_jitter_cap_s)
-            initial = max(0.0, cfg.retry_jitter_initial_max_s)
-            if initial <= 0 or cap <= 0:
-                high = 0.0
-            elif initial >= cap:
-                high = cap
-            else:
-                steps_to_cap = math.ceil(math.log2(cap / initial))
-                high = (
-                    cap
-                    if number - 1 >= steps_to_cap
-                    else initial * (2 ** (number - 1))
-                )
-        jitter = random.uniform(low, high) if high > low else high
-        try:
-            parsed_retry_after = float(err.context.get("retry_after_s") or 0.0)
-            retry_after = (
-                max(0.0, parsed_retry_after) if math.isfinite(parsed_retry_after) else 0.0
-            )
-        except (TypeError, ValueError):
-            retry_after = 0.0
-        return max(jitter, retry_after)
-
-    def _budget_request_config(self) -> dict[str, Any]:
-        cfg = self._s.llm
-        if self._budget is None:
-            return {"enabled": False}
-        ledger = cfg.openrouter_budget_ledger
-        return {
-            "enabled": True,
-            "cap_usd": cfg.openrouter_campaign_budget_usd,
-            "request_reservation_usd": cfg.openrouter_request_reservation_usd,
-            "durable_cost_ledger": cfg.openrouter_durable_cost_ledger,
-            "pricing_profile_sha256": cfg.openrouter_pricing_profile_sha256,
-            "provider_max_price": {
-                "prompt_usd_per_million": (
-                    cfg.openrouter_max_price_prompt_usd_per_million
-                ),
-                "completion_usd_per_million": (
-                    cfg.openrouter_max_price_completion_usd_per_million
-                ),
-                "request_usd": cfg.openrouter_max_price_request_usd,
-            },
-            "ledger_path_sha256": hashlib.sha256(ledger.encode("utf-8")).hexdigest(),
-        }
-
-    @staticmethod
-    def _budget_snapshot_view(state: dict[str, Any] | None) -> dict[str, Any] | None:
-        if state is None:
-            return None
-        active = state.get("active_reservations")
-        active_count = len(active) if isinstance(active, dict) else 0
-        cap = float(state.get("cap_usd", 0.0) or 0.0)
-        known = float(state.get("known_cost_usd", 0.0) or 0.0)
-        unknown = float(state.get("unknown_spend_usd", 0.0) or 0.0)
-        reserved = float(state.get("reserved_usd", 0.0) or 0.0)
-        unaccounted = float(state.get("unaccounted_provider_cost_usd", 0.0) or 0.0)
-        accounted_remaining = cap - known - unknown - reserved
-        effective_remaining = accounted_remaining - unaccounted
-        return {
-            "schema": state.get("schema"),
-            "cap_usd": cap,
-            "known_cost_usd": known,
-            "unknown_spend_usd": unknown,
-            "reserved_usd": reserved,
-            "remaining_usd": effective_remaining,
-            "accounted_remaining_usd": accounted_remaining,
-            "effective_remaining_usd": effective_remaining,
-            "unaccounted_provider_cost_usd": unaccounted,
-            "paused": bool(state.get("paused", False)),
-            "pause_reason": state.get("pause_reason"),
-            "active_reservation_count": active_count,
-            "settled_attempts": int(state.get("settled_attempts", 0) or 0),
-            "settlement_pause_triggered": bool(
-                state.get("settlement_pause_triggered", False)
-            ),
-            "settlement_preexisting_pause_reason": state.get(
-                "settlement_preexisting_pause_reason"
-            ),
-            "settlement_pause_reason": state.get("settlement_pause_reason"),
-            "attempt_receipt_id": state.get("attempt_receipt_id"),
-            "attempt_receipt_sha256": state.get("attempt_receipt_sha256"),
-            "started_attempt_receipt_sha256": state.get(
-                "started_attempt_receipt_sha256"
-            ),
-        }
-
-    def _attempt_receipt_template(
-        self,
-        *,
-        agent: str,
-        call_id: str,
-        model: str,
-        provider_attempt_index: int,
-        transport_attempt: int,
-        repair_index: int,
-        status: str,
-        request_config: dict[str, Any],
-        task_logger: "TaskLogger | None" = None,
-        log: RunLogger | None = None,
-        provider_attempt: dict[str, Any] | None = None,
-        error: LLMError | None = None,
-        latency_s: float = 0.0,
-        budget_reservation: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        manager = getattr(task_logger, "_manager", None)
-        if manager is None:
-            manager = getattr(log, "manager", None)
-        formal_context = getattr(manager, "formal_attempt_receipt_context", None)
-        if not isinstance(formal_context, dict):
-            formal_context = {}
-        task_id = str(
-            getattr(task_logger, "task_id", None)
-            or formal_context.get("task_id")
-            or "unknown"
-        )
-        stage = str(
-            getattr(task_logger, "stage", None)
-            or formal_context.get("stage")
-            or "unknown"
-        )
-        provider_metadata = (
-            provider_attempt.get("provider_metadata")
-            if isinstance(provider_attempt, dict)
-            else None
-        )
-        usage = (
-            provider_attempt.get("usage")
-            if isinstance(provider_attempt, dict)
-            else None
-        )
-        response_received = provider_attempt is not None
-        provider_cost = self._provider_cost_usd(provider_metadata)
-        billed_provider_cost = provider_cost
-        known_rejection_cost = (
-            self._known_rejection_cost(error) if error is not None else None
-        )
-        if provider_cost is None and known_rejection_cost is not None:
-            provider_cost = known_rejection_cost
-        return {
-            "receipt_context": {
-                "campaign_binding": (
-                    self._budget.pricing_profile_sha256
-                    if self._budget is not None
-                    else None
-                ),
-                "formal_campaign_manifest_sha256": formal_context.get(
-                    "formal_campaign_manifest_sha256"
-                ),
-                "formal_arm_id": formal_context.get("formal_arm_id"),
-                "formal_db_id": formal_context.get("formal_db_id"),
-                "task_id": task_id,
-            },
-            "call_id": call_id,
-            "agent": agent,
-            "model": model,
-            "provider_attempt_index": provider_attempt_index,
-            "transport_attempt": transport_attempt,
-            "repair_index": repair_index,
-            "stage": stage,
-            "task_id": task_id,
-            "status": status,
-            "response_received": response_received,
-            "latency_s": latency_s,
-            "usage": usage,
-            "finish_reason": (
-                provider_attempt.get("finish_reason")
-                if isinstance(provider_attempt, dict)
-                else None
-            ),
-            "provider_metadata": provider_metadata,
-            "provider_cost_observed": (
-                provider_attempt.get("provider_cost_observed")
-                if isinstance(provider_attempt, dict)
-                else None
-            ),
-            "cost_usd": provider_cost,
-            "cost_source": (
-                "known_pre_inference_rejection"
-                if known_rejection_cost is not None and billed_provider_cost is None
-                else "provider_usage"
-                if provider_cost is not None
-                else "unknown"
-            ),
-            "anomaly": (
-                error.anomaly.value if error is not None and error.anomaly else None
-            ),
-            "error": error.to_record() if error is not None else None,
-            "request_config": request_config,
-            "budget_reservation": budget_reservation,
-        }
-
-    async def _run_ledger_io(
-        self,
-        operation: Callable[..., Any],
-        *args: Any,
-        **kwargs: Any,
-    ) -> Any:
-        executor = self._ledger_executor
-        if executor is None:
-            raise RuntimeError("campaign ledger executor is not available")
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(executor, partial(operation, *args, **kwargs))
-
-    async def _ensure_ledger_initialized(self) -> None:
-        if self._budget is None or self._ledger_initialized:
-            return
-        async with self._ledger_init_lock:
-            if self._ledger_initialized:
-                return
-            await self._run_ledger_io(self._budget.initialize)
-            self._ledger_initialized = True
-
-    async def _reserve_provider_budget(
-        self,
-        call_id: str,
-        provider_attempt_index: int,
-        *,
-        attempt_receipt: dict[str, Any] | None = None,
-    ) -> tuple[str | None, dict[str, Any] | None]:
-        if self._budget is None:
-            return None, None
-        await self._ensure_ledger_initialized()
-        reservation_id = (
-            f"{call_id}:{provider_attempt_index}:{os.getpid()}:{uuid4().hex[:10]}"
-        )
-        contention_round = 0
-        while True:
-            admission_acquired = False
-            try:
-                if self._budget_admission_sem is not None:
-                    await self._budget_admission_sem.acquire()
-                    admission_acquired = True
-                state = await self._run_ledger_io(
-                    self._budget.reserve,
-                    reservation_id,
-                    self._s.llm.openrouter_request_reservation_usd,
-                    attempt_receipt=attempt_receipt,
-                )
-                break
-            except BudgetReservationBusy:
-                if admission_acquired and self._budget_admission_sem is not None:
-                    self._budget_admission_sem.release()
-                contention_round += 1
-                # This is local budget admission, not a provider fault.  Wait without
-                # holding the LLM semaphore and retry the same logical provider index.
-                high = min(0.25, 0.025 * (2 ** min(contention_round, 4)))
-                await asyncio.sleep(random.uniform(0.025, high))
-            except BaseException:
-                if admission_acquired and self._budget_admission_sem is not None:
-                    self._budget_admission_sem.release()
-                raise
-        view = self._budget_snapshot_view(state)
-        if view is not None:
-            view["reservation_id"] = reservation_id
-            view["reservation_usd"] = self._s.llm.openrouter_request_reservation_usd
-        return reservation_id, view
-
-    async def _settle_provider_budget(
-        self,
-        reservation_id: str | None,
-        *,
-        known_cost_usd: Any,
-        call_id: str,
-        provider_attempt_index: int,
-        settlement_kind: str,
-        pause_reason: str | None = None,
-        raise_on_pause: bool = True,
-        attempt_receipt: dict[str, Any] | None = None,
-    ) -> dict[str, Any] | None:
-        if self._budget is None or reservation_id is None:
-            return None
-        await self._ensure_ledger_initialized()
-        try:
-            state = await self._run_ledger_io(
-                self._budget.settle,
-                reservation_id,
-                known_cost_usd=known_cost_usd,
-                call_id=call_id,
-                provider_attempt_index=provider_attempt_index,
-                settlement_kind=settlement_kind,
-                pause_reason=pause_reason,
-                raise_on_pause=raise_on_pause,
-                attempt_receipt=attempt_receipt,
-            )
-        finally:
-            if self._budget_admission_sem is not None:
-                self._budget_admission_sem.release()
-        view = self._budget_snapshot_view(state)
-        if view is not None:
-            view["reservation_id"] = reservation_id
-            view["settled_cost_usd"] = self._provider_cost_from_raw(known_cost_usd)
-            view["settlement_kind"] = "known" if known_cost_usd is not None else "unknown"
-        return view
-
-    async def _ack_provider_attempt_receipt(
-        self,
-        budget_settlement: dict[str, Any] | None,
-    ) -> None:
-        if self._budget is None or not isinstance(budget_settlement, dict):
-            return
-        await self._ensure_ledger_initialized()
-        receipt_id = budget_settlement.get("attempt_receipt_id")
-        receipt_hash = budget_settlement.get("attempt_receipt_sha256")
-        if receipt_id is None and receipt_hash is None:
-            return
-        if not isinstance(receipt_id, str) or not isinstance(receipt_hash, str):
-            raise CampaignPauseError(
-                "provider attempt settlement lacks its WAL receipt identity",
-                context={"pause_reason": "attempt_receipt_identity_missing"},
-            )
-        await self._run_ledger_io(
-            self._budget.acknowledge_attempt_receipt,
-            receipt_id,
-            receipt_hash,
-        )
-
-    @staticmethod
-    def _provider_cost_from_raw(value: Any) -> float | None:
-        try:
-            cost = float(value) if value is not None else None
-        except (TypeError, ValueError):
-            return None
-        return cost if cost is not None and math.isfinite(cost) and cost >= 0 else None
-
-    def _settled_provider_error_cost(
-        self, err: LLMError, provider_attempt: dict[str, Any] | None
-    ) -> float | None:
-        """Prefer a billed completion cost; otherwise a known-zero transport rejection."""
-        metadata = (
-            provider_attempt.get("provider_metadata")
-            if isinstance(provider_attempt, dict)
-            else None
-        )
-        billed = self._provider_cost_usd(metadata)
-        if billed is not None:
-            return billed
-        return self._known_rejection_cost(err)
-
     @staticmethod
     def _known_rejection_cost(err: LLMError) -> float | None:
         """Return zero when there is no evidence the provider billed a completion.
 
-        OpenRouter 401/402/403/429 rejections are known pre-inference responses.
-        Connection failures, first-token timeouts, and retryable 5xx/408 statuses
-        also settle at zero: the campaign retries them onto another route, and
-        charging the full worst-case reservation as unknown on each miss exhausts
-        a $60 ledger before any answer can arrive. Incomplete responses that
-        carried content but no numeric cost still return None so they stay unknown.
-        Content-bearing retryable faults (truncated/empty/parse) also return None
-        so settlement can use the billed usage instead of pretending the call was free.
+        OpenRouter 401/402/403/429 rejections are known pre-inference responses, and
+        connection failures, first-token timeouts, and retryable 5xx/408 statuses end
+        before a completion is produced. Content-bearing faults (truncated/empty/parse)
+        return None so their cost stays unknown instead of pretending the call was free.
         """
 
         if isinstance(
@@ -4419,63 +2101,12 @@ class LLMClient:
             return 0.0
         return None
 
-    def _formal_pause_reason(self, err: LLMError) -> str | None:
-        """Classify errors that must stop every worker in a formal campaign."""
-
-        if self._budget is None:
-            return None
-        if isinstance(err, CampaignPauseError):
-            return str(err.context.get("pause_reason") or "campaign_pause_error")
-        try:
-            status = int(err.context.get("status_code"))
-        except (TypeError, ValueError):
-            status = None
-        if status == 402:
-            return "provider_balance_insufficient"
-        if status in {401, 403}:
-            return "provider_authentication_or_authorization_failed"
-        if isinstance(err, ContextOverflowError):
-            return "context_overflow"
-        if isinstance(err, PromptAnomalyError):
-            return "prompt_malformed"
-        if err.anomaly == Anomaly.INTERNAL:
-            return "llm_client_internal_error"
-        return None
-
-    @staticmethod
-    def _campaign_pause_from_error(err: LLMError, reason: str) -> CampaignPauseError:
-        if isinstance(err, CampaignPauseError):
-            return err
-        return CampaignPauseError(
-            "formal OpenRouter campaign paused after a permanent failure",
-            context={
-                "pause_reason": reason,
-                "source_error": err.to_record(),
-            },
-        )
-
-    async def _pause_formal_campaign_error(self, err: LLMError) -> LLMError:
-        """Persist a pre-send/internal pause and return the supervisor-facing error."""
-
-        reason = self._formal_pause_reason(err)
-        if reason is None or self._budget is None:
-            return err
-        if not isinstance(err, CampaignPauseError):
-            await self._ensure_ledger_initialized()
-            state = await self._run_ledger_io(
-                self._budget.pause,
-                reason,
-                details={"source_error": err.to_record()},
-            )
-            reason = str(state.get("pause_reason") or reason)
-        return self._campaign_pause_from_error(err, reason)
-
     def _compact_attempts(self, attempts: list[dict[str, Any]]) -> None:
-        """Bound TaskLogger-path RAM after each attempt is durably appended.
+        """Bound TaskLogger-path RAM after each attempt is appended to the cost log.
 
         The compact summary preserves exact logical-call counts and the next contiguous
-        provider index.  The campaign ledger in ``cost_summary.jsonl`` remains the full
-        per-attempt source of truth; only the in-memory diagnostic window is truncated.
+        provider index.  ``cost_summary.jsonl`` remains the full per-attempt source of
+        truth; only the in-memory diagnostic window is truncated.
         """
 
         limit = max(1, int(self._s.llm.attempt_memory_limit))

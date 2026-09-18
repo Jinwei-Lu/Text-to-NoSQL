@@ -1145,13 +1145,8 @@ class TaskLogger:
         anomaly: str | None = None,
         error: dict[str, Any] | None = None,
         response_anomaly_evidence: dict[str, Any] | None = None,
-        budget_reservation: dict[str, Any] | None = None,
-        budget_settlement: dict[str, Any] | None = None,
-        attempt_receipt_id: str | None = None,
-        attempt_receipt_sha256: str | None = None,
-        durable: bool = False,
     ) -> None:
-        """Durably append one provider-request attempt to the campaign ledger.
+        """Append one provider-request attempt to ``cost_summary.jsonl``.
 
         There is exactly one row per request issued by :meth:`LLMClient.complete`.
         A response-less transport failure is still a row, with ``cost_usd=None``
@@ -1172,14 +1167,9 @@ class TaskLogger:
         resolved_provider_metadata = (
             provider_metadata if isinstance(provider_metadata, dict) else {}
         )
-        resolved_budget_settlement = (
-            budget_settlement if isinstance(budget_settlement, dict) else {}
-        )
         self._manager.append_cost_record(
             {
                 "record_type": "provider_attempt",
-                "attempt_receipt_id": attempt_receipt_id,
-                "attempt_receipt_sha256": attempt_receipt_sha256,
                 "call_id": call_id,
                 "agent": agent,
                 "provider_attempt_index": int(provider_attempt_index),
@@ -1216,14 +1206,6 @@ class TaskLogger:
                     "openrouter_metadata"
                 ),
                 "provider_cost_observed": provider_cost_observed,
-                "settled_cost_usd": resolved_budget_settlement.get(
-                    "settled_cost_usd"
-                ),
                 "request_config": request_config,
-                "budget_reservation": budget_reservation,
-                "budget_settlement": budget_settlement,
-                "campaign_profile_name": os.environ.get("TEND_CAMPAIGN_PROFILE_NAME"),
-                "campaign_profile_sha256": os.environ.get("TEND_CAMPAIGN_PROFILE_SHA256"),
-            },
-            durable=durable,
+            }
         )
