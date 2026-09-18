@@ -30,6 +30,7 @@ publication.
 | [`src/tend/`](src/tend/) | Public Python package for dataset handling, validation, solving, baselines, ablations, evaluation, and observability. |
 | [`demonstration/`](demonstration/) | QueryCraft Flask demo with database selection, browsing of the structure induced from stored documents, generated-MQL inspection, optional read-only execution, and solver metadata. |
 | [`proposals/`](proposals/) | Runtime files the package reads: the baseline allow list and the record and catalog JSON schemas used by `tend validate`. |
+| [`scripts/`](scripts/) | Metric-validation runners: `validate_metric.py` (M1, M2) and `run_counterfactual.py` (M3). |
 | [`RESULTS.md`](RESULTS.md) | Final experimental results and how each number was produced. |
 | [`pyproject.toml`](pyproject.toml) | Package metadata, optional `demo` and `test` dependency groups, and `tend` CLI entry point. |
 | [`requirements.txt`](requirements.txt) | Runtime dependency file for standard pip-based installation. |
@@ -285,6 +286,12 @@ MQL or NLQ) and that every database's witness data is present. On the output of 
 `tend construct` run, `tend validate` checks the full record and composition contract, and
 `tend publish --out <dir>` copies the dataset to `<dir>` only if it passes.
 
+`tend construct --dbs all` rebuilds the eleven MongoDB databases from BIRD mini-dev byte
+for byte as released (`mongodb_data/`) and generates candidate records deterministically
+from each database's native features. The released questions came from an earlier,
+LLM-assisted version of the pipeline followed by review, so a construct run does not
+reproduce `data/TEND.json`.
+
 Ablation arms, the seven configurations of the ablation in [`RESULTS.md`](RESULTS.md):
 `sag_full` (the full solver, the reference row), `sag_core_generate_only`, `sag_v2`,
 `sag_core_no_value_witness_strict`, `sag_core_no_grounding`, `sag_v3_top_card`, and
@@ -349,6 +356,13 @@ one outcome bucket (`correct`, `no_submission`, `invalid`, `exec_error`,
 or `ablation_failure` rows remain in the denominator as zero-score rows. If
 MongoDB becomes unavailable during evaluation, the run stops instead of scoring
 the affected rows zero.
+
+Two scripts check the metric itself; they need MongoDB but no LLM.
+`scripts/validate_metric.py m1` confirms that every reference query scores EXC = 1
+against itself, and `scripts/validate_metric.py m2` sweeps the surplus bound over null
+and shortcut probes, which should select β = 2. `scripts/run_counterfactual.py` measures
+how often a system's passing answers flip on a witness extended with distractor documents
+that leave the reference result unchanged.
 
 Do not treat `--stub` runs as paper-score runs. Stub mode is for offline
 connectivity, interface checks, and contract testing only.

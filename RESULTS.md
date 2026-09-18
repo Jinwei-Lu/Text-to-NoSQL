@@ -19,11 +19,15 @@ experiment campaign), which numbers they supersede, and how each number was prod
 - **Code.** Commit `260801ea` of this repository ("Publish the final code used for the August
   2026 experiments") is the code the experiments ran on. It matches the code snapshot recorded
   by the final ablation campaign byte for byte, except for the line endings of one file; the
-  earlier August runs recorded no source hash. The release tag `v1.0.0` adds packaging, the
-  runtime files under `proposals/`, documentation and the command-line help text on top of it;
-  the solver, baselines and evaluator are unchanged. SAG runs in its
-  revised default configuration: dynamic-key (field-group) recognition, the identifier card,
-  and value-witness handling.
+  earlier August runs recorded no source hash. The release tag `v1.0.0` keeps only the code
+  the final experiments, the metric checks, dataset construction and the demo use, and adds
+  packaging, the runtime files under `proposals/`, documentation and the command-line help
+  text. In offline stub runs it gives the same prompts, answers and disclosure fields as
+  `260801ea` for every system and ablation arm on this page, and a recording provider receives
+  the same requests from both. Its ReAct step budget defaults to 50, the value the final runs
+  set. The June arms of the submitted version below were removed after `260801ea`; run them
+  from that commit. SAG runs in its revised default configuration: dynamic-key (field-group)
+  recognition, the identifier card, and value-witness handling.
 
 ## Main results
 
