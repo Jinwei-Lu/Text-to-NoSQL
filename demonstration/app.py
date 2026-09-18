@@ -35,7 +35,6 @@ from tend.release_layout import resolve_release_dataset_layout  # noqa: E402
 from tend.solver.sag import (  # noqa: E402
     GroundingIndexCache,
     SAGPolicy,
-    sag_solve_nlq_db,
     sag_solve_record,
 )
 
@@ -77,17 +76,6 @@ POLICY_DEFAULTS = {
         "card_mode": "lattice",
     },
 }
-SITE_SAG_POLICY = {
-    "arm": "v3",
-    "k_consistency": 3,
-    # The initial decode is round 1, so round 2 permits at most one repair.
-    "max_repair_rounds": 2,
-    # Keep the live prompt bounded while retaining every SAG mechanism.
-    "sample_docs": 80,
-    "card_cap": 260,
-    "card_mode": "lattice",
-    "variant_label": "querycraft_live_k3_r2",
-}
 CARD_MODES = {"lattice", "toplevel", "nocollapse"}
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 DATA_LIKE_KEY_RE = re.compile(
@@ -116,22 +104,8 @@ class _RuntimeBundle:
             self.runtime.settings,
             self.runtime.log,
         )
-        self._site_index_cache: GroundingIndexCache | None = None
         self.loaded_witness_dbs: set[str] = set()
         self._witness_locks: dict[str, asyncio.Lock] = {}
-
-    def site_index_cache(self) -> GroundingIndexCache:
-        """Return the public Site's independently bounded Mongo/SAG cache."""
-
-        if self._site_index_cache is None:
-            from executor.public_sag_world import build_public_index_cache
-
-            self._site_index_cache = build_public_index_cache(
-                self.runtime.mongo,
-                self.runtime.settings,
-                self.runtime.log,
-            )
-        return self._site_index_cache
 
     async def ensure_witness_loaded(
         self,
@@ -193,17 +167,14 @@ class DemoSolverService:
         self._bundles: dict[str, _RuntimeBundle] = {}
 
     def solve(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._submit(lambda: _solve_with_solver(payload), "Solver")
+        return self.submit(lambda: _solve_with_solver(payload), "Solver")
 
     def execute(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Run an already-generated pipeline without re-invoking the solver."""
-        return self._submit(lambda: _execute_mql(payload), "Execution")
+        return self.submit(lambda: _execute_mql(payload), "Execution")
 
-    def solve_site_workflow(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Run the fixed, gold-free SAG profile used by the public Site."""
-        return self._submit(lambda: _solve_site_workflow(payload), "SAG workflow")
-
-    def _submit(self, factory: Any, label: str) -> dict[str, Any]:
+    def submit(self, factory: Any, label: str) -> dict[str, Any]:
+        """Run a coroutine on the solver loop, bounded by the demo solve timeout."""
         self._ensure_loop()
         assert self._loop is not None
         future = asyncio.run_coroutine_threadsafe(factory(), self._loop)
@@ -953,80 +924,6 @@ def _settings_for_mode(mode: str) -> Settings:
     return settings
 
 
-def _site_sag_policy() -> SAGPolicy:
-    policy = SAGPolicy(**SITE_SAG_POLICY)
-    policy.validate()
-    return policy
-
-
-def _site_workflow_input(payload: dict[str, Any]) -> tuple[str, str, str]:
-    allowed = {"database", "query", "clientRequestId"}
-    unknown = sorted(str(key) for key in payload if key not in allowed)
-    if unknown:
-        raise DemoError(f"Unsupported workflow field(s): {', '.join(unknown)}")
-    db_id = str(payload.get("database") or "").strip()
-    nlq = str(payload.get("query") or "").strip()
-    request_id = str(payload.get("clientRequestId") or "").strip()
-    if not db_id or db_id not in _db_ids():
-        raise DemoError("Choose one of the available demo databases.", status_code=422)
-    if not nlq or len(nlq) > 1_200:
-        raise DemoError(
-            "Query must contain between 1 and 1,200 characters.", status_code=422
-        )
-    if not re.fullmatch(r"[0-9a-f]{32}", request_id):
-        raise DemoError("The workflow request identifier is invalid.", status_code=422)
-    return db_id, nlq, request_id
-
-
-async def _solve_site_workflow(payload: dict[str, Any]) -> dict[str, Any]:
-    """Run the public, latency-bounded SAG profile without release-case hints.
-
-    The public path is deliberately stricter than the general Flask demo API:
-    it accepts only database, user question and an opaque request id; it also
-    refuses to fall back to an offline witness world because that would disable
-    execution-grounded repair and k-result consistency.
-    """
-
-    db_id, nlq, request_id = _site_workflow_input(payload)
-    bundle = SOLVER_SERVICE.runtime_for_mode("live")
-    rt = bundle.runtime
-    if not rt.settings.use_existing_mongo_dbs:
-        raise DemoError(
-            "The live SAG workflow requires pre-loaded read-only MongoDB databases.",
-            status_code=503,
-        )
-    if not await asyncio.to_thread(rt.mongo.available):
-        raise DemoError("The read-only MongoDB service is unavailable.", status_code=503)
-
-    policy = _site_sag_policy()
-    started = time.monotonic()
-    result = await sag_solve_nlq_db(
-        rt.workflow,
-        db_id=db_id,
-        nlq=nlq,
-        record_id=request_id,
-        policy=policy,
-        index_cache=bundle.site_index_cache(),
-        local_data=None,
-        stage="querycraft_sites",
-    )
-    return {
-        "database": db_id,
-        "model": rt.settings.llm.model,
-        "elapsed_s": round(time.monotonic() - started, 3),
-        "policy": {
-            "arm": policy.arm,
-            "k_consistency": policy.k_consistency,
-            "max_repair_rounds": policy.max_repair_rounds,
-            "sample_docs": policy.sample_docs,
-            "card_cap": policy.card_cap,
-            "card_mode": policy.card_mode,
-            "solver_variant": policy.solver_variant,
-        },
-        "result": result.to_json(),
-    }
-
-
 async def _solve_with_solver(payload: dict[str, Any]) -> dict[str, Any]:
     db_id = str(payload.get("database") or "").strip()
     nlq = str(payload.get("query") or "").strip()
@@ -1249,7 +1146,6 @@ def health():
         use_existing_mongo_dbs=_read_only_settings().use_existing_mongo_dbs,
         max_execution_rows=MAX_EXECUTION_ROWS,
         policy_defaults=POLICY_DEFAULTS,
-        site_sag_policy=SITE_SAG_POLICY,
         policy_limits={key: list(value) for key, value in POLICY_LIMITS.items()},
         card_modes=sorted(CARD_MODES),
     )

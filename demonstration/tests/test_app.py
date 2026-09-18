@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -108,81 +106,6 @@ def test_stub_solve_uses_real_solver_path():
     assert payload["result"]["MQL"].startswith("db.")
     assert "run_dir" not in payload
     assert payload["run_id"]
-
-
-def test_site_sag_profile_is_fixed_and_input_is_gold_free(monkeypatch):
-    policy = demo._site_sag_policy()
-    assert policy.arm == "v3"
-    assert policy.effective_k == 3
-    assert policy.max_repair_rounds == 2
-    assert policy.sample_docs == 80
-    assert policy.card_cap == 260
-    assert policy.use_gate is True
-    assert policy.use_value_witnesses is True
-    assert policy.use_bisection is True
-
-    with pytest.raises(demo.DemoError):
-        demo._site_workflow_input(
-            {
-                "database": "california_schools",
-                "query": "Count schools.",
-                "clientRequestId": "a" * 32,
-                "collection": "gold_hint_must_not_cross",
-            }
-        )
-
-    captured: dict[str, object] = {}
-
-    class _Mongo:
-        @staticmethod
-        def available() -> bool:
-            return True
-
-    async def fake_solve(_workflow, **kwargs):
-        captured.update(kwargs)
-        return SimpleNamespace(
-            to_json=lambda: {
-                "result_type": "solver_failure",
-                "error_code": "LLM_ERROR",
-                "message": "stubbed",
-                "disclosure": {"uses_gold_mql": False},
-            }
-        )
-
-    runtime = SimpleNamespace(
-        settings=SimpleNamespace(
-            use_existing_mongo_dbs=True,
-            llm=SimpleNamespace(model="test-model"),
-        ),
-        mongo=_Mongo(),
-        workflow=object(),
-    )
-    public_index_cache = object()
-    bundle = SimpleNamespace(
-        runtime=runtime,
-        index_cache=object(),
-        site_index_cache=lambda: public_index_cache,
-    )
-    monkeypatch.setattr(demo, "_db_ids", lambda: ["california_schools"])
-    monkeypatch.setattr(demo.SOLVER_SERVICE, "runtime_for_mode", lambda mode: bundle)
-    monkeypatch.setattr(demo, "sag_solve_nlq_db", fake_solve)
-
-    response = asyncio.run(
-        demo._solve_site_workflow(
-            {
-                "database": "california_schools",
-                "query": "Count schools.",
-                "clientRequestId": "b" * 32,
-            }
-        )
-    )
-    assert captured["db_id"] == "california_schools"
-    assert captured["nlq"] == "Count schools."
-    assert captured["record_id"] == "b" * 32
-    assert captured["local_data"] is None
-    assert captured["index_cache"] is public_index_cache
-    assert captured["policy"].solver_variant == "sag_v3_querycraft_live_k3_r2"
-    assert response["policy"]["k_consistency"] == 3
 
 
 @needs_release_data
