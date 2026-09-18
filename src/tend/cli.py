@@ -2308,7 +2308,8 @@ def _add_eval_args(parser: argparse.ArgumentParser) -> None:
 def _main_impl(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="tend",
-        description="TEND construction pipeline and SMART solver",
+        description="TEND Text-to-NoSQL benchmark: construction, validation, the SAG solver, "
+        "baselines, ablations, and evaluation",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

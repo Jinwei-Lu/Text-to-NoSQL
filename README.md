@@ -28,8 +28,11 @@ publication.
 | Path | Purpose |
 | --- | --- |
 | [`src/tend/`](src/tend/) | Public Python package for dataset handling, validation, solving, baselines, ablations, evaluation, and observability. |
-| [`demonstration/`](demonstration/) | QueryCraft Flask demo with database selection, schema browsing, generated-MQL inspection, optional execution, solver metadata, and query history. |
-| [`pyproject.toml`](pyproject.toml) | Package metadata, optional demo dependency group, and `tend` CLI entry point. |
+| [`demonstration/`](demonstration/) | QueryCraft Flask demo with database selection, schema browsing, generated-MQL inspection, optional read-only execution, and solver metadata. |
+| [`proposals/`](proposals/) | Runtime files the package reads: the baseline allow list, the record/library JSON schemas used by `tend validate`, and the agent prompt templates. |
+| [`release/tend-native-mongodb-v1/schema/`](release/tend-native-mongodb-v1/schema/) | MongoDB schema description of the 11 databases; the rest of the release is downloaded from Google Drive. |
+| [`RESULTS.md`](RESULTS.md) | Final experimental results and how each number was produced. |
+| [`pyproject.toml`](pyproject.toml) | Package metadata, optional `demo` and `test` dependency groups, and `tend` CLI entry point. |
 | [`requirements.txt`](requirements.txt) | Runtime dependency file for standard pip-based installation. |
 | [`.env.example`](.env.example) | Optional local configuration template. |
 
@@ -44,22 +47,32 @@ MongoDB witness data. Download the current native MongoDB release from:
 
 [Google Drive: TEND native variant final artifacts](https://drive.google.com/drive/folders/1s7LgW-zub1gIx9A1OpuWdx7lyNVwXhi5?usp=drive_link)
 
-Restore the release under the repository root with this layout:
+The Drive folder holds `TEND.json` (the task file) and `mongodb_data.zip` (the
+MongoDB witness documents). The schema description ships with this repository.
+From the repository root, with both files downloaded:
+
+```bash
+mkdir -p release/tend-native-mongodb-v1/data
+mv /path/to/TEND.json release/tend-native-mongodb-v1/data/
+unzip /path/to/mongodb_data.zip -x '__MACOSX/*' -d release/tend-native-mongodb-v1/
+```
+
+The result is:
 
 ```text
 release/tend-native-mongodb-v1/
-  data/TEND.json
-  schema/mongodb_schema/
-  mongodb_data/
+  data/TEND.json                        # Google Drive
+  mongodb_data/<db_id>.json             # Google Drive (mongodb_data.zip)
+  schema/mongodb_schema/<db_id>.json    # this repository
 ```
 
 The CLI and QueryCraft demo use `release/tend-native-mongodb-v1/` by default.
 Set `TEND_DEMO_DATASET_DIR` or pass `--dataset-dir` to use a different
 release-compatible location.
 
-`release/`, `runs/`, raw MongoDB payloads, local logs, and generated outputs are
-ignored by Git. They should remain local artifacts rather than repository
-contents.
+Apart from the schema description, `release/` is ignored by Git, as are `runs/`,
+local logs, and generated outputs. They should remain local artifacts rather
+than repository contents.
 
 ## Benchmark Snapshot
 
@@ -75,9 +88,8 @@ The current public release is `tend-native-mongodb-v1`.
 | Public record fields | `record_id`, `db_id`, `NLQ`, `NLQ_colloquial`, `MQL` |
 | Schema collections / queried collections | 32 / 30 |
 | MongoDB witness documents | 269,177 |
-| Distinct MQL strings / signatures | 1,210 / 1,210 |
-| Global / DB-scoped skeleton families | 1,098 / 1,134 |
-| Median / max top-level stages | 7 / 13 |
+| Distinct MQL strings | 1,210 |
+| Median / max top-level stages | 7 / 14 |
 | Dynamic-key operator records | 1,096 (90.6%) |
 | Array-operator records | 1,170 (96.7%) |
 | Nested dotted-path records | 1,164 (96.2%) |
@@ -106,11 +118,11 @@ benchmark task file. Each record contains:
 
 ```json
 {
-  "record_id": 8346,
-  "db_id": "student_club",
-  "NLQ": "Find members attending multiple guest-speaker events that include Speaker Gifts budgets; return up to 11 members.",
-  "NLQ_colloquial": "List up to 11 members tied to repeated guest-speaker gift budgets.",
-  "MQL": "db.club_member_accounts_v2.aggregate([...])"
+  "record_id": 1248463,
+  "db_id": "european_football_2",
+  "NLQ": "How many league seasons have recorded at least one home win?",
+  "NLQ_colloquial": "I need the number of seasons that have at least one home win in the dataset.",
+  "MQL": "db.league_season_buckets.aggregate([...])"
 }
 ```
 
@@ -176,9 +188,8 @@ querying. It presents the components needed to inspect Text-to-NoSQL behavior:
 - hierarchical MongoDB schema browsing, including nested fields and field
   types;
 - generated MongoDB aggregation pipelines;
-- optional execution feedback over MongoDB witness data;
-- solver metadata for debugging successful and failed generations;
-- local history for comparing previous attempts.
+- optional read-only execution of the generated or edited pipeline;
+- solver metadata for debugging successful and failed generations.
 
 The demo source is tracked in [`demonstration/`](demonstration/). The demo does
 not include copied dataset payloads; it reads the restored release directory
@@ -187,8 +198,13 @@ described above.
 Start QueryCraft locally:
 
 ```bash
-TEND_DEMO_PORT=5050 ./.venv/bin/python -c "from demonstration.app import app; app.run(host='127.0.0.1', port=5050, debug=False, use_reloader=False)"
+TEND_DEMO_PORT=5050 TEND_USE_EXISTING_MONGO_DBS=1 ./.venv/bin/python -m demonstration.app
 ```
+
+`TEND_USE_EXISTING_MONGO_DBS=1` makes the demo read the eleven release
+databases from a MongoDB that already holds them (one database per `db_id`)
+instead of parsing the multi-GB witness files; see
+[`demonstration/README.md`](demonstration/README.md).
 
 Open:
 
@@ -203,6 +219,11 @@ TEND_DEMO_DATASET_DIR=release/tend-native-mongodb-v1
 TEND_DEMO_SOLVER_MODE=stub
 TEND_DEMO_SOLVE_TIMEOUT_S=90
 TEND_DEMO_MAX_RETRIES=...
+TEND_DEMO_HOST=127.0.0.1
+TEND_DEMO_PORT=5000
+TEND_DEMO_LLM_MAX_CONCURRENCY=3
+TEND_DEMO_DEBUG=0
+TEND_USE_EXISTING_MONGO_DBS=1
 ```
 
 `TEND_DEMO_SOLVER_MODE=stub` is the default and is appropriate for smoke tests
@@ -255,17 +276,28 @@ Useful commands after restoring the release:
   --run-id ablation-financial
 ```
 
-Evaluate saved predictions with:
+Baseline arms: `direct_nlq_only`, `schema_direct`, `direct`, `data_rich_direct`,
+`sql_pivot`, `sql_pivot_schema` (SQL Pivot given the real relational DDL),
+`dinsql_mql` (the DIN-SQL-inspired MQL adaptation), `react_informed`,
+`plan_then_mql`, `react_lite`, and `static_self_debug`; `--baselines all` runs
+every arm. Ablation groups: `all` (`sag_card1`, `sag_gate`, `sag_v2`,
+`sag_full`), `extended` (single-component knockouts plus `sag_full`), and `core`
+(the three stage ablations reported in [`RESULTS.md`](RESULTS.md)).
+
+`--run-id` is a tag: each run is written to
+`runs/run-<timestamp>-<tag>-<hex>/`, and `solve`, `baseline`, and `ablation`
+evaluate their predictions automatically unless `--no-eval` is given. To
+evaluate saved predictions again:
 
 ```bash
 .venv/bin/python -m tend evaluate \
   --dataset-dir release/tend-native-mongodb-v1 \
-  --predictions runs/<run_id>/solver_predictions.jsonl \
+  --predictions runs/<run_dir>/solve/solver_predictions.jsonl \
   --kind solver \
   --workers 8
 ```
 
-Outputs are written under `runs/<run_id>/evaluation/<kind>/` by default.
+Outputs are written under `runs/<run_dir>/evaluation/<kind>/` by default.
 `runs/` is local runtime evidence and is intentionally not part of the GitHub
 artifact.
 
@@ -286,21 +318,49 @@ audit data, or training artifacts.
 Mechanism summary:
 
 1. Induce a per-database `GroundingIndex` from bounded witness samples.
-2. Render a closed lattice path card, including dynamic-key map collapse.
-3. Anchor NLQ literals to observed stored values and paths.
-4. Apply A_path and A_value alignment gates plus execution-grounded repair.
-5. Use result-space consistency clustering for the full `sag_full` arm.
+2. Render a closed lattice path card per collection. Dynamic-key maps are
+   recognized from their keys (dates, codes, parallel sibling members) and
+   collapsed to `<*>`, and an `_id` line explains that the document key is a
+   readable identifier.
+3. Anchor NLQ literals to observed stored values and paths (value witnesses).
+4. Check candidates with the A_path and A_value alignment gates and repair them
+   from execution feedback.
+5. Pick among three candidates by result-space consistency (`sag_full`).
+
+`TEND_SAG_KEYS_V2=0` switches back to the dynamic-key recognition used before
+the final revision; it exists for the on/off comparison in
+[`RESULTS.md`](RESULTS.md).
 
 ## Evaluation Metrics
 
-The headline metric is `EXC`, a bounded column-tolerant execution accuracy with
-`beta=2`. Strict `EX`, unbounded `EXC_spider`, `EM`, `QSM`, `QFC`, `EFM`, and
-`EVM` are preserved as diagnostic columns. Missing predictions and typed
-`solver_failure`, `baseline_failure`, or `ablation_failure` rows remain in the
-denominator as zero-score rows.
+The headline metric is `EXC`, execution accuracy that ignores column names and
+tolerates at most two surplus columns per row (`beta=2`). `EXF1` is its graded
+companion: a row-multiset F1 without surplus tolerance. Every record also gets
+one outcome bucket (`correct`, `no_submission`, `invalid`, `exec_error`,
+`empty`, `order_only`, `row_subset`, `row_superset`, `value_mismatch`,
+`row_count_exceeded`), and ablation reports add an exact McNemar test against
+`sag_full`. Missing predictions and typed `solver_failure`, `baseline_failure`,
+or `ablation_failure` rows remain in the denominator as zero-score rows. If
+MongoDB becomes unavailable during evaluation, the run stops instead of scoring
+the affected rows zero.
 
 Do not treat `--stub` runs as paper-score runs. Stub mode is for offline
 connectivity, interface checks, and contract testing only.
+
+## Results
+
+Final results on all 1,210 questions (details, per-database tables, the
+component ablation, and how each number was produced are in
+[`RESULTS.md`](RESULTS.md)):
+
+| system | DeepSeek-V4-Flash | GPT-5.6-Luna |
+| --- | ---: | ---: |
+| SAG | **487 (40.2%)** | **514 (42.5%)** |
+| Direct with SAG's six output conventions | — | 445 (36.8%) |
+| Direct (data-rich prompt) | 352 (29.1%) | 421 (34.8%) |
+| ReAct, informed | — | 390 (32.2%) |
+| DIN-SQL-inspired MQL adaptation | 339 (28.0%) | — |
+| SQL Pivot given the real relational DDL | — | 269 (22.2%) |
 
 ## Citation
 
