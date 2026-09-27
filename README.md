@@ -20,13 +20,14 @@ Please cite the full paper for the benchmark, solver, and dataset. The QueryCraf
 | [`src/tend/`](src/tend/) | Public Python package for dataset handling, validation, solving, baselines, ablations, evaluation, and observability. |
 | [`demonstration/`](demonstration/) | QueryCraft Flask demo with database selection, browsing of the structure induced from stored documents, generated-MQL inspection, optional read-only execution, and solver metadata. |
 | [`proposals/`](proposals/) | Runtime files the package reads: the baseline allow list and the record and catalog JSON schemas used by `tend validate`. |
-| [`scripts/`](scripts/) | Metric-validation runners: `validate_metric.py` (M1, M2) and `run_counterfactual.py` (M3). |
+| [`scripts/`](scripts/) | Metric-validation runners, `validate_metric.py` (M1, M2) and `run_counterfactual.py` (M3), and `check_results.py`, which recounts the tables and analyses of `RESULTS.md` from `results/`. |
 | [`RESULTS.md`](RESULTS.md) | Final experimental results and how each number was produced. |
+| [`results/`](results/) | The answer of every system on every question of the reported experiments, with its stored scores, and the label file `task_labels.csv` with each task's structure category and resistance to SQL transfer. |
 | [`pyproject.toml`](pyproject.toml) | Package metadata, optional `demo` and `test` dependency groups, and `tend` CLI entry point. |
 | [`requirements.txt`](requirements.txt) | Runtime dependency file for standard pip-based installation. |
 | [`.env.example`](.env.example) | Optional local configuration template. |
 
-Large release artifacts, MongoDB witness data, generated experiment outputs, and paper source directories are not stored in GitHub. They are restored or generated locally as described below.
+Large release artifacts, MongoDB witness data, raw run outputs, and paper source directories are not stored in GitHub. They are restored or generated locally as described below.
 
 ## Dataset Release
 
@@ -69,10 +70,11 @@ The current public release is `tend-native-mongodb-v1`.
 | Collections / queried collections | 32 / 30 |
 | MongoDB witness documents | 269,177 |
 | Distinct MQL strings | 1,210 |
+| Skeleton families / largest family | 1,115 / 6 |
 | Median / max top-level stages | 7 / 14 |
-| Dynamic-key operator records | 1,096 (90.6%) |
-| Array-operator records | 1,170 (96.7%) |
-| Nested dotted-path records | 1,164 (96.2%) |
+| Dynamic-key operator records | 1,094 (90.4%) |
+| Array-operator records | 1,172 (96.9%) |
+| Nested dotted-path records | 1,174 (97.0%) |
 | Fresh exact MongoDB execution | 1,210 / 1,210 |
 
 The release contains the following database ids:
@@ -106,6 +108,8 @@ After dataset restore, `release/tend-native-mongodb-v1/data/TEND.json` is the be
 ```
 
 Use `NLQ` as the default evaluation utterance. `NLQ_colloquial` is a paraphrase/robustness variant for the same MQL target, not a second independent task.
+
+The structure category and the resistance to SQL transfer of every task, which the paper uses to break down the results, are in [`results/task_labels.csv`](results/task_labels.csv).
 
 ## Installation
 
@@ -270,14 +274,14 @@ Mechanism summary:
 1. Induce a per-database `GroundingIndex` from bounded witness samples.
 2. Render a closed lattice path card per collection. Dynamic-key maps are recognized from their keys (dates, codes, parallel sibling members) and collapsed to `<*>`, and an `_id` line explains that the document key is a readable identifier.
 3. Anchor NLQ literals to observed stored values and paths (value witnesses).
-4. Check candidates with the A_path and A_value alignment gates and repair them from execution feedback.
+4. Check each candidate with the gate (`A_path`, `A_value`, and the limit check) and repair it from execution feedback. An empty result is traced to the first stage that empties it (prefix counting in the paper, `bisect_empty` in `repair.py`).
 5. Pick among three candidates by result-space consistency (`sag_full`).
 
 `TEND_SAG_KEYS_V2=0` switches back to the dynamic-key recognition used before the final revision; it exists for the on/off comparison in [`RESULTS.md`](RESULTS.md).
 
 ## Evaluation Metrics
 
-The headline metric is `EXC`, execution accuracy that ignores column names and tolerates at most two surplus columns per row (`beta=2`). `EXF1` is its graded companion: a row-multiset F1 without surplus tolerance. Every record also gets one outcome bucket (`correct`, `no_submission`, `invalid`, `exec_error`, `empty`, `order_only`, `row_subset`, `row_superset`, `value_mismatch`, `row_count_exceeded`), and ablation reports add an exact McNemar test against `sag_full`. Missing predictions and typed `solver_failure`, `baseline_failure`, or `ablation_failure` rows remain in the denominator as zero-score rows. If MongoDB becomes unavailable during evaluation, the run stops instead of scoring the affected rows zero.
+The main metric is `EXC`, execution accuracy that ignores column names and tolerates at most two surplus columns per row (`beta=2`). `EXF1` is its graded companion: a row-multiset F1 without surplus tolerance. Every record also gets one outcome bucket (`correct`, `no_submission`, `invalid`, `exec_error`, `empty`, `order_only`, `row_subset`, `row_superset`, `value_mismatch`, `row_count_exceeded`), and ablation reports add an exact McNemar test against `sag_full`. Missing predictions and typed `solver_failure`, `baseline_failure`, or `ablation_failure` rows remain in the denominator as zero-score rows. If MongoDB becomes unavailable during evaluation, the run stops instead of scoring the affected rows zero.
 
 Two scripts check the metric itself; they need MongoDB but no LLM. `scripts/validate_metric.py m1` confirms that every reference query scores EXC = 1 against itself, and `scripts/validate_metric.py m2` sweeps the surplus bound over null and shortcut probes, which should select β = 2. `scripts/run_counterfactual.py` measures how often a system's passing answers flip on a witness extended with distractor documents that leave the reference result unchanged.
 
@@ -285,26 +289,70 @@ Do not treat `--stub` runs as paper-score runs. Stub mode is for offline connect
 
 ## Results
 
-Final results on all 1,210 questions (details, per-database tables, the component ablation, and how each number was produced are in [`RESULTS.md`](RESULTS.md)):
+Final results on all 1,210 questions, as reported in Tables III and IV of the paper (details, per-database tables, the component ablation, and how each number was produced are in [`RESULTS.md`](RESULTS.md)):
 
 | system | DeepSeek-V4-Flash | GPT-5.6-Luna |
 | --- | ---: | ---: |
-| SAG | **487 (40.2%)** | **514 (42.5%)** |
-| Direct with SAG's six output conventions | — | 445 (36.8%) |
-| Direct (data-rich prompt) | 352 (29.1%) | 421 (34.8%) |
-| ReAct, informed | — | 390 (32.2%) |
-| DIN-SQL-inspired MQL adaptation | 339 (28.0%) | — |
-| SQL Pivot given the real relational DDL | — | 269 (22.2%) |
+| NLQ-only Direct | 2 (0.2%)† | — |
+| Schema Direct | 3 (0.2%)† | — |
+| Sampled-doc Direct | 346 (28.6%)† | — |
+| Data-rich Direct | 352 (29.1%) | 421 (34.8%) |
+| Direct + conventions (SAG's six output rules) | — | 445 (36.8%) |
+| SQL Pivot | 310 (25.6%)† | — |
+| SQL Pivot + real DDL | — | 269 (22.2%) |
+| ReAct (real collection names, first five rows) | 373 (30.8%)† | 390 (32.2%) |
+| DIN-SQL-inspired | 339 (28.0%) | — |
+| **SAG** | **487 (40.2%)** | **514 (42.5%)** |
+
+† Runs of the submitted version (June 2026) that were not re-run for the final results. The paper reports them unchanged. NLQ-only Direct, Schema Direct, Sampled-doc Direct, and SQL Pivot without the DDL exist in the code only up to commit `260801ea` (see below).
+
+The answer of every system on every question, including the ablation, stability, and dynamic-key experiments, is in [`results/`](results/), and `python scripts/check_results.py` recounts the tables and analyses of `RESULTS.md` from these files. Its docstring names the few numbers that need data outside `results/`.
+
+## Paper-to-Code Map
+
+How each system and variant of the paper's experiments (Section IV) is run with this package:
+
+| paper name | how to run |
+| --- | --- |
+| SAG | `tend ablation --ablations sag_full` (the harness of the final runs) |
+| Data-rich Direct | `tend baseline --baselines data_rich_direct` |
+| Direct + conventions | `data_rich_direct` with `TEND_BASELINE_OUTPUT_CONTRACT=1` |
+| SQL Pivot + real DDL | `tend baseline --baselines sql_pivot_schema` |
+| ReAct | `tend baseline --baselines react_informed` (50-step budget) |
+| DIN-SQL-inspired | `tend baseline --baselines dinsql_mql` |
+| NLQ-only Direct, Schema Direct, Sampled-doc Direct, SQL Pivot | baselines `direct_nlq_only`, `schema_direct`, `direct`, and `sql_pivot` at commit `260801ea` |
+| One decode | `tend ablation --ablations sag_core_generate_only` |
+| One candidate | `tend ablation --ablations sag_v2` |
+| No value grounding | `tend ablation --ablations sag_core_no_value_witness_strict` |
+| No grounding | `tend ablation --ablations sag_core_no_grounding` |
+| Top-level fields only | `tend ablation --ablations sag_v3_top_card` |
+| No dynamic-key collapse | `tend ablation --ablations sag_v3_no_collapse` |
+| Narrower dynamic-key detector | `sag_full` with `TEND_SAG_KEYS_V2=0` |
+
+The components named in the paper map to these modules under `src/tend/solver/sag/`: the grounding index and path card to `induction.py`, value witnesses to `witness.py`, the gate checks to `gates.py`, execution repair and prefix counting to `repair.py`, and the result-consistency vote to `runtime.py`.
 
 ## License
 
-- **Code**, everything in this repository except the dataset: MIT License, see [`LICENSE`](LICENSE).
+- **Code**, everything in this repository except the dataset and `results/`: MIT License, see [`LICENSE`](LICENSE).
+- **Results**, the per-question answers and task labels in [`results/`](results/): [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), like the dataset, because they contain values from its databases.
 - **Dataset**, the TEND release distributed through Google Drive: [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). TEND's databases and values are derived from [BIRD mini-dev](https://github.com/bird-bench/mini_dev), which is released under CC BY-SA 4.0, and its ShareAlike terms carry over to TEND.
 - **Third-party examples.** The six fixed examples used by the DIN-SQL-inspired baseline, [`src/tend/baselines/assets/dinsql_mql_exemplars.json`](src/tend/baselines/assets/dinsql_mql_exemplars.json), come from MongoDB's [natural-language-to-mongosh](https://huggingface.co/datasets/mongodb-eai/natural-language-to-mongosh) dataset and are redistributed under the Apache License 2.0; the license text is next to them in `dinsql_mql_exemplars.LICENSE.txt`.
 
 ## Citation
 
 Please cite the full paper:
+
+```bibtex
+@inproceedings{lu2027bridging,
+      title={Bridging the Gap: Enabling Natural Language Queries for NoSQL Databases through Text-to-NoSQL Translation},
+      author={Jinwei Lu and Jiawei Lu and Chen Jason Zhang and Zhiqian Qin and Yuanfeng Song and Haodi Zhang and Raymond Chi-Wing Wong},
+      booktitle={Proceedings of the IEEE International Conference on Data Engineering (ICDE)},
+      year={2027},
+      note={To appear},
+}
+```
+
+The preprint is available on arXiv:
 
 ```bibtex
 @misc{lu2026bridginggapenablingnatural,

@@ -1,0 +1,1211 @@
+db_id,record_id,structure_category,sql_transfer_resistance
+california_schools,378735,dynamic-key map,strong
+california_schools,419731,dynamic-key map,strong
+california_schools,988626,dynamic-key map,strong
+california_schools,1117008,dynamic-key map,strong
+california_schools,1176487,dynamic-key map,strong
+california_schools,1219683,dynamic-key map,strong
+california_schools,1664120,dynamic-key map,strong
+california_schools,1812291,dynamic-key map,strong
+california_schools,1848562,dynamic-key map,strong
+california_schools,1934362,dynamic-key map,strong
+california_schools,2147241,dynamic-key map,strong
+california_schools,2428852,dynamic-key map,strong
+california_schools,2468699,dynamic-key map,strong
+california_schools,2528331,dynamic-key map,strong
+california_schools,2642592,dynamic-key map,strong
+california_schools,2873655,dynamic-key map,strong
+california_schools,3006409,dynamic-key map,strong
+california_schools,3229860,dynamic-key map,strong
+california_schools,3250106,dynamic-key map,strong
+california_schools,3324414,dynamic-key map,strong
+california_schools,3383445,dynamic-key map,strong
+california_schools,3558020,dynamic-key map,strong
+california_schools,3898425,dynamic-key map,strong
+california_schools,4135041,dynamic-key map,strong
+california_schools,4138408,dynamic-key map,strong
+california_schools,4250774,dynamic-key map,strong
+california_schools,4263830,dynamic-key map,strong
+california_schools,4463702,dynamic-key map,strong
+california_schools,4548801,dynamic-key map,strong
+california_schools,4805355,dynamic-key map,strong
+california_schools,5421218,dynamic-key map,strong
+california_schools,5486108,dynamic-key map,strong
+california_schools,5562876,dynamic-key map,strong
+california_schools,5960673,dynamic-key map,strong
+california_schools,5987885,dynamic-key map,strong
+california_schools,6077381,dynamic-key map,strong
+california_schools,6250485,dynamic-key map,strong
+california_schools,6674151,dynamic-key map,strong
+california_schools,6724756,dynamic-key map,strong
+california_schools,6949511,dynamic-key map,strong
+california_schools,7005544,dynamic-key map,strong
+california_schools,7155649,dynamic-key map,strong
+california_schools,7282265,dynamic-key map,medium
+california_schools,7447028,dynamic-key map,medium
+california_schools,7480286,dynamic-key map,strong
+california_schools,7530831,dynamic-key map,strong
+california_schools,7777020,dynamic-key map,strong
+california_schools,7879800,dynamic-key map,strong
+california_schools,8130821,dynamic-key map,strong
+california_schools,8336104,dynamic-key map,strong
+california_schools,8380295,dynamic-key map,strong
+california_schools,8442468,dynamic-key map,strong
+california_schools,8578222,dynamic-key map,strong
+california_schools,8898065,dynamic-key map,strong
+california_schools,8974821,dynamic-key map,strong
+california_schools,8977428,dynamic-key map,strong
+california_schools,9077055,dynamic-key map,strong
+california_schools,9298084,dynamic-key map,strong
+california_schools,9357360,dynamic-key map,strong
+california_schools,9384774,dynamic-key map,strong
+california_schools,9389431,dynamic-key map,strong
+california_schools,9467162,dynamic-key map,strong
+california_schools,9476086,dynamic-key map,strong
+california_schools,9512203,dynamic-key map,strong
+california_schools,9539834,dynamic-key map,strong
+california_schools,9550575,dynamic-key map,strong
+california_schools,9755054,dynamic-key map,strong
+california_schools,9830924,dynamic-key map,strong
+california_schools,9894693,dynamic-key map,strong
+california_schools,10101684,dynamic-key map,strong
+california_schools,10317713,dynamic-key map,strong
+california_schools,10412486,dynamic-key map,strong
+california_schools,10626397,dynamic-key map,strong
+california_schools,10704627,dynamic-key map,strong
+california_schools,10709085,dynamic-key map,strong
+california_schools,10714210,dynamic-key map,strong
+california_schools,10833750,dynamic-key map,strong
+california_schools,11103567,dynamic-key map,strong
+california_schools,11178865,dynamic-key map,strong
+california_schools,11386698,dynamic-key map,strong
+california_schools,11488530,dynamic-key map,strong
+california_schools,11534392,dynamic-key map,strong
+california_schools,11598089,dynamic-key map,strong
+california_schools,11836206,dynamic-key map,strong
+california_schools,11836396,dynamic-key map,strong
+california_schools,11854799,dynamic-key map,strong
+california_schools,11950697,dynamic-key map,strong
+california_schools,12210272,dynamic-key map,strong
+california_schools,12212912,dynamic-key map,strong
+california_schools,12553338,dynamic-key map,strong
+california_schools,12821417,dynamic-key map,strong
+california_schools,12896188,dynamic-key map,strong
+california_schools,12944419,dynamic-key map,strong
+california_schools,13190650,dynamic-key map,strong
+california_schools,13509130,dynamic-key map,strong
+california_schools,13511020,dynamic-key map,strong
+california_schools,13710772,dynamic-key map,weak
+california_schools,13806349,dynamic-key map,strong
+california_schools,14272192,dynamic-key map,strong
+california_schools,14466036,dynamic-key map,weak
+california_schools,14474635,dynamic-key map,strong
+california_schools,14743572,dynamic-key map,strong
+california_schools,14760899,dynamic-key map,strong
+california_schools,15219602,dynamic-key map,strong
+california_schools,15285646,dynamic-key map,strong
+california_schools,15321354,dynamic-key map,strong
+california_schools,15323716,dynamic-key map,strong
+california_schools,16154473,dynamic-key map,strong
+california_schools,16548674,dynamic-key map,strong
+california_schools,16649673,dynamic-key map,strong
+card_games,575395,dynamic-key map,strong
+card_games,1279316,dynamic-key map,strong
+card_games,1412245,missing versus present,strong
+card_games,1434603,missing versus present,medium
+card_games,1507298,dynamic-key map,strong
+card_games,1554144,dynamic-key map,strong
+card_games,1643740,dynamic-key map,strong
+card_games,1844689,missing versus present,strong
+card_games,1907119,dynamic-key map,strong
+card_games,2149731,dynamic-key map,strong
+card_games,2386089,dynamic-key map,strong
+card_games,2499417,missing versus present,medium
+card_games,2562431,missing versus present,strong
+card_games,2855727,dynamic-key map,strong
+card_games,3030899,dynamic-key map,strong
+card_games,3388408,dynamic-key map,strong
+card_games,3611659,missing versus present,strong
+card_games,3805913,dynamic-key map,strong
+card_games,3819592,dynamic-key map,strong
+card_games,3939096,dynamic-key map,strong
+card_games,3971045,dynamic-key map,strong
+card_games,4148176,dynamic-key map,strong
+card_games,4177094,dynamic-key map,strong
+card_games,4254275,dynamic-key map,strong
+card_games,4307065,dynamic-key map,strong
+card_games,4382442,dynamic-key map,strong
+card_games,4434454,dynamic-key map,strong
+card_games,4465032,dynamic-key map,strong
+card_games,4546508,dynamic-key map,strong
+card_games,4656524,dynamic-key map,strong
+card_games,5001255,dynamic-key map,strong
+card_games,5105881,missing versus present,medium
+card_games,5307871,dynamic-key map,strong
+card_games,5578440,dynamic-key map,strong
+card_games,5584555,dynamic-key map,strong
+card_games,5662975,dynamic-key map,strong
+card_games,5703340,dynamic-key map,strong
+card_games,5896953,dynamic-key map,strong
+card_games,6041958,dynamic-key map,strong
+card_games,6135516,dynamic-key map,strong
+card_games,6267960,dynamic-key map,strong
+card_games,6347227,dynamic-key map,strong
+card_games,6565164,dynamic-key map,strong
+card_games,6572748,missing versus present,strong
+card_games,6638593,dynamic-key map,strong
+card_games,6737819,missing versus present,medium
+card_games,6777963,dynamic-key map,strong
+card_games,6815229,missing versus present,strong
+card_games,7111918,dynamic-key map,strong
+card_games,7183991,dynamic-key map,strong
+card_games,7314106,dynamic-key map,strong
+card_games,7358085,dynamic-key map,strong
+card_games,7386746,dynamic-key map,strong
+card_games,7513811,dynamic-key map,strong
+card_games,7524582,dynamic-key map,strong
+card_games,7543793,dynamic-key map,strong
+card_games,7946324,dynamic-key map,strong
+card_games,8453470,dynamic-key map,strong
+card_games,8596757,dynamic-key map,strong
+card_games,8853794,dynamic-key map,strong
+card_games,9153537,dynamic-key map,strong
+card_games,9178592,dynamic-key map,strong
+card_games,9196124,dynamic-key map,strong
+card_games,9351928,dynamic-key map,strong
+card_games,9455984,dynamic-key map,strong
+card_games,9467551,dynamic-key map,strong
+card_games,9623641,dynamic-key map,strong
+card_games,9642679,dynamic-key map,strong
+card_games,9773981,dynamic-key map,strong
+card_games,9827790,dynamic-key map,strong
+card_games,10308122,dynamic-key map,strong
+card_games,10529605,dynamic-key map,strong
+card_games,10595311,dynamic-key map,strong
+card_games,10633964,dynamic-key map,strong
+card_games,10799167,dynamic-key map,strong
+card_games,11040212,dynamic-key map,strong
+card_games,11067982,dynamic-key map,strong
+card_games,11268057,dynamic-key map,strong
+card_games,11517522,dynamic-key map,strong
+card_games,11610847,dynamic-key map,strong
+card_games,11664997,dynamic-key map,strong
+card_games,11805318,dynamic-key map,strong
+card_games,12093412,dynamic-key map,strong
+card_games,12176016,dynamic-key map,strong
+card_games,12389344,dynamic-key map,strong
+card_games,12485052,dynamic-key map,strong
+card_games,12784428,dynamic-key map,strong
+card_games,12792232,dynamic-key map,strong
+card_games,12882653,dynamic-key map,strong
+card_games,13034394,dynamic-key map,strong
+card_games,13197366,dynamic-key map,strong
+card_games,13617381,dynamic-key map,strong
+card_games,13834721,dynamic-key map,strong
+card_games,14137452,dynamic-key map,strong
+card_games,14399256,dynamic-key map,strong
+card_games,14602179,dynamic-key map,strong
+card_games,14703414,dynamic-key map,weak
+card_games,14729676,dynamic-key map,strong
+card_games,14979006,dynamic-key map,strong
+card_games,15042711,dynamic-key map,strong
+card_games,15105475,dynamic-key map,strong
+card_games,15156695,dynamic-key map,strong
+card_games,15584838,dynamic-key map,strong
+card_games,15649262,dynamic-key map,strong
+card_games,15837121,dynamic-key map,strong
+card_games,15908055,dynamic-key map,strong
+card_games,16032289,dynamic-key map,strong
+card_games,16118283,dynamic-key map,strong
+card_games,16185547,dynamic-key map,strong
+card_games,16660636,dynamic-key map,strong
+codebase_community,489193,dynamic-key map,strong
+codebase_community,564928,dynamic-key map,strong
+codebase_community,593769,dynamic-key map,strong
+codebase_community,1127629,dynamic-key map,strong
+codebase_community,1286333,dynamic-key map,strong
+codebase_community,1337298,nested event stream,strong
+codebase_community,1563731,nested event stream,strong
+codebase_community,1653653,dynamic-key map,strong
+codebase_community,1831115,dynamic-key map,strong
+codebase_community,1900723,dynamic-key map,strong
+codebase_community,1934658,dynamic-key map,strong
+codebase_community,2050052,dynamic-key map,medium
+codebase_community,2061444,dynamic-key map,strong
+codebase_community,2216874,dynamic-key map,strong
+codebase_community,2353762,dynamic-key map,strong
+codebase_community,2415570,dynamic-key map,medium
+codebase_community,2519716,dynamic-key map,strong
+codebase_community,2724444,dynamic-key map,strong
+codebase_community,2959894,dynamic-key map,strong
+codebase_community,3167783,dynamic-key map,strong
+codebase_community,3231893,dynamic-key map,strong
+codebase_community,3283711,dynamic-key map,strong
+codebase_community,3410090,dynamic-key map,strong
+codebase_community,3410185,nested event stream,strong
+codebase_community,3590207,dynamic-key map,strong
+codebase_community,3885973,nested event stream,strong
+codebase_community,3939487,dynamic-key map,strong
+codebase_community,4346931,nested event stream,strong
+codebase_community,4698937,nested event stream,strong
+codebase_community,4920950,dynamic-key map,strong
+codebase_community,4938277,dynamic-key map,strong
+codebase_community,5262269,dynamic-key map,strong
+codebase_community,5346346,dynamic-key map,strong
+codebase_community,5435487,dynamic-key map,strong
+codebase_community,5714814,dynamic-key map,strong
+codebase_community,5727305,dynamic-key map,strong
+codebase_community,5846437,dynamic-key map,strong
+codebase_community,5889793,dynamic-key map,strong
+codebase_community,5957232,dynamic-key map,strong
+codebase_community,6345837,dynamic-key map,strong
+codebase_community,6534850,dynamic-key map,strong
+codebase_community,6576202,dynamic-key map,strong
+codebase_community,6879099,dynamic-key map,strong
+codebase_community,6943564,dynamic-key map,strong
+codebase_community,6966553,dynamic-key map,strong
+codebase_community,7341463,dynamic-key map,strong
+codebase_community,7393290,dynamic-key map,strong
+codebase_community,7402873,nested event stream,strong
+codebase_community,7534553,dynamic-key map,strong
+codebase_community,7849884,dynamic-key map,strong
+codebase_community,8171018,dynamic-key map,strong
+codebase_community,8329834,dynamic-key map,strong
+codebase_community,8447016,dynamic-key map,medium
+codebase_community,8935116,dynamic-key map,strong
+codebase_community,9010456,dynamic-key map,strong
+codebase_community,9026305,dynamic-key map,strong
+codebase_community,9068172,dynamic-key map,strong
+codebase_community,9100695,dynamic-key map,strong
+codebase_community,9128937,dynamic-key map,strong
+codebase_community,9612734,dynamic-key map,strong
+codebase_community,9734565,dynamic-key map,strong
+codebase_community,9819306,dynamic-key map,strong
+codebase_community,9839112,dynamic-key map,strong
+codebase_community,9930817,dynamic-key map,strong
+codebase_community,10000512,dynamic-key map,strong
+codebase_community,10101394,dynamic-key map,strong
+codebase_community,10330601,dynamic-key map,strong
+codebase_community,10368731,dynamic-key map,strong
+codebase_community,10536305,dynamic-key map,strong
+codebase_community,10563924,dynamic-key map,strong
+codebase_community,10795464,dynamic-key map,strong
+codebase_community,10816734,dynamic-key map,strong
+codebase_community,11051238,dynamic-key map,strong
+codebase_community,11266489,dynamic-key map,strong
+codebase_community,11822981,dynamic-key map,strong
+codebase_community,12013849,dynamic-key map,strong
+codebase_community,12031847,dynamic-key map,strong
+codebase_community,12164908,dynamic-key map,strong
+codebase_community,12262746,dynamic-key map,strong
+codebase_community,12314097,dynamic-key map,strong
+codebase_community,12565900,dynamic-key map,strong
+codebase_community,12696145,dynamic-key map,strong
+codebase_community,12736200,dynamic-key map,strong
+codebase_community,13076809,dynamic-key map,strong
+codebase_community,13203677,dynamic-key map,strong
+codebase_community,13731245,dynamic-key map,strong
+codebase_community,13966936,dynamic-key map,strong
+codebase_community,14002589,dynamic-key map,strong
+codebase_community,14182106,dynamic-key map,strong
+codebase_community,14186058,dynamic-key map,strong
+codebase_community,14246120,dynamic-key map,strong
+codebase_community,14467624,dynamic-key map,strong
+codebase_community,14472339,dynamic-key map,strong
+codebase_community,14513975,dynamic-key map,strong
+codebase_community,14708241,dynamic-key map,strong
+codebase_community,14923717,dynamic-key map,strong
+codebase_community,15019909,dynamic-key map,strong
+codebase_community,15531021,dynamic-key map,strong
+codebase_community,15651902,dynamic-key map,strong
+codebase_community,15821577,dynamic-key map,strong
+codebase_community,15965393,dynamic-key map,strong
+codebase_community,16101068,dynamic-key map,strong
+codebase_community,16127707,dynamic-key map,strong
+codebase_community,16271785,dynamic-key map,strong
+codebase_community,16277829,dynamic-key map,strong
+codebase_community,16288851,dynamic-key map,strong
+codebase_community,16364234,dynamic-key map,strong
+codebase_community,16462191,dynamic-key map,strong
+codebase_community,16624072,dynamic-key map,strong
+codebase_community,16772574,dynamic-key map,strong
+debit_card_specializing,87075,dynamic-key map,strong
+debit_card_specializing,173800,dynamic-key map,strong
+debit_card_specializing,769697,nested event stream,medium
+debit_card_specializing,801484,nested event stream,medium
+debit_card_specializing,842868,nested event stream,medium
+debit_card_specializing,862174,dynamic-key map,strong
+debit_card_specializing,1010153,dynamic-key map,strong
+debit_card_specializing,1153283,dynamic-key map,strong
+debit_card_specializing,1230432,dynamic-key map,strong
+debit_card_specializing,1398853,dynamic-key map,strong
+debit_card_specializing,1806736,dynamic-key map,strong
+debit_card_specializing,2056448,dynamic-key map,strong
+debit_card_specializing,2120914,dynamic-key map,strong
+debit_card_specializing,2292209,dynamic-key map,strong
+debit_card_specializing,2394278,nested event stream,medium
+debit_card_specializing,2590935,dynamic-key map,strong
+debit_card_specializing,2738151,nested event stream,medium
+debit_card_specializing,2832295,dynamic-key map,strong
+debit_card_specializing,2997177,dynamic-key map,strong
+debit_card_specializing,3021436,dynamic-key map,strong
+debit_card_specializing,3055485,dynamic-key map,strong
+debit_card_specializing,3132485,dynamic-key map,strong
+debit_card_specializing,3139434,nested event stream,medium
+debit_card_specializing,3478427,nested event stream,medium
+debit_card_specializing,3620985,dynamic-key map,strong
+debit_card_specializing,3648783,dynamic-key map,strong
+debit_card_specializing,3984753,dynamic-key map,strong
+debit_card_specializing,4070266,dynamic-key map,strong
+debit_card_specializing,4145056,dynamic-key map,strong
+debit_card_specializing,4354347,dynamic-key map,strong
+debit_card_specializing,4358347,dynamic-key map,strong
+debit_card_specializing,4895208,dynamic-key map,strong
+debit_card_specializing,4967466,dynamic-key map,strong
+debit_card_specializing,5101028,dynamic-key map,strong
+debit_card_specializing,5148104,dynamic-key map,strong
+debit_card_specializing,5189720,dynamic-key map,strong
+debit_card_specializing,5391140,dynamic-key map,strong
+debit_card_specializing,5400752,dynamic-key map,strong
+debit_card_specializing,5604296,dynamic-key map,strong
+debit_card_specializing,5886542,dynamic-key map,strong
+debit_card_specializing,6010164,dynamic-key map,strong
+debit_card_specializing,6078204,dynamic-key map,strong
+debit_card_specializing,6285409,dynamic-key map,strong
+debit_card_specializing,6699314,dynamic-key map,strong
+debit_card_specializing,6732063,dynamic-key map,strong
+debit_card_specializing,6814911,dynamic-key map,strong
+debit_card_specializing,6893275,dynamic-key map,strong
+debit_card_specializing,6994507,dynamic-key map,strong
+debit_card_specializing,7041568,dynamic-key map,strong
+debit_card_specializing,7208130,dynamic-key map,strong
+debit_card_specializing,7453318,dynamic-key map,strong
+debit_card_specializing,7585127,dynamic-key map,strong
+debit_card_specializing,7690941,dynamic-key map,strong
+debit_card_specializing,7922693,dynamic-key map,strong
+debit_card_specializing,7989742,dynamic-key map,strong
+debit_card_specializing,8137639,dynamic-key map,strong
+debit_card_specializing,8399871,dynamic-key map,strong
+debit_card_specializing,8574751,dynamic-key map,strong
+debit_card_specializing,8684737,dynamic-key map,strong
+debit_card_specializing,9228547,dynamic-key map,strong
+debit_card_specializing,9409411,dynamic-key map,strong
+debit_card_specializing,9586800,dynamic-key map,strong
+debit_card_specializing,9884066,dynamic-key map,strong
+debit_card_specializing,10348001,nested event stream,strong
+debit_card_specializing,10489673,dynamic-key map,strong
+debit_card_specializing,10543232,dynamic-key map,strong
+debit_card_specializing,10555816,dynamic-key map,strong
+debit_card_specializing,10662101,dynamic-key map,strong
+debit_card_specializing,10935526,dynamic-key map,strong
+debit_card_specializing,11037986,dynamic-key map,strong
+debit_card_specializing,11045986,dynamic-key map,strong
+debit_card_specializing,11253255,dynamic-key map,strong
+debit_card_specializing,11353738,dynamic-key map,strong
+debit_card_specializing,11475854,dynamic-key map,strong
+debit_card_specializing,11571227,dynamic-key map,strong
+debit_card_specializing,11604462,dynamic-key map,strong
+debit_card_specializing,11794826,dynamic-key map,strong
+debit_card_specializing,12095022,dynamic-key map,strong
+debit_card_specializing,12174324,dynamic-key map,strong
+debit_card_specializing,12390506,dynamic-key map,strong
+debit_card_specializing,12650922,dynamic-key map,strong
+debit_card_specializing,12856845,dynamic-key map,strong
+debit_card_specializing,12887475,dynamic-key map,strong
+debit_card_specializing,13115884,dynamic-key map,strong
+debit_card_specializing,13129591,dynamic-key map,strong
+debit_card_specializing,13264512,dynamic-key map,strong
+debit_card_specializing,13552140,dynamic-key map,strong
+debit_card_specializing,13560070,dynamic-key map,strong
+debit_card_specializing,13789078,dynamic-key map,strong
+debit_card_specializing,13798419,dynamic-key map,strong
+debit_card_specializing,13851039,dynamic-key map,strong
+debit_card_specializing,13961820,dynamic-key map,strong
+debit_card_specializing,14039816,dynamic-key map,strong
+debit_card_specializing,14231698,dynamic-key map,strong
+debit_card_specializing,14421316,dynamic-key map,strong
+debit_card_specializing,14441868,dynamic-key map,strong
+debit_card_specializing,14515733,dynamic-key map,strong
+debit_card_specializing,14680288,dynamic-key map,strong
+debit_card_specializing,14845853,dynamic-key map,strong
+debit_card_specializing,14938944,dynamic-key map,strong
+debit_card_specializing,15119523,dynamic-key map,strong
+debit_card_specializing,15325883,dynamic-key map,strong
+debit_card_specializing,15369043,dynamic-key map,strong
+debit_card_specializing,15782885,dynamic-key map,strong
+debit_card_specializing,15920958,dynamic-key map,strong
+debit_card_specializing,16071401,dynamic-key map,medium
+debit_card_specializing,16107845,dynamic-key map,strong
+debit_card_specializing,16138725,dynamic-key map,strong
+debit_card_specializing,16210208,dynamic-key map,strong
+debit_card_specializing,16268453,dynamic-key map,strong
+european_football_2,362579,nested event stream,strong
+european_football_2,461327,dynamic-key map,strong
+european_football_2,601274,nested event stream,strong
+european_football_2,921321,nested event stream,medium
+european_football_2,1248463,dynamic-key map,strong
+european_football_2,1428168,dynamic-key map,strong
+european_football_2,1718579,dynamic-key map,strong
+european_football_2,1792401,dynamic-key map,strong
+european_football_2,2229736,nested event stream,strong
+european_football_2,2794504,dynamic-key map,strong
+european_football_2,2987721,nested event stream,strong
+european_football_2,2994168,dynamic-key map,strong
+european_football_2,3055076,nested event stream,strong
+european_football_2,3071946,nested event stream,strong
+european_football_2,3104232,dynamic-key map,strong
+european_football_2,3352084,dynamic-key map,strong
+european_football_2,3658140,nested event stream,medium
+european_football_2,3694059,nested event stream,strong
+european_football_2,3737386,nested event stream,strong
+european_football_2,3753002,dynamic-key map,strong
+european_football_2,3893172,nested event stream,medium
+european_football_2,3933515,dynamic-key map,strong
+european_football_2,3946405,nested event stream,medium
+european_football_2,3986922,nested event stream,medium
+european_football_2,4058734,dynamic-key map,strong
+european_football_2,4149024,dynamic-key map,strong
+european_football_2,4187760,nested event stream,strong
+european_football_2,4314273,nested event stream,strong
+european_football_2,4527603,dynamic-key map,strong
+european_football_2,4572069,nested event stream,strong
+european_football_2,4779838,dynamic-key map,strong
+european_football_2,4967440,dynamic-key map,strong
+european_football_2,5183338,dynamic-key map,strong
+european_football_2,5186321,nested event stream,strong
+european_football_2,5220175,dynamic-key map,strong
+european_football_2,5268587,nested event stream,medium
+european_football_2,5326846,nested event stream,strong
+european_football_2,5346218,nested event stream,medium
+european_football_2,5498271,dynamic-key map,strong
+european_football_2,5588438,dynamic-key map,strong
+european_football_2,5737353,dynamic-key map,strong
+european_football_2,5847656,dynamic-key map,strong
+european_football_2,6151606,dynamic-key map,strong
+european_football_2,6358764,nested event stream,medium
+european_football_2,6811367,dynamic-key map,strong
+european_football_2,6999991,nested event stream,strong
+european_football_2,7225834,dynamic-key map,strong
+european_football_2,7256746,dynamic-key map,strong
+european_football_2,7383405,dynamic-key map,strong
+european_football_2,7605599,dynamic-key map,strong
+european_football_2,7743488,dynamic-key map,strong
+european_football_2,8073643,nested event stream,medium
+european_football_2,8573214,dynamic-key map,strong
+european_football_2,9035256,dynamic-key map,strong
+european_football_2,9093679,dynamic-key map,strong
+european_football_2,9157630,dynamic-key map,strong
+european_football_2,9241231,dynamic-key map,strong
+european_football_2,9259002,dynamic-key map,strong
+european_football_2,9261814,nested event stream,medium
+european_football_2,9278506,dynamic-key map,strong
+european_football_2,9604733,nested event stream,medium
+european_football_2,9666690,dynamic-key map,strong
+european_football_2,9676095,dynamic-key map,strong
+european_football_2,9962223,dynamic-key map,strong
+european_football_2,10058478,nested event stream,medium
+european_football_2,10254917,nested event stream,medium
+european_football_2,10282191,nested event stream,medium
+european_football_2,10312211,nested event stream,medium
+european_football_2,10413047,dynamic-key map,strong
+european_football_2,10810212,dynamic-key map,strong
+european_football_2,11114782,dynamic-key map,strong
+european_football_2,11274546,dynamic-key map,strong
+european_football_2,11335372,nested event stream,medium
+european_football_2,11362665,dynamic-key map,strong
+european_football_2,11587747,dynamic-key map,strong
+european_football_2,11595271,dynamic-key map,strong
+european_football_2,11684408,dynamic-key map,strong
+european_football_2,11785584,dynamic-key map,strong
+european_football_2,11829968,dynamic-key map,strong
+european_football_2,11982713,nested event stream,medium
+european_football_2,12242832,dynamic-key map,strong
+european_football_2,12360194,dynamic-key map,strong
+european_football_2,12480590,dynamic-key map,strong
+european_football_2,12774048,dynamic-key map,strong
+european_football_2,12788039,dynamic-key map,strong
+european_football_2,12865201,dynamic-key map,strong
+european_football_2,12917478,dynamic-key map,strong
+european_football_2,12975257,dynamic-key map,strong
+european_football_2,13212451,dynamic-key map,strong
+european_football_2,13574029,dynamic-key map,strong
+european_football_2,13586426,dynamic-key map,strong
+european_football_2,13754006,dynamic-key map,strong
+european_football_2,13851587,dynamic-key map,strong
+european_football_2,14047888,dynamic-key map,strong
+european_football_2,14146807,nested event stream,medium
+european_football_2,14153741,dynamic-key map,strong
+european_football_2,14627266,dynamic-key map,strong
+european_football_2,15222770,nested event stream,medium
+european_football_2,15229851,nested event stream,medium
+european_football_2,15372655,nested event stream,strong
+european_football_2,15378839,dynamic-key map,strong
+european_football_2,15793412,dynamic-key map,strong
+european_football_2,15827514,nested event stream,medium
+european_football_2,15943783,dynamic-key map,strong
+european_football_2,15993962,dynamic-key map,strong
+european_football_2,16049029,nested event stream,strong
+european_football_2,16118982,dynamic-key map,strong
+european_football_2,16166150,dynamic-key map,strong
+european_football_2,16349811,dynamic-key map,strong
+european_football_2,16767099,nested event stream,medium
+financial,31131,dynamic-key map,strong
+financial,163297,dynamic-key map,strong
+financial,226829,dynamic-key map,strong
+financial,581804,dynamic-key map,strong
+financial,590389,dynamic-key map,strong
+financial,912363,dynamic-key map,strong
+financial,995409,dynamic-key map,strong
+financial,1023512,dynamic-key map,strong
+financial,1059501,dynamic-key map,strong
+financial,1455069,dynamic-key map,strong
+financial,1638631,dynamic-key map,strong
+financial,1791286,dynamic-key map,strong
+financial,1919094,dynamic-key map,strong
+financial,1944682,dynamic-key map,strong
+financial,1948084,dynamic-key map,strong
+financial,2131662,dynamic-key map,strong
+financial,2359630,dynamic-key map,strong
+financial,2383942,dynamic-key map,strong
+financial,2403044,dynamic-key map,strong
+financial,2438997,dynamic-key map,strong
+financial,2474334,dynamic-key map,strong
+financial,2691507,dynamic-key map,strong
+financial,2754822,dynamic-key map,strong
+financial,2765589,dynamic-key map,strong
+financial,2834390,dynamic-key map,strong
+financial,2869599,dynamic-key map,strong
+financial,2883309,dynamic-key map,strong
+financial,3290829,dynamic-key map,strong
+financial,3458765,dynamic-key map,strong
+financial,3505401,dynamic-key map,strong
+financial,3593603,dynamic-key map,strong
+financial,3744568,dynamic-key map,strong
+financial,3744951,dynamic-key map,strong
+financial,3783201,dynamic-key map,strong
+financial,3787813,dynamic-key map,strong
+financial,4264519,dynamic-key map,strong
+financial,4484283,dynamic-key map,strong
+financial,4585891,dynamic-key map,strong
+financial,4643065,dynamic-key map,strong
+financial,4692431,dynamic-key map,strong
+financial,4950695,dynamic-key map,strong
+financial,4995347,dynamic-key map,strong
+financial,5389334,dynamic-key map,strong
+financial,5745973,dynamic-key map,strong
+financial,6325945,dynamic-key map,strong
+financial,6326094,dynamic-key map,strong
+financial,6500733,dynamic-key map,strong
+financial,6828111,dynamic-key map,strong
+financial,6872324,dynamic-key map,strong
+financial,6959932,dynamic-key map,strong
+financial,7048555,dynamic-key map,strong
+financial,7139312,dynamic-key map,strong
+financial,7224810,dynamic-key map,strong
+financial,7330021,dynamic-key map,strong
+financial,7357200,dynamic-key map,strong
+financial,7409307,dynamic-key map,strong
+financial,7555137,dynamic-key map,strong
+financial,7712517,dynamic-key map,strong
+financial,7845992,dynamic-key map,strong
+financial,7852013,dynamic-key map,strong
+financial,8436877,dynamic-key map,strong
+financial,8461730,dynamic-key map,strong
+financial,8491049,dynamic-key map,strong
+financial,8755616,dynamic-key map,strong
+financial,8850728,dynamic-key map,strong
+financial,9028191,dynamic-key map,strong
+financial,9155118,dynamic-key map,strong
+financial,9258570,dynamic-key map,strong
+financial,9352285,dynamic-key map,medium
+financial,9660814,dynamic-key map,strong
+financial,9669289,dynamic-key map,strong
+financial,9890202,dynamic-key map,strong
+financial,10024148,dynamic-key map,strong
+financial,10177329,dynamic-key map,strong
+financial,10299745,dynamic-key map,strong
+financial,10375272,dynamic-key map,strong
+financial,10513694,dynamic-key map,weak
+financial,10590387,dynamic-key map,strong
+financial,11097088,dynamic-key map,strong
+financial,11275495,dynamic-key map,strong
+financial,11556494,dynamic-key map,strong
+financial,11782385,dynamic-key map,strong
+financial,12389624,dynamic-key map,strong
+financial,12439794,dynamic-key map,strong
+financial,12470854,dynamic-key map,strong
+financial,12652818,dynamic-key map,strong
+financial,12856225,dynamic-key map,strong
+financial,12918072,dynamic-key map,strong
+financial,13127076,dynamic-key map,strong
+financial,13304538,dynamic-key map,medium
+financial,13324359,dynamic-key map,strong
+financial,13391957,dynamic-key map,strong
+financial,13766151,dynamic-key map,strong
+financial,13778878,dynamic-key map,strong
+financial,13830806,dynamic-key map,strong
+financial,14154708,dynamic-key map,strong
+financial,14163354,dynamic-key map,strong
+financial,14285834,dynamic-key map,strong
+financial,14521374,dynamic-key map,strong
+financial,14531168,dynamic-key map,strong
+financial,14800334,dynamic-key map,strong
+financial,15119193,dynamic-key map,strong
+financial,15197580,dynamic-key map,medium
+financial,15371824,dynamic-key map,strong
+financial,16038777,dynamic-key map,strong
+financial,16220443,dynamic-key map,strong
+financial,16270049,dynamic-key map,strong
+financial,16434397,dynamic-key map,strong
+financial,16577870,dynamic-key map,strong
+financial,16703622,dynamic-key map,strong
+formula_1,43953,nested event stream,medium
+formula_1,541019,nested event stream,medium
+formula_1,792866,polymorphic shape,strong
+formula_1,856325,polymorphic shape,weak
+formula_1,898160,polymorphic shape,strong
+formula_1,907166,polymorphic shape,medium
+formula_1,922670,nested event stream,medium
+formula_1,942551,dynamic-key map,strong
+formula_1,1063226,polymorphic shape,medium
+formula_1,1070083,polymorphic shape,medium
+formula_1,1204829,nested event stream,medium
+formula_1,1304119,polymorphic shape,medium
+formula_1,1386816,polymorphic shape,strong
+formula_1,1481064,polymorphic shape,strong
+formula_1,1923286,nested event stream,medium
+formula_1,2602335,polymorphic shape,medium
+formula_1,2960378,nested event stream,medium
+formula_1,3187820,nested event stream,medium
+formula_1,3449539,nested event stream,medium
+formula_1,3739401,nested event stream,medium
+formula_1,4158104,polymorphic shape,weak
+formula_1,4297349,dynamic-key map,strong
+formula_1,4401800,dynamic-key map,strong
+formula_1,4864061,nested event stream,medium
+formula_1,4899389,nested event stream,medium
+formula_1,5010860,nested event stream,medium
+formula_1,5300872,dynamic-key map,strong
+formula_1,5324476,dynamic-key map,strong
+formula_1,5335909,polymorphic shape,medium
+formula_1,5462891,polymorphic shape,strong
+formula_1,5711340,polymorphic shape,weak
+formula_1,5777596,polymorphic shape,medium
+formula_1,6039147,polymorphic shape,weak
+formula_1,6689251,dynamic-key map,strong
+formula_1,7222545,polymorphic shape,strong
+formula_1,7839145,dynamic-key map,strong
+formula_1,7901176,polymorphic shape,medium
+formula_1,8168694,dynamic-key map,strong
+formula_1,8256158,dynamic-key map,strong
+formula_1,8329489,nested event stream,medium
+formula_1,8614423,dynamic-key map,strong
+formula_1,8647427,polymorphic shape,weak
+formula_1,8725231,polymorphic shape,medium
+formula_1,8757489,dynamic-key map,strong
+formula_1,9250161,dynamic-key map,strong
+formula_1,9364556,dynamic-key map,strong
+formula_1,9480162,polymorphic shape,medium
+formula_1,9913188,dynamic-key map,strong
+formula_1,9931265,dynamic-key map,strong
+formula_1,10003899,dynamic-key map,strong
+formula_1,10108714,nested event stream,medium
+formula_1,10124777,dynamic-key map,medium
+formula_1,10173215,dynamic-key map,strong
+formula_1,10438689,dynamic-key map,strong
+formula_1,10573348,dynamic-key map,strong
+formula_1,10666033,dynamic-key map,strong
+formula_1,10693325,polymorphic shape,strong
+formula_1,10821885,dynamic-key map,strong
+formula_1,10839247,polymorphic shape,weak
+formula_1,10855898,dynamic-key map,strong
+formula_1,10918606,dynamic-key map,strong
+formula_1,10963501,dynamic-key map,strong
+formula_1,11130947,dynamic-key map,strong
+formula_1,11203087,polymorphic shape,strong
+formula_1,11345478,polymorphic shape,strong
+formula_1,11500484,dynamic-key map,strong
+formula_1,11548754,polymorphic shape,strong
+formula_1,11678428,dynamic-key map,strong
+formula_1,11725138,dynamic-key map,medium
+formula_1,12194302,dynamic-key map,strong
+formula_1,12230515,dynamic-key map,strong
+formula_1,12267169,dynamic-key map,strong
+formula_1,12488946,dynamic-key map,strong
+formula_1,12556409,polymorphic shape,medium
+formula_1,12715094,dynamic-key map,strong
+formula_1,13014362,dynamic-key map,strong
+formula_1,13125546,polymorphic shape,medium
+formula_1,13184001,dynamic-key map,strong
+formula_1,13636901,dynamic-key map,strong
+formula_1,13977592,dynamic-key map,strong
+formula_1,14105433,dynamic-key map,strong
+formula_1,14268403,dynamic-key map,strong
+formula_1,14412895,nested event stream,strong
+formula_1,14433902,dynamic-key map,strong
+formula_1,14496711,dynamic-key map,strong
+formula_1,14607037,nested event stream,medium
+formula_1,14656546,dynamic-key map,strong
+formula_1,14718529,dynamic-key map,strong
+formula_1,14774156,polymorphic shape,medium
+formula_1,14839801,dynamic-key map,strong
+formula_1,15011614,polymorphic shape,strong
+formula_1,15089707,polymorphic shape,medium
+formula_1,15098242,dynamic-key map,strong
+formula_1,15158986,dynamic-key map,strong
+formula_1,15325934,polymorphic shape,medium
+formula_1,15467766,dynamic-key map,strong
+formula_1,15478826,polymorphic shape,medium
+formula_1,15693985,dynamic-key map,strong
+formula_1,15948285,dynamic-key map,strong
+formula_1,16053650,dynamic-key map,strong
+formula_1,16084257,dynamic-key map,strong
+formula_1,16133948,dynamic-key map,strong
+formula_1,16301445,dynamic-key map,strong
+formula_1,16464910,nested event stream,strong
+formula_1,16611778,polymorphic shape,strong
+formula_1,16612809,dynamic-key map,strong
+formula_1,16651377,polymorphic shape,strong
+formula_1,16687575,dynamic-key map,strong
+formula_1,16691706,polymorphic shape,weak
+formula_1,16723871,dynamic-key map,strong
+student_club,8346,nested event stream,strong
+student_club,543053,nested event stream,strong
+student_club,597079,nested event stream,strong
+student_club,613725,nested event stream,medium
+student_club,618676,nested event stream,strong
+student_club,841310,nested event stream,strong
+student_club,1167175,nested event stream,strong
+student_club,1224852,nested event stream,strong
+student_club,1613872,nested event stream,strong
+student_club,1643708,nested event stream,strong
+student_club,2013480,dynamic-key map,strong
+student_club,2015985,nested event stream,strong
+student_club,2088991,nested event stream,strong
+student_club,2121196,dynamic-key map,strong
+student_club,2162001,dynamic-key map,strong
+student_club,2364071,nested event stream,strong
+student_club,2413263,dynamic-key map,strong
+student_club,2536825,nested event stream,strong
+student_club,2547372,dynamic-key map,strong
+student_club,2660022,nested event stream,strong
+student_club,2757085,nested event stream,medium
+student_club,3004924,dynamic-key map,strong
+student_club,3066255,nested event stream,strong
+student_club,3139269,dynamic-key map,strong
+student_club,3245035,dynamic-key map,strong
+student_club,3312179,dynamic-key map,strong
+student_club,3319621,dynamic-key map,strong
+student_club,3865650,nested event stream,strong
+student_club,4311449,nested event stream,strong
+student_club,4427153,dynamic-key map,strong
+student_club,4470867,dynamic-key map,strong
+student_club,4564290,dynamic-key map,strong
+student_club,4666632,dynamic-key map,strong
+student_club,4697179,dynamic-key map,strong
+student_club,5485842,dynamic-key map,strong
+student_club,5508363,dynamic-key map,strong
+student_club,5859837,dynamic-key map,strong
+student_club,5969484,dynamic-key map,strong
+student_club,6307510,dynamic-key map,strong
+student_club,6366791,dynamic-key map,strong
+student_club,6790373,dynamic-key map,strong
+student_club,6954406,dynamic-key map,strong
+student_club,7119295,dynamic-key map,strong
+student_club,7134251,dynamic-key map,strong
+student_club,7160858,dynamic-key map,strong
+student_club,7422128,nested event stream,strong
+student_club,7630729,dynamic-key map,strong
+student_club,7701303,nested event stream,strong
+student_club,7747032,dynamic-key map,strong
+student_club,7747328,dynamic-key map,strong
+student_club,7954115,dynamic-key map,strong
+student_club,8032913,dynamic-key map,strong
+student_club,8173382,nested event stream,strong
+student_club,8254721,dynamic-key map,strong
+student_club,8311610,dynamic-key map,strong
+student_club,8629922,dynamic-key map,strong
+student_club,8685363,dynamic-key map,strong
+student_club,8696170,dynamic-key map,strong
+student_club,8730045,dynamic-key map,strong
+student_club,8820352,dynamic-key map,strong
+student_club,8905575,dynamic-key map,strong
+student_club,9135834,dynamic-key map,strong
+student_club,9237680,nested event stream,medium
+student_club,9301197,dynamic-key map,strong
+student_club,9873292,dynamic-key map,strong
+student_club,10137642,dynamic-key map,strong
+student_club,10156937,dynamic-key map,strong
+student_club,10347624,dynamic-key map,strong
+student_club,10367129,dynamic-key map,strong
+student_club,10760573,dynamic-key map,strong
+student_club,11019752,dynamic-key map,strong
+student_club,11048761,dynamic-key map,strong
+student_club,11134219,dynamic-key map,strong
+student_club,11199048,dynamic-key map,strong
+student_club,11386648,dynamic-key map,strong
+student_club,11537446,dynamic-key map,strong
+student_club,11564808,dynamic-key map,strong
+student_club,11674973,dynamic-key map,strong
+student_club,11681204,dynamic-key map,strong
+student_club,11735610,dynamic-key map,strong
+student_club,11827537,dynamic-key map,strong
+student_club,11973995,dynamic-key map,strong
+student_club,12506306,dynamic-key map,strong
+student_club,12535503,dynamic-key map,strong
+student_club,12645564,dynamic-key map,strong
+student_club,13110025,dynamic-key map,strong
+student_club,13240462,dynamic-key map,strong
+student_club,13458229,dynamic-key map,strong
+student_club,13629783,dynamic-key map,strong
+student_club,14104287,dynamic-key map,strong
+student_club,14255445,dynamic-key map,strong
+student_club,14319829,dynamic-key map,strong
+student_club,14368350,dynamic-key map,strong
+student_club,14426991,dynamic-key map,strong
+student_club,14758905,dynamic-key map,strong
+student_club,14902547,dynamic-key map,strong
+student_club,15120935,dynamic-key map,strong
+student_club,15354201,dynamic-key map,strong
+student_club,15355691,dynamic-key map,strong
+student_club,15433054,dynamic-key map,strong
+student_club,15664929,dynamic-key map,strong
+student_club,15676604,dynamic-key map,strong
+student_club,15680129,dynamic-key map,strong
+student_club,16140740,dynamic-key map,strong
+student_club,16297090,dynamic-key map,strong
+student_club,16350336,dynamic-key map,strong
+student_club,16471001,dynamic-key map,strong
+student_club,16534889,dynamic-key map,strong
+student_club,16678418,dynamic-key map,strong
+student_club,16753444,dynamic-key map,strong
+superhero,167305,attribute bag,strong
+superhero,229501,attribute bag,strong
+superhero,291860,dynamic-key map,strong
+superhero,383559,dynamic-key map,strong
+superhero,399684,attribute bag,strong
+superhero,489348,dynamic-key map,strong
+superhero,777816,dynamic-key map,strong
+superhero,1285584,dynamic-key map,strong
+superhero,1498121,dynamic-key map,strong
+superhero,1670186,attribute bag,strong
+superhero,2610530,dynamic-key map,strong
+superhero,2791422,dynamic-key map,strong
+superhero,3223654,dynamic-key map,strong
+superhero,3249812,dynamic-key map,strong
+superhero,3850675,dynamic-key map,strong
+superhero,3940905,attribute bag,strong
+superhero,4055564,dynamic-key map,strong
+superhero,4168301,dynamic-key map,strong
+superhero,4204357,dynamic-key map,strong
+superhero,4355195,missing versus present,medium
+superhero,4565146,dynamic-key map,strong
+superhero,4590340,dynamic-key map,strong
+superhero,4835648,dynamic-key map,strong
+superhero,4900543,dynamic-key map,strong
+superhero,4961617,attribute bag,strong
+superhero,5202609,attribute bag,strong
+superhero,5207523,dynamic-key map,strong
+superhero,5517653,dynamic-key map,strong
+superhero,5653140,dynamic-key map,strong
+superhero,5660066,attribute bag,strong
+superhero,5753205,dynamic-key map,strong
+superhero,6318216,dynamic-key map,strong
+superhero,6363652,dynamic-key map,strong
+superhero,6400539,dynamic-key map,strong
+superhero,6559840,attribute bag,strong
+superhero,6560027,dynamic-key map,strong
+superhero,7189520,dynamic-key map,strong
+superhero,7232546,dynamic-key map,strong
+superhero,7488283,dynamic-key map,strong
+superhero,7557202,dynamic-key map,strong
+superhero,7558616,dynamic-key map,strong
+superhero,7584478,dynamic-key map,strong
+superhero,7724889,dynamic-key map,strong
+superhero,7790378,attribute bag,strong
+superhero,7796649,dynamic-key map,strong
+superhero,7876171,attribute bag,strong
+superhero,8014549,dynamic-key map,strong
+superhero,8150186,dynamic-key map,strong
+superhero,8247090,attribute bag,strong
+superhero,8262340,dynamic-key map,strong
+superhero,8289086,dynamic-key map,strong
+superhero,8607603,dynamic-key map,strong
+superhero,8716906,dynamic-key map,strong
+superhero,8869769,attribute bag,strong
+superhero,9373733,dynamic-key map,strong
+superhero,9394173,dynamic-key map,strong
+superhero,9521932,dynamic-key map,strong
+superhero,9790175,dynamic-key map,strong
+superhero,9833858,missing versus present,medium
+superhero,10211368,dynamic-key map,strong
+superhero,10211410,missing versus present,strong
+superhero,10382410,dynamic-key map,strong
+superhero,10419231,dynamic-key map,strong
+superhero,10720505,dynamic-key map,strong
+superhero,10755345,dynamic-key map,strong
+superhero,10879728,dynamic-key map,strong
+superhero,10920488,dynamic-key map,strong
+superhero,11114321,dynamic-key map,weak
+superhero,11247034,dynamic-key map,strong
+superhero,11381427,dynamic-key map,strong
+superhero,11396025,dynamic-key map,strong
+superhero,11689979,dynamic-key map,strong
+superhero,11846251,dynamic-key map,strong
+superhero,11942979,dynamic-key map,strong
+superhero,11998757,dynamic-key map,strong
+superhero,12057331,missing versus present,medium
+superhero,12225493,dynamic-key map,strong
+superhero,12245622,dynamic-key map,strong
+superhero,12580034,dynamic-key map,strong
+superhero,12853434,dynamic-key map,strong
+superhero,13066892,dynamic-key map,strong
+superhero,13076722,dynamic-key map,strong
+superhero,13163989,dynamic-key map,strong
+superhero,13283327,dynamic-key map,strong
+superhero,13329567,dynamic-key map,strong
+superhero,13479234,dynamic-key map,strong
+superhero,13704283,dynamic-key map,strong
+superhero,13899656,dynamic-key map,medium
+superhero,14153640,dynamic-key map,strong
+superhero,14377932,dynamic-key map,strong
+superhero,14447151,dynamic-key map,strong
+superhero,14576176,dynamic-key map,strong
+superhero,14811904,dynamic-key map,strong
+superhero,15049843,dynamic-key map,strong
+superhero,15124155,dynamic-key map,strong
+superhero,15154879,dynamic-key map,strong
+superhero,15328182,dynamic-key map,strong
+superhero,15401530,dynamic-key map,strong
+superhero,15468339,dynamic-key map,strong
+superhero,15589374,dynamic-key map,strong
+superhero,15620540,dynamic-key map,strong
+superhero,15747055,dynamic-key map,strong
+superhero,15755492,dynamic-key map,strong
+superhero,15950610,dynamic-key map,strong
+superhero,16143018,dynamic-key map,strong
+superhero,16227444,dynamic-key map,strong
+superhero,16440442,dynamic-key map,strong
+superhero,16603850,dynamic-key map,strong
+superhero,16609954,dynamic-key map,strong
+superhero,16617816,dynamic-key map,strong
+thrombosis_prediction,85245,dynamic-key map,strong
+thrombosis_prediction,244785,nested event stream,strong
+thrombosis_prediction,494285,dynamic-key map,strong
+thrombosis_prediction,892500,nested event stream,medium
+thrombosis_prediction,973429,dynamic-key map,strong
+thrombosis_prediction,1342504,nested event stream,medium
+thrombosis_prediction,1553827,dynamic-key map,strong
+thrombosis_prediction,1675113,nested event stream,strong
+thrombosis_prediction,1834734,dynamic-key map,strong
+thrombosis_prediction,2603754,dynamic-key map,strong
+thrombosis_prediction,2809661,nested event stream,medium
+thrombosis_prediction,2857594,dynamic-key map,strong
+thrombosis_prediction,2913838,nested event stream,strong
+thrombosis_prediction,2969726,dynamic-key map,strong
+thrombosis_prediction,3023629,dynamic-key map,strong
+thrombosis_prediction,3045311,dynamic-key map,strong
+thrombosis_prediction,3159621,nested event stream,medium
+thrombosis_prediction,3174678,nested event stream,medium
+thrombosis_prediction,3312220,nested event stream,strong
+thrombosis_prediction,3538219,dynamic-key map,strong
+thrombosis_prediction,3832071,dynamic-key map,strong
+thrombosis_prediction,3978099,nested event stream,medium
+thrombosis_prediction,4034326,dynamic-key map,strong
+thrombosis_prediction,4052777,dynamic-key map,strong
+thrombosis_prediction,4197104,nested event stream,medium
+thrombosis_prediction,4404205,nested event stream,medium
+thrombosis_prediction,4533651,nested event stream,medium
+thrombosis_prediction,4648528,dynamic-key map,strong
+thrombosis_prediction,4749855,dynamic-key map,strong
+thrombosis_prediction,4804013,nested event stream,strong
+thrombosis_prediction,4837816,dynamic-key map,strong
+thrombosis_prediction,4924170,nested event stream,strong
+thrombosis_prediction,5046515,nested event stream,strong
+thrombosis_prediction,5244173,dynamic-key map,strong
+thrombosis_prediction,5361502,nested event stream,strong
+thrombosis_prediction,5441662,dynamic-key map,strong
+thrombosis_prediction,5700011,dynamic-key map,strong
+thrombosis_prediction,5879521,nested event stream,medium
+thrombosis_prediction,5989540,nested event stream,medium
+thrombosis_prediction,6239703,dynamic-key map,strong
+thrombosis_prediction,6598758,dynamic-key map,strong
+thrombosis_prediction,6743288,nested event stream,strong
+thrombosis_prediction,6835446,nested event stream,strong
+thrombosis_prediction,6879570,dynamic-key map,strong
+thrombosis_prediction,7095871,nested event stream,strong
+thrombosis_prediction,7110381,dynamic-key map,strong
+thrombosis_prediction,7744139,dynamic-key map,strong
+thrombosis_prediction,7839717,dynamic-key map,strong
+thrombosis_prediction,7844353,dynamic-key map,strong
+thrombosis_prediction,7850120,nested event stream,medium
+thrombosis_prediction,8045204,nested event stream,medium
+thrombosis_prediction,8086528,dynamic-key map,strong
+thrombosis_prediction,8102004,dynamic-key map,strong
+thrombosis_prediction,8315929,nested event stream,medium
+thrombosis_prediction,8344105,nested event stream,strong
+thrombosis_prediction,8527358,dynamic-key map,strong
+thrombosis_prediction,8676013,dynamic-key map,strong
+thrombosis_prediction,9017498,nested event stream,strong
+thrombosis_prediction,9209356,dynamic-key map,strong
+thrombosis_prediction,9249868,nested event stream,medium
+thrombosis_prediction,9812146,dynamic-key map,strong
+thrombosis_prediction,9982470,dynamic-key map,strong
+thrombosis_prediction,10007072,dynamic-key map,strong
+thrombosis_prediction,10094871,dynamic-key map,strong
+thrombosis_prediction,10195199,dynamic-key map,strong
+thrombosis_prediction,10478527,dynamic-key map,strong
+thrombosis_prediction,10528157,dynamic-key map,strong
+thrombosis_prediction,10651381,dynamic-key map,medium
+thrombosis_prediction,10662558,dynamic-key map,strong
+thrombosis_prediction,10824989,nested event stream,medium
+thrombosis_prediction,10861275,dynamic-key map,strong
+thrombosis_prediction,10949552,dynamic-key map,strong
+thrombosis_prediction,11084758,dynamic-key map,strong
+thrombosis_prediction,11218922,nested event stream,medium
+thrombosis_prediction,11363006,dynamic-key map,strong
+thrombosis_prediction,11414631,dynamic-key map,strong
+thrombosis_prediction,11431044,dynamic-key map,strong
+thrombosis_prediction,11445605,dynamic-key map,strong
+thrombosis_prediction,11779514,dynamic-key map,medium
+thrombosis_prediction,11945463,dynamic-key map,strong
+thrombosis_prediction,12293545,dynamic-key map,strong
+thrombosis_prediction,12425374,dynamic-key map,strong
+thrombosis_prediction,12929465,nested event stream,medium
+thrombosis_prediction,12953444,dynamic-key map,strong
+thrombosis_prediction,13043441,dynamic-key map,strong
+thrombosis_prediction,13086558,dynamic-key map,strong
+thrombosis_prediction,13533732,dynamic-key map,strong
+thrombosis_prediction,13589694,dynamic-key map,strong
+thrombosis_prediction,13656692,dynamic-key map,strong
+thrombosis_prediction,13772098,dynamic-key map,strong
+thrombosis_prediction,13882153,nested event stream,medium
+thrombosis_prediction,14186043,dynamic-key map,strong
+thrombosis_prediction,14440447,dynamic-key map,strong
+thrombosis_prediction,14504135,nested event stream,strong
+thrombosis_prediction,14560357,dynamic-key map,strong
+thrombosis_prediction,14664032,nested event stream,medium
+thrombosis_prediction,14737865,dynamic-key map,strong
+thrombosis_prediction,14843399,dynamic-key map,strong
+thrombosis_prediction,14875871,dynamic-key map,strong
+thrombosis_prediction,14927783,dynamic-key map,strong
+thrombosis_prediction,15258680,dynamic-key map,strong
+thrombosis_prediction,15260973,dynamic-key map,strong
+thrombosis_prediction,15335598,dynamic-key map,strong
+thrombosis_prediction,15384177,dynamic-key map,strong
+thrombosis_prediction,15696946,nested event stream,medium
+thrombosis_prediction,16037461,dynamic-key map,strong
+thrombosis_prediction,16147807,dynamic-key map,strong
+thrombosis_prediction,16285883,nested event stream,medium
+thrombosis_prediction,16587361,nested event stream,medium
+thrombosis_prediction,16664182,dynamic-key map,strong
+toxicology,122572,dynamic-key map,strong
+toxicology,298561,dynamic-key map,strong
+toxicology,314163,dynamic-key map,strong
+toxicology,458389,dynamic-key map,strong
+toxicology,836015,dynamic-key map,strong
+toxicology,944955,dynamic-key map,strong
+toxicology,1009167,dynamic-key map,strong
+toxicology,1698876,dynamic-key map,strong
+toxicology,1867312,dynamic-key map,strong
+toxicology,2012038,dynamic-key map,strong
+toxicology,2070090,dynamic-key map,strong
+toxicology,2123864,dynamic-key map,strong
+toxicology,2385837,dynamic-key map,strong
+toxicology,2435745,dynamic-key map,strong
+toxicology,2561350,dynamic-key map,strong
+toxicology,2612798,dynamic-key map,strong
+toxicology,2638239,dynamic-key map,strong
+toxicology,2804691,dynamic-key map,strong
+toxicology,2933237,dynamic-key map,strong
+toxicology,3096312,dynamic-key map,strong
+toxicology,3192218,dynamic-key map,strong
+toxicology,3401204,dynamic-key map,strong
+toxicology,3604250,dynamic-key map,strong
+toxicology,4138309,dynamic-key map,strong
+toxicology,4311525,missing versus present,medium
+toxicology,4356850,dynamic-key map,strong
+toxicology,4521197,dynamic-key map,strong
+toxicology,4628421,dynamic-key map,strong
+toxicology,4651485,dynamic-key map,strong
+toxicology,4652872,dynamic-key map,strong
+toxicology,4738099,dynamic-key map,strong
+toxicology,5145499,dynamic-key map,strong
+toxicology,5230199,dynamic-key map,strong
+toxicology,5264913,dynamic-key map,strong
+toxicology,5278441,dynamic-key map,strong
+toxicology,5392376,dynamic-key map,strong
+toxicology,5469747,dynamic-key map,strong
+toxicology,5565739,dynamic-key map,strong
+toxicology,5601657,dynamic-key map,strong
+toxicology,5618277,dynamic-key map,strong
+toxicology,6303740,dynamic-key map,strong
+toxicology,6609283,dynamic-key map,strong
+toxicology,6732834,dynamic-key map,strong
+toxicology,7072071,dynamic-key map,strong
+toxicology,7084250,dynamic-key map,strong
+toxicology,7156238,dynamic-key map,strong
+toxicology,7293653,dynamic-key map,strong
+toxicology,7322051,dynamic-key map,strong
+toxicology,7387368,dynamic-key map,strong
+toxicology,7534874,dynamic-key map,strong
+toxicology,7684585,dynamic-key map,strong
+toxicology,7802848,dynamic-key map,strong
+toxicology,7852221,dynamic-key map,strong
+toxicology,7860224,dynamic-key map,strong
+toxicology,7868776,dynamic-key map,strong
+toxicology,7958036,dynamic-key map,strong
+toxicology,8058245,dynamic-key map,strong
+toxicology,8071507,dynamic-key map,strong
+toxicology,8311000,dynamic-key map,strong
+toxicology,8752889,dynamic-key map,strong
+toxicology,8853619,dynamic-key map,strong
+toxicology,9184051,dynamic-key map,strong
+toxicology,9517653,dynamic-key map,strong
+toxicology,9547625,dynamic-key map,strong
+toxicology,9587440,dynamic-key map,strong
+toxicology,9615106,dynamic-key map,strong
+toxicology,9635738,dynamic-key map,strong
+toxicology,9752084,dynamic-key map,strong
+toxicology,10053801,dynamic-key map,strong
+toxicology,10082429,dynamic-key map,strong
+toxicology,10445233,dynamic-key map,strong
+toxicology,10471646,dynamic-key map,strong
+toxicology,10514372,dynamic-key map,strong
+toxicology,10671685,dynamic-key map,strong
+toxicology,11056010,dynamic-key map,strong
+toxicology,11111730,dynamic-key map,strong
+toxicology,11135470,dynamic-key map,strong
+toxicology,11147001,dynamic-key map,strong
+toxicology,11215004,dynamic-key map,strong
+toxicology,11311064,missing versus present,medium
+toxicology,11412509,dynamic-key map,strong
+toxicology,11637682,missing versus present,medium
+toxicology,11856369,dynamic-key map,strong
+toxicology,12153198,dynamic-key map,strong
+toxicology,12354042,missing versus present,medium
+toxicology,12507637,dynamic-key map,strong
+toxicology,12903635,dynamic-key map,strong
+toxicology,12921009,dynamic-key map,strong
+toxicology,12927413,dynamic-key map,strong
+toxicology,12964384,dynamic-key map,strong
+toxicology,13020691,dynamic-key map,strong
+toxicology,13413016,dynamic-key map,strong
+toxicology,13535844,dynamic-key map,strong
+toxicology,13569929,dynamic-key map,strong
+toxicology,13627903,dynamic-key map,strong
+toxicology,13815017,dynamic-key map,strong
+toxicology,14227029,dynamic-key map,strong
+toxicology,14262505,dynamic-key map,strong
+toxicology,14656369,dynamic-key map,strong
+toxicology,14681852,dynamic-key map,strong
+toxicology,14714882,dynamic-key map,strong
+toxicology,14737603,dynamic-key map,strong
+toxicology,14931275,dynamic-key map,strong
+toxicology,15023107,dynamic-key map,strong
+toxicology,15179822,dynamic-key map,strong
+toxicology,15462807,dynamic-key map,strong
+toxicology,15570568,dynamic-key map,strong
+toxicology,15984791,dynamic-key map,strong
+toxicology,16334391,dynamic-key map,strong
+toxicology,16621196,dynamic-key map,strong

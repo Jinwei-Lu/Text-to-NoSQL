@@ -112,11 +112,12 @@ tmp/
 !/proposals/schemas/library.schema.json
 /docs/
 /tests/
-# scripts/: only the metric-validation runners are public; the rest are local tools
+# scripts/: only the metric-validation runners and the results checker are public; the rest are local tools
 # and the frozen campaign runners.
 /scripts/*
 !/scripts/validate_metric.py
 !/scripts/run_counterfactual.py
+!/scripts/check_results.py
 /CLAUDE.md
 /uv.lock
 
