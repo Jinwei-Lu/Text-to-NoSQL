@@ -14,7 +14,8 @@ Not recounted here, because their per-question answers are not in ``results/``: 
 of the stability check, the pre-registered subset of the dynamic-key detector comparison,
 which needs a superseded GPT-5.6-Luna run, and the numbers of the submitted version. Also not
 recounted: the ReAct step and SAG call counts, which come from the run records, and the facts
-about stored documents and card sizes, which need the release MongoDB.
+about stored documents and card sizes, which need the release MongoDB, and the operator counts
+of MongoDB's natural-language-to-mongosh benchmark, which come from that dataset.
 """
 
 from __future__ import annotations
@@ -429,13 +430,14 @@ def main() -> int:
     )
     wrong = [k for k in sag if sag[k]["outcome"] in WRONG_ROWS]
     check(
-        "SAG wrong-row answers, with EXF1 = 0, partly overlapping",
+        "SAG wrong-row answers, with EXF1 = 0, partly overlapping, wrong order only",
         (
             len(wrong),
             sum((sag[k]["exf1"] or 0) == 0 for k in wrong),
             sum(0 < (sag[k]["exf1"] or 0) < 1 for k in wrong),
+            sum(sag[k]["exf1"] == 1 and sag[k]["outcome"] == "order_only" for k in wrong),
         ),
-        (691, 594, 90),
+        (691, 594, 90, 7),
     )
     dwrong = [
         k for k in ds["Data-rich Direct"] if ds["Data-rich Direct"][k]["outcome"] in WRONG_ROWS
@@ -477,7 +479,24 @@ def main() -> int:
         sorted(s for s in ds if s != "SAG" and acc(ds[s], missing) > acc(sag, missing)),
         ["DIN-SQL-inspired", "ReAct", "Sampled-doc Direct"],
     )
+    weak = [k for k, r in labels.items() if r["sql_transfer_resistance"] == "weak"]
+    check(
+        "weak resistance: SQL Pivot, SAG (correct)",
+        (sum(ok(ds["SQL Pivot"][k]) for k in weak), sum(ok(sag[k]) for k in weak)),
+        (7, 3),
+    )
+    lu_shares = [100 * share(lu[s], WRONG_ROWS) / n for s in lu]
+    check(
+        "GPT-5.6-Luna wrong-row share of every system, %",
+        (f"{min(lu_shares):.1f}", f"{max(lu_shares):.1f}"),
+        ("54.5", "66.6"),
+    )
     baselines = [s for s in lu if s != "SAG"]
+    check(
+        "GPT-5.6-Luna weak resistance: SAG, best baseline, %",
+        (f"{acc(lu['SAG'], weak):.1f}", f"{max(acc(lu[s], weak) for s in baselines):.1f}"),
+        ("25.0", "41.7"),
+    )
     for category, want in (
         ("dynamic-key map", ("44.2", "38.1")),
         ("attribute bag", ("53.8", "0.0")),

@@ -94,7 +94,7 @@ Configurations are named as in Table VI of the paper, with the ablation arm in p
 | No value grounding (`sag_core_no_value_witness_strict`, earlier called "no value witnesses"): no value index, value witnesses, or value check, no empty-result prefix counting (`bisect_empty` in the code), and no stored-value examples on the card | 446 | 36.9% | 102 W / 69 L, p = 0.014 |
 | No grounding (`sag_core_no_grounding`): the first three raw documents per collection instead of the induced card | 372 | 30.7% | 178 W / 71 L, p = 8.9e-12 |
 
-Full SAG scores above every reduced configuration. The drops without grounding and without value grounding are significant, and the one-decode and one-candidate rows are within noise. The paper reports no p-values and presents the value-grounding, one-candidate, and one-decode drops (1.8 to 2.7 points) as trends, because they are close to the variation between repeated runs (see Stability).
+Full SAG scores above every reduced configuration. The drops without grounding and without value grounding are significant, and the one-decode and one-candidate rows are within noise. The paper reports no p-values. It states the value-grounding drop (2.7 points) with its paired counts (102 W / 69 L) and says that the smaller one-candidate and one-decode drops could still come from the variation between repeated runs (see Stability).
 
 Two representation variants isolate the path card itself. They were run alongside the 479 reference in the same runs, so they too compare with 39.6%:
 
@@ -136,7 +136,7 @@ Between any two of these three runs, 5.5-10.9% of a database's 110 questions cha
 
 ## By structural label
 
-Each question carries one structural label, assigned when the task was designed, and a resistance to SQL transfer computed from the operators of its reference pipeline. Both are in [`results/task_labels.csv`](results/task_labels.csv). EXC in percent. The DeepSeek-V4-Flash table is Table V of the paper, which omits the 12 tasks with weak resistance.
+Each question carries one structural label, assigned when the task was designed, and a resistance to SQL transfer computed from the operators of its reference pipeline. Both are in [`results/task_labels.csv`](results/task_labels.csv). EXC in percent. The DeepSeek-V4-Flash table is Table V of the paper.
 
 | system | dynamic-key map | nested event stream | polymorphic shape | missing versus present | attribute bag | medium resistance | strong resistance | weak resistance |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -157,7 +157,7 @@ Each question carries one structural label, assigned when the task was designed,
 
 ## Further analyses in the paper
 
-The analyses the paper reports beyond the tables above, each recomputed from the per-question answers, the released `data/TEND.json`, and the release MongoDB databases. `scripts/check_results.py` recounts all of them except the step and call counts, which come from the run records, and the facts about stored documents and card sizes, which need the release MongoDB. The benchmark statistics and the analyses of reference pipelines need the restored release (`--dataset-dir`).
+The analyses the paper reports beyond the tables above, each recomputed from the per-question answers, the released `data/TEND.json`, and the release MongoDB databases. `scripts/check_results.py` recounts all of them except the step and call counts, which come from the run records, the facts about stored documents and card sizes, which need the release MongoDB, and the operator counts of MongoDB's benchmark, which come from that dataset. The benchmark statistics and the analyses of reference pipelines need the restored release (`--dataset-dir`).
 
 **Benchmark (Section II, Table I).**
 - Operator usage of the released reference pipelines, with the operator sets of the release statistics script: dynamic-key operators in 1,094 tasks (90.4%), array operators in 1,172 (96.9%), and nested dotted paths in 1,174 (97.0%). `$objectToArray` appears in 1,093 and `$unwind` in 873. Pipelines have a median of 7 and at most 14 top-level stages and form 1,115 skeleton families, the largest with six members.
@@ -166,18 +166,19 @@ The analyses the paper reports beyond the tables above, each recomputed from the
 **Main comparison (Section IV-B, DeepSeek-V4-Flash).**
 - Wrong rows (`value_mismatch`, `row_subset`, `row_superset`, `order_only`, `row_count_exceeded`) account for 57.0-60.2% of the tasks for every system that sees stored data.
 - Mechanical failures (`no_submission`, `exec_error`, `empty`): SAG 2.6%, Direct (data-rich prompt) 10.7%, and ReAct 9.5%.
-- Of SAG's 691 wrong-row answers, 594 (86%) have EXF1 = 0, so no predicted row matches a reference row, and 90 overlap the reference in part. For Direct, 88% of the wrong-row answers have EXF1 = 0.
+- Of SAG's 691 wrong-row answers, 594 (86%) have EXF1 = 0, so no predicted row matches a reference row, 90 overlap the reference in part, and the other 7 return exactly the reference rows in the wrong order (EXF1 = 1, `order_only`). For Direct, 88% of the wrong-row answers have EXF1 = 0.
 - The eight systems of the main DeepSeek-V4-Flash table answer 657 questions together (54.3%), 85 of them answered only by SAG. None of the 13 system runs of both main tables answers 466 questions (38.5%).
-- ReAct uses a median of 21 steps on the tasks it submits, and 78 of its 109 failures exhausted the 50-step budget. SAG makes about 3.3 model calls per question, since its three candidates average 1.1 rounds each (from the run records of the 487 result, which cover 1,098 questions).
+- ReAct uses a median of 21 steps on the tasks it submits, and 78 of its 109 failures exhausted the 50-step budget. SAG makes about 3.3 model calls per question, since its three attempts average 1.1 decoding rounds each (from the run records of the 487 result, which cover 1,098 questions).
 
-**Second model (Section IV-C).** Direct with SAG's six output conventions answers 80 questions that plain Direct misses and misses 56 that plain Direct answers. All 109 failures of ReAct with GPT-5.6-Luna are responses that could not be parsed.
+**Second model (Section IV-C).** Direct with SAG's six output conventions answers 80 questions that plain Direct misses and misses 56 that plain Direct answers. All 109 failures of ReAct with GPT-5.6-Luna are responses that could not be parsed. With GPT-5.6-Luna, wrong rows account for 54.5-66.6% of the tasks of every system, so with both models more than half of the tasks of every system that sees stored data end in wrong rows (the summary, Section IV-I).
 
 **Where the difficulty comes from (Section IV-E).**
 - On the 283 tasks whose reference pipeline has at least two `$unwind` stages, SAG answers 42.0% and no baseline more than 25.8%. SAG leads ReAct, the strongest baseline, by 12.9 points on the 831 tasks with seven or more stages and by 1.8 points on the 379 shorter ones.
 - All 36 polymorphic tasks query `formula_1.f1_actor_profiles`, which stores 840 drivers, 208 constructors, and 72 circuits in that order. Its first 400 documents, the sample SAG induces its card from, are all drivers. Of the 36 reference pipelines, 34 compare against the literal `"constructor"` or `"circuit"`.
 - Six of the 130 nested-event tasks read the pit-stop arrays of `formula_1.race_weekends_v2`, which are empty in the first 824 documents of the collection. ReAct answers all six and SAG none. On the other 124 tasks, SAG answers 56 and ReAct 53.
 - On the 111 tasks of medium resistance to SQL transfer, ReAct answers 42.3% and SAG 33.3%. On the 18 missing-versus-present tasks, Direct with sampled documents, ReAct, and the DIN-SQL-inspired adaptation all score above SAG.
-- With GPT-5.6-Luna, SAG answers 44.2% of the dynamic-key tasks (best baseline 38.1%), 53.8% of the attribute-bag tasks (0.0%), 16.7% of the polymorphic tasks (30.6%), and 33.8% of the nested-event tasks (ReAct 43.8%).
+- On the 12 tasks with weak resistance to SQL transfer, SQL Pivot answers 7 and SAG 3.
+- With GPT-5.6-Luna, SAG answers 44.2% of the dynamic-key tasks (best baseline 38.1%), 53.8% of the attribute-bag tasks (0.0%), 16.7% of the polymorphic tasks (30.6%), 33.8% of the nested-event tasks (ReAct 43.8%), and 25.0% of the weak-resistance tasks (41.7%).
 
 **Ablation (Sections III-C and IV-F).**
 - The top-level card returns no rows on 24.8% of the questions, against 0.2% for the reference run.
@@ -185,6 +186,8 @@ The analyses the paper reports beyond the tables above, each recomputed from the
 - Rendered without dynamic-key collapse from the first 400 documents of each collection, the card of 9 of the 11 databases exceeds the 400-entry cap, all except student_club and superhero. The card of `thrombosis_prediction.measurement_code_bags` has 17 entries with collapse and 187 without.
 
 **Relational pivot (Section IV-H).** Direct with sampled documents answers 108 questions that SQL Pivot misses, and SQL Pivot 72 that Direct misses. SQL Pivot returns no rows on 8.8% of the questions, against 7.2%. With GPT-5.6-Luna, Direct answers 188 questions that SQL Pivot with the real DDL misses, and the pivot 36 that Direct misses.
+
+**MongoDB's benchmark (contributions and Section V).** In MongoDB's natural-language-to-mongosh benchmark, the `metadata.queryOperators` annotations list `$objectToArray` in 2 of the 766 reference queries and `$unwind` in 73, against 1,093 and 873 of TEND's 1,210 (file `atlas_sample_data_benchmark.flat.csv` of the Hugging Face dataset `mongodb-eai/natural-language-to-mongosh`, SHA-256 `191ad46479587647fb99c2c9c002be24e1786d54929d431ec4494a643bd9c7f0`, captured 2026-08-09).
 
 ## The submitted version, for reference
 
